@@ -1,12 +1,18 @@
 package templates
 
-// import "orisun/src/orisun/admin/templates/layout"
 
-
-templ AddUser(currentPath string) {
+templ AddUser(currentPath string, roles []string) {
 <sl-dialog id="add-user-dialog" label="Create New User" class="dialog-overview" data-signals={`{ username: '' ,
-    password: '' , role: '' }`} data-on-load="document.querySelector('#add-user-dialog').show()">
-    <div>
+    password: '' , role: '' , message: '' , success: '' , failed: '' }`}
+    data-on-load="document.querySelector('#add-user-dialog').show()">
+
+    <form>
+        <sl-alert data-attr-variant="$success ? `success` : `danger`" data-attr-open="$success || $failed">
+            <sl-icon slot="icon" name="check2-circle"></sl-icon>
+            <strong data-text="$message"></strong>
+            <br />
+        </sl-alert>
+
         <div class="space-y-4">
             <sl-input label="Username" required clearable data-bind-username>
                 <sl-icon slot="prefix" name="person"></sl-icon>
@@ -16,10 +22,13 @@ templ AddUser(currentPath string) {
                 <sl-icon slot="prefix" name="key"></sl-icon>
             </sl-input>
 
-            <sl-select label="Roles" clearable help-text="Select one or more roles" data-bind-role>
+            <sl-select label="Role" clearable help-text="Select role"
+                data-on-sl-input__case.kebab="$role = evt.target.value">
                 <sl-icon slot="prefix" name="shield"></sl-icon>
-                <sl-option value="admin">Admin</sl-option>
-                <sl-option value="user">User</sl-option>
+                //loop through roles
+                for _, role := range roles {
+                    <sl-option value={ role }>{ role }</sl-option>
+                }
             </sl-select>
         </div>
 
@@ -33,6 +42,6 @@ templ AddUser(currentPath string) {
                 Create User
             </sl-button>
         </div>
-    </div>
+    </form>
 </sl-dialog>
 }

@@ -42,7 +42,7 @@ message Event {
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
   string stream_id = 8;
-  string version = 9;
+  uint32 version = 9;
 }
 
 message WriteResult {

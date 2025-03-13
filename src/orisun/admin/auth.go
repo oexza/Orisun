@@ -7,17 +7,19 @@ import (
 type Role string
 
 const (
-	RoleAdmin      Role = "Admin"
-	RoleOperations Role = "Operations"
-	RoleRead       Role = "Read"
-	RoleWrite      Role = "Write"
+	RoleAdmin      Role = "ADMIN"
+	RoleOperations Role = "OPERATIONS"
+	RoleRead       Role = "READ"
+	RoleWrite      Role = "WRITE"
 )
 
+var Roles = []Role{RoleAdmin, RoleOperations, RoleRead, RoleWrite}
+
 type User struct {
-	Id             string
-	Username       string
-	HashedPassword string
-	Roles          []Role
+	Id             string `json:"id"`
+	Username       string `json:"username"`
+	HashedPassword string `json:"hashed_password"`
+	Roles          []Role `json:"roles"`
 }
 
 type Authenticator struct {

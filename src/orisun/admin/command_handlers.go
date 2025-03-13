@@ -32,7 +32,7 @@ func (s *AdminCommandHandlers) listUsers() ([]*User, error) {
 	return s.db.ListAdminUsers()
 }
 
-func (s *AdminCommandHandlers) createUser(username, password string, roles []Role) error {
+func (s *AdminCommandHandlers) createUser(username, password string, roles []Role) (*UserCreated, error) {
 	username = strings.TrimSpace(username)
 	events := []*Event{}
 
@@ -56,14 +56,14 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 	)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, event := range userCreatedEvent.Events {
 		var userCreatedEvent = UserCreated{}
 		err := json.Unmarshal([]byte(event.Data), &userCreatedEvent)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		events = append(events, &Event{
 			EventType: event.EventType,
@@ -93,14 +93,14 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 		)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		for _, event := range UserDeletedEvent.Events {
 			var userDeletedEvent = UserDeleted{}
 			err := json.Unmarshal([]byte(event.Data), &userDeletedEvent)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			events = append(events, &Event{
 				EventType: event.EventType,
@@ -111,13 +111,13 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 
 	userId, err := uuid.NewV7()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newEvents, err := CreateUserCommandHandler(userId.String(), username, password, roles, events)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	eventsToSave := []*pb.EventToSave{}
@@ -125,11 +125,11 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 	for _, event := range newEvents {
 		eventData, err := json.Marshal(event.Data)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		eventId, err := uuid.NewV7()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		eventsToSave = append(eventsToSave, &pb.EventToSave{
 			EventId:   eventId.String(),
@@ -167,7 +167,11 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 		},
 	})
 
-	return err
+	userCreated, ok := newEvents[0].Data.(UserCreated)
+	if !ok {
+		return nil, fmt.Errorf("unexpected event data type")
+	}
+	return &userCreated, nil
 }
 
 func CreateUserCommandHandler(userId string, username, password string, roles []Role, events []*Event) ([]*Event, error) {
@@ -216,8 +220,14 @@ func (e UserExistsError) Error() string {
 	return fmt.Sprintf("username %s already exists", e.username)
 }
 
-func (s *AdminCommandHandlers) deleteUser(userId string) error {
+func (s *AdminCommandHandlers) deleteUser(userId string, currentUserId string) error {
 	userId = strings.TrimSpace(userId)
+	currentUserId = strings.TrimSpace(currentUserId)
+	s.logger.Debug("Current Userrrr: " + currentUserId)
+
+	if userId == currentUserId {
+		return fmt.Errorf("You cannot delete your own account")
+	}
 	events, err := s.eventStore.GetEvents(
 		context.Background(),
 		&pb.GetEventsRequest{
@@ -225,7 +235,8 @@ func (s *AdminCommandHandlers) deleteUser(userId string) error {
 			Direction: pb.Direction_DESC,
 			Count:     1,
 			Stream: &pb.GetStreamQuery{
-				Name: userStreamPrefix + userId,
+				Name:        userStreamPrefix + userId,
+				FromVersion: 999999999,
 			},
 		},
 	)
@@ -252,11 +263,16 @@ func (s *AdminCommandHandlers) deleteUser(userId string) error {
 		if err != nil {
 			return err
 		}
+		lastExpectedVersion := 0
+
+		lastExpectedVersion = int(events.Events[len(events.Events)-1].Version)
+
 		_, err = s.eventStore.SaveEvents(context.Background(), &pb.SaveEventsRequest{
 			Boundary:             s.boundary,
 			ConsistencyCondition: nil,
 			Stream: &pb.SaveStreamQuery{
-				Name: userStreamPrefix + userId,
+				Name:            userStreamPrefix + userId,
+				ExpectedVersion: uint32(lastExpectedVersion),
 			},
 			Events: []*pb.EventToSave{{
 				EventId:   id.String(),
@@ -268,6 +284,11 @@ func (s *AdminCommandHandlers) deleteUser(userId string) error {
 				Metadata: "{\"schema\":\"" + s.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
 			}},
 		})
+
+		if err != nil {
+			return err
+		}
+		return nil
 	}
 	return fmt.Errorf("error: user not found")
 }

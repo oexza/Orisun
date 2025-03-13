@@ -65,7 +65,7 @@ func NewPostgresGetEvents(db *sql.DB, logger *logging.Logger,
 
 func (s *PostgresSaveEvents) Save(
 	ctx context.Context,
-	events *[]eventstore.EventWithMapTags,
+	events []*eventstore.EventWithMapTags,
 	consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
@@ -109,7 +109,6 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	}
 
-	// s.logger.Debugf("insertEventsWithConsistency: %s", schema)
 	row := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(insertEventsWithConsistency, schema),
@@ -188,12 +187,13 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	var streamName *string = nil
 	var fromStreamVersion *uint32 = nil
+	// *fromStreamVersion = 0;
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
-		if req.Stream.FromVersion != 0 {
-			fromStreamVersion = &req.Stream.FromVersion
-		}
+		// if req.Stream.FromVersion != 0 {
+		fromStreamVersion = &req.Stream.FromVersion
+		// }
 	}
 
 	s.logger.Debugf("params: %v", paramsJSON)
@@ -205,13 +205,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
-
-	var schema = s.boundarySchemaMappings[req.Boundary].Schema
-
-	_, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	}
 
 	var fromPositionMarshaled *[]byte = nil
 	if fromPosition != nil {
@@ -225,6 +218,12 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	exec, err := tx.Exec("SET log_statement = 'all';")
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	}
+	var schema = s.boundarySchemaMappings[req.Boundary].Schema
+
+	_, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	}
 	exec.RowsAffected()
 	rows, err := tx.Query(

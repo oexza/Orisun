@@ -8,8 +8,7 @@ package templates
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// import "orisun/src/orisun/admin/templates/layout"
-func AddUser(currentPath string) templ.Component {
+func AddUser(currentPath string, roles []string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -36,15 +35,51 @@ func AddUser(currentPath string) templ.Component {
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(`{ username: '' ,
-    password: '' , role: '' }`)
+    password: '' , role: '' , message: '' , success: '' , failed: '' }`)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/templates/add-user.templ`, Line: 8, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `add-user.templ`, Line: 6, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" data-on-load=\"document.querySelector(&#39;#add-user-dialog&#39;).show()\"><div><div class=\"space-y-4\"><sl-input label=\"Username\" required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select label=\"Roles\" clearable help-text=\"Select one or more roles\" data-bind-role><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon> <sl-option value=\"admin\">Admin</sl-option> <sl-option value=\"user\">User</sl-option></sl-select></div><div slot=\"footer\" class=\"flex justify-end gap-2\"><sl-button data-on-click=\"document.querySelector(&#39;#add-user-dialog&#39;).hide()\"><sl-icon slot=\"prefix\" name=\"x-circle\"></sl-icon> Cancel</sl-button> <sl-button variant=\"primary\" data-on-click=\"@post(&#39;/admin/users&#39;)\"><sl-icon slot=\"prefix\" name=\"check2-circle\"></sl-icon> Create User</sl-button></div></div></sl-dialog>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" data-on-load=\"document.querySelector(&#39;#add-user-dialog&#39;).show()\"><form><sl-alert data-attr-variant=\"$success ? `success` : `danger`\" data-attr-open=\"$success || $failed\"><sl-icon slot=\"icon\" name=\"check2-circle\"></sl-icon> <strong data-text=\"$message\"></strong><br></sl-alert><div class=\"space-y-4\"><sl-input label=\"Username\" required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select label=\"Role\" clearable help-text=\"Select role\" data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, role := range roles {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<sl-option value=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var3 string
+			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(role)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `add-user.templ`, Line: 30, Col: 43}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var4 string
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(role)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `add-user.templ`, Line: 30, Col: 52}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</sl-option>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</sl-select></div><div slot=\"footer\" class=\"flex justify-end gap-2\"><sl-button data-on-click=\"document.querySelector(&#39;#add-user-dialog&#39;).hide()\"><sl-icon slot=\"prefix\" name=\"x-circle\"></sl-icon> Cancel</sl-button> <sl-button variant=\"primary\" data-on-click=\"@post(&#39;/admin/users&#39;)\"><sl-icon slot=\"prefix\" name=\"check2-circle\"></sl-icon> Create User</sl-button></div></form></sl-dialog>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

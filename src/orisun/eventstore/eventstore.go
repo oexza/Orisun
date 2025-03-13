@@ -22,7 +22,7 @@ import (
 
 type SaveEvents interface {
 	Save(ctx context.Context,
-		events *[]EventWithMapTags,
+		events []*EventWithMapTags,
 		indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
@@ -142,7 +142,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		return nil, err
 	}
 
-	eventsForMarshaling := make([]EventWithMapTags, len(req.Events))
+	eventsForMarshaling := make([]*EventWithMapTags, len(req.Events))
 	for i, event := range req.Events {
 		var dataMap, metadataMap map[string]interface{}
 
@@ -154,7 +154,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)
 		}
 
-		eventsForMarshaling[i] = EventWithMapTags{
+		eventsForMarshaling[i] = &EventWithMapTags{
 			EventId:   event.EventId,
 			EventType: event.EventType,
 			Data:      dataMap,
@@ -163,21 +163,13 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		}
 	}
 
-	eventsJSON, err := json.Marshal(eventsForMarshaling)
-	if err != nil {
-		logger.Errorf("Error marshaling events: %v", err)
-		return nil, status.Errorf(codes.Internal, "Failed to marshal events")
-	}
-
-	logger.Debugf("eventsJSON: %v", string(eventsJSON))
-
 	var transactionID string
 	var globalID uint64
 
 	// Execute the query
 	transactionID, globalID, err = s.saveEventsFn.Save(
 		ctx,
-		&eventsForMarshaling,
+		eventsForMarshaling,
 		req.ConsistencyCondition,
 		req.Boundary,
 		req.Stream.Name,

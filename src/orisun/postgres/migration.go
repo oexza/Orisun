@@ -48,24 +48,11 @@ func runMigrationsInFolder(db *sql.DB, scripts embed.FS, schema string, ctx cont
 	}
 
 	var combinedScript strings.Builder
-	combinedScript.WriteString(fmt.Sprintf("SET search_path TO %s;\n", schema))
+	combinedScript.WriteString(fmt.Sprintf("SET search_path TO %s;", schema))
 
-	// Read and execute all SQL files from the embedded filesystem
-	files, err := scripts.ReadDir(".")
-	if err != nil {
-		return fmt.Errorf("failed to read scripts: %w", err)
-	}
-
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
-			continue
-		}
-		content, err := scripts.ReadFile(file.Name())
-		if err != nil {
-			return fmt.Errorf("failed to read script %s: %w", file.Name(), err)
-		}
-		combinedScript.WriteString(string(content))
-		combinedScript.WriteString("\n")
+	// Recursively find and process all SQL files
+	if err := processEmbeddedSQLFiles(scripts, &combinedScript, ""); err != nil {
+		return fmt.Errorf("failed to process SQL files: %w", err)
 	}
 
 	// Transaction execution remains the same
@@ -76,7 +63,7 @@ func runMigrationsInFolder(db *sql.DB, scripts embed.FS, schema string, ctx cont
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, combinedScript.String()); err != nil {
-		return fmt.Errorf("failed to execute migrations for %s: %w", scripts, err)
+		return fmt.Errorf("failed to execute migrations: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -84,4 +71,54 @@ func runMigrationsInFolder(db *sql.DB, scripts embed.FS, schema string, ctx cont
 	}
 
 	return nil
+}
+
+// Helper function to recursively process SQL files
+func processEmbeddedSQLFiles(fs embed.FS, builder *strings.Builder, dir string) error {
+    // Determine the base directory based on which embedded filesystem we're using
+    var baseDir string
+    if fs == sqlScripts {
+        baseDir = "scripts/common"
+    } else if fs == adminSqlScripts {
+        baseDir = "scripts/admin"
+    } else {
+        return fmt.Errorf("unknown script type")
+    }
+    
+    // If dir is empty, use the base directory
+    if dir == "" {
+        dir = baseDir
+    }
+    
+    entries, err := fs.ReadDir(dir)
+    if err != nil {
+        return fmt.Errorf("failed to read directory %s: %w", dir, err)
+    }
+
+    for _, entry := range entries {
+        path := dir
+        if path != "" {
+            path += "/"
+        }
+        path += entry.Name()
+
+        if entry.IsDir() {
+            // Recursively process subdirectories
+            if err := processEmbeddedSQLFiles(fs, builder, path); err != nil {
+                return err
+            }
+        } else if strings.HasSuffix(entry.Name(), ".sql") {
+            // Process SQL file
+            content, err := fs.ReadFile(path)
+            if err != nil {
+                return fmt.Errorf("failed to read file %s: %w", path, err)
+            }
+            
+            builder.WriteString(fmt.Sprintf("\n-- Executing %s\n", path))
+            builder.WriteString(string(content))
+            builder.WriteString("\n")
+        }
+    }
+
+    return nil
 }

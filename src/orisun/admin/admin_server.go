@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	// "time"
 
-	// "fmt"
 	"html/template"
 	"net/http"
 	pb "orisun/src/orisun/eventstore"
@@ -16,6 +14,7 @@ import (
 
 	"orisun/src/orisun/admin/templates"
 
+	"encoding/base64"
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
@@ -69,7 +68,7 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 	}
 
 	var userExistsError UserExistsError
-	if err := adminCommandHandlers.createUser("admin", "changeit", []Role{RoleAdmin}); err != nil && !errors.As(err, &userExistsError) {
+	if _, err := adminCommandHandlers.createUser("admin", "changeit", []Role{RoleAdmin}); err != nil && !errors.As(err, &userExistsError) {
 		return nil, err
 	}
 
@@ -85,7 +84,7 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 		r.Post("/users", withAuthentication(server.handleCreateUser))
 		r.Get("/users/add", withAuthentication(server.handleCreateUserPage))
 		// r.Get("/users/list", withAuthentication(server.handleUsersList))
-		r.Delete("/users/{username}", withAuthentication(server.handleUserDelete))
+		r.Post("/users/{userId}/delete", withAuthentication(server.handleUserDelete))
 	})
 
 	return server, nil
@@ -130,13 +129,16 @@ func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		sse := datastar.NewSSE(w, r)
 		sse.MergeFragments(`<div id="message">` + `Login Failed` + `</div>`)
+		return
 	}
+
+	// Base64 encode the JSON string
+	encodedValue := base64.StdEncoding.EncodeToString(userAsString)
 
 	// Set the token as an HTTP-only cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:  "auth",
-		Value: string(userAsString),
-		// Expires:  ,
+		Name:     "auth",
+		Value:    encodedValue,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
@@ -153,8 +155,14 @@ func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) handleCreateUserPage(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
-	sse.MergeFragmentTempl(templates.AddUser(r.URL.Path), datastar.WithMergeMode(datastar.FragmentMergeModeOuter))
-	// sse.ExecuteScript("document.querySelector('#add-user-dialog').show()")
+
+	// Convert []Role to []string for template compatibility
+	roleStrings := make([]string, len(Roles))
+	for i, role := range Roles {
+		roleStrings[i] = string(role)
+	}
+
+	sse.MergeFragmentTempl(templates.AddUser(r.URL.Path, roleStrings), datastar.WithMergeMode(datastar.FragmentMergeModeOuter))
 }
 
 func (s *AdminServer) handleUsers(w http.ResponseWriter, r *http.Request) {
@@ -175,65 +183,119 @@ func (s *AdminServer) handleUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		templateUsers[i] = templates.User{
+			Id:       user.Id,
 			Username: user.Username,
 			Roles:    roles,
 		}
 	}
 
-	currentUser := getCurrentUser(r)
+	currentUser, err := getCurrentUser(r)
+	if err != nil {
+		s.logger.Debugf("Failed to get current user: %v", err)
+		http.Error(w, "Failed to get current user", http.StatusInternalServerError)
+		return
+	}
 	templates.Users(templateUsers, currentUser, r.URL.Path).Render(r.Context(), w)
 }
 
+type AddNewUserRequest struct {
+	Username string
+	Password string
+	Role     string
+}
+
 func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseForm()
+	store := &AddNewUserRequest{}
+	response := struct {
+		Message string `json:"message"`
+		Success bool   `json:"success"`
+		Failed  bool   `json:"failed"`
+	}{}
+
+	if err := datastar.ReadSignals(r, store); err != nil {
+		sse := datastar.NewSSE(w, r)
+		response.Failed = true
+		response.Message = err.Error()
+		sse.MarshalAndMergeSignals(response)
+		return
+	}
+
+	s.logger.Debugf("Creating user %v", store)
+
+	sse := datastar.NewSSE(w, r)
+
+	evt, err := s.adminCommandHandlers.createUser(
+		store.Username,
+		store.Password,
+		[]Role{Role(strings.ToUpper(store.Role))},
+	)
 	if err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		response.Failed = true
+		response.Message = err.Error()
+		sse.MarshalAndMergeSignals(response)
 		return
 	}
 
-	username := r.FormValue("username")
-	password := r.FormValue("password")
-	roles := r.Form["roles"]
+	response.Success = true
+	response.Message = "User created successfully"
+	sse.MarshalAndMergeSignals(response)
 
-	// Convert []string to []Role
-	rolesList := make([]Role, len(roles))
-	for i, r := range roles {
-		rolesList[i] = Role(r)
-	}
-
-	if err := s.adminCommandHandlers.createUser(username, password, rolesList); err != nil {
-		http.Error(w, "Failed to create user "+err.Error(), http.StatusInternalServerError)
+	currentUser, err := getCurrentUser(r)
+	if err != nil {
+		response.Failed = true
+		response.Message = err.Error()
+		sse.MarshalAndMergeSignals(response)
 		return
 	}
-
-	// Return just the new user row
-	// user := User{Username: username, Roles: roles}
-	// data := struct {
-	// 	User        User
-	// 	CurrentUser string
-	// }{
-	// 	User:        user,
-	// 	CurrentUser: "r.Context().Value(contextKeyUser).(string)",
-	// }
-	w.WriteHeader(http.StatusNoContent)
-	// s.tmpl.ExecuteTemplate(w, "user-row.html", data)
+	sse.MergeFragmentTempl(templates.UserRow(&templates.User{
+		Id:       evt.UserId,
+		Username: evt.Username,
+		Roles:    []string{store.Role},
+	}, currentUser),
+		datastar.WithMergeAppend(),
+		datastar.WithSelectorID("users-table-body"),
+	)
 }
 
 func (s *AdminServer) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	userId := chi.URLParam(r, "userId")
-	currentUser := "r.Context().Value(contextKeyUser).(string)"
+	currentUser, err := getCurrentUser(r)
+	sse := datastar.NewSSE(w, r)
 
-	if userId == currentUser {
-		http.Error(w, "Cannot delete your own account", http.StatusBadRequest)
+	if err != nil {
+		sse.RemoveFragments("#alert")
+		sse.MergeFragments(`
+		<div class="alert-duration">
+
+  <sl-alert id="alert" variant="danger" duration="3000" closable">
+    <sl-icon slot="icon" name="info-circle"></sl-icon>
+    <strong>`+err.Error()+`<strong>
+  </sl-alert>
+</div>`, datastar.WithSelectorID("users-table"),
+			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+		)
+		// time.Sleep(1000 * time.Millisecond)
+		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
 
-	if err := s.adminCommandHandlers.deleteUser(userId); err != nil {
-		http.Error(w, "Failed to delete user "+err.Error(), http.StatusInternalServerError)
+	if err := s.adminCommandHandlers.deleteUser(userId, currentUser); err != nil {
+		sse.RemoveFragments("#alert")
+		sse.MergeFragments(`
+		<div class="alert-duration">
+
+  <sl-alert id="alert" variant="danger" duration="3000" closable">
+    <sl-icon slot="icon" name="info-circle"></sl-icon>
+    <strong>`+err.Error()+`<strong>
+  </sl-alert>
+</div>`, datastar.WithSelectorID("users-table"),
+			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+		)
+		// time.Sleep(1000 * time.Millisecond)
+		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
-
-	w.WriteHeader(http.StatusOK)
+	sse.RemoveFragments("#user_" + userId)
 }
 
 func (s *AdminServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -255,14 +317,27 @@ func withAuthentication(call func(http.ResponseWriter, *http.Request)) func(http
 	}
 }
 
-func getCurrentUser(r *http.Request) string {
+// In getCurrentUser function
+func getCurrentUser(r *http.Request) (string, error) {
 	cookie, err := r.Cookie("auth")
 	if err != nil {
-		return ""
+		return "", err
 	}
+
+	// Base64 decode the cookie value
+	decodedBytes, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return "", err
+	}
+
 	var user User
-	if err := json.Unmarshal([]byte(cookie.Value), &user); err != nil {
-		return ""
+	if err := json.Unmarshal(decodedBytes, &user); err != nil {
+		return "", err
 	}
-	return user.Username
+
+	if user.Id == "" {
+		return "", fmt.Errorf("user ID is empty")
+	}
+
+	return user.Id, nil
 }
