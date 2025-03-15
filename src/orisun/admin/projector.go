@@ -107,6 +107,7 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 			userEvent.UserId,
 			userEvent.Username,
 			userEvent.PasswordHash,
+			userEvent.Name,
 			userEvent.Roles,
 		)
 

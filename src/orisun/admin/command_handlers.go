@@ -32,7 +32,7 @@ func (s *AdminCommandHandlers) listUsers() ([]*User, error) {
 	return s.db.ListAdminUsers()
 }
 
-func (s *AdminCommandHandlers) createUser(username, password string, roles []Role) (*UserCreated, error) {
+func (s *AdminCommandHandlers) createUser(name, username, password string, roles []Role) (*UserCreated, error) {
 	username = strings.TrimSpace(username)
 	events := []*Event{}
 
@@ -114,7 +114,7 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 		return nil, err
 	}
 
-	newEvents, err := CreateUserCommandHandler(userId.String(), username, password, roles, events)
+	newEvents, err := CreateUserCommandHandler(userId.String(), username, password, name, roles, events)
 
 	if err != nil {
 		return nil, err
@@ -174,7 +174,7 @@ func (s *AdminCommandHandlers) createUser(username, password string, roles []Rol
 	return &userCreated, nil
 }
 
-func CreateUserCommandHandler(userId string, username, password string, roles []Role, events []*Event) ([]*Event, error) {
+func CreateUserCommandHandler(userId string, username, password string, name string, roles []Role, events []*Event) ([]*Event, error) {
 	//check if events contains any user created event and not user deleted event
 	if len(events) > 0 {
 		hasUserCreated := false
@@ -203,6 +203,7 @@ func CreateUserCommandHandler(userId string, username, password string, roles []
 	event := Event{
 		EventType: EventTypeUserCreated,
 		Data: UserCreated{
+			Name: name,
 			Username:     username,
 			Roles:        roles,
 			PasswordHash: string(hash),

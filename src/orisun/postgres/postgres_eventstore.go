@@ -187,7 +187,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	var streamName *string = nil
 	var fromStreamVersion *uint32 = nil
-	// *fromStreamVersion = 0;
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
@@ -215,17 +214,17 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		fromPositionMarshaled = &fromPositionJson
 	}
 
-	exec, err := tx.Exec("SET log_statement = 'all';")
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
-	}
+	// _, errr := tx.Exec("SET log_statement = 'all';")
+	// if errr != nil {
+	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	// }
 	var schema = s.boundarySchemaMappings[req.Boundary].Schema
 
 	_, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	}
-	exec.RowsAffected()
+
 	rows, err := tx.Query(
 		fmt.Sprintf(selectMatchingEvents, schema),
 		streamName,
@@ -507,7 +506,7 @@ func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string) *Postg
 var userCache = map[string]*admin.User{}
 
 func (s *PostgresAdminDB) ListAdminUsers() ([]*admin.User, error) {
-	rows, err := s.db.Query(fmt.Sprintf("SELECT id, username, password_hash, roles FROM %s.users ORDER BY id", s.schema))
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +558,7 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 	return nil
 }
 
-func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, roles []admin.Role) error {
+func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []admin.Role) error {
 	roleStrings := make([]string, len(roles))
 	for i, role := range roles {
 		roleStrings[i] = string(role)
@@ -567,8 +566,9 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 	rolesStr := "{" + strings.Join(roleStrings, ",") + "}"
 
 	_, err := p.db.Exec(
-		fmt.Sprintf("INSERT INTO %s.users (id, username, password_hash, roles) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET password_hash = $3, roles = $4, updated_at = $5", p.schema),
+		fmt.Sprintf("INSERT INTO %s.users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (username) DO UPDATE SET name = $2, password_hash = $4, roles = $5, updated_at = $6", p.schema),
 		id,
+		name,
 		username,
 		password_hash,
 		rolesStr,
@@ -605,7 +605,7 @@ func (p *PostgresAdminDB) DeleteUser(id string) error {
 func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (admin.User, error) {
 	var user admin.User
 	var roles []string
-	if err := rows.Scan(&user.Id, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
+	if err := rows.Scan(&user.Id, &user.Name, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
 		s.logger.Error("Failed to scan user row: %v", err)
 		return admin.User{}, err
 	}
@@ -623,7 +623,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (admin.User, error)
 		return *user, nil
 	}
 
-	rows, err := s.db.Query(fmt.Sprintf("SELECT id, username, password_hash, roles FROM %s.users where username = $1", s.schema), username)
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.schema), username)
 	if err != nil {
 		s.logger.Debugf("Userrrrr: %v", err)
 		return admin.User{}, err

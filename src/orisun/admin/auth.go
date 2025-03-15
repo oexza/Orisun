@@ -17,6 +17,7 @@ var Roles = []Role{RoleAdmin, RoleOperations, RoleRead, RoleWrite}
 
 type User struct {
 	Id             string `json:"id"`
+	Name           string `json:"name"`
 	Username       string `json:"username"`
 	HashedPassword string `json:"hashed_password"`
 	Roles          []Role `json:"roles"`

@@ -3,13 +3,14 @@ package templates
 import "orisun/src/orisun/admin/templates/layout"
 
 type User struct {
+Name string
 Id string
 Username string
 Roles []string
 }
 
 templ Users(users []User, currentPath string, currentUser string) {
-@layout.Admin(currentPath, "Users - Orisun Admin") {
+@layout.Admin(currentPath, "Users") {
 <div id="users-page" class="p-6">
     <div class="mb-6 flex justify-between items-center">
         <h1 class="text-2xl font-bold text-gray-900">User Management</h1>
@@ -38,6 +39,7 @@ templ UserList(users []User, currentUser string) {
 <table id="users-table" class="min-w-full divide-y divide-gray-200">
     <thead class="bg-gray-50">
         <tr>
+            <th class="px-6 py-3 text-justify text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -54,21 +56,25 @@ templ UserList(users []User, currentUser string) {
 templ UserRow(user *User, currentUser string) {
 <tr id={"user_" + user.Id}>
     <td>
-        <div class="flex items-center gap-2">
-            <sl-avatar label={user.Username} initials></sl-avatar>
+        <div class="flex items-center gap-3">
+            <sl-avatar label={user.Name} initials></sl-avatar>
+            <span>{ user.Name }</span>
+        </div>
+    </td>
+    <td>
+        <div class="flex  items-center gap-2">
             <span>{ user.Username }</span>
         </div>
     </td>
     <td>
-        <div class="flex gap-1">
+        <div class="flex gap-2">
             for _, role := range user.Roles {
             <sl-badge variant="neutral">{ role }</sl-badge>
             }
         </div>
     </td>
     <td style="text-align: right">
-        <sl-button variant="danger" size="small" disabled?={ user.Id==currentUser }
-            data-on-click={"confirm('Are you sure you want to delete " + user.Username +  "') && @post('/admin/users/" + user.Id + "/delete')"}>
+        <sl-button variant="danger" size="small" disabled?={ user.Id==currentUser } data-on-click={"confirm('Are you sure you want to delete " + user.Name +  "') && @delete(' /admin/users/" + user.Id + "/delete')" }>
             <sl-icon slot="prefix" name="trash"></sl-icon>
             Delete
         </sl-button>

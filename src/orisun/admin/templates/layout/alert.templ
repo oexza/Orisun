@@ -1,0 +1,23 @@
+package layout
+
+// AlertVariant defines the possible alert types
+type AlertVariant string
+
+const (
+// Alert variants
+AlertPrimary AlertVariant = "primary"
+AlertSuccess AlertVariant = "success"
+AlertWarning AlertVariant = "warning"
+AlertDanger AlertVariant = "danger"
+AlertInfo AlertVariant = "info"
+AlertSecondary AlertVariant = "secondary"
+)
+
+templ Alert(message string, variant AlertVariant) {
+<div class="alert-duration">
+    <sl-alert id="alert" variant={string(variant)} duration="3000" closable>
+        <sl-icon slot="icon" name="info-circle"></sl-icon>
+        <strong>{ message }</strong>
+    </sl-alert>
+</div>
+}

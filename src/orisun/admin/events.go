@@ -9,10 +9,11 @@ const (
 )
 
 type UserCreated struct {
-	UserId       string   `json:"user_id"`
-	Username     string   `json:"username"`
+	Name         string `json:"name"`
+	UserId       string `json:"user_id"`
+	Username     string `json:"username"`
 	Roles        []Role `json:"roles,omitempty"`
-	PasswordHash string   `json:"password_hash,omitempty"`
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 type UserDeleted struct {
@@ -21,10 +22,10 @@ type UserDeleted struct {
 
 type UserRolesChanged struct {
 	UserId string   `json:"username"`
-	Roles    []string `json:"roles,omitempty"`
+	Roles  []string `json:"roles,omitempty"`
 }
 
 type UserPasswordChanged struct {
-	UserId     string `json:"username"`
+	UserId       string `json:"username"`
 	PasswordHash string `json:"password_hash,omitempty"`
 }

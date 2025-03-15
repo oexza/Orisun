@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"orisun/src/orisun/admin/templates"
+	"orisun/src/orisun/admin/templates/layout"
 
 	"encoding/base64"
+
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
@@ -32,7 +34,7 @@ type DB interface {
 	ListAdminUsers() ([]*User, error)
 	GetProjectorLastPosition(projectorName string) (*pb.Position, error)
 	UpdateProjectorPosition(name string, position *pb.Position) error
-	CreateNewUser(id string, username string, password_hash string, roles []Role) error
+	CreateNewUser(id string, username string, password_hash string, name string, roles []Role) error
 	DeleteUser(id string) error
 	GetUserByUsername(username string) (User, error)
 }
@@ -68,7 +70,7 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 	}
 
 	var userExistsError UserExistsError
-	if _, err := adminCommandHandlers.createUser("admin", "changeit", []Role{RoleAdmin}); err != nil && !errors.As(err, &userExistsError) {
+	if _, err := adminCommandHandlers.createUser("admin", "admin", "changeit", []Role{RoleAdmin}); err != nil && !errors.As(err, &userExistsError) {
 		return nil, err
 	}
 
@@ -78,13 +80,14 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 		r.Get("/dashboard", withAuthentication(server.handleDashboard))
 		r.Get("/login", server.handleLoginPage)
 		r.Post("/login", server.handleLogin)
+		r.Get("/logout", server.handleLogout) // Added logout route
 
 		// Existing routes
 		r.Get("/users", withAuthentication(server.handleUsers))
 		r.Post("/users", withAuthentication(server.handleCreateUser))
 		r.Get("/users/add", withAuthentication(server.handleCreateUserPage))
 		// r.Get("/users/list", withAuthentication(server.handleUsersList))
-		r.Post("/users/{userId}/delete", withAuthentication(server.handleUserDelete))
+		r.Delete("/users/{userId}/delete", withAuthentication(server.handleUserDelete))
 	})
 
 	return server, nil
@@ -153,6 +156,22 @@ func (s *AdminServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	sse.Redirect("/admin/dashboard")
 }
 
+func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Clear the auth cookie by setting an expired cookie with the same name
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// Redirect to login page
+	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+}
+
 func (s *AdminServer) handleCreateUserPage(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 
@@ -183,6 +202,7 @@ func (s *AdminServer) handleUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		templateUsers[i] = templates.User{
+			Name:     user.Name,
 			Id:       user.Id,
 			Username: user.Username,
 			Roles:    roles,
@@ -199,9 +219,51 @@ func (s *AdminServer) handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 type AddNewUserRequest struct {
+	Name     string
 	Username string
 	Password string
 	Role     string
+}
+
+func (r *AddNewUserRequest) validate() error {
+	if r.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	if r.Username == "" {
+		return fmt.Errorf("username is required")
+	}
+
+	if len(r.Username) < 3 {
+		return fmt.Errorf("username must be at least 3 characters")
+	}
+
+	if r.Password == "" {
+		return fmt.Errorf("password is required")
+	}
+
+	if len(r.Password) < 6 {
+		return fmt.Errorf("password must be at least 6 characters")
+	}
+
+	if r.Role == "" {
+		return fmt.Errorf("role is required")
+	}
+
+	// Check if role is valid
+	validRole := false
+	for _, role := range Roles {
+		if strings.EqualFold(string(role), r.Role) {
+			validRole = true
+			break
+		}
+	}
+
+	if !validRole {
+		return fmt.Errorf("invalid role: %s", r.Role)
+	}
+
+	return nil
 }
 
 func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -220,11 +282,22 @@ func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err := store.validate()
+
+	if err != nil {
+		sse := datastar.NewSSE(w, r)
+		response.Failed = true
+		response.Message = err.Error()
+		sse.MarshalAndMergeSignals(response)
+		return
+	}
+
 	s.logger.Debugf("Creating user %v", store)
 
 	sse := datastar.NewSSE(w, r)
 
 	evt, err := s.adminCommandHandlers.createUser(
+		store.Name,
 		store.Username,
 		store.Password,
 		[]Role{Role(strings.ToUpper(store.Role))},
@@ -248,6 +321,7 @@ func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.MergeFragmentTempl(templates.UserRow(&templates.User{
+		Name: evt.Name,
 		Id:       evt.UserId,
 		Username: evt.Username,
 		Roles:    []string{store.Role},
@@ -255,6 +329,11 @@ func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		datastar.WithMergeAppend(),
 		datastar.WithSelectorID("users-table-body"),
 	)
+	sse.MergeFragmentTempl(layout.Alert("User created!", layout.AlertSuccess), datastar.WithSelector("body"),
+		datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+	)
+	sse.ExecuteScript("document.querySelector('#alert').toast()")
+	sse.ExecuteScript("document.querySelector('#add-user-dialog').hide()")
 }
 
 func (s *AdminServer) handleUserDelete(w http.ResponseWriter, r *http.Request) {
@@ -264,37 +343,27 @@ func (s *AdminServer) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		sse.RemoveFragments("#alert")
-		sse.MergeFragments(`
-		<div class="alert-duration">
-
-  <sl-alert id="alert" variant="danger" duration="3000" closable">
-    <sl-icon slot="icon" name="info-circle"></sl-icon>
-    <strong>`+err.Error()+`<strong>
-  </sl-alert>
-</div>`, datastar.WithSelectorID("users-table"),
+		sse.MergeFragmentTempl(layout.Alert(err.Error(), layout.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
 		)
-		// time.Sleep(1000 * time.Millisecond)
 		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
 
 	if err := s.adminCommandHandlers.deleteUser(userId, currentUser); err != nil {
 		sse.RemoveFragments("#alert")
-		sse.MergeFragments(`
-		<div class="alert-duration">
-
-  <sl-alert id="alert" variant="danger" duration="3000" closable">
-    <sl-icon slot="icon" name="info-circle"></sl-icon>
-    <strong>`+err.Error()+`<strong>
-  </sl-alert>
-</div>`, datastar.WithSelectorID("users-table"),
+		sse.MergeFragmentTempl(layout.Alert(err.Error(), layout.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
 		)
 		// time.Sleep(1000 * time.Millisecond)
 		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
+	sse.MergeFragmentTempl(layout.Alert("User Deleted", layout.AlertSuccess), datastar.WithSelector("body"),
+		datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+	)
+	// time.Sleep(1000 * time.Millisecond)
+	sse.ExecuteScript("document.querySelector('#alert').toast()")
 	sse.RemoveFragments("#user_" + userId)
 }
 

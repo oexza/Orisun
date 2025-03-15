@@ -3,16 +3,17 @@ package templates
 import "orisun/src/orisun/admin/templates/layout"
 
 templ Login() {
-    @layout.Base("Login") {
-        @LoginContent()
-    }
+@layout.Base("Login") {
+@LoginContent()
+}
 }
 
 templ LoginContent() {
-    <div data-signals="{
+<form method="post" action="/admin/login" data-on-submit="@post('/admin/login')" action="" data-signals="{
                     username: '',
                     password: ''
-                }" class="flex items-center justify-center min-h-screen">
+                }">
+    <div class="flex items-center justify-center min-h-screen">
         <div class="w-full max-w-md p-8 space-y-8 bg-white rounded-xl shadow-lg">
             <div class="text-center">
                 <h2 class="text-3xl font-bold tracking-tight text-gray-900">Orisun Admin</h2>
@@ -35,11 +36,12 @@ templ LoginContent() {
                 </div>
 
                 <div>
-                    <sl-button variant="primary" type="submit" class="w-full" data-on-click="@post('/admin/login')">
+                    <sl-button variant="primary" type="submit" class="w-full">
                         Sign in
                     </sl-button>
                 </div>
             </div>
         </div>
     </div>
+</form>
 }
