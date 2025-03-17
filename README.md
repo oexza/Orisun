@@ -1,7 +1,7 @@
 # Orisun - A Batteries Included Event Store
 
 <p align="center">
-  <img src="assets/pic.jpg" width="2048" height="1021" alt="Orisun Logo">
+  <img src="assets/pic.jpg" alt="Orisun Logo">
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
