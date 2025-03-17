@@ -17,7 +17,7 @@ type UserCreated struct {
 }
 
 type UserDeleted struct {
-	UserId string `json:"username"`
+	UserId string `json:"user_id"`
 }
 
 type UserRolesChanged struct {

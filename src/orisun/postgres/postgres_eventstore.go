@@ -157,7 +157,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		}
 	}
 
-	var globalQuery *(map[string]interface{})
+	var globalQuery *map[string]interface{}
 
 	var criteriaList []map[string]interface{}
 	if req.Query != nil {
@@ -572,7 +572,7 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 		username,
 		password_hash,
 		rolesStr,
-		time.Now().Format(time.RFC3339),
+		time.Now().UTC(),
 	)
 
 	if err != nil {

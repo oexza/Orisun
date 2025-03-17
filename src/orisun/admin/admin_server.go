@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
 
@@ -77,7 +78,7 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 	// Register routes
 	router.Route("/admin", func(r chi.Router) {
 		// Add login routes
-		r.Get("/dashboard", withAuthentication(server.handleDashboard))
+		r.Get("/dashboard", withAuthentication(server.handleDashboardPage))
 		r.Get("/login", server.handleLoginPage)
 		r.Post("/login", server.handleLogin)
 		r.Get("/logout", server.handleLogout) // Added logout route
@@ -93,8 +94,45 @@ func NewAdminServer(logger l.Logger, eventStore *pb.EventStore, adminCommandHand
 	return server, nil
 }
 
-func (s *AdminServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	templates.Dashboard(r.URL.Path).Render(r.Context(), w)
+var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*datastar.ServerSentEventGenerator{}
+
+type CommonSSESignals struct {
+	TabId string
+}
+
+// Function to create and manage an SSE connection
+func (s *AdminServer) createSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
+	tabId, err := uuid.NewV7()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return nil, ""
+	}
+	tabIdStr := tabId.String()
+	sse := datastar.NewSSE(w, r)
+	sse.MarshalAndMergeSignals(CommonSSESignals{
+		TabId: tabIdStr,
+	})
+	sseConnections[tabIdStr] = sse
+
+	// Set up cleanup when connection closes
+	go func() {
+		<-r.Context().Done()
+		delete(sseConnections, tabIdStr)
+	}()
+
+	return sse, tabIdStr
+}
+
+func (s *AdminServer) handleDashboardPage(w http.ResponseWriter, r *http.Request) {
+	isDatastarRequest := r.Header.Get("datastar-request") == "true"
+
+	if !isDatastarRequest {
+		templates.Dashboard(r.URL.Path).Render(r.Context(), w)
+	} else {
+		s.createSSEConnection(w, r)
+		// Wait for connection to close
+		<-r.Context().Done()
+	}
 }
 
 func (s *AdminServer) handleLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +359,7 @@ func (s *AdminServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse.MergeFragmentTempl(templates.UserRow(&templates.User{
-		Name: evt.Name,
+		Name:     evt.Name,
 		Id:       evt.UserId,
 		Username: evt.Username,
 		Roles:    []string{store.Role},

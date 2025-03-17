@@ -8,6 +8,15 @@ package layout
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "strings"
+
+func navLinkClass(isActive bool) string {
+	if isActive {
+		return "bg-blue-100 text-blue-700 font-medium"
+	}
+	return "text-gray-600 hover:bg-gray-100"
+}
+
 func Admin(currentPath string, title ...string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -41,27 +50,51 @@ func Admin(currentPath string, title ...string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex h-screen bg-gray-100\"><!-- Sidebar --><aside class=\"w-64 bg-white shadow-md\"><div class=\"p-4 border-b\"><h2 class=\"text-xl font-semibold text-gray-800\">Orisun Admin</h2></div><nav class=\"p-4\"><sl-menu class=\"space-y-2\"><sl-menu-item")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex h-screen bg-gray-100\"><!-- Sidebar --><aside class=\"w-64 bg-white shadow-md\"><div class=\"p-4 border-b\"><h2 class=\"text-xl font-semibold text-gray-800\">Orisun Admin</h2></div><nav class=\"p-4\"><div class=\"space-y-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if currentPath == "/admin/dashboard" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " active")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "><a href=\"/admin/dashboard\"><sl-icon slot=\"prefix\" name=\"speedometer2\"></sl-icon> Dashboard</a></sl-menu-item> <sl-menu-item")
+			var templ_7745c5c3_Var3 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/dashboard")}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var3...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if currentPath == "/admin/users" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " active")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/admin/dashboard\" class=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "><a href=\"/admin/users\"><sl-icon slot=\"prefix\" name=\"people\"></sl-icon> Users</a></sl-menu-item></sl-menu></nav><div class=\"absolute bottom-0 w-64 p-4 border-t bg-white\"><sl-button variant=\"text\" size=\"small\" class=\"w-full\" href=\"/admin/logout\"><sl-icon slot=\"prefix\" name=\"box-arrow-left\"></sl-icon> Logout</sl-button></div></aside><!-- Main Content --><main class=\"flex-1 overflow-auto\">")
+			var templ_7745c5c3_Var4 string
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var3).String())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/templates/layout/admin.templ`, Line: 1, Col: 0}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><sl-icon name=\"speedometer2\" class=\"mr-2\"></sl-icon> <span>Dashboard</span></a> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var5 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/users" || strings.HasPrefix(currentPath, "/admin/users/"))}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var5...)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<a href=\"/admin/users\" class=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var6 string
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var5).String())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/templates/layout/admin.templ`, Line: 1, Col: 0}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"><sl-icon name=\"people\" class=\"mr-2\"></sl-icon> <span>Users</span></a></div></nav><div class=\"absolute bottom-0 w-64 p-4 border-t bg-white\"><sl-button variant=\"text\" size=\"small\" class=\"w-full\" href=\"/admin/logout\"><sl-icon slot=\"prefix\" name=\"box-arrow-left\"></sl-icon> Logout</sl-button></div></aside><!-- Main Content --><main class=\"flex-1 overflow-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

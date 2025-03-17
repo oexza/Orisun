@@ -2,8 +2,8 @@ package templates
 
 
 templ AddUser(currentPath string, roles []string) {
-<sl-dialog id="add-user-dialog" label="Create New User" class="dialog-overview" data-signals={`{name: '' , username: ''
-    , password: '' , role: '' , message: '' , success: '' , failed: '' }`}
+<sl-dialog id="add-user-dialog" label="Create New User" class="dialog-overview"
+ data-signals={`{name: '', username: '', password: '' , role: '' , message: '' , success: '' , failed: '' }`}
     data-on-load="document.querySelector('#add-user-dialog').show()">
 
     <form method="post" action="/admin/users" data-on-submit="@post('/admin/users')">

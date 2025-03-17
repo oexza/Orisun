@@ -4,7 +4,7 @@ import "orisun/src/orisun/admin/templates/layout"
 
 templ Dashboard(currentPath string) {
 @layout.Admin(currentPath, "Dashboard - Orisun Admin") {
-<div class="p-6">
+<div class="p-6" data-on-load="@get('/admin/dashboard')">
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
     </div>
