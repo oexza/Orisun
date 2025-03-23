@@ -1,5 +1,24 @@
-package admin
+package events
 
+type Role string
+
+const (
+	RoleAdmin      Role = "ADMIN"
+	RoleOperations Role = "OPERATIONS"
+	RoleRead       Role = "READ"
+	RoleWrite      Role = "WRITE"
+)
+
+const (
+	UserStreamPrefix = "User-Registration:::::"
+	RegistrationTag  = "Registration"
+	UsernameTag      = "Registration_username"
+)
+
+var Roles = []Role{RoleAdmin, RoleOperations, RoleRead, RoleWrite}
+func (r Role) String() string {
+	return string(r)
+}
 // Event types
 const (
 	EventTypeUserCreated     = "$UserCreated"

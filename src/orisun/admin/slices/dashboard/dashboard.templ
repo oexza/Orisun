@@ -1,9 +1,9 @@
-package templates
+package dashboard
 
-import "orisun/src/orisun/admin/templates/layout"
+import "orisun/src/orisun/admin/templates"
 
 templ Dashboard(currentPath string) {
-@layout.Admin(currentPath, "Dashboard - Orisun Admin") {
+@templates.Admin(currentPath, "Dashboard - Orisun Admin") {
 <div class="p-6" data-on-load="@get('/admin/dashboard')">
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>

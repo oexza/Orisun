@@ -1,32 +1,56 @@
-package admin
+package users_projection
 
 import (
 	"context"
 	"encoding/json"
+	ev "orisun/src/orisun/admin/events"
+	common "orisun/src/orisun/admin/slices/common"
 	"orisun/src/orisun/eventstore"
 	l "orisun/src/orisun/logging"
 	"time"
 )
 
+type CreateNewUserType = func(id string, username string, password_hash string, name string, roles []ev.Role) error
+type DeleteUserType = func(id string) error
+
+type CountUsersType = func() error
+
 type UserProjector struct {
-	db         DB
-	logger     l.Logger
-	boundary   string
-	eventStore *eventstore.EventStore
-	username   string
-	password   string
+	getProjectorLastPosition common.GetProjectorLastPositionType
+	updateProjectorPosition  common.UpdateProjectorPositionType
+	createNewUser            CreateNewUserType
+	deleteUser               DeleteUserType
+	logger                   l.Logger
+	boundary                 string
+	saveEvents               common.SaveEventsType
+	getEvents                common.GetEventsType
+	subscribeToEvents        common.SubscribeToEventStoreType
+	countUsers               CountUsersType
+	publishToPubSub          common.PublishToPubSubType
 }
 
-func NewUserProjector(db DB, logger l.Logger, eventStore *eventstore.EventStore,
-	boundary string, username, password string) *UserProjector {
+func NewUserProjector(
+	getProjectorLastPosition common.GetProjectorLastPositionType,
+	updateProjectorPosition common.UpdateProjectorPositionType,
+	createNewUser CreateNewUserType,
+	deleteUser DeleteUserType,
+	saveEvents common.SaveEventsType,
+	getEvents common.GetEventsType,
+	logger l.Logger,
+	boundary string,
+	subscribeToEvents common.SubscribeToEventStoreType,
+) *UserProjector {
 
 	return &UserProjector{
-		db:         db,
-		logger:     logger,
-		boundary:   boundary,
-		eventStore: eventStore,
-		username:   username,
-		password:   password,
+		getProjectorLastPosition: getProjectorLastPosition,
+		updateProjectorPosition:  updateProjectorPosition,
+		createNewUser:            createNewUser,
+		deleteUser:               deleteUser,
+		logger:                   logger,
+		boundary:                 boundary,
+		saveEvents:               saveEvents,
+		getEvents:                getEvents,
+		subscribeToEvents:        subscribeToEvents,
 	}
 }
 
@@ -34,7 +58,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 	p.logger.Info("Starting user projector")
 	var projectorName = "user-projector"
 	// Get last checkpoint
-	pos, err := p.db.GetProjectorLastPosition(projectorName)
+	pos, err := p.getProjectorLastPosition(projectorName)
 	if err != nil {
 		return err
 	}
@@ -64,7 +88,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 				}
 
 				// Update checkpoint
-				err := p.db.UpdateProjectorPosition(
+				err := p.updateProjectorPosition(
 					projectorName,
 					&pos,
 				)
@@ -79,7 +103,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		}
 	}()
 	// Subscribe from last checkpoint
-	err = p.eventStore.SubscribeToEvents(
+	err = p.subscribeToEvents(
 		ctx,
 		p.boundary,
 		projectorName,
@@ -97,13 +121,13 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 	p.logger.Debug("Handling event %v", event)
 
 	switch event.EventType {
-	case EventTypeUserCreated:
-		var userEvent UserCreated
+	case ev.EventTypeUserCreated:
+		var userEvent ev.UserCreated
 		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
 			return err
 		}
 
-		err := p.db.CreateNewUser(
+		err := p.createNewUser(
 			userEvent.UserId,
 			userEvent.Username,
 			userEvent.PasswordHash,
@@ -115,13 +139,13 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 			return err
 		}
 
-	case EventTypeUserDeleted:
-		var userEvent UserDeleted
+	case ev.EventTypeUserDeleted:
+		var userEvent ev.UserDeleted
 		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
 			return err
 		}
 
-		err := p.db.DeleteUser(userEvent.UserId)
+		err := p.deleteUser(userEvent.UserId)
 		if err != nil {
 			return err
 		}

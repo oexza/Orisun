@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 
 	"fmt"
 	"net"
@@ -29,8 +30,19 @@ import (
 	postgres "orisun/src/orisun/postgres"
 
 	admin "orisun/src/orisun/admin"
+	"orisun/src/orisun/admin/slices/create_user"
+	"orisun/src/orisun/admin/slices/dashboard"
+	"orisun/src/orisun/admin/slices/delete_user"
+	"orisun/src/orisun/admin/slices/login"
+	"orisun/src/orisun/admin/slices/users_page"
+	up "orisun/src/orisun/admin/slices/users_projection"
+
+	events "orisun/src/orisun/admin/events"
+
+	common "orisun/src/orisun/admin/slices/common"
 
 	"github.com/nats-io/nats-server/v2/server"
+	user_count "orisun/src/orisun/admin/slices/user_count"
 )
 
 var AppLogger l.Logger
@@ -52,7 +64,7 @@ func main() {
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	db, saveEvents, getEvents, lockProvider, adminDB := initializePostgresDatabase(config)
+	db, saveEvents, getEvents, lockProvider, adminDB := initializeDatabase(config)
 	defer db.Close()
 
 	// Initialize EventStore
@@ -69,22 +81,104 @@ func main() {
 	startEventPolling(ctx, config, lockProvider, getEvents, js)
 
 	// Start projectors
-	startProjectors(ctx, config.Admin.Boundary, config, eventStore, adminDB)
+	var pubSubFunction = func(ctx context.Context, req *pb.PublishRequest) error {
+		_, err := eventStore.PublishToPubSub(ctx, req)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	startUserCountProjector(
+		ctx,
+		config.Admin.Boundary,
+		adminDB.GetProjectorLastPosition,
+		adminDB.UpdateProjectorPosition,
+		eventStore.SubscribeToEvents,
+		func() (user_count.UserCountReadModel, error) {
+			count, err := adminDB.GetUsersCount()
+			if err != nil {
+				return user_count.UserCountReadModel{}, nil
+			}
+			return user_count.UserCountReadModel{
+				Count: count,
+			}, nil
+		},
+		pubSubFunction,
+		adminDB.SaveUsersCount,
+	)
+	startUserProjector(
+		ctx,
+		config.Admin.Boundary,
+		adminDB.GetProjectorLastPosition,
+		adminDB.UpdateProjectorPosition,
+		adminDB.CreateNewUser,
+		adminDB.DeleteUser,
+		eventStore.SubscribeToEvents,
+		eventStore.SaveEvents,
+		eventStore.GetEvents,
+	)
+
+	//create default user
+	createDefaultUser(
+		config.Admin.Boundary, *eventStore,
+	)
 
 	authenticator := admin.NewAuthenticator(
-		adminDB,
+		func(username string) (common.User, error) {
+			user, err := adminDB.GetUserByUsername(username)
+			if err != nil {
+				return common.User{}, err
+			}
+			return user, nil
+		},
 	)
 
 	// Start admin server
+	createUserCommandHandler := create_user.NewCreateUserHandler(
+		AppLogger,
+		config.Admin.Boundary,
+		eventStore.SaveEvents,
+		eventStore.GetEvents,
+	)
+
+	dashboardHandler := dashboard.NewDashboardHandler(
+		AppLogger,
+		eventStore,
+		config.Admin.Boundary,
+	)
+
+	loginHandler := login.NewLoginHandler(
+		AppLogger,
+		config.Admin.Boundary,
+		authenticator,
+	)
+
+	deleteUserHandler := delete_user.NewDeleteUserHandler(
+		AppLogger,
+		eventStore.SaveEvents,
+		eventStore.GetEvents,
+		config.Admin.Boundary,
+	)
+
+	usersPageHandler := users_page.NewUsersPageHandler(
+		AppLogger,
+		config.Admin.Boundary,
+		adminDB.ListAdminUsers,
+	)
+
 	startAdminServer(
 		config,
-		adminDB,
-		eventStore,
-		*authenticator,
+		createUserCommandHandler,
+		dashboardHandler,
+		loginHandler,
+		deleteUserHandler,
+		usersPageHandler,
+		authenticator,
 	)
 
 	// Start gRPC server
-	startGRPCServer(config, eventStore, adminDB, authenticator)
+	startGRPCServer(config, eventStore, authenticator)
 }
 
 func initializeConfig() *c.AppConfig {
@@ -103,8 +197,23 @@ func initializeConfig() *c.AppConfig {
 	return config
 }
 
-func initializePostgresDatabase(config *c.AppConfig) (*sql.DB, *postgres.PostgresSaveEvents,
-	*postgres.PostgresGetEvents, *postgres.PGLockProvider, *postgres.PostgresAdminDB) {
+func createDefaultUser(adminBoundary string, eventstore pb.EventStore) error {
+	var userExistsError create_user.UserExistsError
+	if _, err := create_user.CreateUser(
+		"admin",
+		"admin",
+		"changeit",
+		[]events.Role{events.RoleAdmin},
+		adminBoundary,
+		eventstore.SaveEvents,
+		eventstore.GetEvents,
+	); err != nil && !errors.As(err, &userExistsError) {
+		return err
+	}
+	return nil
+}
+func initializeDatabase(config *c.AppConfig) (*sql.DB, pb.ImplementerSaveEvents,
+	pb.ImplementerGetEvents, pb.LockProvider, common.DB) {
 	db, err := sql.Open(
 		"postgres", fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 			config.Postgres.Host, config.Postgres.Port, config.Postgres.User, config.Postgres.Password, config.Postgres.Name))
@@ -240,8 +349,8 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream) {
 func initializeEventStore(
 	ctx context.Context,
 	config *c.AppConfig,
-	saveEvents pb.SaveEvents,
-	getEvents pb.GetEvents,
+	saveEvents pb.ImplementerSaveEvents,
+	getEvents pb.ImplementerGetEvents,
 	lockProvider pb.LockProvider,
 	js jetstream.JetStream) *pb.EventStore {
 
@@ -263,7 +372,7 @@ func startEventPolling(
 	ctx context.Context,
 	config *c.AppConfig,
 	lockProvider pb.LockProvider,
-	getEvents pb.GetEvents,
+	getEvents pb.ImplementerGetEvents,
 	js jetstream.JetStream) {
 	for _, schema := range config.Postgres.GetSchemaMapping() {
 		unlock, err := lockProvider.Lock(ctx, schema.Boundary)
@@ -295,12 +404,22 @@ func startEventPolling(
 	}
 }
 
-func startAdminServer(config *c.AppConfig, db admin.DB, eventStore *pb.EventStore, authenticator admin.Authenticator) {
+func startAdminServer(
+	config *c.AppConfig,
+	createUserHandler *create_user.CreateUserHandler,
+	dashboardHandler *dashboard.DashboardHandler,
+	loginHandler *login.LoginHandler,
+	deleteUserHandler *delete_user.DeleteUserHandler,
+	usersHandler *users_page.UsersPageHandler,
+	authenticator *admin.Authenticator) {
 	go func() {
 		adminServer, err := admin.NewAdminServer(
 			AppLogger,
-			eventStore,
-			*admin.NewAdminCommandHandlers(eventStore, db, AppLogger, config.Admin.Boundary, &authenticator),
+			createUserHandler,
+			dashboardHandler,
+			loginHandler,
+			deleteUserHandler,
+			usersHandler,
 		)
 		if err != nil {
 			AppLogger.Fatalf("Could not start admin server %v", err)
@@ -318,7 +437,7 @@ func startAdminServer(config *c.AppConfig, db admin.DB, eventStore *pb.EventStor
 	}()
 }
 
-func startGRPCServer(config *c.AppConfig, eventStore pb.EventStoreServer, adminDB admin.DB, authenticator *admin.Authenticator) {
+func startGRPCServer(config *c.AppConfig, eventStore pb.EventStoreServer, authenticator *admin.Authenticator) {
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator)),
 		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator)),
@@ -343,15 +462,27 @@ func startGRPCServer(config *c.AppConfig, eventStore pb.EventStoreServer, adminD
 	}
 }
 
-func startProjectors(ctx context.Context, boundary string, config *c.AppConfig, eventStore *pb.EventStore, db admin.DB) {
+func startUserProjector(
+	ctx context.Context,
+	adminBoundary string,
+	getProjectorLastPosition common.GetProjectorLastPositionType,
+	updateProjectorPosition common.UpdateProjectorPositionType,
+	createNewUser up.CreateNewUserType,
+	deleteUser up.DeleteUserType,
+	subscribeToEvents common.SubscribeToEventStoreType,
+	saveEvents common.SaveEventsType,
+	getEvents common.GetEventsType) {
 	go func() {
-		userProjector := admin.NewUserProjector(
-			db,
+		userProjector := up.NewUserProjector(
+			getProjectorLastPosition,
+			updateProjectorPosition,
+			createNewUser,
+			deleteUser,
+			saveEvents,
+			getEvents,
 			AppLogger,
-			eventStore,
-			boundary,
-			config.Auth.AdminUsername,
-			config.Auth.AdminPassword,
+			adminBoundary,
+			subscribeToEvents,
 		)
 		err := userProjector.Start(ctx)
 
@@ -359,6 +490,35 @@ func startProjectors(ctx context.Context, boundary string, config *c.AppConfig, 
 			AppLogger.Fatalf("Failed to start projection %v", err)
 		}
 		AppLogger.Info("User projector started")
+	}()
+}
+
+func startUserCountProjector(
+	ctx context.Context,
+	adminBoundary string,
+	getProjectorLastPosition common.GetProjectorLastPositionType,
+	updateProjectorPosition common.UpdateProjectorPositionType,
+	subscribeToEvents common.SubscribeToEventStoreType,
+	getUserCount user_count.GetUserCount,
+	publishToPubSub common.PublishToPubSubType,
+	saveUserCount user_count.SaveUserCount) {
+	go func() {
+		userProjector := user_count.NewUserCountProjection(
+			adminBoundary,
+			getProjectorLastPosition,
+			publishToPubSub,
+			getUserCount,
+			saveUserCount,
+			subscribeToEvents,
+			updateProjectorPosition,
+			AppLogger,
+		)
+		err := userProjector.Start(ctx)
+
+		if err != nil {
+			AppLogger.Fatalf("Failed to start projection %v", err)
+		}
+		AppLogger.Info("User count projector started")
 	}()
 }
 

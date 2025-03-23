@@ -32,7 +32,7 @@ Orisun is a batteries-included event store, with an embedded NATS JetStream serv
 
 ### Using Pre-built Binary
 
-1. Download the latest release for your platform from the [releases page](https://github.com/yourusername/orisun/releases)
+1. Download the latest release for your platform from the [releases page](https://github.com/oexza/Orisun/releases)
 
 2. Run the binary with environment variables:
 ```bash
@@ -99,13 +99,19 @@ This boundary pre-configuration ensures:
 ### Environment Setup
 ```bash
 # Multiple schemas can be pre-configured
-ORISUN_PG_SCHEMAS=users,orders,payments \
+ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
 ORISUN_PG_HOST=localhost \
 [... other config ...] \
 orisun-darwin-arm64
 ```
 
 ## gRPC API Examples
+
+All gRPC API calls require authentication using a basic auth header. You can provide this with grpcurl using the `-H` flag:
+
+```bash
+grpcurl -H "Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=" -d @ localhost:50051 eventstore.EventStore/SaveEvents
+```
 
 ### SaveEvents
 Save events to a specific schema/boundary. Here's an example of saving user registration events:

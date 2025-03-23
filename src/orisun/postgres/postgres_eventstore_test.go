@@ -103,7 +103,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	getEvents := NewPostgresGetEvents(db, &logger, mapping)
 
 	// Test saving events
-	events := []eventstore.EventWithMapTags{
+	events := []*eventstore.EventWithMapTags{
 		{
 			EventId:   "test-event-1",
 			EventType: "TestEvent",
@@ -119,7 +119,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	// Save events
 	tranID, globalID, err := saveEvents.Save(
 		context.Background(),
-		&events,
+		events,
 		nil,
 		"test_boundary",
 		"test-stream",

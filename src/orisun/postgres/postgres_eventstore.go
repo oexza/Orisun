@@ -22,7 +22,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	admin "orisun/src/orisun/admin"
+	ev "orisun/src/orisun/admin/events"
+
+	common "orisun/src/orisun/admin/slices/common"
 
 	"github.com/lib/pq"
 )
@@ -349,7 +351,7 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]interface{} {
 func PollEventsFromPgToNats(
 	ctx context.Context,
 	js jetstream.JetStream,
-	eventStore eventstore.GetEvents,
+	eventStore eventstore.ImplementerGetEvents,
 	batchSize int32,
 	lastPosition *eventstore.Position,
 	logger logging.Logger,
@@ -503,18 +505,18 @@ func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string) *Postg
 	}
 }
 
-var userCache = map[string]*admin.User{}
+var userCache = map[string]*common.User{}
 
-func (s *PostgresAdminDB) ListAdminUsers() ([]*admin.User, error) {
+func (s *PostgresAdminDB) ListAdminUsers() ([]*common.User, error) {
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.schema))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []*admin.User
+	var users []*common.User
 	for rows.Next() {
-		var user admin.User
+		var user common.User
 		user, err = s.scanUser(rows)
 		users = append(users, &user)
 	}
@@ -558,7 +560,7 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 	return nil
 }
 
-func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []admin.Role) error {
+func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []ev.Role) error {
 	roleStrings := make([]string, len(roles))
 	for i, role := range roles {
 		roleStrings[i] = string(role)
@@ -580,7 +582,7 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 		return err
 	}
 
-	userCache[username] = &admin.User{
+	userCache[username] = &common.User{
 		Id:             id,
 		Username:       username,
 		HashedPassword: password_hash,
@@ -602,21 +604,21 @@ func (p *PostgresAdminDB) DeleteUser(id string) error {
 	return nil
 }
 
-func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (admin.User, error) {
-	var user admin.User
+func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (common.User, error) {
+	var user common.User
 	var roles []string
 	if err := rows.Scan(&user.Id, &user.Name, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
 		s.logger.Error("Failed to scan user row: %v", err)
-		return admin.User{}, err
+		return common.User{}, err
 	}
 
 	for _, role := range roles {
-		user.Roles = append(user.Roles, admin.Role(role))
+		user.Roles = append(user.Roles, ev.Role(role))
 	}
 	return user, nil
 }
 
-func (s *PostgresAdminDB) GetUserByUsername(username string) (admin.User, error) {
+func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error) {
 	user := userCache[username]
 	if user != nil {
 		s.logger.Debug("Fetched from cache")
@@ -626,15 +628,15 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (admin.User, error)
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.schema), username)
 	if err != nil {
 		s.logger.Debugf("Userrrrr: %v", err)
-		return admin.User{}, err
+		return common.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse admin.User
+	var userResponse common.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return admin.User{}, err
+			return common.User{}, err
 		}
 	}
 
@@ -642,5 +644,42 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (admin.User, error)
 		userCache[username] = &userResponse
 		return userResponse, nil
 	}
-	return admin.User{}, fmt.Errorf("user not found")
+	return common.User{}, fmt.Errorf("user not found")
+}
+
+func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
+	rows, err := s.db.Query(fmt.Sprintf("SELECT user_count FROM %s.users_count limit 1", s.schema))
+	if err != nil {
+		s.logger.Debugf("User count: %v", err)
+		return 0, err
+	}
+	defer rows.Close()
+
+	var count uint32 = 0
+	if rows.Next() {
+		if err := rows.Scan(&count); err != nil {
+			s.logger.Error("Failed to scan user count: %v", err)
+			return 0, err
+		}
+	}
+	return count, nil
+}
+
+const id = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
+
+func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO %s.users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.schema),
+		id,
+		users_count,
+		time.Now().UTC(),
+		time.Now().UTC(),
+	)
+
+	if err != nil {
+		s.logger.Error("Error creating user count: %v", err)
+		return err
+	}
+
+	return nil
 }

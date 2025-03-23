@@ -20,7 +20,10 @@ import (
 	logging "orisun/src/orisun/logging"
 )
 
-type SaveEvents interface {
+type SaveEventsType = func(ctx context.Context, in *SaveEventsRequest) (resp *WriteResult, err error)
+type GetEventsType = func(ctx context.Context, in *GetEventsRequest) (*GetEventsResponse, error)
+
+type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
 		events []*EventWithMapTags,
 		indexLockCondition *IndexLockCondition,
@@ -30,7 +33,7 @@ type SaveEvents interface {
 		streamSubSet *Query) (transactionID string, globalID uint64, err error)
 }
 
-type GetEvents interface {
+type ImplementerGetEvents interface {
 	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
 }
 
@@ -43,8 +46,8 @@ type LockProvider interface {
 type EventStore struct {
 	UnimplementedEventStoreServer
 	js           jetstream.JetStream
-	saveEventsFn SaveEvents
-	getEventsFn  GetEvents
+	saveEventsFn ImplementerSaveEvents
+	getEventsFn  ImplementerGetEvents
 	lockProvider LockProvider
 }
 
@@ -72,10 +75,11 @@ func GetEventSubjectName(boundary string, position *Position) string {
 func NewEventStoreServer(
 	ctx context.Context,
 	js jetstream.JetStream,
-	saveEventsFn SaveEvents,
-	getEventsFn GetEvents,
+	saveEventsFn ImplementerSaveEvents,
+	getEventsFn ImplementerGetEvents,
 	lockProvider LockProvider,
-	boundaries *[]string) *EventStore {
+	boundaries *[]string,
+) *EventStore {
 	log, err := logging.GlobalLogger()
 
 	if err != nil {
@@ -90,9 +94,7 @@ func NewEventStoreServer(
 			Subjects: []string{
 				GetEventsSubjectName(boundary),
 			},
-			MaxMsgs: 100,
-			// MaxAge:  5 * time.Minute,
-			// Storage: jetstream.MemoryStorage,
+			MaxMsgs: 1000000,
 		})
 
 		if err != nil {
@@ -221,6 +223,30 @@ func (s *EventStore) SubscribeToEvents(
 	// Initialize position tracking
 	lastPosition := position
 
+	// Set up NATS subscription for live events
+	subs, err := s.js.Stream(ctx, GetEventsStreamName(boundary))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
+	}
+
+	// Check if we need to process historical events by examining the first event in the stream
+	skipHistorical := false
+	info, err := subs.Info(ctx)
+	if err == nil && info.State.FirstSeq > 0 {
+		firstMsg, err := subs.GetMsg(ctx, info.State.FirstSeq)
+		if err == nil {
+			var firstEvent Event
+			if err := json.Unmarshal(firstMsg.Data, &firstEvent); err == nil {
+				// If the first event in the stream is newer than our position, skip historical events
+				if !isEventNewer(firstEvent.Position, lastPosition) {
+					logger.Infof("First event in stream is older than requested position, skipping historical events")
+					skipHistorical = true
+					lastPosition = firstEvent.Position
+				}
+			}
+		}
+	}
+
 	// Process historical events
 	historicalDone := make(chan struct{})
 	var historicalErr error
@@ -228,6 +254,11 @@ func (s *EventStore) SubscribeToEvents(
 
 	go func() {
 		defer close(historicalDone)
+
+		if skipHistorical {
+			lastTime = time.Now()
+			return
+		}
 
 		lastPosition, lastTime, historicalErr = s.sendHistoricalEvents(
 			ctx,
@@ -258,12 +289,6 @@ func (s *EventStore) SubscribeToEvents(
 	case <-ctx.Done():
 		logger.Error("Context cancelled, stopping subscription")
 		return ctx.Err()
-	}
-
-	// Set up NATS subscription for live events
-	subs, err := s.js.Stream(ctx, GetEventsStreamName(boundary))
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
 	}
 
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{

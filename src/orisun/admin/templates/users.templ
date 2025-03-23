@@ -1,83 +1,79 @@
 package templates
 
-import "orisun/src/orisun/admin/templates/layout"
-
 type User struct {
-Name string
-Id string
-Username string
-Roles []string
+	Name     string
+	Id       string
+	Username string
+	Roles    []string
 }
 
 templ Users(users []User, currentPath string, currentUser string) {
-@layout.Admin(currentPath, "Users") {
-<div id="users-page" class="p-6">
-    <div class="mb-6 flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-900">User Management</h1>
-        <sl-button variant="primary" size="medium" data-on-click="@get('/admin/users/add')">
-            <sl-icon slot="prefix" name="person-plus"></sl-icon>
-            Add User
-        </sl-button>
-    </div>
-
-    <sl-alert id="message" variant="primary" closable>
-        <sl-icon slot="icon" name="info-circle"></sl-icon>
-        <span class="message-content"></span>
-    </sl-alert>
-
-    <sl-card class="mb-6">
-        <div class="overflow-x-auto">
-            @UserList(users, currentUser)
-        </div>
-    </sl-card>
-    <sl-dialog id="add-user-dialog"></sl-dialog>
-</div>
-}
+	@Admin(currentPath, "Users") {
+		<div id="users-page" class="p-6">
+			<div class="mb-6 flex justify-between items-center">
+				<h1 class="text-2xl font-bold text-gray-900">User Management</h1>
+				<sl-button variant="primary" size="medium" data-on-click="@get('/admin/users/add')">
+					<sl-icon slot="prefix" name="person-plus"></sl-icon>
+					Add User
+				</sl-button>
+			</div>
+			<sl-alert id="message" variant="primary" closable>
+				<sl-icon slot="icon" name="info-circle"></sl-icon>
+				<span class="message-content"></span>
+			</sl-alert>
+			<sl-card class="mb-6">
+				<div class="overflow-x-auto">
+					@UserList(users, currentUser)
+				</div>
+			</sl-card>
+			<sl-dialog id="add-user-dialog"></sl-dialog>
+		</div>
+	}
 }
 
 templ UserList(users []User, currentUser string) {
-<table id="users-table" class="min-w-full divide-y divide-gray-200">
-    <thead class="bg-gray-50">
-        <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
-            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-        </tr>
-    </thead>
-    <tbody id="users-table-body" class="bg-white divide-y divide-gray-200">
-        for _, user := range users {
-        @UserRow(&user, currentUser)
-        }
-    </tbody>
-</table>
+	<table id="users-table" class="min-w-full divide-y divide-gray-200">
+		<thead class="bg-gray-50">
+			<tr>
+				<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+				<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+				<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
+				<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+			</tr>
+		</thead>
+		<tbody id="users-table-body" class="bg-white divide-y divide-gray-200">
+			for _, user := range users {
+				@UserRow(&user, currentUser)
+			}
+		</tbody>
+	</table>
 }
 
 templ UserRow(user *User, currentUser string) {
-<tr id={"user_" + user.Id}>
-    <td>
-        <div class="flex flex-3 pr-4 items-center gap-3">
-            <sl-avatar label={user.Name} initials></sl-avatar>
-            <span>{ user.Name }</span>
-        </div>
-    </td>
-    <td>
-        <div class="flex  items-center gap-2">
-            <span>{ user.Username }</span>
-        </div>
-    </td>
-    <td>
-        <div class="flex gap-2">
-            for _, role := range user.Roles {
-            <sl-badge variant="neutral">{ role }</sl-badge>
-            }
-        </div>
-    </td>
-    <td style="text-align: right">
-        <sl-button variant="danger" size="small" disabled?={ user.Id==currentUser } data-on-click={"confirm('Are you sure you want to delete " + user.Name +  "') && @delete(' /admin/users/" + user.Id + "/delete')" }>
-            <sl-icon slot="prefix" name="trash"></sl-icon>
-            Delete
-        </sl-button>
-    </td>
-</tr>
+	<tr id={ "user_" + user.Id }>
+		<td>
+			<div class="flex flex-3 pr-4 items-center gap-3">
+				<sl-avatar label={ user.Name } initials></sl-avatar>
+				<span>{ user.Name }</span>
+			</div>
+		</td>
+		<td>
+			<div class="flex  items-center gap-2">
+				<span>{ user.Username }</span>
+			</div>
+		</td>
+		<td>
+			<div class="flex gap-2">
+				for _, role := range user.Roles {
+					<sl-badge variant="neutral">{ role }</sl-badge>
+				}
+			</div>
+		</td>
+		<td style="text-align: right">
+			<sl-button variant="danger" size="small" disabled?={ user.Id==currentUser } data-on-click={ "confirm('Are you sure you want to delete " + user.Name + "') && @delete(' /admin/users/" + user.Id + "/delete')" }>
+				<sl-icon slot="prefix" name="trash"></sl-icon>
+				Delete
+			</sl-button>
+		</td>
+	</tr>
 }
