@@ -8,6 +8,7 @@ import (
 	"orisun/src/orisun/eventstore"
 	l "orisun/src/orisun/logging"
 	"time"
+	globalCommon "orisun/src/orisun/common"
 )
 
 type CreateNewUserType = func(id string, username string, password_hash string, name string, roles []ev.Role) error
@@ -63,7 +64,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		return err
 	}
 
-	stream := eventstore.NewCustomEventStream(ctx)
+	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
 
 	go func() {
 		for {
@@ -109,7 +110,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		projectorName,
 		pos,
 		nil,
-		stream,
+		*stream,
 	)
 	if err != nil {
 		return err

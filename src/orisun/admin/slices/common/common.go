@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	events "orisun/src/orisun/admin/events"
-	"orisun/src/orisun/eventstore"
+	eventstore "orisun/src/orisun/eventstore"
+	"sync"
 
-	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar/sdk/go"
 	"golang.org/x/crypto/bcrypt"
+	globalCommon "orisun/src/orisun/common"
 )
 
 type DB interface {
@@ -23,6 +24,11 @@ type DB interface {
 	GetUserByUsername(username string) (User, error)
 	GetUsersCount() (uint32, error)
 	SaveUsersCount(uint32) error
+}
+
+type EventPublishing interface {
+	GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error)
+	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId uint64, globalId uint64) error
 }
 
 type User struct {
@@ -44,7 +50,7 @@ type SubscribeToEventStoreType = func(
 	subscriberName string,
 	pos *eventstore.Position,
 	query *eventstore.Query,
-	handler eventstore.EventSubscriptionHandler,
+	handler globalCommon.MessageHandler[eventstore.Event],
 ) error
 
 type CommonSSESignals struct {
@@ -52,27 +58,25 @@ type CommonSSESignals struct {
 }
 
 var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*datastar.ServerSentEventGenerator{}
+var sseConnectionsMutex sync.RWMutex
 
-func CreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
-	tabId, err := uuid.NewV7()
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return nil, ""
-	}
-	tabIdStr := tabId.String()
+func CreateSSEConnection(w http.ResponseWriter, r *http.Request, tabId string) *datastar.ServerSentEventGenerator {
+	sseConnectionsMutex.Lock()
+	defer sseConnectionsMutex.Unlock()
+
 	sse := datastar.NewSSE(w, r)
 	sse.MarshalAndMergeSignals(CommonSSESignals{
-		TabId: tabIdStr,
+		TabId: tabId,
 	})
-	sseConnections[tabIdStr] = sse
+	sseConnections[tabId] = sse
 
 	// Set up cleanup when connection closes
 	go func() {
 		<-r.Context().Done()
-		delete(sseConnections, tabIdStr)
+		delete(sseConnections, tabId)
 	}()
 
-	return sse, tabIdStr
+	return sse
 }
 
 func HashPassword(password string) (string, error) {

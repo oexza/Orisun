@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	ev "orisun/src/orisun/admin/events"
 	common "orisun/src/orisun/admin/slices/common"
+	globalCommon "orisun/src/orisun/common"
 	"orisun/src/orisun/eventstore"
 	l "orisun/src/orisun/logging"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 const (
 	projectorName = "User_Count_Projection"
+	UserCountPubSubscription = "users-count"
 )
 
 type UserCountReadModel struct {
@@ -20,6 +22,8 @@ type UserCountReadModel struct {
 
 type GetUserCount = func() (UserCountReadModel, error)
 type SaveUserCount = func(uint32) error
+
+type SubscribeToUserCount = func(consumerName string, ctx context.Context, stream *globalCommon.MessageHandler[UserCountReadModel]) error
 
 type UserCountEventHandler struct {
 	boundary                 string
@@ -55,7 +59,7 @@ func NewUserCountProjection(
 }
 
 func (p *UserCountEventHandler) Start(ctx context.Context) error {
-	stream := eventstore.NewCustomEventStream(ctx)
+	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
 
 	// Get last checkpoint
 	pos, err := p.getProjectorLastPosition(projectorName)
@@ -107,7 +111,7 @@ func (p *UserCountEventHandler) Start(ctx context.Context) error {
 		projectorName,
 		pos,
 		nil,
-		stream,
+		*stream,
 	)
 	if err != nil {
 		return err
@@ -124,15 +128,16 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 			return err
 		}
 
+		newCount := currentCount.Count + 1
 		// Increment the count
 		updatedCount := &UserCountReadModel{
-			Count: currentCount.Count + 1,
+			Count: newCount,
 		}
 		marshaled, err := json.Marshal(updatedCount)
 		if err != nil {
 			return err
 		}
-		p.saveUserCount(currentCount.Count + 1)
+		p.saveUserCount(newCount)
 		p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
 			Id:      "users-count",
 			Subject: "users-count",
@@ -146,17 +151,19 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 		}
 
 		// Increment the count
-		updatedCount := &UserCountReadModel{
-			Count: currentCount.Count - 1,
+		newCount := currentCount.Count - 1
+
+		updatedCount := UserCountReadModel{
+			Count: newCount,
 		}
 		marshaled, err := json.Marshal(updatedCount)
 		if err != nil {
 			return err
 		}
-		p.saveUserCount(currentCount.Count - 1)
+		p.saveUserCount(newCount)
 		p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
 			Id:      "users-count",
-			Subject: "users-count",
+			Subject: UserCountPubSubscription,
 			Data:    marshaled,
 		})
 	}

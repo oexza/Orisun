@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"sync"
 
 	"fmt"
 	"net"
@@ -40,9 +42,11 @@ import (
 	events "orisun/src/orisun/admin/events"
 
 	common "orisun/src/orisun/admin/slices/common"
+	globalCommon "orisun/src/orisun/common"
+
+	user_count "orisun/src/orisun/admin/slices/dashboard/user_count"
 
 	"github.com/nats-io/nats-server/v2/server"
-	user_count "orisun/src/orisun/admin/slices/user_count"
 )
 
 var AppLogger l.Logger
@@ -64,8 +68,7 @@ func main() {
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	db, saveEvents, getEvents, lockProvider, adminDB := initializeDatabase(config)
-	defer db.Close()
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config)
 
 	// Initialize EventStore
 	eventStore := initializeEventStore(
@@ -78,7 +81,7 @@ func main() {
 	)
 
 	// Start polling events
-	startEventPolling(ctx, config, lockProvider, getEvents, js)
+	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing)
 
 	// Start projectors
 	var pubSubFunction = func(ctx context.Context, req *pb.PublishRequest) error {
@@ -89,21 +92,22 @@ func main() {
 		return nil
 	}
 
+	getUserCount := func() (user_count.UserCountReadModel, error) {
+		count, err := adminDB.GetUsersCount()
+		if err != nil {
+			return user_count.UserCountReadModel{}, err
+		}
+		return user_count.UserCountReadModel{
+			Count: count,
+		}, nil
+	}
 	startUserCountProjector(
 		ctx,
 		config.Admin.Boundary,
 		adminDB.GetProjectorLastPosition,
 		adminDB.UpdateProjectorPosition,
 		eventStore.SubscribeToEvents,
-		func() (user_count.UserCountReadModel, error) {
-			count, err := adminDB.GetUsersCount()
-			if err != nil {
-				return user_count.UserCountReadModel{}, nil
-			}
-			return user_count.UserCountReadModel{
-				Count: count,
-			}, nil
-		},
+		getUserCount,
 		pubSubFunction,
 		adminDB.SaveUsersCount,
 	)
@@ -141,11 +145,46 @@ func main() {
 		eventStore.SaveEvents,
 		eventStore.GetEvents,
 	)
-
 	dashboardHandler := dashboard.NewDashboardHandler(
 		AppLogger,
-		eventStore,
 		config.Admin.Boundary,
+		getUserCount,
+		func(consumerName string, ctx context.Context, messageHandler *globalCommon.MessageHandler[user_count.UserCountReadModel]) error {
+			handler := globalCommon.NewMessageHandler[pb.Message](ctx)
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						AppLogger.Debug("Context done, stopping...")
+						return // Exit the goroutine completely
+					default:
+						// Only try to receive if context is not done
+						event, err := handler.Recv()
+						if err != nil {
+							if ctx.Err() != nil {
+								// Context is done, exit gracefully
+								return
+							}
+							AppLogger.Error("Error receiving: %v", err)
+							// Add a small sleep to prevent CPU spinning on persistent errors
+							time.Sleep(100 * time.Millisecond)
+							continue
+						}
+						userReadModel := user_count.UserCountReadModel{}
+						json.Unmarshal(event.Data, &userReadModel)
+						AppLogger.Debugf("User count updated is: %v", string(event.Data))
+						messageHandler.Send(&userReadModel)
+					}
+				}
+			}()
+			eventStore.SubscribeToPubSubGeneric(
+				ctx,
+				user_count.UserCountPubSubscription,
+				consumerName,
+				handler,
+			)
+			return nil
+		},
 	)
 
 	loginHandler := login.NewLoginHandler(
@@ -212,14 +251,27 @@ func createDefaultUser(adminBoundary string, eventstore pb.EventStore) error {
 	}
 	return nil
 }
-func initializeDatabase(config *c.AppConfig) (*sql.DB, pb.ImplementerSaveEvents,
-	pb.ImplementerGetEvents, pb.LockProvider, common.DB) {
+func initializeDatabase(ctx context.Context, config *c.AppConfig) (pb.ImplementerSaveEvents,
+	pb.ImplementerGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
 	db, err := sql.Open(
-		"postgres", fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			config.Postgres.Host, config.Postgres.Port, config.Postgres.User, config.Postgres.Password, config.Postgres.Name))
+		"postgres",
+		fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			config.Postgres.Host,
+			config.Postgres.Port,
+			config.Postgres.User,
+			config.Postgres.Password,
+			config.Postgres.Name,
+		),
+	)
 	if err != nil {
 		AppLogger.Fatalf("Failed to connect to database: %v", err)
 	}
+	go func() {
+		<-ctx.Done()
+		AppLogger.Info("Shutting down database connection")
+		db.Close()
+	}()
 
 	postgesBoundarySchemaMappings := config.Postgres.GetSchemaMapping()
 	for _, schema := range postgesBoundarySchemaMappings {
@@ -236,8 +288,13 @@ func initializeDatabase(config *c.AppConfig) (*sql.DB, pb.ImplementerSaveEvents,
 	adminDB := postgres.NewPostgresAdminDB(
 		db, AppLogger, postgesBoundarySchemaMappings[config.Admin.Boundary].Schema,
 	)
+	eventPublishing := postgres.NewPostgresEventPublishing(
+		db,
+		AppLogger,
+		postgesBoundarySchemaMappings,
+	)
 
-	return db, saveEvents, getEvents, lockProvider, adminDB
+	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing
 }
 
 func initializeNATS(ctx context.Context, config *c.AppConfig) (jetstream.JetStream, *nats.Conn, *server.Server) {
@@ -373,7 +430,8 @@ func startEventPolling(
 	config *c.AppConfig,
 	lockProvider pb.LockProvider,
 	getEvents pb.ImplementerGetEvents,
-	js jetstream.JetStream) {
+	js jetstream.JetStream,
+	eventPublishing common.EventPublishing) {
 	for _, schema := range config.Postgres.GetSchemaMapping() {
 		unlock, err := lockProvider.Lock(ctx, schema.Boundary)
 		if err != nil {
@@ -383,7 +441,7 @@ func startEventPolling(
 		AppLogger.Infof("Successfully acquired polling lock for %v", schema.Schema)
 
 		// Get last published position
-		lastPosition, err := pb.GetLastPublishedPositionFromNats(ctx, js, schema.Boundary)
+		lastPosition, err := eventPublishing.GetLastPublishedEventPosition(ctx, schema.Boundary)
 		if err != nil {
 			AppLogger.Fatalf("Failed to get last published position: %v", err)
 		}
@@ -391,14 +449,15 @@ func startEventPolling(
 
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
 			defer unlock()
-			postgres.PollEventsFromPgToNats(
+			PollEventsFromPgToNats(
 				ctx,
 				js,
 				getEvents,
 				config.PollingPublisher.BatchSize,
-				lastPosition,
-				AppLogger,
+				&lastPosition,
 				boundary.Boundary,
+				eventPublishing,
+				schema.Schema,
 			)
 		}(schema)
 	}
@@ -520,6 +579,109 @@ func startUserCountProjector(
 		}
 		AppLogger.Info("User count projector started")
 	}()
+}
+
+var mutex sync.RWMutex
+
+func PollEventsFromPgToNats(
+	ctx context.Context,
+	js jetstream.JetStream,
+	eventStore pb.ImplementerGetEvents,
+	batchSize int32,
+	lastPosition *pb.Position,
+	boundary string,
+	db common.EventPublishing,
+	schema string,
+) error {
+	// Start polling loop
+	for {
+		if ctx.Err() != nil {
+			AppLogger.Error("Context cancelled, stopping polling")
+			return ctx.Err()
+		}
+
+		AppLogger.Debugf("Polling for boundary: %v", boundary)
+		req := &pb.GetEventsRequest{
+			FromPosition: lastPosition,
+			Count:        batchSize,
+			Direction:    pb.Direction_ASC,
+			Boundary:     boundary,
+		}
+		resp, err := eventStore.Get(context.Background(), req)
+		if err != nil {
+			AppLogger.Errorf("Error retrieving events: %v", err)
+			return fmt.Errorf("failed to get events: %v", err)
+		}
+
+		AppLogger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
+
+		for _, event := range resp.Events {
+			subjectName := pb.GetEventSubjectName(
+				boundary,
+				&pb.Position{
+					CommitPosition:  event.Position.CommitPosition,
+					PreparePosition: event.Position.PreparePosition,
+				},
+			)
+			AppLogger.Debugf("Subject name is: %s", subjectName)
+			eventData, err := json.Marshal(event)
+			if err != nil {
+				AppLogger.Errorf("Failed to marshal event: %v", err)
+				continue
+			}
+			publishEventWithRetry(
+				ctx,
+				js,
+				eventData,
+				subjectName,
+				event.Position.PreparePosition,
+				event.Position.CommitPosition,
+			)
+			lastPosition = event.Position
+		}
+		if len(resp.Events) > 0 {
+			go func() {
+				mutex.Lock()
+				defer mutex.Unlock()
+				err = db.InsertLastPublishedEvent(
+					ctx,
+					boundary,
+					lastPosition.CommitPosition,
+					lastPosition.PreparePosition,
+				)
+				if err != nil {
+					panic(err)
+				}
+			}()
+		}
+
+		if len(resp.Events) > 0 {
+			lastPosition = resp.Events[len(resp.Events)-1].Position
+		}
+		AppLogger.Debugf(":%v Sleeping.....", boundary)
+		time.Sleep(500 * time.Millisecond) // Polling interval
+	}
+}
+
+func publishEventWithRetry(ctx context.Context, js jetstream.JetStream, eventData []byte,
+	subjectName string, preparePosition uint64, commitPosition uint64) {
+
+	attempt := 1
+
+	messageIdOpts := jetstream.PublishOpt(
+		jetstream.WithMsgID(pb.GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
+	)
+	retryOpts := jetstream.WithRetryAttempts(999999999999)
+
+	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
+	if err == nil {
+		AppLogger.Debugf("Successfully published event after %d attempts", attempt)
+		return
+	}
+
+	AppLogger.Errorf("Failed to publish event (attempt %d): ", err)
+
+	publishEventWithRetry(ctx, js, eventData, subjectName, preparePosition, commitPosition)
 }
 
 func getBoundaryNames(boundary *[]c.Boundary) *[]string {

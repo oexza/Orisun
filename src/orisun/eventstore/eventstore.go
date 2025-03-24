@@ -17,6 +17,7 @@ import (
 
 	// "strings"
 
+	globalCommon "orisun/src/orisun/common"
 	logging "orisun/src/orisun/logging"
 )
 
@@ -198,18 +199,13 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	return s.getEventsFn.Get(ctx, req)
 }
 
-type EventSubscriptionHandler interface {
-	Send(*Event) error
-	Context() context.Context
-}
-
 func (s *EventStore) SubscribeToEvents(
 	ctx context.Context,
 	boundary string,
 	subscriberName string,
 	position *Position,
 	query *Query,
-	handler EventSubscriptionHandler,
+	handler globalCommon.MessageHandler[Event],
 ) error {
 	unlockFunc, err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
 
@@ -378,13 +374,34 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
+	messageHandler := globalCommon.NewMessageHandler[Event](ctx)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("Message processing stopped")
+				return
+
+			default:
+				event, err := messageHandler.Recv()
+				if err != nil {
+					logger.Errorf("Failed to receive event: %v", err)
+					continue
+				}
+				if err := stream.Send(event); err != nil {
+					logger.Errorf("Failed to send event: %v", err)
+					continue
+				}
+			}
+		}
+	}()
 	return s.SubscribeToEvents(
 		ctx,
 		req.Boundary,
 		req.SubscriberName,
 		req.GetPosition(),
 		req.Query,
-		stream,
+		*messageHandler,
 	)
 }
 
@@ -418,7 +435,7 @@ func (s *EventStore) sendHistoricalEvents(
 	ctx context.Context,
 	fromPosition *Position,
 	query *Query,
-	stream EventSubscriptionHandler,
+	stream globalCommon.MessageHandler[Event],
 	boundary string) (*Position, time.Time, error) {
 
 	lastPosition := fromPosition
@@ -511,13 +528,15 @@ func getPubSubStreamName(subjectName string) string {
 	return pubsubPrefix + subjectName
 }
 
-func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_SubscribeToPubSubServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
+// SubscribeToPubSubGeneric creates a subscription to a pub/sub topic and handles messages with the provided handler
+func (s *EventStore) SubscribeToPubSubGeneric(
+	ctx context.Context,
+	subject string,
+	consumerName string,
+	handler *globalCommon.MessageHandler[Message]) error {
+	logger.Infof("SubscribeToPubSubGeneric called with subject: %s, consumer_name: %s", subject, consumerName)
 
-	logger.Infof("SubscribeToPubSub called with subject: %s, consumer_name: %s", req.Subject, req.ConsumerName)
-
-	pubSubStreamName := getPubSubStreamName(req.Subject)
+	pubSubStreamName := getPubSubStreamName(subject)
 	natsStream, err := s.js.Stream(ctx, pubSubStreamName)
 
 	if err != nil && err.Error() != jetstream.ErrStreamNotFound.Error() {
@@ -531,7 +550,7 @@ func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_
 			Storage:           jetstream.MemoryStorage,
 			MaxConsumers:      -1, // Allow unlimited consumers
 			MaxAge:            24 * time.Hour,
-			MaxMsgsPerSubject: 1000,
+			MaxMsgsPerSubject: 10,
 		})
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to add stream: %v", err)
@@ -542,42 +561,53 @@ func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_
 	sub, err := natsStream.CreateOrUpdateConsumer(
 		ctx,
 		jetstream.ConsumerConfig{
-			Name: req.ConsumerName,
-			// FilterSubject: pubSubStreamName + "." + req.Subject,
+			Name:          consumerName,
 			DeliverPolicy: jetstream.DeliverNewPolicy,
-			AckPolicy:     jetstream.AckExplicitPolicy,
+			AckPolicy:     jetstream.AckNonePolicy,
 			MaxAckPending: 100,
 		},
 	)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
 	}
-	defer s.js.DeleteConsumer(ctx, req.ConsumerName, pubsubPrefix+req.Subject)
+	defer s.js.DeleteConsumer(ctx, consumerName, pubsubPrefix+subject)
 
-	_, err = sub.Consume(func(msg jetstream.Msg) {
+	_, err = sub.Consume(func(natsNsg jetstream.Msg) {
+		// Add panic recovery to prevent system crashes
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf("Recovered from panic in message handler: %v", r)
+				// Try to acknowledge the message to prevent redelivery
+				if ackErr := natsNsg.Ack(); ackErr != nil {
+					logger.Errorf("Failed to acknowledge message after panic: %v", ackErr)
+				}
+			}
+		}()
+
+		// Try to send the message to the handler
 		for {
-			err := stream.Send(&SubscribeResponse{
-				Message: &Message{
-					Id:      msg.Headers().Get("Nats-Msg-Id"),
-					Subject: msg.Subject(),
-					Data:    msg.Data(),
-				},
-			})
+			if ctx.Err() != nil {
+				return
+			}
+			message := Message{}
+			json.Unmarshal(natsNsg.Data(), &message)
+			err := handler.Send(&message)
 
 			if err == nil {
 				// Message sent successfully, break the retry loop
-				msg.Ack()
+				natsNsg.Ack()
 				break
 			}
 
-			if stream.Context().Err() != nil {
-				// Client has disconnected, exit the handler
-				logger.Infof("Client disconnected: %v", stream.Context().Err())
+			if ctx.Err() != nil {
+				// Context is done, exit handler
+				logger.Infof("Context done, stopping message handling: %v", ctx.Err())
 				return
 			}
+
 			// Log the error and retry
-			logger.Errorf("Error sending message to gRPC stream: %v. Retrying...", err)
-			// Optional: add a short delay before retrying
+			logger.Errorf("Error handling message: %v. Retrying...", err)
+			// Add a short delay before retrying
 			time.Sleep(time.Millisecond * 100)
 		}
 	})
@@ -586,8 +616,47 @@ func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_
 		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
 	}
 
-	<-stream.Context().Done()
-	return stream.Context().Err()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_SubscribeToPubSubServer) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	// Create a MessageHandler that forwards messages to the gRPC stream
+	handler := globalCommon.NewMessageHandler[Message](ctx)
+
+	// Start a goroutine to forward messages from the handler to the gRPC stream
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				msg, err := handler.Recv()
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					logger.Errorf("Error receiving message from handler: %v", err)
+					continue
+				}
+
+				if err := stream.Send(&SubscribeResponse{Message: msg}); err != nil {
+					logger.Errorf("Error sending to gRPC stream: %v", err)
+				}
+			}
+		}
+	}()
+
+	// Use the generic function with a handler that sends to the MessageHandler
+	return s.SubscribeToPubSubGeneric(
+		ctx,
+		req.Subject,
+		req.ConsumerName,
+		handler,
+	)
 }
 
 func parseInt64(s string) uint64 {
@@ -610,34 +679,34 @@ func (s *EventStore) PublishToPubSub(ctx context.Context, req *PublishRequest) (
 	return &emptypb.Empty{}, nil
 }
 
-func GetLastPublishedPositionFromNats(ctx context.Context, js jetstream.JetStream, boundary string) (*Position, error) {
-	eventsStreamName := GetEventsStreamName(boundary)
-	stream, err := js.Stream(ctx, eventsStreamName)
-	if err != nil {
-		return nil, err
-	}
-	logger.Debugf("stream info: %v", stream)
+// func GetLastPublishedPositionFromNats(ctx context.Context, js jetstream.JetStream, boundary string) (*Position, error) {
+// 	eventsStreamName := GetEventsStreamName(boundary)
+// 	stream, err := js.Stream(ctx, eventsStreamName)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	logger.Debugf("stream info: %v", stream)
 
-	info, err := stream.Info(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if info.State.LastSeq == 0 {
-		return &Position{CommitPosition: 0, PreparePosition: 0}, nil
-	}
+// 	info, err := stream.Info(ctx)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if info.State.LastSeq == 0 {
+// 		return &Position{CommitPosition: 0, PreparePosition: 0}, nil
+// 	}
 
-	msg, err := stream.GetMsg(ctx, info.State.LastSeq)
-	if err != nil {
-		return nil, err
-	}
+// 	msg, err := stream.GetMsg(ctx, info.State.LastSeq)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	var event Event
-	if err := json.Unmarshal(msg.Data, &event); err != nil {
-		return nil, err
-	}
+// 	var event Event
+// 	if err := json.Unmarshal(msg.Data, &event); err != nil {
+// 		return nil, err
+// 	}
 
-	return event.Position, nil
-}
+// 	return event.Position, nil
+// }
 
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {
 	return fmt.Sprintf("%d%d", preparePosition, commitPosition)

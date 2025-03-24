@@ -17,7 +17,6 @@ import (
 	config "orisun/src/orisun/config"
 
 	"github.com/google/uuid"
-	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -37,6 +36,19 @@ const selectMatchingEvents = `
 SELECT * FROM %s.get_matching_events($1, $2::INT, $3::jsonb, $4::jsonb, $5, $6::INT)
 `
 
+const insertLastPublishedPosition = `
+insert into %s.orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
+values ($1, $2, $3, $4, $5)
+ON CONFLICT (boundary)
+    do update set transaction_id = $2,
+                  global_id      = $3,
+                  date_updated=$5
+`
+
+const getLastPublishedEventQuery = `
+select transaction_id, global_id from %s.orisun_last_published_event_position where boundary = $1
+`
+
 const setSearchPath = `
 set search_path to '%s'
 `
@@ -54,10 +66,26 @@ func NewPostgresSaveEvents(
 	return &PostgresSaveEvents{db: db, logger: *logger, boundarySchemaMappings: boundarySchemaMappings}
 }
 
+func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
+	schema := s.boundarySchemaMappings[boundary]
+	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
+		return "", errors.New("No schema found for Boundary " + boundary)
+	}
+	return schema.Schema, nil
+}
+
 type PostgresGetEvents struct {
 	db                     *sql.DB
 	logger                 logging.Logger
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+}
+
+func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
+	schema := s.boundarySchemaMappings[boundary]
+	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
+		return "", errors.New("No schema found for Boundary " + boundary)
+	}
+	return schema.Schema, nil
 }
 
 func NewPostgresGetEvents(db *sql.DB, logger *logging.Logger,
@@ -104,8 +132,10 @@ func (s *PostgresSaveEvents) Save(
 	}
 	defer tx.Rollback()
 
-	var schema = s.boundarySchemaMappings[boundary].Schema
-
+	schema, err := s.Schema(boundary)
+	if err != nil {
+		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
+	}
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
@@ -348,91 +378,6 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]interface{} {
 	return result
 }
 
-func PollEventsFromPgToNats(
-	ctx context.Context,
-	js jetstream.JetStream,
-	eventStore eventstore.ImplementerGetEvents,
-	batchSize int32,
-	lastPosition *eventstore.Position,
-	logger logging.Logger,
-	boundary string,
-) error {
-	// Start polling loop
-	for {
-		if ctx.Err() != nil {
-			logger.Error("Context cancelled, stopping polling")
-			return ctx.Err()
-		}
-
-		logger.Debugf("Polling for boundary: %v", boundary)
-		req := &eventstore.GetEventsRequest{
-			FromPosition: lastPosition,
-			Count:        batchSize,
-			Direction:    eventstore.Direction_ASC,
-			Boundary:     boundary,
-		}
-		resp, err := eventStore.Get(context.Background(), req)
-		if err != nil {
-			logger.Errorf("Error retrieving events: %v", err)
-			return fmt.Errorf("failed to get events: %v", err)
-		}
-
-		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
-
-		for _, event := range resp.Events {
-			subjectName := eventstore.GetEventSubjectName(
-				boundary,
-				&eventstore.Position{
-					CommitPosition:  event.Position.CommitPosition,
-					PreparePosition: event.Position.PreparePosition,
-				},
-			)
-			logger.Debugf("Subject name is: %s", subjectName)
-			eventData, err := json.Marshal(event)
-			if err != nil {
-				logger.Errorf("Failed to marshal event: %v", err)
-				continue
-			}
-			publishEventWithRetry(
-				ctx,
-				js,
-				eventData,
-				subjectName,
-				logger,
-				event.Position.PreparePosition,
-				event.Position.CommitPosition,
-			)
-		}
-
-		if len(resp.Events) > 0 {
-			lastPosition = resp.Events[len(resp.Events)-1].Position
-		}
-		logger.Debugf(":%v Sleeping.....", boundary)
-		time.Sleep(500 * time.Millisecond) // Polling interval
-	}
-}
-
-func publishEventWithRetry(ctx context.Context, js jetstream.JetStream, eventData []byte,
-	subjectName string, logger logging.Logger, preparePosition uint64, commitPosition uint64) {
-
-	attempt := 1
-
-	messageIdOpts := jetstream.PublishOpt(
-		jetstream.WithMsgID(eventstore.GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
-	)
-	retryOpts := jetstream.WithRetryAttempts(999999999999)
-
-	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
-	if err == nil {
-		logger.Debugf("Successfully published event after %d attempts", attempt)
-		return
-	}
-
-	logger.Errorf("Failed to publish event (attempt %d): ", err)
-
-	publishEventWithRetry(ctx, js, eventData, subjectName, logger, preparePosition, commitPosition)
-}
-
 type PGLockProvider struct {
 	db     *sql.DB
 	logger logging.Logger
@@ -494,21 +439,21 @@ func (m *PGLockProvider) Lock(ctx context.Context, lockName string) (eventstore.
 type PostgresAdminDB struct {
 	db     *sql.DB
 	logger logging.Logger
-	schema string
+	adminSchema string
 }
 
 func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string) *PostgresAdminDB {
 	return &PostgresAdminDB{
 		db:     db,
 		logger: logger,
-		schema: schema,
+		adminSchema: schema,
 	}
 }
 
 var userCache = map[string]*common.User{}
 
 func (s *PostgresAdminDB) ListAdminUsers() ([]*common.User, error) {
-	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.schema))
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.adminSchema))
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +472,7 @@ func (s *PostgresAdminDB) ListAdminUsers() ([]*common.User, error) {
 func (s *PostgresAdminDB) GetProjectorLastPosition(projectorName string) (*eventstore.Position, error) {
 	var commitPos, preparePos uint64
 	err := s.db.QueryRow(
-		fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.projector_checkpoint where name = $1", s.schema),
+		fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.projector_checkpoint where name = $1", s.adminSchema),
 		projectorName,
 	).Scan(&commitPos, &preparePos)
 	if err != nil && err != sql.ErrNoRows {
@@ -548,7 +493,7 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 	}
 
 	if _, err := p.db.Exec(
-		fmt.Sprintf("INSERT INTO %s.projector_checkpoint (id, name, commit_position, prepare_position) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET commit_position = $3, prepare_position = $4", p.schema),
+		fmt.Sprintf("INSERT INTO %s.projector_checkpoint (id, name, commit_position, prepare_position) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET commit_position = $3, prepare_position = $4", p.adminSchema),
 		id.String(),
 		name,
 		position.CommitPosition,
@@ -568,7 +513,7 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 	rolesStr := "{" + strings.Join(roleStrings, ",") + "}"
 
 	_, err := p.db.Exec(
-		fmt.Sprintf("INSERT INTO %s.users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (username) DO UPDATE SET name = $2, password_hash = $4, roles = $5, updated_at = $6", p.schema),
+		fmt.Sprintf("INSERT INTO %s.users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (username) DO UPDATE SET name = $2, password_hash = $4, roles = $5, updated_at = $6", p.adminSchema),
 		id,
 		name,
 		username,
@@ -593,7 +538,7 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 
 func (p *PostgresAdminDB) DeleteUser(id string) error {
 	_, err := p.db.Exec(
-		fmt.Sprintf("DELETE FROM %s.users WHERE id = $1", p.schema),
+		fmt.Sprintf("DELETE FROM %s.users WHERE id = $1", p.adminSchema),
 		id,
 	)
 
@@ -625,7 +570,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error
 		return *user, nil
 	}
 
-	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.schema), username)
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.adminSchema), username)
 	if err != nil {
 		s.logger.Debugf("Userrrrr: %v", err)
 		return common.User{}, err
@@ -648,7 +593,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error
 }
 
 func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
-	rows, err := s.db.Query(fmt.Sprintf("SELECT user_count FROM %s.users_count limit 1", s.schema))
+	rows, err := s.db.Query(fmt.Sprintf("SELECT user_count FROM %s.users_count limit 1", s.adminSchema))
 	if err != nil {
 		s.logger.Debugf("User count: %v", err)
 		return 0, err
@@ -669,7 +614,7 @@ const id = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
 
 func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO %s.users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.schema),
+		fmt.Sprintf("INSERT INTO %s.users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.adminSchema),
 		id,
 		users_count,
 		time.Now().UTC(),

@@ -202,3 +202,11 @@ BEGIN
     );
 END;
 $$;
+
+CREATE TABLE IF NOT EXISTS orisun_last_published_event_position (
+    boundary TEXT PRIMARY KEY,
+    transaction_id BIGINT NOT NULL DEFAULT 0,
+    global_id BIGINT NOT NULL DEFAULT 0,
+    date_created TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    date_updated TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
