@@ -13,7 +13,6 @@ import (
 
 type CreateNewUserType = func(id string, username string, password_hash string, name string, roles []globalCommon.Role) error
 type DeleteUserType = func(id string) error
-
 type CountUsersType = func() error
 
 type UserProjector struct {
