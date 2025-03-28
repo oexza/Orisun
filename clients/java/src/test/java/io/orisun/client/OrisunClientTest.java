@@ -62,10 +62,16 @@ class OrisunClientTest {
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")
                         .addTags(Tag.newBuilder()
-                                .setKey("aggregate_id")
+                                .setKey("registration-domain")
                                 .setValue("user-123")
                                 .build())
-                        .build())
+                        .build()
+                )
+                .setStream(
+                        SaveStreamQuery.newBuilder()
+                                .setName("user-123")
+                                .build()
+                )
                 .build();
 
         // Configure mock response
@@ -92,7 +98,7 @@ class OrisunClientTest {
         List<Event> receivedEvents = new ArrayList<>();
 
         // Prepare subscription request
-        SubscribeToEventStoreRequest request = SubscribeToEventStoreRequest.newBuilder()
+        final var request = CatchUpSubscribeToEventStoreRequest.newBuilder()
                 .setBoundary("users")
                 .build();
 
@@ -212,7 +218,7 @@ class OrisunClientTest {
         }
 
         @Override
-        public void subscribeToEvents(SubscribeToEventStoreRequest request, StreamObserver<Event> responseObserver) {
+        public void catchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest request, StreamObserver<Event> responseObserver) {
             this.eventObserver = responseObserver;
         }
 

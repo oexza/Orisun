@@ -78,10 +78,24 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 		&eventstore.GetEventsRequest{
 			Boundary:  s.boundary,
 			Direction: eventstore.Direction_DESC,
-			Count:     1,
+			Count:     2,
 			Stream: &eventstore.GetStreamQuery{
 				Name:        events.UserStreamPrefix + userId,
 				FromVersion: 999999999,
+				SubsetQuery: &eventstore.Query{
+					Criteria: []*eventstore.Criterion{
+						{
+							Tags: []*eventstore.Tag{
+								{Key: "eventType", Value: events.EventTypeUserCreated},
+							},
+						},
+						{
+							Tags: []*eventstore.Tag{
+								{Key: "eventType", Value: events.EventTypeUserDeleted},
+							},
+						},
+					},
+				},
 			},
 		},
 	)
@@ -90,10 +104,12 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 	}
 
 	if len(evts.Events) > 0 {
-		if evts.Events[0].EventType == events.EventTypeUserDeleted {
-			return fmt.Errorf("error: user already deleted")
+		for i := 0; i < len(evts.Events); i++ {
+			if evts.Events[i].EventType == events.EventTypeUserDeleted  {
+				return fmt.Errorf("error: user already deleted")
+			}
 		}
-
+	
 		event := events.UserDeleted{
 			UserId: userId,
 		}

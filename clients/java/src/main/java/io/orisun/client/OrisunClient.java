@@ -7,6 +7,8 @@ import eventstore.Eventstore.*;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
+import java.util.List;
+import java.util.ArrayList;
 
 public class OrisunClient implements AutoCloseable {
     private final ManagedChannel channel;
@@ -15,19 +17,41 @@ public class OrisunClient implements AutoCloseable {
     private final int defaultTimeoutSeconds;
 
     public static class Builder {
-        private String host = "localhost";
-        private int port = 50051;
+        private List<ServerAddress> servers = new ArrayList<>();
         private int timeoutSeconds = 30;
         private boolean useTls = false;
         private ManagedChannel channel;
+        private String loadBalancingPolicy = "round_robin";
 
+        // Keep the original methods for backward compatibility
         public Builder withHost(String host) {
-            this.host = host;
-            return this;
+            return withServer(host, 50051);
         }
 
         public Builder withPort(int port) {
-            this.port = port;
+            if (servers.isEmpty()) {
+                servers.add(new ServerAddress("localhost", port));
+            } else {
+                // Update the last added server's port
+                ServerAddress lastServer = servers.get(servers.size() - 1);
+                servers.set(servers.size() - 1, new ServerAddress(lastServer.host, port));
+            }
+            return this;
+        }
+
+        // New methods for multiple servers
+        public Builder withServer(String host, int port) {
+            servers.add(new ServerAddress(host, port));
+            return this;
+        }
+
+        public Builder withServers(List<ServerAddress> servers) {
+            this.servers.addAll(servers);
+            return this;
+        }
+
+        public Builder withLoadBalancingPolicy(String policy) {
+            this.loadBalancingPolicy = policy;
             return this;
         }
 
@@ -48,16 +72,64 @@ public class OrisunClient implements AutoCloseable {
 
         public OrisunClient build() {
             if (channel == null) {
-                final var newChannel = ManagedChannelBuilder.forAddress(host, port);
-
-                if (!useTls) {
-                    newChannel.usePlaintext();
+                if (servers.isEmpty()) {
+                    // Default to localhost if no servers specified
+                    servers.add(new ServerAddress("localhost", 50051));
                 }
 
-                channel = newChannel.build();
+                // Create channel with load balancing
+                ManagedChannelBuilder<?> channelBuilder;
+                
+                if (servers.size() == 1) {
+                    // Single server case
+                    ServerAddress server = servers.get(0);
+                    channelBuilder = ManagedChannelBuilder.forAddress(server.host, server.port);
+                } else {
+                    // Multiple servers case - use name resolver and load balancing
+                    String target = createTargetString(servers);
+                    channelBuilder = ManagedChannelBuilder.forTarget(target)
+                            .defaultLoadBalancingPolicy(loadBalancingPolicy);
+                }
+
+                if (!useTls) {
+                    channelBuilder.usePlaintext();
+                }
+
+                channel = channelBuilder.build();
             }
 
             return new OrisunClient(channel, timeoutSeconds);
+        }
+
+        private String createTargetString(List<ServerAddress> servers) {
+            StringBuilder sb = new StringBuilder("dns:///");
+            boolean first = true;
+            for (ServerAddress server : servers) {
+                if (!first) {
+                    sb.append(",");
+                }
+                sb.append(server.host).append(":").append(server.port);
+                first = false;
+            }
+            return sb.toString();
+        }
+    }
+
+    public static class ServerAddress {
+        private final String host;
+        private final int port;
+
+        public ServerAddress(String host, int port) {
+            this.host = host;
+            this.port = port;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public int getPort() {
+            return port;
         }
     }
 
@@ -99,7 +171,7 @@ public class OrisunClient implements AutoCloseable {
 
         asyncStub
                 .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
-                .saveEvents(request, new StreamObserver<WriteResult>() {
+                .saveEvents(request, new StreamObserver<>() {
                     @Override
                     public void onNext(WriteResult result) {
                         future.complete(result);
@@ -120,7 +192,7 @@ public class OrisunClient implements AutoCloseable {
     }
 
     // Streaming methods
-    public EventSubscription subscribeToEvents(SubscribeToEventStoreRequest request,
+    public EventSubscription subscribeToEvents(CatchUpSubscribeToEventStoreRequest request,
                                                EventSubscription.EventHandler handler) {
         return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
@@ -150,4 +222,4 @@ public class OrisunClient implements AutoCloseable {
             }
         }
     }
-} 
+}
