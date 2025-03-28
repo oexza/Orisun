@@ -48,7 +48,7 @@ func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.deleteUser(userId, currentUser); err != nil {
+	if err := s.deleteUser(r.Context(), userId, currentUser); err != nil {
 		sse.RemoveFragments("#alert")
 		sse.MergeFragmentTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
@@ -65,7 +65,7 @@ func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Requ
 	sse.RemoveFragments("#user_" + userId)
 }
 
-func (s *DeleteUserHandler) deleteUser(userId string, currentUserId string) error {
+func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
 	userId = strings.TrimSpace(userId)
 	currentUserId = strings.TrimSpace(currentUserId)
 	s.logger.Debug("Current Userrrr: " + currentUserId)
@@ -74,7 +74,7 @@ func (s *DeleteUserHandler) deleteUser(userId string, currentUserId string) erro
 		return fmt.Errorf("You cannot delete your own account")
 	}
 	evts, err := s.getEvents(
-		context.Background(),
+		ctx,
 		&eventstore.GetEventsRequest{
 			Boundary:  s.boundary,
 			Direction: eventstore.Direction_DESC,
@@ -112,7 +112,7 @@ func (s *DeleteUserHandler) deleteUser(userId string, currentUserId string) erro
 
 		lastExpectedVersion = int(evts.Events[len(evts.Events)-1].Version)
 
-		_, err = s.saveEvents(context.Background(), &eventstore.SaveEventsRequest{
+		_, err = s.saveEvents(ctx, &eventstore.SaveEventsRequest{
 			Boundary:             s.boundary,
 			ConsistencyCondition: nil,
 			Stream: &eventstore.SaveStreamQuery{

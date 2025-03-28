@@ -1,6 +1,6 @@
 //go:build sqlite
 
-package sqlite_eventstore
+package sqlite
 
 import (
 	"context"

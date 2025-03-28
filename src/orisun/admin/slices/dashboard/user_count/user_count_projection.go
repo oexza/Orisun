@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	projectorName = "User_Count_Projection"
+	projectorName            = "User_Count_Projection"
 	UserCountPubSubscription = "users-count"
 )
 
@@ -28,7 +28,7 @@ type SubscribeToUserCount = func(consumerName string, ctx context.Context, strea
 type UserCountEventHandler struct {
 	boundary                 string
 	getProjectorLastPosition common.GetProjectorLastPositionType
-	publishUserCountToPubSub           common.PublishToPubSubType
+	publishUserCountToPubSub common.PublishToPubSubType
 	getUsersCount            GetUserCount
 	saveUserCount            SaveUserCount
 	subscribeToEventStore    common.SubscribeToEventStoreType
@@ -48,7 +48,7 @@ func NewUserCountProjection(
 ) *UserCountEventHandler {
 	return &UserCountEventHandler{
 		boundary:                 boundary,
-		publishUserCountToPubSub:           publishUsersCountToPubSub,
+		publishUserCountToPubSub: publishUsersCountToPubSub,
 		getUsersCount:            getUsersCount,
 		subscribeToEventStore:    subscribeToEventStore,
 		getProjectorLastPosition: getProjectorLastPosition,
@@ -69,6 +69,10 @@ func (p *UserCountEventHandler) Start(ctx context.Context) error {
 
 	go func() {
 		for {
+			if ctx.Err() != nil {
+				return
+			}
+
 			p.logger.Debugf("Receiving events for: %s", "users_count_projection")
 			event, err := stream.Recv()
 			if err != nil {
@@ -121,55 +125,56 @@ func (p *UserCountEventHandler) Start(ctx context.Context) error {
 }
 
 func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.Event) error {
-	if event.EventType == ev.EventTypeUserCreated {
-		// Get current user count
-		currentCount, err := p.getUsersCount()
-		if err != nil {
-			return err
-		}
+	switch event.EventType {
+	case ev.EventTypeUserCreated:
+		{
+			// Get current user count
+			currentCount, err := p.getUsersCount()
+			if err != nil {
+				return err
+			}
 
-		newCount := currentCount.Count + 1
-		// Increment the count
-		updatedCount := &UserCountReadModel{
-			Count: newCount,
+			newCount := currentCount.Count + 1
+			// Increment the count
+			updatedCount := &UserCountReadModel{
+				Count: newCount,
+			}
+			marshaled, err := json.Marshal(updatedCount)
+			if err != nil {
+				return err
+			}
+			p.saveUserCount(newCount)
+			p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
+				Id:      "users-count",
+				Subject: "users-count",
+				Data:    marshaled,
+			})
 		}
-		marshaled, err := json.Marshal(updatedCount)
-		if err != nil {
-			return err
-		}
-		p.saveUserCount(newCount)
-		p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
-			Id:      "users-count",
-			Subject: "users-count",
-			Data:    marshaled,
-		})
-	} else if event.EventType == ev.EventTypeUserDeleted {
-		// Get current user count
-		currentCount, err := p.getUsersCount()
-		if err != nil {
-			return err
-		}
+	case ev.EventTypeUserDeleted:
+		{
+			// Get current user count
+			currentCount, err := p.getUsersCount()
+			if err != nil {
+				return err
+			}
 
-		// Increment the count
-		newCount := currentCount.Count - 1
+			// Increment the count
+			newCount := currentCount.Count - 1
 
-		updatedCount := UserCountReadModel{
-			Count: newCount,
+			updatedCount := UserCountReadModel{
+				Count: newCount,
+			}
+			marshaled, err := json.Marshal(updatedCount)
+			if err != nil {
+				return err
+			}
+			p.saveUserCount(newCount)
+			p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
+				Id:      "users-count",
+				Subject: UserCountPubSubscription,
+				Data:    marshaled,
+			})
 		}
-		marshaled, err := json.Marshal(updatedCount)
-		if err != nil {
-			return err
-		}
-		p.saveUserCount(newCount)
-		p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
-			Id:      "users-count",
-			Subject: UserCountPubSubscription,
-			Data:    marshaled,
-		})
 	}
 	return nil
-}
-
-func GetUsersCount() {
-
 }

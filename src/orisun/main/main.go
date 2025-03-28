@@ -32,16 +32,13 @@ import (
 	postgres "orisun/src/orisun/postgres"
 
 	admin "orisun/src/orisun/admin"
+	common "orisun/src/orisun/admin/slices/common"
 	"orisun/src/orisun/admin/slices/create_user"
 	"orisun/src/orisun/admin/slices/dashboard"
 	"orisun/src/orisun/admin/slices/delete_user"
 	"orisun/src/orisun/admin/slices/login"
 	"orisun/src/orisun/admin/slices/users_page"
 	up "orisun/src/orisun/admin/slices/users_projection"
-
-	events "orisun/src/orisun/admin/events"
-
-	common "orisun/src/orisun/admin/slices/common"
 	globalCommon "orisun/src/orisun/common"
 
 	user_count "orisun/src/orisun/admin/slices/dashboard/user_count"
@@ -125,17 +122,8 @@ func main() {
 
 	//create default user
 	createDefaultUser(
+		ctx,
 		config.Admin.Boundary, *eventStore,
-	)
-
-	authenticator := admin.NewAuthenticator(
-		func(username string) (common.User, error) {
-			user, err := adminDB.GetUserByUsername(username)
-			if err != nil {
-				return common.User{}, err
-			}
-			return user, nil
-		},
 	)
 
 	// Start admin server
@@ -184,6 +172,16 @@ func main() {
 				handler,
 			)
 			return nil
+		},
+	)
+
+	authenticator := admin.NewAuthenticator(
+		func(username string) (globalCommon.User, error) {
+			user, err := adminDB.GetUserByUsername(username)
+			if err != nil {
+				return globalCommon.User{}, err
+			}
+			return user, nil
 		},
 	)
 
@@ -236,13 +234,14 @@ func initializeConfig() *c.AppConfig {
 	return config
 }
 
-func createDefaultUser(adminBoundary string, eventstore pb.EventStore) error {
+func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore) error {
 	var userExistsError create_user.UserExistsError
 	if _, err := create_user.CreateUser(
+		ctx,
 		"admin",
 		"admin",
 		"changeit",
-		[]events.Role{events.RoleAdmin},
+		[]globalCommon.Role{globalCommon.RoleAdmin},
 		adminBoundary,
 		eventstore.SaveEvents,
 		eventstore.GetEvents,
@@ -276,7 +275,7 @@ func initializeDatabase(ctx context.Context, config *c.AppConfig) (pb.Implemente
 	postgesBoundarySchemaMappings := config.Postgres.GetSchemaMapping()
 	for _, schema := range postgesBoundarySchemaMappings {
 		isAdminBoundary := schema.Boundary == config.Admin.Boundary
-		if err := postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, context.Background()); err != nil {
+		if err := postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
 			AppLogger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
 		AppLogger.Info("Database migrations for schema %s completed successfully", schema)
@@ -445,11 +444,11 @@ func startEventPolling(
 		if err != nil {
 			AppLogger.Fatalf("Failed to get last published position: %v", err)
 		}
-		AppLogger.Info("Last published position for schema %v: %v", schema, lastPosition)
+		AppLogger.Info("Last published position for schema %v: %v", schema, &lastPosition)
 
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
 			defer unlock()
-			PollEventsFromPgToNats(
+			PollEventsFromDatabaseToNats(
 				ctx,
 				js,
 				getEvents,
@@ -583,7 +582,7 @@ func startUserCountProjector(
 
 var mutex sync.RWMutex
 
-func PollEventsFromPgToNats(
+func PollEventsFromDatabaseToNats(
 	ctx context.Context,
 	js jetstream.JetStream,
 	eventStore pb.ImplementerGetEvents,
@@ -607,7 +606,7 @@ func PollEventsFromPgToNats(
 			Direction:    pb.Direction_ASC,
 			Boundary:     boundary,
 		}
-		resp, err := eventStore.Get(context.Background(), req)
+		resp, err := eventStore.Get(ctx, req)
 		if err != nil {
 			AppLogger.Errorf("Error retrieving events: %v", err)
 			return fmt.Errorf("failed to get events: %v", err)

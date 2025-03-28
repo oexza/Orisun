@@ -2,6 +2,29 @@ package common
 
 import "context"
 
+const UserContextKey string = "user"
+
+type Role string
+
+const (
+	RoleAdmin      Role = "ADMIN"
+	RoleOperations Role = "OPERATIONS"
+)
+
+var Roles = []Role{RoleAdmin, RoleOperations}
+
+func (r Role) String() string {
+	return string(r)
+}
+
+type User struct {
+	Id             string `json:"id"`
+	Name           string `json:"name"`
+	Username       string `json:"username"`
+	HashedPassword string `json:"-"`
+	Roles          []Role `json:"roles"`
+}
+
 type MessageHandler[T any] struct {
 	ctx    context.Context
 	events chan *T

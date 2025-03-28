@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar/sdk/go"
+	globalCommon "orisun/src/orisun/common"
 )
 
 type CreateUserHandler struct {
@@ -42,8 +43,8 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 	sse := datastar.NewSSE(w, r)
 
 	// Convert []Role to []string for template compatibility
-	roleStrings := make([]string, len(ev.Roles))
-	for i, role := range ev.Roles {
+	roleStrings := make([]string, len(globalCommon.Roles))
+	for i, role := range globalCommon.Roles {
 		roleStrings[i] = role.String()
 	}
 
@@ -84,7 +85,7 @@ func (r *AddNewUserRequest) validate() error {
 
 	// Check if role is valid
 	validRole := false
-	for _, role := range ev.Roles {
+	for _, role := range globalCommon.Roles {
 		if strings.EqualFold(string(role), r.Role) {
 			validRole = true
 			break
@@ -129,10 +130,11 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	sse := datastar.NewSSE(w, r)
 
 	evt, err := CreateUser(
+		r.Context(),
 		store.Name,
 		store.Username,
 		store.Password,
-		[]ev.Role{ev.Role(strings.ToUpper(store.Role))},
+		[]globalCommon.Role{globalCommon.Role(strings.ToUpper(store.Role))},
 		s.boundary,
 		s.saveEvents,
 		s.getEvents,
@@ -163,23 +165,23 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	}, currentUser),
 		datastar.WithMergeAppend(),
 		datastar.WithSelectorID("users-table-body"),
-	)
-	sse.MergeFragmentTempl(t.Alert("User created!", t.AlertSuccess), datastar.WithSelector("body"),
 		datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
 	)
+	sse.MergeFragmentTempl(t.Alert("User created!", t.AlertSuccess), datastar.WithSelector("body"), datastar.WithMergeMode(datastar.FragmentMergeModePrepend))
 	sse.ExecuteScript("document.querySelector('#alert').toast()")
 	sse.ExecuteScript("document.querySelector('#add-user-dialog').hide()")
 }
 
-func CreateUser(name, username, password string,
-	roles []ev.Role, boundary string,
+func CreateUser(ctx context.Context, name, username, password string,
+	roles []globalCommon.Role, boundary string,
 	saveEvents common.SaveEventsType,
-	getEvents common.GetEventsType) (*ev.UserCreated, error) {
+	getEvents common.GetEventsType,
+) (*ev.UserCreated, error) {
 	username = strings.TrimSpace(username)
 	events := []*ev.Event{}
 
 	userCreatedEvent, err := getEvents(
-		context.Background(),
+		ctx,
 		&pb.GetEventsRequest{
 			Boundary:  boundary,
 			Direction: pb.Direction_DESC,
@@ -216,7 +218,7 @@ func CreateUser(name, username, password string,
 	if len(userCreatedEvent.Events) > 0 {
 		userCreatedEvent := events[0].Data.(ev.UserCreated)
 		UserDeletedEvent, err := getEvents(
-			context.Background(),
+			ctx,
 			&pb.GetEventsRequest{
 				Boundary:  boundary,
 				Direction: pb.Direction_DESC,
@@ -285,7 +287,7 @@ func CreateUser(name, username, password string,
 		})
 	}
 
-	_, err = saveEvents(context.Background(), &pb.SaveEventsRequest{
+	_, err = saveEvents(ctx, &pb.SaveEventsRequest{
 		Boundary: boundary,
 		ConsistencyCondition: &pb.IndexLockCondition{
 			ConsistencyMarker: &pb.Position{
@@ -316,7 +318,7 @@ func CreateUser(name, username, password string,
 	return &userCreated, nil
 }
 
-func createUserCommandHandler(userId string, username, password string, name string, roles []ev.Role, events []*ev.Event) ([]*ev.Event, error) {
+func createUserCommandHandler(userId string, username, password string, name string, roles []globalCommon.Role, events []*ev.Event) ([]*ev.Event, error) {
 	//check if events contains any user created event and not user deleted event
 	if len(events) > 0 {
 		hasUserCreated := false

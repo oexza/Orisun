@@ -4,17 +4,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	common "orisun/src/orisun/admin/slices/common"
 	l "orisun/src/orisun/logging"
 
 	datastar "github.com/starfederation/datastar/sdk/go"
+	globalCommon "orisun/src/orisun/common"
 )
 
 type LoginHandler struct {
 	logger        l.Logger
 	boundary      string
 	authenticator interface {
-		ValidateCredentials(username string, password string) (common.User, error)
+		ValidateCredentials(username string, password string) (globalCommon.User, error)
 	}
 }
 
@@ -22,7 +22,7 @@ func NewLoginHandler(
 	logger l.Logger,
 	boundary string,
 	authenticator interface {
-		ValidateCredentials(username string, password string) (common.User, error)
+		ValidateCredentials(username string, password string) (globalCommon.User, error)
 	},
 ) *LoginHandler {
 	return &LoginHandler{
@@ -91,11 +91,11 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	sse.Redirect("/admin/dashboard")
 }
 
-func (s *LoginHandler) login(username, password string) (common.User, error) {
+func (s *LoginHandler) login(username, password string) (globalCommon.User, error) {
 	user, err := s.authenticator.ValidateCredentials(username, password)
 
 	if err != nil {
-		return common.User{}, err
+		return globalCommon.User{}, err
 	}
 
 	return user, nil

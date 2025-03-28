@@ -1,24 +1,14 @@
 package events
 
-type Role string
-
-const (
-	RoleAdmin      Role = "ADMIN"
-	RoleOperations Role = "OPERATIONS"
-	RoleRead       Role = "READ"
-	RoleWrite      Role = "WRITE"
+import (
+	globalCommon "orisun/src/orisun/common"
 )
-
 const (
 	UserStreamPrefix = "User-Registration:::::"
 	RegistrationTag  = "Registration"
 	UsernameTag      = "Registration_username"
 )
 
-var Roles = []Role{RoleAdmin, RoleOperations, RoleRead, RoleWrite}
-func (r Role) String() string {
-	return string(r)
-}
 // Event types
 const (
 	EventTypeUserCreated     = "$UserCreated"
@@ -31,7 +21,7 @@ type UserCreated struct {
 	Name         string `json:"name"`
 	UserId       string `json:"user_id"`
 	Username     string `json:"username"`
-	Roles        []Role `json:"roles,omitempty"`
+	Roles        []globalCommon.Role `json:"roles,omitempty"`
 	PasswordHash string `json:"password_hash,omitempty"`
 }
 

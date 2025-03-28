@@ -5,16 +5,17 @@ import (
 	common "orisun/src/orisun/admin/slices/common"
 	"orisun/src/orisun/admin/templates"
 	l "orisun/src/orisun/logging"
+	globalCommon "orisun/src/orisun/common"
 )
 
 type UsersPageHandler struct {
 	logger         l.Logger
 	boundary       string
-	ListAdminUsers func() ([]*common.User, error)
+	ListAdminUsers func() ([]*globalCommon.User, error)
 }
 
 func NewUsersPageHandler(logger l.Logger, boundary string,
-	listAdminUsers func() ([]*common.User, error)) *UsersPageHandler {
+	listAdminUsers func() ([]*globalCommon.User, error)) *UsersPageHandler {
 	return &UsersPageHandler{
 		logger:         logger,
 		boundary:       boundary,

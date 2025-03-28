@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+const insertLastPublishedPosition = `
+insert into %s.orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
+values ($1, $2, $3, $4, $5)
+ON CONFLICT (boundary)
+    do update set transaction_id = $2,
+                  global_id      = $3,
+                  date_updated=$5
+`
+
+const getLastPublishedEventQuery = `
+select transaction_id, global_id from %s.orisun_last_published_event_position where boundary = $1
+`
+
 type PostgresEventPublishing struct {
 	db                     *sql.DB
 	logger                 logging.Logger

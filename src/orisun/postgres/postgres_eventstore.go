@@ -17,15 +17,11 @@ import (
 	config "orisun/src/orisun/config"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	ev "orisun/src/orisun/admin/events"
-
-	common "orisun/src/orisun/admin/slices/common"
-
-	"github.com/lib/pq"
+	globalCommon "orisun/src/orisun/common"
 )
 
 const insertEventsWithConsistency = `
@@ -34,19 +30,6 @@ SELECT * FROM %s.insert_events_with_consistency($1::jsonb, $2::jsonb, $3::jsonb)
 
 const selectMatchingEvents = `
 SELECT * FROM %s.get_matching_events($1, $2::INT, $3::jsonb, $4::jsonb, $5, $6::INT)
-`
-
-const insertLastPublishedPosition = `
-insert into %s.orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
-values ($1, $2, $3, $4, $5)
-ON CONFLICT (boundary)
-    do update set transaction_id = $2,
-                  global_id      = $3,
-                  date_updated=$5
-`
-
-const getLastPublishedEventQuery = `
-select transaction_id, global_id from %s.orisun_last_published_event_position where boundary = $1
 `
 
 const setSearchPath = `
@@ -437,31 +420,31 @@ func (m *PGLockProvider) Lock(ctx context.Context, lockName string) (eventstore.
 }
 
 type PostgresAdminDB struct {
-	db     *sql.DB
-	logger logging.Logger
+	db          *sql.DB
+	logger      logging.Logger
 	adminSchema string
 }
 
 func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string) *PostgresAdminDB {
 	return &PostgresAdminDB{
-		db:     db,
-		logger: logger,
+		db:          db,
+		logger:      logger,
 		adminSchema: schema,
 	}
 }
 
-var userCache = map[string]*common.User{}
+var userCache = map[string]*globalCommon.User{}
 
-func (s *PostgresAdminDB) ListAdminUsers() ([]*common.User, error) {
+func (s *PostgresAdminDB) ListAdminUsers() ([]*globalCommon.User, error) {
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.adminSchema))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []*common.User
+	var users []*globalCommon.User
 	for rows.Next() {
-		var user common.User
+		var user globalCommon.User
 		user, err = s.scanUser(rows)
 		users = append(users, &user)
 	}
@@ -505,7 +488,7 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 	return nil
 }
 
-func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []ev.Role) error {
+func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []globalCommon.Role) error {
 	roleStrings := make([]string, len(roles))
 	for i, role := range roles {
 		roleStrings[i] = string(role)
@@ -527,7 +510,7 @@ func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_has
 		return err
 	}
 
-	userCache[username] = &common.User{
+	userCache[username] = &globalCommon.User{
 		Id:             id,
 		Username:       username,
 		HashedPassword: password_hash,
@@ -549,21 +532,21 @@ func (p *PostgresAdminDB) DeleteUser(id string) error {
 	return nil
 }
 
-func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (common.User, error) {
-	var user common.User
+func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (globalCommon.User, error) {
+	var user globalCommon.User
 	var roles []string
 	if err := rows.Scan(&user.Id, &user.Name, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
 		s.logger.Error("Failed to scan user row: %v", err)
-		return common.User{}, err
+		return globalCommon.User{}, err
 	}
 
 	for _, role := range roles {
-		user.Roles = append(user.Roles, ev.Role(role))
+		user.Roles = append(user.Roles, globalCommon.Role(role))
 	}
 	return user, nil
 }
 
-func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error) {
+func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User, error) {
 	user := userCache[username]
 	if user != nil {
 		s.logger.Debug("Fetched from cache")
@@ -573,15 +556,15 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.adminSchema), username)
 	if err != nil {
 		s.logger.Debugf("Userrrrr: %v", err)
-		return common.User{}, err
+		return globalCommon.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse common.User
+	var userResponse globalCommon.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return common.User{}, err
+			return globalCommon.User{}, err
 		}
 	}
 
@@ -589,7 +572,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (common.User, error
 		userCache[username] = &userResponse
 		return userResponse, nil
 	}
-	return common.User{}, fmt.Errorf("user not found")
+	return globalCommon.User{}, fmt.Errorf("user not found")
 }
 
 func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {

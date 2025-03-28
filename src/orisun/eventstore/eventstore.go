@@ -5,20 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 
-	// reflect "reflect"
 	"runtime/debug"
-	// sync "sync"
 	"time"
+
+	globalCommon "orisun/src/orisun/common"
+	logging "orisun/src/orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
-
-	// "strings"
-
-	globalCommon "orisun/src/orisun/common"
-	logging "orisun/src/orisun/logging"
 )
 
 type SaveEventsType = func(ctx context.Context, in *SaveEventsRequest) (resp *WriteResult, err error)
@@ -131,8 +127,41 @@ type EventWithMapTags struct {
 	Tags      map[string]interface{} `json:"tags"`
 }
 
+func authorizeRequest(ctx context.Context, boundary string, roles []globalCommon.Role) error {
+	// Check if the user has the necessary permissions to perform the query
+	user := ctx.Value(globalCommon.UserContextKey)
+	if user == nil {
+		return nil
+	}
+
+	// Check if the user has any of the necessary permissions to perform the query
+	userObj := user.(globalCommon.User)
+
+	// If no roles are specified, allow access
+	if len(roles) == 0 {
+		return nil
+	}
+
+	// Check if the user has any of the required roles
+	for _, requiredRole := range roles {
+		for _, userRole := range userObj.Roles {
+			if userRole == requiredRole {
+				// User has at least one of the required roles
+				return nil
+			}
+		}
+	}
+
+	// User doesn't have any of the required roles
+	return status.Errorf(codes.PermissionDenied, "user does not have any of the required roles")
+}
+
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	logger.Debugf("SaveEvents called with req: %v", req)
+	err = authorizeRequest(ctx, req.Boundary, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
+	if err != nil {
+		return nil, err
+	}
 	// Defer a recovery function to catch any panics
 	defer func() {
 		if r := recover(); r != nil {

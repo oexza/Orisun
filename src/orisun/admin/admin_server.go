@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	create_user "orisun/src/orisun/admin/slices/create_user"
@@ -9,6 +12,8 @@ import (
 	login "orisun/src/orisun/admin/slices/login"
 	"orisun/src/orisun/admin/slices/users_page"
 	l "orisun/src/orisun/logging"
+
+	globalCommon "orisun/src/orisun/common"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -94,8 +99,22 @@ func withAuthentication(call func(http.ResponseWriter, *http.Request)) func(http
 			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		}
-		fmt.Errorf("Cookie is : %v", c)
 
-		call(w, r)
+		userStr, err := base64.StdEncoding.DecodeString(c.Value)
+		if err != nil {
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			return
+		}
+		var unmarshled globalCommon.User = globalCommon.User{}
+
+		err = json.Unmarshal(userStr, &unmarshled)
+
+		if err != nil {
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), globalCommon.UserContextKey, unmarshled)
+		call(w, r.WithContext(ctx))
 	}
 }
