@@ -2,8 +2,7 @@ package io.orisun.client;
 
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
-import eventstore.*;
-import eventstore.Eventstore.*;
+import com.orisun.eventstore.*;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
@@ -153,7 +152,7 @@ public class OrisunClient implements AutoCloseable {
     }
 
     // Synchronous methods
-    public WriteResult saveEvents(final SaveEventsRequest request) throws OrisunException {
+    public Eventstore.WriteResult saveEvents(final Eventstore.SaveEventsRequest request) throws OrisunException {
         try {
             return blockingStub
                     .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
@@ -163,7 +162,7 @@ public class OrisunClient implements AutoCloseable {
         }
     }
 
-    public GetEventsResponse getEvents(GetEventsRequest request) throws OrisunException {
+    public Eventstore.GetEventsResponse getEvents(Eventstore.GetEventsRequest request) throws OrisunException {
         try {
             return blockingStub
                     .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
@@ -174,14 +173,14 @@ public class OrisunClient implements AutoCloseable {
     }
 
     // Asynchronous methods
-    public CompletableFuture<WriteResult> saveEventsAsync(SaveEventsRequest request) {
-        CompletableFuture<WriteResult> future = new CompletableFuture<>();
+    public CompletableFuture<Eventstore.WriteResult> saveEventsAsync(Eventstore.SaveEventsRequest request) {
+        CompletableFuture<Eventstore.WriteResult> future = new CompletableFuture<>();
 
         asyncStub
                 .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
                 .saveEvents(request, new StreamObserver<>() {
                     @Override
-                    public void onNext(WriteResult result) {
+                    public void onNext(Eventstore.WriteResult result) {
                         future.complete(result);
                     }
 
@@ -200,17 +199,17 @@ public class OrisunClient implements AutoCloseable {
     }
 
     // Streaming methods
-    public EventSubscription subscribeToEvents(CatchUpSubscribeToEventStoreRequest request,
+    public EventSubscription subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
                                                EventSubscription.EventHandler handler) {
         return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 
-    public PubSubSubscription subscribeToPubSub(SubscribeRequest request,
+    public PubSubSubscription subscribeToPubSub(Eventstore.SubscribeRequest request,
                                                 PubSubSubscription.MessageHandler handler) {
         return new PubSubSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 
-    public void publishToPubSub(PublishRequest request) throws OrisunException {
+    public void publishToPubSub(Eventstore.PublishRequest request) throws OrisunException {
         try {
             blockingStub
                     .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)

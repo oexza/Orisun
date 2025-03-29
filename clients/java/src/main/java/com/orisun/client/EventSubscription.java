@@ -1,33 +1,32 @@
 package io.orisun.client;
 
-import eventstore.EventStoreGrpc;
-import eventstore.Eventstore;
-import eventstore.Eventstore.*;
+import com.orisun.eventstore.EventStoreGrpc;
+import com.orisun.eventstore.Eventstore;
 import io.grpc.stub.StreamObserver;
 
 import java.util.concurrent.TimeUnit;
 
-public class PubSubSubscription implements AutoCloseable {
-    private final StreamObserver<Eventstore.SubscribeResponse> observer;
+public class EventSubscription implements AutoCloseable {
+    private final StreamObserver<Eventstore.Event> observer;
     private volatile boolean closed = false;
 
-    public interface MessageHandler {
-        void onMessage(Eventstore.SubscribeResponse message);
+    public interface EventHandler {
+        void onEvent(Eventstore.Event event);
 
         void onError(Throwable error);
 
         void onCompleted();
     }
 
-    PubSubSubscription(EventStoreGrpc.EventStoreStub stub,
-                       SubscribeRequest request,
-                       MessageHandler handler,
-                       int timeoutSeconds) {
+    EventSubscription(EventStoreGrpc.EventStoreStub stub,
+                      Eventstore.CatchUpSubscribeToEventStoreRequest request,
+                      EventHandler handler,
+                      int timeoutSeconds) {
         this.observer = new StreamObserver<>() {
             @Override
-            public void onNext(SubscribeResponse response) {
-                if (!closed && response.hasMessage()) {
-                    handler.onMessage(response);
+            public void onNext(Eventstore.Event event) {
+                if (!closed) {
+                    handler.onEvent(event);
                 }
             }
 
@@ -45,9 +44,10 @@ public class PubSubSubscription implements AutoCloseable {
                 }
             }
         };
+        
         stub
                 .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
-                .subscribeToPubSub(request, this.observer);
+                .catchUpSubscribeToEvents(request, observer);
     }
 
     @Override
@@ -55,4 +55,4 @@ public class PubSubSubscription implements AutoCloseable {
         closed = true;
         observer.onCompleted();
     }
-} 
+}

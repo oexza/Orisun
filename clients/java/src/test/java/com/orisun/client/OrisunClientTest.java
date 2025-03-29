@@ -1,11 +1,12 @@
 package io.orisun.client;
 
+import com.orisun.eventstore.EventStoreGrpc;
+import com.orisun.eventstore.Eventstore;
+import com.orisun.eventstore.Eventstore.*;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
-import eventstore.*;
-import eventstore.Eventstore.*;
 import org.junit.Rule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,20 +56,20 @@ class OrisunClientTest {
     void testSaveEvents() throws Exception {
         // Prepare test data
         String eventId = UUID.randomUUID().toString();
-        Eventstore.SaveEventsRequest request = SaveEventsRequest.newBuilder()
+        Eventstore.SaveEventsRequest request = Eventstore.SaveEventsRequest.newBuilder()
                 .setBoundary("users")
-                .addEvents(EventToSave.newBuilder()
+                .addEvents(Eventstore.EventToSave.newBuilder()
                         .setEventId(eventId)
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")
-                        .addTags(Tag.newBuilder()
+                        .addTags(Eventstore.Tag.newBuilder()
                                 .setKey("registration-domain")
                                 .setValue("user-123")
                                 .build())
                         .build()
                 )
                 .setStream(
-                        SaveStreamQuery.newBuilder()
+                        Eventstore.SaveStreamQuery.newBuilder()
                                 .setName("user-123")
                                 .build()
                 )
@@ -76,7 +77,7 @@ class OrisunClientTest {
 
         // Configure mock response
         mockService.setNextWriteResult(WriteResult.newBuilder()
-                .setLogPosition(Position.newBuilder()
+                .setLogPosition(Eventstore.Position.newBuilder()
                         .setCommitPosition(1)
                         .setPreparePosition(1)
                         .build())
@@ -192,38 +193,38 @@ class OrisunClientTest {
             this.nextWriteResult = result;
         }
 
-        SaveEventsRequest getLastSaveEventsRequest() {
+        Eventstore.SaveEventsRequest getLastSaveEventsRequest() {
             return lastSaveEventsRequest;
         }
 
-        void sendEvent(Event event) {
+        void sendEvent(Eventstore.Event event) {
             if (eventObserver != null) {
                 eventObserver.onNext(event);
             }
         }
 
-        void sendPubSubMessage(Message message) {
+        void sendPubSubMessage(Eventstore.Message message) {
             if (pubSubObserver != null) {
-                pubSubObserver.onNext(SubscribeResponse.newBuilder()
+                pubSubObserver.onNext(Eventstore.SubscribeResponse.newBuilder()
                         .setMessage(message)
                         .build());
             }
         }
 
         @Override
-        public void saveEvents(SaveEventsRequest request, StreamObserver<WriteResult> responseObserver) {
+        public void saveEvents(Eventstore.SaveEventsRequest request, StreamObserver<WriteResult> responseObserver) {
             lastSaveEventsRequest = request;
             responseObserver.onNext(nextWriteResult);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void catchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest request, StreamObserver<Event> responseObserver) {
+        public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request, StreamObserver<Eventstore.Event> responseObserver) {
             this.eventObserver = responseObserver;
         }
 
         @Override
-        public void subscribeToPubSub(SubscribeRequest request, StreamObserver<SubscribeResponse> responseObserver) {
+        public void subscribeToPubSub(Eventstore.SubscribeRequest request, StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
             this.pubSubObserver = responseObserver;
         }
     }
