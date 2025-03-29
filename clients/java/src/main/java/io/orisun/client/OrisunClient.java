@@ -54,7 +54,14 @@ public class OrisunClient implements AutoCloseable {
             this.loadBalancingPolicy = policy;
             return this;
         }
-
+        
+        private boolean useDnsResolver = true;
+        
+        public Builder withDnsResolver(boolean useDns) {
+            this.useDnsResolver = useDns;
+            return this;
+        }
+        
         public Builder withTimeout(int seconds) {
             this.timeoutSeconds = seconds;
             return this;
@@ -102,7 +109,8 @@ public class OrisunClient implements AutoCloseable {
         }
 
         private String createTargetString(List<ServerAddress> servers) {
-            StringBuilder sb = new StringBuilder("dns:///");
+            // Choose between DNS and static resolution based on configuration
+            StringBuilder sb = new StringBuilder(useDnsResolver ? "dns:///" : "static:///");
             boolean first = true;
             for (ServerAddress server : servers) {
                 if (!first) {
