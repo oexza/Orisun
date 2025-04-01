@@ -47,7 +47,7 @@ protobuf {
 sourceSets {
     main {
         proto {
-            srcDir '../../src/orisun/eventstore'
+            srcDir '../../eventstore'
         }
     }
 }

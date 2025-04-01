@@ -1,4 +1,4 @@
-package io.orisun.client;
+package com.orisun.client;
 
 import com.orisun.eventstore.EventStoreGrpc;
 import com.orisun.eventstore.Eventstore;

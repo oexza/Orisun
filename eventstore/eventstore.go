@@ -708,35 +708,6 @@ func (s *EventStore) PublishToPubSub(ctx context.Context, req *PublishRequest) (
 	return &emptypb.Empty{}, nil
 }
 
-// func GetLastPublishedPositionFromNats(ctx context.Context, js jetstream.JetStream, boundary string) (*Position, error) {
-// 	eventsStreamName := GetEventsStreamName(boundary)
-// 	stream, err := js.Stream(ctx, eventsStreamName)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	logger.Debugf("stream info: %v", stream)
-
-// 	info, err := stream.Info(ctx)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if info.State.LastSeq == 0 {
-// 		return &Position{CommitPosition: 0, PreparePosition: 0}, nil
-// 	}
-
-// 	msg, err := stream.GetMsg(ctx, info.State.LastSeq)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	var event Event
-// 	if err := json.Unmarshal(msg.Data, &event); err != nil {
-// 		return nil, err
-// 	}
-
-// 	return event.Position, nil
-// }
-
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {
 	return fmt.Sprintf("%d%d", preparePosition, commitPosition)
 }

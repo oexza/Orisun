@@ -65,7 +65,7 @@ func main() {
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config, js)
 
 	// Initialize EventStore
 	eventStore := initializeEventStore(
@@ -250,7 +250,7 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 	}
 	return nil
 }
-func initializeDatabase(ctx context.Context, config *c.AppConfig) (pb.ImplementerSaveEvents,
+func initializeDatabase(ctx context.Context, config *c.AppConfig, js jetstream.JetStream) (pb.ImplementerSaveEvents,
 	pb.ImplementerGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
 	db, err := sql.Open(
 		"postgres",
@@ -283,7 +283,11 @@ func initializeDatabase(ctx context.Context, config *c.AppConfig) (pb.Implemente
 
 	saveEvents := postgres.NewPostgresSaveEvents(db, &AppLogger, postgesBoundarySchemaMappings)
 	getEvents := postgres.NewPostgresGetEvents(db, &AppLogger, postgesBoundarySchemaMappings)
-	lockProvider := postgres.NewPGLockProvider(db, AppLogger)
+	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js)
+	if err != nil {
+		AppLogger.Fatalf("Failed to create lock provider: %v", err)
+	}
+	// lockProvider := postgres.NewPGLockProvider(db, AppLogger)
 	adminDB := postgres.NewPostgresAdminDB(
 		db, AppLogger, postgesBoundarySchemaMappings[config.Admin.Boundary].Schema,
 	)

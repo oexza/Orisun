@@ -1,4 +1,4 @@
-package io.orisun.client;
+package com.orisun.client;
 
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;

@@ -1,4 +1,4 @@
-package io.orisun.client;
+package com.orisun.client;
 
 public class OrisunException extends Exception {
     public OrisunException(String message) {

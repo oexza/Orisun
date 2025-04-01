@@ -1,4 +1,4 @@
-package io.orisun.client;
+package com.orisun.client;
 
 import com.orisun.eventstore.EventStoreGrpc;
 import com.orisun.eventstore.Eventstore;
@@ -41,14 +41,13 @@ class OrisunClientTest {
                 .start());
 
         // Create the client
-        client = OrisunClient.newBuilder()
+        client = OrisunClient
+                .newBuilder()
                 .withChannel(
                         grpcCleanup.register(
                                 InProcessChannelBuilder.forName(serverName)
                                         .directExecutor()
-                                        .build()
-                        )
-                )
+                                        .build()))
                 .build();
     }
 
@@ -66,13 +65,11 @@ class OrisunClientTest {
                                 .setKey("registration-domain")
                                 .setValue("user-123")
                                 .build())
-                        .build()
-                )
+                        .build())
                 .setStream(
                         Eventstore.SaveStreamQuery.newBuilder()
                                 .setName("user-123")
-                                .build()
-                )
+                                .build())
                 .build();
 
         // Configure mock response
@@ -104,7 +101,7 @@ class OrisunClientTest {
                 .build();
 
         // Set up subscription
-        try (EventSubscription subscription = client.subscribeToEvents(request,
+        try (final var subscription = client.subscribeToEvents(request,
                 new EventSubscription.EventHandler() {
                     @Override
                     public void onEvent(Event event) {
@@ -165,8 +162,7 @@ class OrisunClientTest {
                     public void onCompleted() {
                         // Not expected in this test
                     }
-                })
-        ) {
+                })) {
 
             // Simulate server sending a message
             mockService.sendPubSubMessage(Message.newBuilder()
@@ -219,12 +215,14 @@ class OrisunClientTest {
         }
 
         @Override
-        public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request, StreamObserver<Eventstore.Event> responseObserver) {
+        public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
+                                             StreamObserver<Eventstore.Event> responseObserver) {
             this.eventObserver = responseObserver;
         }
 
         @Override
-        public void subscribeToPubSub(Eventstore.SubscribeRequest request, StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
+        public void subscribeToPubSub(Eventstore.SubscribeRequest request,
+                                      StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
             this.pubSubObserver = responseObserver;
         }
     }
