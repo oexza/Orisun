@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the application with optimizations
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o orisun ./src/orisun
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o orisun ./
 
 # Use a minimal scratch image for the final container
 FROM alpine:3.18
@@ -28,17 +28,20 @@ WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/orisun /app/
-# Copy config files if needed
-COPY --from=builder /app/config /app/config
 
 # Set ownership
 RUN chown -R orisun:orisun /app
+
+# Add this before switching to the non-root user
+RUN mkdir -p /var/lib/orisun/data && \
+    chown -R orisun:orisun /var/lib/orisun
 
 # Switch to non-root user
 USER orisun
 
 # Expose necessary ports
 EXPOSE 8080
+EXPOSE 50051
 
 # Set environment variables
 ENV GO_ENV=production

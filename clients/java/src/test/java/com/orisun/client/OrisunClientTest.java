@@ -67,7 +67,8 @@ class OrisunClientTest {
                                 .build())
                         .build())
                 .setStream(
-                        Eventstore.SaveStreamQuery.newBuilder()
+                        Eventstore.SaveStreamQuery
+                                .newBuilder()
                                 .setName("user-123")
                                 .build())
                 .build();
@@ -216,13 +217,13 @@ class OrisunClientTest {
 
         @Override
         public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-                                             StreamObserver<Eventstore.Event> responseObserver) {
+                StreamObserver<Eventstore.Event> responseObserver) {
             this.eventObserver = responseObserver;
         }
 
         @Override
         public void subscribeToPubSub(Eventstore.SubscribeRequest request,
-                                      StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
+                StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
             this.pubSubObserver = responseObserver;
         }
     }

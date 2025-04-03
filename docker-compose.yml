@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  orisun: 
+    image: oexza/orisun:latest
+    ports:
+      - "8992:8991"  # Admin port
+      - "5006:5005"  # gRPC port
+    environment:
+      - ORISUN_PG_USER=postgres
+      - ORISUN_PG_NAME=orisun
+      - ORISUN_PG_PASSWORD=password@1
+      - ORISUN_PG_HOST=postgres
+      - ORISUN_PG_PORT=5432
+      - ORISUN_NATS_STORE_DIR=/var/lib/orisun/data
+      - ORISUN_LOGGING_LEVEL=INFO
+      - ORISUN_ADMIN_USERNAME=admin
+      - ORISUN_ADMIN_PASSWORD=changeit
+    volumes:
+      - orisun-data:/var/lib/orisun/data
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password@1
+      - POSTGRES_DB=orisun
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  orisun-data:

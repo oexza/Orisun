@@ -45,8 +45,8 @@ DECLARE
     
     current_tx_id BIGINT := pg_current_xact_id()::TEXT::BIGINT;
     current_stream_version BIGINT := 0;
-    conflict_transaction BIGINT;
-    conflict_global_id BIGINT;
+    conflict_transaction_id BIGINT := NULL;
+    conflict_global_id BIGINT := NULL;
     global_keys TEXT[];
     key_record TEXT;
 BEGIN
@@ -95,24 +95,31 @@ BEGIN
         END IF;
 
         -- Global position check
-        IF last_position IS NOT NULL THEN
-            SELECT e.transaction_id, e.global_id 
-            INTO conflict_transaction, conflict_global_id
-            FROM orisun_es_event e
-            WHERE (e.transaction_id, e.global_id) > (
-                (last_position->>'transaction_id')::BIGINT,
-                (last_position->>'global_id')::bigint
-            )
-            AND e.tags @> ANY (SELECT jsonb_array_elements(global_criteria))
-            ORDER BY e.transaction_id DESC, e.global_id DESC
-            LIMIT 1;
+            IF last_position IS NOT NULL THEN
+                SELECT e.transaction_id, e.global_id 
+                INTO conflict_transaction_id, conflict_global_id
+                FROM orisun_es_event e
+                WHERE e.tags @> ANY (SELECT jsonb_array_elements(global_criteria))
+                ORDER BY e.transaction_id DESC, e.global_id DESC
+                LIMIT 1;
 
-            IF FOUND THEN
-                RAISE EXCEPTION 'OptimisticConcurrencyException: Global Conflict: Expected Position %/% but found Position %/%',
-                   (last_position->>'transaction_id'),
-                (last_position->>'global_id'), conflict_transaction, conflict_global_id;
+                -- Handle the case when no events are found
+                IF conflict_transaction_id IS NULL THEN
+                    conflict_transaction_id := 0;
+                END IF;
+
+                IF conflict_global_id IS NULL THEN
+                    conflict_global_id := 0;
+                END IF;
+
+                -- Compare with expected position
+                IF conflict_transaction_id != (last_position->>'transaction_id')::BIGINT OR
+                   conflict_global_id != (last_position->>'global_id')::BIGINT THEN
+                    RAISE EXCEPTION 'OptimisticConcurrencyException: Global Conflict: Expected Position %/% but found Position %/%',
+                       (last_position->>'transaction_id'),
+                    (last_position->>'global_id'), conflict_transaction_id, conflict_global_id;
+                END IF;
             END IF;
-        END IF;
     END IF;
 
     -- select the frontier of the stream if a subset criteria was specified to ensure the next set of events are properly versioned

@@ -21,7 +21,7 @@ nats:
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}
   maxPayload: ${ORISUN_NATS_MAX_PAYLOAD:1048576}
-  storeDir: ${ORISUN_NATS_STORE_DIR:../data/orisun}
+  storeDir: ${ORISUN_NATS_STORE_DIR:./data/orisun}
   cluster:
     name: ${ORISUN_NATS_CLUSTER_NAME:orisun-nats-cluster}
     host: ${ORISUN_NATS_CLUSTER_HOST:0.0.0.0}

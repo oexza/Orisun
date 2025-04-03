@@ -2,9 +2,7 @@ package postgres
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +83,7 @@ func (s *PostgresSaveEvents) Save(
 	streamName string,
 	expectedVersion uint32,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
+		s.logger.Debugf("Postgres: Saving events from request: %v", consistencyCondition)
 	var streamSubsetQueryJSON *string
 
 	streamSubsetAsJsonString, err := json.Marshal(getStreamSectionAsMap(streamName, expectedVersion, streamConsistencyCondition))
@@ -125,6 +124,7 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	}
 
+	s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(insertEventsWithConsistency, schema),
@@ -362,63 +362,63 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]interface{} {
 	return result
 }
 
-type PGLockProvider struct {
-	db     *sql.DB
-	logger logging.Logger
-}
+// type PGLockProvider struct {
+// 	db     *sql.DB
+// 	logger logging.Logger
+// }
 
-func NewPGLockProvider(db *sql.DB, logger logging.Logger) *PGLockProvider {
-	return &PGLockProvider{
-		db:     db,
-		logger: logger,
-	}
-}
+// func NewPGLockProvider(db *sql.DB, logger logging.Logger) *PGLockProvider {
+// 	return &PGLockProvider{
+// 		db:     db,
+// 		logger: logger,
+// 	}
+// }
 
-func (m *PGLockProvider) Lock(ctx context.Context, lockName string) (eventstore.UnlockFunc, error) {
-	m.logger.Debug("Lock called for: %v", lockName)
-	conn, err := m.db.Conn(ctx)
+// func (m *PGLockProvider) Lock(ctx context.Context, lockName string) (eventstore.UnlockFunc, error) {
+// 	m.logger.Debug("Lock called for: %v", lockName)
+// 	conn, err := m.db.Conn(ctx)
 
-	if err != nil {
-		return nil, err
-	}
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+// 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 
-	if err != nil {
-		return nil, err
-	}
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	hash := sha256.Sum256([]byte(lockName))
-	lockID := int64(binary.BigEndian.Uint64(hash[:]))
+// 	hash := sha256.Sum256([]byte(lockName))
+// 	lockID := int64(binary.BigEndian.Uint64(hash[:]))
 
-	var acquired bool
+// 	var acquired bool
 
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, lockName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to set search path: %v", err)
-	}
-	err = tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", int32(lockID)).Scan(&acquired)
+// 	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, lockName))
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to set search path: %v", err)
+// 	}
+// 	err = tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", int32(lockID)).Scan(&acquired)
 
-	if err != nil {
-		m.logger.Errorf("Failed to acquire lock: %v, will retry", err)
-		return nil, err
-	}
+// 	if err != nil {
+// 		m.logger.Errorf("Failed to acquire lock: %v, will retry", err)
+// 		return nil, err
+// 	}
 
-	if !acquired {
-		m.logger.Warnf("Failed to acquire lock within timeout")
-		return nil, errors.New("lock acquisition timed out")
-	}
+// 	if !acquired {
+// 		m.logger.Warnf("Failed to acquire lock within timeout")
+// 		return nil, errors.New("lock acquisition timed out")
+// 	}
 
-	unlockFunc := func() error {
-		fmt.Printf("Unlock called for: %s", lockName)
-		defer conn.Close()
-		defer tx.Rollback()
+// 	unlockFunc := func() error {
+// 		fmt.Printf("Unlock called for: %s", lockName)
+// 		defer conn.Close()
+// 		defer tx.Rollback()
 
-		return nil
-	}
+// 		return nil
+// 	}
 
-	return unlockFunc, nil
-}
+// 	return unlockFunc, nil
+// }
 
 type PostgresAdminDB struct {
 	db          *sql.DB
