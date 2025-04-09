@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -14,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	// Add PostgreSQL driver
+	_ "github.com/lib/pq"
 )
 
 type PostgresContainer struct {
@@ -23,7 +24,7 @@ type PostgresContainer struct {
 }
 
 func setupTestContainer(t *testing.T) (*PostgresContainer, error) {
-	ctx := context.Background()
+	ctx := t.Context()
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:13",
 		ExposedPorts: []string{"5432/tcp"},
@@ -73,7 +74,7 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 	}
 
 	// Run database migrations using the common scripts
-	if err := RunDbScripts(db, "test_boundary", false, context.Background()); err != nil {
+	if err := RunDbScripts(db, "public", false, t.Context()); err != nil {
 		return nil, fmt.Errorf("failed to run database migrations: %v", err)
 	}
 
@@ -83,7 +84,7 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 func TestSaveAndGetEvents(t *testing.T) {
 	container, err := setupTestContainer(t)
 	require.NoError(t, err)
-	defer container.container.Terminate(context.Background())
+	defer container.container.Terminate(t.Context())
 
 	db, err := setupTestDatabase(t, container)
 	require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 
 	// Save events
 	tranID, globalID, err := saveEvents.Save(
-		context.Background(),
+		t.Context(),
 		events,
 		nil,
 		"test_boundary",
@@ -132,7 +133,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Greater(t, globalID, uint64(0))
 
 	// Get events
-	resp, err := getEvents.Get(context.Background(), &eventstore.GetEventsRequest{
+	resp, err := getEvents.Get(t.Context(), &eventstore.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
@@ -160,4 +161,141 @@ func TestSaveAndGetEvents(t *testing.T) {
 			t.Errorf("unexpected tag key: %s", tag.Key)
 		}
 	}
+}
+
+// Add more test cases
+func TestOptimisticConcurrency(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer container.container.Terminate(t.Context())
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
+
+	// First save succeeds
+	events := []*eventstore.EventWithMapTags{
+		{
+			EventId:   "test-event-1",
+			EventType: "TestEvent",
+			Data:      "{\"key\": \"value\"}",
+			Tags:      map[string]interface{}{"tag1": "value1"},
+		},
+	}
+
+	_, _, err = saveEvents.Save(
+		t.Context(),
+		events,
+		nil,
+		"test_boundary",
+		"test-stream",
+		0, // Expected version 0
+		nil,
+	)
+	require.NoError(t, err)
+
+	// Second save with wrong expected version should fail
+	events2 := []*eventstore.EventWithMapTags{
+		{
+			EventId:   "test-event-2",
+			EventType: "TestEvent",
+			Data:      "{\"key\": \"value2\"}",
+			Tags:      map[string]interface{}{"tag1": "value2"},
+		},
+	}
+
+	_, _, err = saveEvents.Save(
+		t.Context(),
+		events2,
+		nil,
+		"test_boundary",
+		"test-stream",
+		0, // Expected version 0 again, but should be 1 now
+		nil,
+	)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "OptimisticConcurrencyException")
+}
+
+func TestGetEventsWithCriteria(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer container.container.Terminate(t.Context())
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
+	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+
+	// Save events with different tags
+	events1 := []*eventstore.EventWithMapTags{
+		{
+			EventId:   "test-event-1",
+			EventType: "TestEvent",
+			Data:      "{\"key\": \"value1\"}",
+			Tags:      map[string]interface{}{"category": "A", "priority": "high"},
+		},
+	}
+
+	_, _, err = saveEvents.Save(t.Context(), events1, nil, "test_boundary", "test-stream", 0, nil)
+	require.NoError(t, err)
+
+	events2 := []*eventstore.EventWithMapTags{
+		{
+			EventId:   "test-event-2",
+			EventType: "TestEvent",
+			Data:      "{\"key\": \"value2\"}",
+			Tags:      map[string]interface{}{"category": "B", "priority": "low"},
+		},
+	}
+
+	_, _, err = saveEvents.Save(t.Context(), events2, nil, "test_boundary", "test-stream", 1, nil)
+	require.NoError(t, err)
+
+	// Test filtering by tag criteria
+	resp, err := getEvents.Get(t.Context(), &eventstore.GetEventsRequest{
+		Boundary:  "test_boundary",
+		Direction: eventstore.Direction_ASC,
+		Count:     10,
+		Stream: &eventstore.GetStreamQuery{
+			Name: "test-stream",
+		},
+		Query: &eventstore.Query{
+			Criteria: []*eventstore.Criterion{
+				&eventstore.Criterion{
+					Tags: []*eventstore.Tag{
+						{Key: "category", Value: "A"},
+					},
+				},
+			},
+		},
+	})
+
+	assert.NoError(t, err)
+	assert.Len(t, resp.Events, 1)
+	assert.Equal(t, "test-event-1", resp.Events[0].EventId)
 }

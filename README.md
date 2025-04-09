@@ -157,7 +157,7 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
     }
   ],
   "stream": {
-    "expected_version": 0,
+    "expected_version": -1,
     "name": "user-1234"
   }
 }

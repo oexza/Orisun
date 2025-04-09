@@ -26,7 +26,7 @@ type ImplementerSaveEvents interface {
 		indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
-		streamVersion uint32,
+		streamVersion int32,
 		streamSubSet *Query) (transactionID string, globalID uint64, err error)
 }
 
@@ -109,10 +109,10 @@ func NewEventStoreServer(
 	}
 }
 
-func getTagsAsMap(criteria *[]*Tag, eventType string) map[string]interface{} {
-	result := make(map[string]interface{}, len(*criteria))
+func getTagsAsMap(criteria []*Tag, eventType string) map[string]interface{} {
+	result := make(map[string]interface{}, len(criteria))
 
-	for _, criterion := range *criteria {
+	for _, criterion := range criteria {
 		result[criterion.Key] = criterion.Value
 	}
 	result["eventType"] = eventType
@@ -191,7 +191,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			EventType: event.EventType,
 			Data:      dataMap,
 			Metadata:  metadataMap,
-			Tags:      getTagsAsMap(&event.Tags, event.EventType),
+			Tags:      getTagsAsMap(event.Tags, event.EventType),
 		}
 	}
 
@@ -469,7 +469,7 @@ func (s *EventStore) sendHistoricalEvents(
 
 	lastPosition := fromPosition
 	var lastEventTime time.Time
-	batchSize := int32(100) // Adjust as needed
+	batchSize := uint32(100) // Adjust as needed
 
 	for {
 		events, err := s.GetEvents(ctx, &GetEventsRequest{

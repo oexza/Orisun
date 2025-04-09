@@ -7,6 +7,7 @@ import (
 	"net/http"
 	ev "orisun/admin/events"
 	t "orisun/admin/templates"
+	"orisun/eventstore"
 	l "orisun/logging"
 	"strings"
 
@@ -308,7 +309,7 @@ func CreateUser(ctx context.Context, name, username, password string,
 		Events: eventsToSave,
 		Stream: &pb.SaveStreamQuery{
 			Name:            ev.UserStreamPrefix + userId.String(),
-			ExpectedVersion: 0,
+			ExpectedVersion: eventstore.StreamDoesNotExist,
 		},
 	})
 

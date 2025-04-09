@@ -20,7 +20,7 @@ type AppConfig struct {
 		EnableReflection bool
 	}
 	PollingPublisher struct {
-		BatchSize int32
+		BatchSize uint32
 	}
 	Logging struct {
 		Enabled bool

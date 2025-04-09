@@ -68,7 +68,7 @@ BEGIN
       AND (stream_criteria IS NULL OR tags @> ANY (SELECT jsonb_array_elements(stream_criteria)));
 
     IF current_stream_version IS NULL THEN
-        current_stream_version := 0;
+        current_stream_version := -1;
     END IF;
 
     IF current_stream_version <> expected_stream_version THEN
@@ -154,7 +154,8 @@ BEGIN
                    COALESCE(e -> 'metadata', '{}'),
                    COALESCE(e -> 'tags', '{}')
             FROM jsonb_array_elements(events) AS e
-            RETURNING jsonb_array_length(events), global_id)
+            RETURNING jsonb_array_length(events), global_id
+    )
     SELECT current_stream_version + jsonb_array_length(events), current_tx_id, MAX(global_id)
     INTO new_stream_version, latest_transaction_id, latest_global_id
     FROM inserted_events;
@@ -208,7 +209,7 @@ BEGIN
             (criteria -> 'criteria'),
             sort_dir,
             LEAST(GREATEST(max_count, 1), 10000)
-                         );
+    );
 END;
 $$;
 

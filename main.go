@@ -590,7 +590,7 @@ func PollEventsFromDatabaseToNats(
 	ctx context.Context,
 	js jetstream.JetStream,
 	eventStore pb.ImplementerGetEvents,
-	batchSize int32,
+	batchSize uint32,
 	lastPosition *pb.Position,
 	boundary string,
 	db common.EventPublishing,
