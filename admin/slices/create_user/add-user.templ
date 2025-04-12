@@ -8,7 +8,7 @@ templ AddUser(currentPath string, roles []string) {
 		data-signals={ `{name: '', username: '', password: '' , role: '' , message: '' , success: '' , failed: '' }` }
 		data-on-load="document.querySelector('#add-user-dialog').show()"
 	>
-		<form method="post" action="/admin/users" data-on-submit="@post('/admin/users')">
+		<form method="post" action="/users" data-on-submit="@post('/users')">
 			<div class="space-y-4">
 				<sl-input label="Name" required clearable data-bind-name>
 					<sl-icon slot="prefix" name="person"></sl-icon>

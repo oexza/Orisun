@@ -25,13 +25,13 @@ templ UserCountFragement(userCount uint32) {
 
 templ Dashboard(currentPath string, data DashboardDetails) {
 	@templates.Admin(currentPath, "Dashboard - Orisun Admin") {
-		<div class="p-6" data-on-load="@get('/admin/dashboard')">
+		<div class="p-6" data-on-load="@get('/dashboard')">
 			<div class="mb-6">
 				<h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
 			</div>
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 				<sl-card>
-					<a href="/admin/users">
+					<a href="/users">
 						<div class="flex items-center justify-between">
 							<div>
 								<h3 class="text-lg font-medium text-gray-900">Total Users</h3>

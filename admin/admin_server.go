@@ -16,6 +16,7 @@ import (
 	globalCommon "orisun/common"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type AdminServer struct {
@@ -48,12 +49,14 @@ func NewAdminServer(
 		usersHandler:      usersHandler,
 	}
 
-	// In the NewAdminServer function, after setting up the router
 	// Register routes
-	router.Route("/admin", func(r chi.Router) {
+	router.Route("/", func(r chi.Router) {
+		// Apply the tab ID middleware only to routes under /admin
+		r.Use(server.tabIDMiddleware)
+
 		// Serve static files
 		fileServer := http.FileServer(http.Dir("/Users/pakinwale/Desktop/orisun/assets"))
-		r.Handle("/assets/*", http.StripPrefix("/admin/assets/", fileServer))
+		r.Handle("/assets/*", http.StripPrefix("/assets/", fileServer))
 
 		r.Get("/dashboard", withAuthentication(server.dashboardHandler.HandleDashboardPage))
 		r.Get("/login", server.loginHandler.HandleLoginPage)
@@ -70,6 +73,38 @@ func NewAdminServer(
 	return server, nil
 }
 
+// Move the middleware to a method on AdminServer
+func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tabId := ""
+		tabIDCookie, err := r.Cookie(globalCommon.DatastarTabCookieKey)
+
+		if err != nil {
+			newTabId, err := uuid.NewUUID()
+			if err != nil {
+				s.logger.Error("Error generating tab ID", "error", err)
+				http.Redirect(w, r, "/error", http.StatusSeeOther)
+				return
+			}
+			tabId = newTabId.String()
+		} else {
+			tabId = tabIDCookie.Value
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     globalCommon.DatastarTabCookieKey,
+			Value:    tabId,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+		})
+
+		ctx := context.WithValue(r.Context(), globalCommon.DatastarTabCookieKey, tabId)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Clear the auth cookie by setting an expired cookie with the same name
 	http.SetCookie(w, &http.Cookie{
@@ -83,7 +118,7 @@ func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect to login page
-	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (s *AdminServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -96,13 +131,13 @@ func withAuthentication(call func(http.ResponseWriter, *http.Request)) func(http
 		c, err := r.Cookie("auth")
 		if err != nil {
 			fmt.Errorf("Template execution error: %v", err)
-			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 
 		userStr, err := base64.StdEncoding.DecodeString(c.Value)
 		if err != nil {
-			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		var unmarshled globalCommon.User = globalCommon.User{}
@@ -110,7 +145,7 @@ func withAuthentication(call func(http.ResponseWriter, *http.Request)) func(http
 		err = json.Unmarshal(userStr, &unmarshled)
 
 		if err != nil {
-			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 

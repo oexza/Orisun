@@ -48,7 +48,7 @@ func Users(users []User, currentPath string, currentUser string) templ.Component
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"users-page\" class=\"p-6\"><div class=\"mb-6 flex justify-between items-center\"><h1 class=\"text-2xl font-bold text-gray-900\">User Management</h1><sl-button variant=\"primary\" size=\"medium\" data-on-click=\"@get(&#39;/admin/users/add&#39;)\"><sl-icon slot=\"prefix\" name=\"person-plus\"></sl-icon> Add User</sl-button></div><sl-alert id=\"message\" variant=\"primary\" closable><sl-icon slot=\"icon\" name=\"info-circle\"></sl-icon> <span class=\"message-content\"></span></sl-alert> <sl-card class=\"mb-6\"><div class=\"overflow-x-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"users-page\" class=\"p-6\"><div class=\"mb-6 flex justify-between items-center\"><h1 class=\"text-2xl font-bold text-gray-900\">User Management</h1><sl-button variant=\"primary\" size=\"medium\" data-on-click=\"@get(&#39;/users/add&#39;)\"><sl-icon slot=\"prefix\" name=\"person-plus\"></sl-icon> Add User</sl-button></div><sl-alert id=\"message\" variant=\"primary\" closable><sl-icon slot=\"icon\" name=\"info-circle\"></sl-icon> <span class=\"message-content\"></span></sl-alert> <sl-card class=\"mb-6\"><div class=\"overflow-x-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -115,7 +115,7 @@ func Dashboard(currentPath string, data DashboardDetails) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"p-6\" data-on-load=\"@get(&#39;/admin/dashboard&#39;)\"><div class=\"mb-6\"><h1 class=\"text-2xl font-bold text-gray-900\">Dashboard</h1></div><div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6\"><sl-card><a href=\"/admin/users\"><div class=\"flex items-center justify-between\"><div><h3 class=\"text-lg font-medium text-gray-900\">Total Users</h3>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div class=\"p-6\" data-on-load=\"@get(&#39;/dashboard&#39;)\"><div class=\"mb-6\"><h1 class=\"text-2xl font-bold text-gray-900\">Dashboard</h1></div><div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6\"><sl-card><a href=\"/users\"><div class=\"flex items-center justify-between\"><div><h3 class=\"text-lg font-medium text-gray-900\">Total Users</h3>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

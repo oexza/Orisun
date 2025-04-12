@@ -59,7 +59,7 @@ func Admin(currentPath string, title ...string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/admin/dashboard\" class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/dashboard\" class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -81,7 +81,7 @@ func Admin(currentPath string, title ...string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<a href=\"/admin/users\" class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<a href=\"/users\" class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -94,7 +94,7 @@ func Admin(currentPath string, title ...string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"><sl-icon name=\"people\" class=\"mr-2\"></sl-icon> <span>Users</span></a></div></nav><div class=\"absolute bottom-0 w-64 p-4 border-t bg-white\"><sl-button variant=\"text\" size=\"small\" class=\"w-full\" href=\"/admin/logout\"><sl-icon slot=\"prefix\" name=\"box-arrow-left\"></sl-icon> Logout</sl-button></div></aside><!-- Main Content --><main class=\"flex-1 overflow-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"><sl-icon name=\"people\" class=\"mr-2\"></sl-icon> <span>Users</span></a></div></nav><div class=\"absolute bottom-0 w-64 p-4 border-t bg-white\"><sl-button variant=\"text\" size=\"small\" class=\"w-full\" href=\"/logout\"><sl-icon slot=\"prefix\" name=\"box-arrow-left\"></sl-icon> Logout</sl-button></div></aside><!-- Main Content --><main class=\"flex-1 overflow-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

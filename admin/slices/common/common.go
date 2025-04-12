@@ -45,21 +45,19 @@ type SubscribeToEventStoreType = func(
 	handler globalCommon.MessageHandler[eventstore.Event],
 ) error
 
-type CommonSSESignals struct {
-	TabId string
-}
-
 var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*datastar.ServerSentEventGenerator{}
 var sseConnectionsMutex sync.RWMutex
 
-func CreateSSEConnection(w http.ResponseWriter, r *http.Request, tabId string) *datastar.ServerSentEventGenerator {
+func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
+	tabId := r.Context().Value(globalCommon.DatastarTabCookieKey).(string)
 	sseConnectionsMutex.Lock()
 	defer sseConnectionsMutex.Unlock()
 
-	sse := datastar.NewSSE(w, r)
-	sse.MarshalAndMergeSignals(CommonSSESignals{
-		TabId: tabId,
-	})
+	sse := sseConnections[tabId]
+	if sse != nil {
+		return sse, tabId
+	}
+	sse = datastar.NewSSE(w, r)
 	sseConnections[tabId] = sse
 
 	// Set up cleanup when connection closes
@@ -70,7 +68,7 @@ func CreateSSEConnection(w http.ResponseWriter, r *http.Request, tabId string) *
 		delete(sseConnections, tabId)
 	}()
 
-	return sse
+	return sse, tabId
 }
 
 func HashPassword(password string) (string, error) {

@@ -8,7 +8,6 @@ import (
 	"orisun/admin/slices/dashboard/user_count"
 	globalCommon "orisun/common"
 
-	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
 
@@ -46,17 +45,7 @@ func (dh *DashboardHandler) HandleDashboardPage(w http.ResponseWriter, r *http.R
 			UserCount: userCount.Count,
 		}).Render(r.Context(), w)
 	} else {
-		signals := common.CommonSSESignals{}
-		datastar.ReadSignals(r, signals)
-		newTabId, err := uuid.NewV7()
-		if err != nil {
-			dh.logger.Error("Error generating tab id: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		signals.TabId = "Dashboard:::::" + newTabId.String()
-
-		sse := common.CreateSSEConnection(w, r, signals.TabId)
+		sse, tabId := common.GetOrCreateSSEConnection(w, r)
 		sse.MergeFragmentTempl(UserCountFragement(userCount.Count), datastar.WithSelectorID(UserCountId))
 
 		subscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](r.Context())
@@ -79,7 +68,7 @@ func (dh *DashboardHandler) HandleDashboardPage(w http.ResponseWriter, r *http.R
 			}
 		}()
 
-		dh.subscribeToUserCount(signals.TabId, r.Context(), subscription)
+		dh.subscribeToUserCount("tab::::"+tabId, r.Context(), subscription)
 
 		// Wait for connection to close
 		<-sse.Context().Done()

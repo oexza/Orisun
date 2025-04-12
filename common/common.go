@@ -3,6 +3,7 @@ package common
 import "context"
 
 const UserContextKey string = "user"
+const DatastarTabCookieKey = "tab"
 
 type Role string
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"orisun/admin/slices/common"
 	l "orisun/logging"
 
 	globalCommon "orisun/common"
@@ -58,7 +59,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Validate credentials
 	user, err := s.login(store.Username, store.Password)
 	if err != nil {
-		sse := datastar.NewSSE(w, r)
+		sse, _ := common.GetOrCreateSSEConnection(w, r)
 		sse.RemoveFragments("message")
 		sse.MergeFragments(`<div id="message">` + `Login Failed` + `</div>`)
 		return
@@ -80,7 +81,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    encodedValue,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 
@@ -89,7 +90,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	sse.MergeFragments(`<div id="message">` + `Login Succeded` + `</div>`)
 
 	// Redirect to users page after successful login
-	sse.Redirect("/admin/dashboard")
+	sse.Redirect("/dashboard")
 }
 
 func (s *LoginHandler) login(username, password string) (globalCommon.User, error) {
