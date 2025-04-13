@@ -48,7 +48,7 @@ DECLARE
     last_position           JSONB  := global_condition -> 'last_retrieved_position';
     global_criteria         JSONB  := global_condition -> 'criteria';
     current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
-    current_stream_version  BIGINT := 0;
+    current_stream_version  BIGINT := -1;
     conflict_transaction_id BIGINT := NULL;
     conflict_global_id      BIGINT := NULL;
     global_keys             TEXT[];
