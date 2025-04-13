@@ -12,6 +12,7 @@ import (
 	login "orisun/admin/slices/login"
 	"orisun/admin/slices/users_page"
 	l "orisun/logging"
+	"orisun/admin/assets"
 
 	globalCommon "orisun/common"
 
@@ -55,8 +56,7 @@ func NewAdminServer(
 		r.Use(server.tabIDMiddleware)
 
 		// Serve static files
-		fileServer := http.FileServer(http.Dir("/Users/pakinwale/Desktop/orisun/assets"))
-		r.Handle("/assets/*", http.StripPrefix("/assets/", fileServer))
+		r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(assets.GetFileSystem())))
 
 		r.Get("/dashboard", withAuthentication(server.dashboardHandler.HandleDashboardPage))
 		r.Get("/login", server.loginHandler.HandleLoginPage)

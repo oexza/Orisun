@@ -67,7 +67,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	userAsString, err := json.Marshal(user)
 	if err != nil {
-		sse := datastar.NewSSE(w, r)
+		sse, _ := common.GetOrCreateSSEConnection(w, r)
 		sse.MergeFragments(`<div id="message">` + `Login Failed` + `</div>`)
 		return
 	}
@@ -85,7 +85,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	sse := datastar.NewSSE(w, r)
+	sse, _ := common.GetOrCreateSSEConnection(w, r)
 
 	sse.MergeFragments(`<div id="message">` + `Login Succeded` + `</div>`)
 

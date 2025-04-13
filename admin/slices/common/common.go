@@ -60,7 +60,7 @@ func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar
 	sse = datastar.NewSSE(w, r)
 	sseConnections[tabId] = sse
 
-	// Set up cleanup when connection closes
+	// Set up cleanup when context closes
 	go func() {
 		<-r.Context().Done()
 		sseConnectionsMutex.Lock()
