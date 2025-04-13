@@ -32,7 +32,7 @@ type PostgresEventPublishing struct {
 func (s *PostgresEventPublishing) Schema(boundary string) (string, error) {
 	schema := s.boundarySchemaMappings[boundary]
 	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
-		return "", fmt.Errorf("No schema found for Boundary " + boundary)
+		return "", fmt.Errorf("No schema found for Boundary %s", boundary)
 	}
 	return schema.Schema, nil
 }

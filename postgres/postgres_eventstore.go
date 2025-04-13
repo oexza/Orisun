@@ -124,7 +124,7 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	}
 
-	s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
+	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(insertEventsWithConsistency, schema),
@@ -202,7 +202,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	var streamName *string = nil
-	var fromStreamVersion *uint32 = nil
+	var fromStreamVersion *int32 = nil
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name

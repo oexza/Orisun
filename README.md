@@ -1,68 +1,40 @@
-# Orisun - A Batteries Included Event Store
-
-<!-- <p align="center">
-  <img src="assets/pic.jpg" alt="Orisun Logo">
-</p> -->
+# Orisun - Event Sourcing Made Simple
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Project Status
-Orisun is currently in beta. While it's being used in production, the API may undergo breaking changes before reaching v1.0.0. We follow semantic versioning.
+## Overview
 
-## Description
-Orisun is a batteries-included event store, with an embedded NATS JetStream server and PostgreSQL support. It provides a reliable, scalable event store with built-in pub/sub capabilities, making it ideal for event-driven architectures and CQRS applications. Built with extensibility in mind, Orisun's modular architecture allows for different storage backends, with plans to support additional databases beyond PostgreSQL in future releases.
+Orisun is a modern event store designed for building event-driven applications. It combines PostgreSQL's reliability with NATS JetStream's real-time capabilities to provide a complete event sourcing solution.
 
 ### Key Features
-- **Extensible Architecture**: Modular design supporting multiple storage backends
-- **Embedded NATS JetStream**: No separate NATS installation required
-- **Auto Database Setup**: Automatically creates and manages its schema
-- **Stream-based Event Sourcing**: Traditional stream-based event sourcing with optimistic concurrency
-- **Global Ordering**: Built-in global ordering guarantee for events
-- **Dynamic Consistency Boundaries**: Lock across multiple streams using tag-based queries
-- **Real-time Event Streaming**: Subscribe to event changes in real-time
-- **Flexible Event Querying**: Query events by various criteria including custom tags
-- **High Performance**: Efficient PostgreSQL-based storage with embedded NATS JetStream for streaming
 
-## Prerequisites
-- PostgreSQL 13+ database
+- **PostgreSQL Backend**: Reliable, transactional event storage
+- **Embedded NATS**: Real-time event streaming without external dependencies
+- **Multi-tenant Architecture**: Isolated boundaries with separate schemas
+- **Optimistic Concurrency**: Stream-based versioning with expected version checks
+- **Rich Querying**: Filter events by stream, tags, and global position
+- **Real-time Subscriptions**: Subscribe to event changes as they happen
+- **Admin Dashboard**: Built-in web interface for monitoring and management
+
+## Getting Started
+
+### Prerequisites
+
+- PostgreSQL 13+
 - Go 1.20+ (for building from source)
-- Docker (optional, for containerized deployment)
 
-## Installation
+### Quick Start
 
-### Using Pre-built Binary
+1. **Configure environment variables**:
 
-1. Download the latest release for your platform from the [releases page](https://github.com/oexza/Orisun/releases)
-
-2. Run the binary with environment variables:
 ```bash
-# Minimal configuration
-ORISUN_PG_HOST=localhost \
-ORISUN_PG_PORT=5432 \
-ORISUN_PG_USER=postgres \
-ORISUN_PG_PASSWORD=your_password \
-ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=your_schema \
-orisun-[platform]-[arch]
-
-# Example
-ORISUN_PG_HOST=localhost \
-ORISUN_PG_PORT=5432 \
-ORISUN_PG_USER=postgres \
-ORISUN_PG_PASSWORD=your_password \
-ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=your_schema \
-ORISUN_GRPC_PORT=50051 \
-ORISUN_NATS_PORT=4222 \
-ORISUN_NATS_STORE_DIR=/var/opt/nats \
-orisun-darwin-arm64
+export ORISUN_PG_HOST=localhost
+export ORISUN_PG_PORT=5432
+export ORISUN_PG_USER=postgres
+export ORISUN_PG_PASSWORD=your_password
+export ORISUN_PG_NAME=your_database
+export ORISUN_PG_SCHEMAS=your_schema
 ```
-
-Orisun will automatically:
-- Set up its database schema
-- Start an embedded NATS JetStream server
-- Start the gRPC server
-
 
 ## Key Concepts
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	create_user "orisun/admin/slices/create_user"
 	dashboard "orisun/admin/slices/dashboard"
@@ -58,20 +57,59 @@ func NewAdminServer(
 		// Serve static files
 		r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(assets.GetFileSystem())))
 
-		r.Get("/dashboard", withAuthentication(server.dashboardHandler.HandleDashboardPage))
-		r.Get("/login", server.loginHandler.HandleLoginPage)
-		r.Post("/login", server.loginHandler.HandleLogin)
-		r.Get("/logout", server.handleLogout)
+		// Public routes
+		r.Group(func(public chi.Router) {
+			public.Get("/login", server.loginHandler.HandleLoginPage)
+			public.Post("/login", server.loginHandler.HandleLogin)
+			public.Get("/logout", server.handleLogout)
+		})
 
-		r.Get("/users", withAuthentication(server.usersHandler.HandleUsersPage))
-		r.Post("/users", withAuthentication(server.createUserHandler.HandleCreateUser))
-		r.Get("/users/add", withAuthentication(server.createUserHandler.HandleCreateUserPage))
-		// r.Get("/users/list", withAuthentication(server.handleUsersList))
-		r.Delete("/users/{userId}/delete", withAuthentication(server.deleteUserHandler.HandleUserDelete))
+		// Protected routes
+		r.Group(func(protected chi.Router) {
+			// Apply authentication middleware to all routes in this group
+			protected.Use(server.authMiddleware)
+			
+			protected.Get("/dashboard", server.dashboardHandler.HandleDashboardPage)
+			protected.Get("/users", server.usersHandler.HandleUsersPage)
+			protected.Post("/users", server.createUserHandler.HandleCreateUser)
+			protected.Get("/users/add", server.createUserHandler.HandleCreateUserPage)
+			protected.Delete("/users/{userId}/delete", server.deleteUserHandler.HandleUserDelete)
+		})
 	})
 
 	return server, nil
 }
+
+// Convert withAuthentication to a middleware method on AdminServer
+func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check for authentication token
+		c, err := r.Cookie("auth")
+		if err != nil {
+			s.logger.Error("Authentication error", "error", err)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		userStr, err := base64.StdEncoding.DecodeString(c.Value)
+		if err != nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		
+		var unmarshled globalCommon.User = globalCommon.User{}
+		err = json.Unmarshal(userStr, &unmarshled)
+		if err != nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), globalCommon.UserContextKey, unmarshled)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// You can remove the old withAuthentication function since it's no longer needed
 
 // Move the middleware to a method on AdminServer
 func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
@@ -123,33 +161,4 @@ func (s *AdminServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
-}
-
-func withAuthentication(call func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Check for authentication token
-		c, err := r.Cookie("auth")
-		if err != nil {
-			fmt.Errorf("Template execution error: %v", err)
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		userStr, err := base64.StdEncoding.DecodeString(c.Value)
-		if err != nil {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		var unmarshled globalCommon.User = globalCommon.User{}
-
-		err = json.Unmarshal(userStr, &unmarshled)
-
-		if err != nil {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), globalCommon.UserContextKey, unmarshled)
-		call(w, r.WithContext(ctx))
-	}
 }
