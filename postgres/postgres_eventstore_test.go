@@ -149,7 +149,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test saving events
-	events := []*eventstore.EventWithMapTags{
+	events := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -241,7 +241,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	// First save succeeds
-	events := []*eventstore.EventWithMapTags{
+	events := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -262,7 +262,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second save with wrong expected version should fail
-	events2 := []*eventstore.EventWithMapTags{
+	events2 := []eventstore.EventWithMapTags{
 		{
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
@@ -313,7 +313,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
 	// Save events with different tags
-	events1 := []*eventstore.EventWithMapTags{
+	events1 := []eventstore.EventWithMapTags{
 		{
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
@@ -333,7 +333,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	events2 := []*eventstore.EventWithMapTags{
+	events2 := []eventstore.EventWithMapTags{
 		{
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
@@ -414,7 +414,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []*eventstore.EventWithMapTags{
+		events := []eventstore.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -487,7 +487,7 @@ func TestPagination(t *testing.T) {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []*eventstore.EventWithMapTags{
+		events := []eventstore.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -574,7 +574,7 @@ func TestDirectionOrdering(t *testing.T) {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []*eventstore.EventWithMapTags{
+		events := []eventstore.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -663,7 +663,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId1, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[0] = eventId1.String()
-	events1 := []*eventstore.EventWithMapTags{
+	events1 := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId1.String(),
 			EventType: "TestEvent",
@@ -678,7 +678,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId2, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[1] = eventId2.String()
-	events2 := []*eventstore.EventWithMapTags{
+	events2 := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId2.String(),
 			EventType: "TestEvent",
@@ -693,7 +693,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId3, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[2] = eventId3.String()
-	events3 := []*eventstore.EventWithMapTags{
+	events3 := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId3.String(),
 			EventType: "TestEvent",
@@ -708,7 +708,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId4, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[3] = eventId4.String()
-	events4 := []*eventstore.EventWithMapTags{
+	events4 := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId4.String(),
 			EventType: "TestEvent",
@@ -834,7 +834,7 @@ func TestErrorConditions(t *testing.T) {
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
 
-	events := []*eventstore.EventWithMapTags{
+	events := []eventstore.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -851,7 +851,7 @@ func TestErrorConditions(t *testing.T) {
 	assert.Error(t, err)
 
 	// Test 3: Empty event list
-	_, _, err = saveEvents.Save(ctx, []*eventstore.EventWithMapTags{}, nil, "test_boundary", "empty-stream", -1, nil)
+	_, _, err = saveEvents.Save(ctx, []eventstore.EventWithMapTags{}, nil, "test_boundary", "empty-stream", -1, nil)
 	assert.Error(t, err)
 
 	// Test 4: Get from non-existent stream
