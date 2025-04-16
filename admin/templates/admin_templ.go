@@ -54,7 +54,7 @@ func Admin(currentPath string, title ...string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var3 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/dashboard")}
+			var templ_7745c5c3_Var3 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/dashboard")}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var3...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -76,7 +76,7 @@ func Admin(currentPath string, title ...string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var5 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/users" || strings.HasPrefix(currentPath, "/admin/users/"))}
+			var templ_7745c5c3_Var5 = []any{"flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/users" || strings.HasPrefix(currentPath, "/admin/users/"))}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var5...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

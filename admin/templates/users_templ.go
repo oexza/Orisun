@@ -220,9 +220,9 @@ func UserRow(user *User, currentUser string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("confirm('Are you sure you want to delete " + user.Name + "') && @delete(' /admin/users/" + user.Id + "/delete')")
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("confirm('Are you sure you want to delete " + user.Name + "') && @delete(' /users/" + user.Id + "/delete')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/templates/users.templ`, Line: 73, Col: 208}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/templates/users.templ`, Line: 73, Col: 202}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {

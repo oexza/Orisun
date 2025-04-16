@@ -19,11 +19,11 @@ templ Admin(currentPath string, title ...string) {
 				</div>
 				<nav class="p-4">
 					<div class="space-y-2">
-						<a href="/dashboard" class={ "flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/dashboard") }>
+						<a href="/dashboard" class={ "flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/dashboard") }>
 							<sl-icon name="speedometer2" class="mr-2"></sl-icon>
 							<span>Dashboard</span>
 						</a>
-						<a href="/users" class={ "flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/admin/users" || strings.HasPrefix(currentPath, "/admin/users/")) }>
+						<a href="/users" class={ "flex items-center p-2 rounded-md transition-colors " + navLinkClass(currentPath == "/users" || strings.HasPrefix(currentPath, "/admin/users/")) }>
 							<sl-icon name="people" class="mr-2"></sl-icon>
 							<span>Users</span>
 						</a>

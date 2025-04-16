@@ -22,7 +22,7 @@ type GetEventsType = func(ctx context.Context, in *GetEventsRequest) (*GetEvents
 
 type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
-		events []*EventWithMapTags,
+		events []EventWithMapTags,
 		indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
@@ -91,7 +91,7 @@ func NewEventStoreServer(
 			Subjects: []string{
 				GetEventsSubjectName(boundary),
 			},
-			MaxMsgs: 1000000,
+			MaxMsgs: -1,
 		})
 
 		if err != nil {
@@ -174,7 +174,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		return nil, err
 	}
 
-	eventsForMarshaling := make([]*EventWithMapTags, len(req.Events))
+	eventsForMarshaling := make([]EventWithMapTags, len(req.Events))
 	for i, event := range req.Events {
 		var dataMap, metadataMap map[string]interface{}
 
@@ -186,7 +186,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)
 		}
 
-		eventsForMarshaling[i] = &EventWithMapTags{
+		eventsForMarshaling[i] = EventWithMapTags{
 			EventId:   event.EventId,
 			EventType: event.EventType,
 			Data:      dataMap,
@@ -484,7 +484,7 @@ func (s *EventStore) sendHistoricalEvents(
 			return nil, time.Time{}, status.Errorf(codes.Internal, "failed to fetch historical events: %v", err)
 		}
 
-		for _, event := range events.Events {
+		for _, event :=  range events.Events {
 			if err := stream.Send(event); err != nil {
 				return nil, time.Time{}, err
 			}

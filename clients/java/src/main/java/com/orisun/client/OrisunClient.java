@@ -53,14 +53,14 @@ public class OrisunClient implements AutoCloseable {
             this.loadBalancingPolicy = policy;
             return this;
         }
-        
+
         private boolean useDnsResolver = true;
-        
+
         public Builder withDnsResolver(boolean useDns) {
             this.useDnsResolver = useDns;
             return this;
         }
-        
+
         public Builder withTimeout(int seconds) {
             this.timeoutSeconds = seconds;
             return this;
@@ -85,7 +85,7 @@ public class OrisunClient implements AutoCloseable {
 
                 // Create channel with load balancing
                 ManagedChannelBuilder<?> channelBuilder;
-                
+
                 if (servers.size() == 1) {
                     // Single server case
                     ServerAddress server = servers.get(0);
@@ -200,12 +200,12 @@ public class OrisunClient implements AutoCloseable {
 
     // Streaming methods
     public EventSubscription subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-                                               EventSubscription.EventHandler handler) {
+            EventSubscription.EventHandler handler) {
         return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 
     public PubSubSubscription subscribeToPubSub(Eventstore.SubscribeRequest request,
-                                                PubSubSubscription.MessageHandler handler) {
+            PubSubSubscription.MessageHandler handler) {
         return new PubSubSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 

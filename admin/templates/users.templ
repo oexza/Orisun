@@ -70,7 +70,7 @@ templ UserRow(user *User, currentUser string) {
 			</div>
 		</td>
 		<td style="text-align: right">
-			<sl-button variant="danger" size="small" disabled?={ user.Id==currentUser } data-on-click={ "confirm('Are you sure you want to delete " + user.Name + "') && @delete(' /admin/users/" + user.Id + "/delete')" }>
+			<sl-button variant="danger" size="small" disabled?={ user.Id==currentUser } data-on-click={ "confirm('Are you sure you want to delete " + user.Name + "') && @delete(' /users/" + user.Id + "/delete')" }>
 				<sl-icon slot="prefix" name="trash"></sl-icon>
 				Delete
 			</sl-button>

@@ -77,7 +77,7 @@ func NewPostgresGetEvents(db *sql.DB, logger *logging.Logger,
 
 func (s *PostgresSaveEvents) Save(
 	ctx context.Context,
-	events []*eventstore.EventWithMapTags,
+	events []eventstore.EventWithMapTags,
 	consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
@@ -312,6 +312,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		event.Position = &eventstore.Position{
 			CommitPosition:  transactionID,
 			PreparePosition: globalID,
+
 		}
 
 		// Set the DateCreated
