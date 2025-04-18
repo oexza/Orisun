@@ -3,12 +3,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"orisun/logging"
 	"strings"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	eventstore "orisun/eventstore"
 
@@ -24,11 +25,11 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM %s.insert_events_with_consistency($1::jsonb, $2::jsonb, $3::jsonb)
+SELECT * FROM %s.insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb, $4::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM %s.get_matching_events($1, $2::INT, $3::jsonb, $4::jsonb, $5, $6::INT)
+SELECT * FROM %s.get_matching_events($1::text, $2, $3::INT, $4::jsonb, $5::jsonb, $6, $7::INT)
 `
 
 const setSearchPath = `
@@ -83,25 +84,26 @@ func (s *PostgresSaveEvents) Save(
 	streamName string,
 	expectedVersion int32,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
-		s.logger.Debugf("Postgres: Saving events from request: %v", consistencyCondition)
-	var streamSubsetQueryJSON *string
+	s.logger.Debugf("Postgres: Saving events from request: %v", consistencyCondition)
 
-	streamSubsetAsJsonString, err := json.Marshal(getStreamSectionAsMap(streamName, expectedVersion, streamConsistencyCondition))
+	schema, err := s.Schema(boundary)
+	if err != nil {
+		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
+	}
+
+	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(streamName, expectedVersion, streamConsistencyCondition))
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
-	jsonStr := string(streamSubsetAsJsonString)
 	// s.logger.Debugf("streamSubsetAsJsonString: %v", jsonStr)
-	streamSubsetQueryJSON = &jsonStr
 
-	var consistencyConditionJSONString *string = nil
+	var consistencyConditionJSONString []byte = nil
 	if consistencyCondition != nil {
 		consistencyConditionJSON, err := json.Marshal(getConsistencyConditionAsMap(consistencyCondition))
 		if err != nil {
 			return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 		}
-		jsonStr := string(consistencyConditionJSON)
-		consistencyConditionJSONString = &jsonStr
+		consistencyConditionJSONString = consistencyConditionJSON
 	}
 
 	eventsJSON, err := json.Marshal(events)
@@ -115,20 +117,17 @@ func (s *PostgresSaveEvents) Save(
 	}
 	defer tx.Rollback()
 
-	schema, err := s.Schema(boundary)
-	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
-	}
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	}
+	// _, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
+	// if err != nil {
+	// 	return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
+	// }
 
 	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(insertEventsWithConsistency, schema),
-		streamSubsetQueryJSON,
+		schema,
+		streamSubsetAsBytes,
 		consistencyConditionJSONString,
 		string(eventsJSON),
 	)
@@ -136,7 +135,6 @@ func (s *PostgresSaveEvents) Save(
 	if row.Err() != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
 	}
-
 	// Scan the result
 	noop := false
 	err = error(nil)
@@ -164,41 +162,39 @@ func (s *PostgresSaveEvents) Save(
 func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
 	s.logger.Debugf("Getting events from request: %v", req)
 
-	var fromPosition *map[string]uint64 = nil
+	schema, err := s.Schema(req.Boundary)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+	}
 
-	if req.FromPosition != nil && req.FromPosition != (&eventstore.Position{}) {
-		fromPosition = &map[string]uint64{
+	var fromPositionMarshaled *[]byte = nil
+
+	if req.FromPosition != nil {
+		fromPosition := &map[string]uint64{
 			"transaction_id": req.FromPosition.CommitPosition,
 			"global_id":      req.FromPosition.PreparePosition,
 		}
-	}
-
-	var globalQuery *map[string]interface{}
-
-	var criteriaList []map[string]interface{}
-	if req.Query != nil {
-		criteriaList = getCriteriaAsList(req.Query)
-	}
-
-	if len(criteriaList) > 0 {
-		s.logger.Debugf("criteriaList: %v", criteriaList)
-		globalQuery = &map[string]interface{}{
-			"criteria": criteriaList,
-		}
-	}
-
-	var paramsJSON *string = nil
-
-	if globalQuery != nil && len(*globalQuery) > 0 {
-		var err interface{} = ""
-		paramsString, err := json.Marshal(globalQuery)
+		fromPositionJson, err := json.Marshal(fromPosition)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to marshal params: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to marshal from position: %v", err)
 		}
-		stringJson := string(paramsString)
-		paramsJSON = &stringJson
+		fromPositionMarshaled = &fromPositionJson
+	}
 
-		s.logger.Debugf("paramsJson: %v", stringJson)
+	var paramsJSON *[]byte = nil
+	if req.Query != nil && len(req.Query.Criteria) > 0 {
+		criteriaList := getCriteriaAsList(req.Query)
+		if len(criteriaList) > 0 {
+			globalQuery := map[string]interface{}{
+				"criteria": criteriaList,
+			}
+			paramsBytes, err := json.Marshal(globalQuery)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to marshal params: %v", err)
+			}
+			paramsJSON = &paramsBytes
+			// s.logger.Debugf("paramsJson: %v", jsonStr)
+		}
 	}
 
 	var streamName *string = nil
@@ -211,38 +207,29 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		// }
 	}
 
-	s.logger.Debugf("params: %v", paramsJSON)
-	s.logger.Debugf("direction: %v", req.Direction)
-	s.logger.Debugf("count: %v", req.Count)
+	// s.logger.Debugf("params: %v", paramsJSON)
+	// s.logger.Debugf("direction: %v", req.Direction)
+	// s.logger.Debugf("count: %v", req.Count)
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
 
-	var fromPositionMarshaled *[]byte = nil
-	if fromPosition != nil {
-		fromPositionJson, err := json.Marshal(fromPosition)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to marshal from position: %v", err)
-		}
-		fromPositionMarshaled = &fromPositionJson
-	}
-
 	// _, errr := tx.Exec("SET log_statement = 'all';")
 	// if errr != nil {
 	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
-	var schema = s.boundarySchemaMappings[req.Boundary].Schema
 
-	_, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	}
+	// _, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
+	// if err != nil {
+	// 	return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
+	// }
 
 	rows, err := tx.Query(
 		fmt.Sprintf(selectMatchingEvents, schema),
+		schema,
 		streamName,
 		fromStreamVersion,
 		paramsJSON,
@@ -256,7 +243,19 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	defer rows.Close()
 
-	var events []*eventstore.Event
+	// Pre-allocate events slice with a reasonable capacity
+	events := make([]*eventstore.Event, 0, req.Count)
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get column names: %v", err)
+	}
+
+	// Create a reusable map for column mapping
+	columnMap := make(map[string]int, len(columns))
+	for i, col := range columns {
+		columnMap[col] = i
+	}
 
 	for rows.Next() {
 		var event eventstore.Event
@@ -278,12 +277,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			"stream_version": &event.Version,
 		}
 
-		// Get the column names from the result set
-		columns, err := rows.Columns()
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get column names: %v", err)
-		}
-
 		// Create a slice of pointers to scan into
 		scanArgs := make([]interface{}, len(columns))
 		for i, col := range columns {
@@ -299,11 +292,13 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
 
-		// Process tags
+		// Process tags - pre-allocate tags slice
 		var tagsMap map[string]string
 		if err := json.Unmarshal(tagsBytes, &tagsMap); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
 		}
+
+		event.Tags = make([]*eventstore.Tag, 0, len(tagsMap))
 		for key, value := range tagsMap {
 			event.Tags = append(event.Tags, &eventstore.Tag{Key: key, Value: value})
 		}
@@ -312,13 +307,17 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		event.Position = &eventstore.Position{
 			CommitPosition:  transactionID,
 			PreparePosition: globalID,
-
 		}
 
 		// Set the DateCreated
 		event.DateCreated = timestamppb.New(dateCreated)
 
 		events = append(events, &event)
+	}
+
+	// Check for errors from iterating over rows
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
 	}
 
 	return &eventstore.GetEventsResponse{Events: events}, nil
@@ -471,6 +470,7 @@ func (s *PostgresAdminDB) GetProjectorLastPosition(projectorName string) (*event
 }
 
 func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventstore.Position) error {
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		p.logger.Error("Error generating UUID: %v", err)

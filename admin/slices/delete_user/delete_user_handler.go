@@ -2,13 +2,14 @@ package delete_user
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"orisun/admin/slices/common"
 	"orisun/admin/templates"
 	l "orisun/logging"
 	"strings"
+
+	"github.com/goccy/go-json"
 
 	"orisun/admin/events"
 	eventstore "orisun/eventstore"

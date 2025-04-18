@@ -2,8 +2,8 @@ package eventstore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 
 	"runtime/debug"
 	"time"
@@ -484,7 +484,7 @@ func (s *EventStore) sendHistoricalEvents(
 			return nil, time.Time{}, status.Errorf(codes.Internal, "failed to fetch historical events: %v", err)
 		}
 
-		for _, event :=  range events.Events {
+		for _, event := range events.Events {
 			if err := stream.Send(event); err != nil {
 				return nil, time.Time{}, err
 			}

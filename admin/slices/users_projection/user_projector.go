@@ -2,13 +2,14 @@ package users_projection
 
 import (
 	"context"
-	"encoding/json"
 	ev "orisun/admin/events"
 	common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
 	"orisun/eventstore"
 	l "orisun/logging"
 	"time"
+
+	"github.com/goccy/go-json"
 )
 
 type CreateNewUserType = func(id string, username string, password_hash string, name string, roles []globalCommon.Role) error

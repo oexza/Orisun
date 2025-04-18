@@ -2,7 +2,6 @@ package create_user
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	ev "orisun/admin/events"
@@ -10,6 +9,8 @@ import (
 	"orisun/eventstore"
 	l "orisun/logging"
 	"strings"
+
+	"github.com/goccy/go-json"
 
 	pb "orisun/eventstore"
 
@@ -100,6 +101,7 @@ func (r *AddNewUserRequest) validate() error {
 
 	return nil
 }
+
 
 func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	store := &AddNewUserRequest{}

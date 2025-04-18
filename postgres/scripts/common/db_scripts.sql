@@ -28,6 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
 
 -- Insert Function (With Improved Locking)
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
+    schema TEXT,
     stream_info JSONB,
     global_condition JSONB,
     events JSONB
@@ -58,6 +59,7 @@ BEGIN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
 
+    EXECUTE format('SET search_path TO %I', schema);
     PERFORM pg_advisory_xact_lock(hashtext(stream));
 
     -- Stream version check
@@ -166,6 +168,7 @@ $$;
 
 -- Query Function
 CREATE OR REPLACE FUNCTION get_matching_events(
+    schema TEXT,
     stream_name TEXT DEFAULT NULL,
     from_stream_version INT DEFAULT NULL,
     criteria JSONB DEFAULT NULL,
@@ -178,14 +181,18 @@ CREATE OR REPLACE FUNCTION get_matching_events(
 $$
 DECLARE
     op TEXT := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
+    schema_prefix TEXT;
 BEGIN
     IF sort_dir NOT IN ('ASC', 'DESC') THEN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
     END IF;
+    
+    -- Instead of SET search_path, use schema prefix in the query
+    schema_prefix := quote_ident(schema) || '.';
 
     RETURN QUERY EXECUTE format(
             $q$
-        SELECT * FROM orisun_es_event
+        SELECT * FROM %10$sorisun_es_event
         WHERE 
             (%1$L IS NULL OR stream_name = %1$L) AND
             (%2$L IS NULL OR stream_version %4$s %2$L) AND
@@ -208,7 +215,8 @@ BEGIN
             (after_position ->> 'global_id')::text,
             (criteria -> 'criteria'),
             sort_dir,
-            LEAST(GREATEST(max_count, 1), 10000)
+            LEAST(GREATEST(max_count, 1), 10000),
+            schema_prefix
     );
 END;
 $$;

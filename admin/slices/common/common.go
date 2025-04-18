@@ -3,11 +3,12 @@ package common
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	eventstore "orisun/eventstore"
 	"sync"
+
+	"github.com/goccy/go-json"
 
 	globalCommon "orisun/common"
 

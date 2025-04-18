@@ -2,10 +2,11 @@ package login
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"orisun/admin/slices/common"
 	l "orisun/logging"
+
+	"github.com/goccy/go-json"
 
 	globalCommon "orisun/common"
 

@@ -2,13 +2,14 @@ package user_count
 
 import (
 	"context"
-	"encoding/json"
 	ev "orisun/admin/events"
 	common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
 	"orisun/eventstore"
 	l "orisun/logging"
 	"time"
+
+	"github.com/goccy/go-json"
 )
 
 const (

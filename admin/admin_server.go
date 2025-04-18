@@ -3,15 +3,16 @@ package admin
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
+	"orisun/admin/assets"
 	create_user "orisun/admin/slices/create_user"
 	dashboard "orisun/admin/slices/dashboard"
 	"orisun/admin/slices/delete_user"
 	login "orisun/admin/slices/login"
 	"orisun/admin/slices/users_page"
 	l "orisun/logging"
-	"orisun/admin/assets"
+
+	"github.com/goccy/go-json"
 
 	globalCommon "orisun/common"
 
@@ -68,7 +69,7 @@ func NewAdminServer(
 		r.Group(func(protected chi.Router) {
 			// Apply authentication middleware to all routes in this group
 			protected.Use(server.authMiddleware)
-			
+
 			protected.Get("/dashboard", server.dashboardHandler.HandleDashboardPage)
 			protected.Get("/users", server.usersHandler.HandleUsersPage)
 			protected.Post("/users", server.createUserHandler.HandleCreateUser)
@@ -96,7 +97,7 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		
+
 		var unmarshled globalCommon.User = globalCommon.User{}
 		err = json.Unmarshal(userStr, &unmarshled)
 		if err != nil {

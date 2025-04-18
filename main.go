@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"sync"
+
+	"github.com/goccy/go-json"
 
 	"fmt"
 	"net"
