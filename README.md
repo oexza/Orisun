@@ -1,4 +1,4 @@
-# Orisun - Event Sourcing Made Simple
+# Orisun - The batteries included event store.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
