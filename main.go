@@ -641,8 +641,8 @@ func PollEventsFromDatabaseToNats(
 		}
 		resp, err := eventStore.Get(ctx, req)
 		if err != nil {
-			logger.Errorf("Error retrieving events: %v", err)
-			return fmt.Errorf("failed to get events: %v", err)
+			// return fmt.Errorf("failed to get events: %v", err)
+			logger.Fatalf("Failed to get events: %v", err)
 		}
 
 		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)

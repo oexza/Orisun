@@ -271,10 +271,10 @@ Orisun can be configured using environment variables:
 | `ORISUN_PG_USER` | PostgreSQL username | postgres | Yes |
 | `ORISUN_PG_PASSWORD` | PostgreSQL password | - | Yes |
 | `ORISUN_PG_NAME` | PostgreSQL database name | - | Yes |
-| `ORISUN_PG_SCHEMAS` | Comma-separated list of schemas | - | Yes |
+| `ORISUN_PG_SCHEMAS` | Comma-separated list of boundary:schema mappings | - | Yes |
 | `ORISUN_GRPC_PORT` | gRPC server port | 50051 | No |
 | `ORISUN_NATS_PORT` | NATS server port | 4222 | No |
-| `ORISUN_NATS_STORE_DIR` | NATS storage directory | /tmp/nats | No |
+| `ORISUN_NATS_STORE_DIR` | NATS storage directory | /data/nats | No |
 | `ORISUN_NATS_MAX_PAYLOAD` | Maximum payload size for NATS messages | 1048576 | No |
 | `ORISUN_NATS_CLUSTER_NAME` | Name of the NATS cluster | orisun-nats-cluster | No |
 | `ORISUN_NATS_CLUSTER_HOST` | Host for NATS cluster | localhost | No |
