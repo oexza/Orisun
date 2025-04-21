@@ -44,9 +44,9 @@ type PostgresSaveEvents struct {
 
 func NewPostgresSaveEvents(
 	db *sql.DB,
-	logger *logging.Logger,
+	logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresSaveEvents {
-	return &PostgresSaveEvents{db: db, logger: *logger, boundarySchemaMappings: boundarySchemaMappings}
+	return &PostgresSaveEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
 }
 
 func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
@@ -71,9 +71,9 @@ func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
 	return schema.Schema, nil
 }
 
-func NewPostgresGetEvents(db *sql.DB, logger *logging.Logger,
+func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresGetEvents {
-	return &PostgresGetEvents{db: db, logger: *logger, boundarySchemaMappings: boundarySchemaMappings}
+	return &PostgresGetEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
 }
 
 func (s *PostgresSaveEvents) Save(

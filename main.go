@@ -47,26 +47,28 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-var AppLogger l.Logger
-
 func main() {
 	defer logger.Println("Server shutting down")
 
 	// Load configuration and initialize logger
 	config := initializeConfig()
+
+	// Initialize logger
+	AppLogger := initializeLogger(config)
+
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Initialize NATS
-	js, nc, ns := initializeNATS(ctx, config)
+	js, nc, ns := initializeNATS(ctx, config, AppLogger)
 	defer nc.Close()
 	defer ns.Shutdown()
 
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config, js)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config, js, AppLogger)
 
 	// Initialize EventStore
 	eventStore := initializeEventStore(
@@ -76,10 +78,11 @@ func main() {
 		getEvents,
 		lockProvider,
 		js,
+		AppLogger,
 	)
 
 	// Start polling events
-	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing)
+	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
 
 	// Start projectors
 	var pubSubFunction = func(ctx context.Context, req *pb.PublishRequest) error {
@@ -108,6 +111,7 @@ func main() {
 		getUserCount,
 		pubSubFunction,
 		adminDB.SaveUsersCount,
+		AppLogger,
 	)
 	startUserProjector(
 		ctx,
@@ -119,6 +123,7 @@ func main() {
 		eventStore.SubscribeToEvents,
 		eventStore.SaveEvents,
 		eventStore.GetEvents,
+		AppLogger,
 	)
 
 	//create default user
@@ -213,26 +218,29 @@ func main() {
 		deleteUserHandler,
 		usersPageHandler,
 		authenticator,
+		AppLogger,
 	)
 
 	// Start gRPC server
-	startGRPCServer(config, eventStore, authenticator)
+	startGRPCServer(config, eventStore, authenticator, AppLogger)
 }
 
-func initializeConfig() *c.AppConfig {
+func initializeConfig() c.AppConfig {
 	config, err := c.LoadConfig()
 	if err != nil {
 		logger.Fatalf("Failed to load config: %v", err)
 	}
+	return config
+}
 
+func initializeLogger(config c.AppConfig) l.Logger {
 	// Initialize logger
 	logr, err := l.ZapLogger(config.Logging.Level)
 	if err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	AppLogger = logr
-	return config
+	return logr
 }
 
 func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore) error {
@@ -251,8 +259,11 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 	}
 	return nil
 }
-func initializeDatabase(ctx context.Context, config *c.AppConfig, js jetstream.JetStream) (pb.ImplementerSaveEvents,
-	pb.ImplementerGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
+func initializeDatabase(ctx context.Context,
+	config c.AppConfig,
+	js jetstream.JetStream,
+	logger l.Logger,
+) (pb.ImplementerSaveEvents, pb.ImplementerGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
 	db, err := sql.Open(
 		"postgres",
 		fmt.Sprintf(
@@ -265,11 +276,11 @@ func initializeDatabase(ctx context.Context, config *c.AppConfig, js jetstream.J
 		),
 	)
 	if err != nil {
-		AppLogger.Fatalf("Failed to connect to database: %v", err)
+		logger.Fatalf("Failed to connect to database: %v", err)
 	}
 	go func() {
 		<-ctx.Done()
-		AppLogger.Info("Shutting down database connection")
+		logger.Info("Shutting down database connection")
 		db.Close()
 	}()
 
@@ -277,52 +288,60 @@ func initializeDatabase(ctx context.Context, config *c.AppConfig, js jetstream.J
 	for _, schema := range postgesBoundarySchemaMappings {
 		isAdminBoundary := schema.Boundary == config.Admin.Boundary
 		if err := postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
-			AppLogger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
+			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
-		AppLogger.Info("Database migrations for schema %s completed successfully", schema)
+		logger.Info("Database migrations for schema %s completed successfully", schema)
 	}
 
-	saveEvents := postgres.NewPostgresSaveEvents(db, &AppLogger, postgesBoundarySchemaMappings)
-	getEvents := postgres.NewPostgresGetEvents(db, &AppLogger, postgesBoundarySchemaMappings)
-	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js)
+	saveEvents := postgres.NewPostgresSaveEvents(db, logger, postgesBoundarySchemaMappings)
+	getEvents := postgres.NewPostgresGetEvents(db, logger, postgesBoundarySchemaMappings)
+	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
-		AppLogger.Fatalf("Failed to create lock provider: %v", err)
+		logger.Fatalf("Failed to create lock provider: %v", err)
 	}
 	// lockProvider := postgres.NewPGLockProvider(db, AppLogger)
+	adminSchema := postgesBoundarySchemaMappings[config.Admin.Boundary]
+	if (adminSchema == c.BoundaryToPostgresSchemaMapping{}) {
+		logger.Fatalf("No schema specified for admin boundary", err)
+	}
+
 	adminDB := postgres.NewPostgresAdminDB(
-		db, AppLogger, postgesBoundarySchemaMappings[config.Admin.Boundary].Schema,
+		db,
+		logger,
+		adminSchema.Schema,
 	)
+
 	eventPublishing := postgres.NewPostgresEventPublishing(
 		db,
-		AppLogger,
+		logger,
 		postgesBoundarySchemaMappings,
 	)
 
 	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing
 }
 
-func initializeNATS(ctx context.Context, config *c.AppConfig) (jetstream.JetStream, *nats.Conn, *server.Server) {
-	natsOptions := createNATSOptions(config)
-	natsServer := startNATSServer(natsOptions, config)
+func initializeNATS(ctx context.Context, config c.AppConfig, logger l.Logger) (jetstream.JetStream, *nats.Conn, *server.Server) {
+	natsOptions := createNATSOptions(config, logger)
+	natsServer := startNATSServer(natsOptions, config, logger)
 
 	// Connect to NATS
 	nc, err := nats.Connect("", nats.InProcessServer(natsServer))
 	if err != nil {
-		AppLogger.Fatalf("Failed to connect to NATS: %v", err)
+		logger.Fatalf("Failed to connect to NATS: %v", err)
 	}
 
 	// Create JetStream context
 	js, err := jetstream.New(nc)
 	if err != nil {
-		AppLogger.Fatalf("Failed to create JetStream context: %v", err)
+		logger.Fatalf("Failed to create JetStream context: %v", err)
 	}
 	// time.Sleep(30 * time.Second)
-	waitForJetStream(ctx, js)
+	waitForJetStream(ctx, js, logger)
 	return js, nc, natsServer
 }
 
-func createNATSOptions(config *c.AppConfig) *server.Options {
-	options := &server.Options{
+func createNATSOptions(config c.AppConfig, logger l.Logger) server.Options {
+	options := server.Options{
 		ServerName: config.Nats.ServerName,
 		Port:       config.Nats.Port,
 		MaxPayload: config.Nats.MaxPayload,
@@ -336,9 +355,9 @@ func createNATSOptions(config *c.AppConfig) *server.Options {
 			Host: config.Nats.Cluster.Host,
 			Port: config.Nats.Cluster.Port,
 		}
-		options.Routes = convertToURLSlice(config.Nats.Cluster.GetRoutes())
-		AppLogger.Info("Nats cluster is enabled, running in clustered mode")
-		AppLogger.Info(
+		options.Routes = convertToURLSlice(config.Nats.Cluster.GetRoutes(), logger)
+		logger.Info("Nats cluster is enabled, running in clustered mode")
+		logger.Info(
 			"Cluster configuration: Name=%v, Host=%v, Port=%v, Routes=%v",
 			config.Nats.Cluster.Name,
 			config.Nats.Cluster.Host,
@@ -346,29 +365,29 @@ func createNATSOptions(config *c.AppConfig) *server.Options {
 			config.Nats.Cluster.Routes,
 		)
 	} else {
-		AppLogger.Info("Nats cluster is disabled, running in standalone mode")
+		logger.Info("Nats cluster is disabled, running in standalone mode")
 	}
 
 	return options
 }
 
-func startNATSServer(options *server.Options, config *c.AppConfig) *server.Server {
-	natsServer, err := server.NewServer(options)
+func startNATSServer(options server.Options, config c.AppConfig, logger l.Logger) *server.Server {
+	natsServer, err := server.NewServer(&options)
 	if err != nil {
-		AppLogger.Fatalf("Failed to create NATS server: %v", err)
+		logger.Fatalf("Failed to create NATS server: %v", err)
 	}
 
 	natsServer.ConfigureLogger()
 	go natsServer.Start()
 	if !natsServer.ReadyForConnections(config.Nats.Cluster.Timeout) {
-		AppLogger.Fatal("NATS server failed to start")
+		logger.Fatal("NATS server failed to start")
 	}
-	AppLogger.Info("NATS server started on ", natsServer.ClientURL())
+	logger.Info("NATS server started on ", natsServer.ClientURL())
 
 	return natsServer
 }
 
-func waitForJetStream(ctx context.Context, js jetstream.JetStream) {
+func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logger) {
 	jetStreamTestDone := make(chan struct{})
 
 	go func() {
@@ -385,17 +404,17 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream) {
 			})
 
 			if err != nil {
-				AppLogger.Warnf("failed to add stream: %v %v", streamName, err)
+				logger.Warnf("failed to add stream: %v %v", streamName, err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
 			r, err := js.Publish(ctx, streamName+".test", []byte("test"))
 			if err != nil {
-				AppLogger.Warnf("Failed to publish to JetStream, retrying in 5 second: %v", err)
+				logger.Warnf("Failed to publish to JetStream, retrying in 5 second: %v", err)
 				time.Sleep(5 * time.Second)
 			} else {
-				AppLogger.Infof("Published to JetStream: %v", r)
+				logger.Infof("Published to JetStream: %v", r)
 				break
 			}
 		}
@@ -403,19 +422,20 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream) {
 
 	select {
 	case <-jetStreamTestDone:
-		AppLogger.Info("JetStream system is available")
+		logger.Info("JetStream system is available")
 	}
 }
 
 func initializeEventStore(
 	ctx context.Context,
-	config *c.AppConfig,
+	config c.AppConfig,
 	saveEvents pb.ImplementerSaveEvents,
 	getEvents pb.ImplementerGetEvents,
 	lockProvider pb.LockProvider,
-	js jetstream.JetStream) *pb.EventStore {
+	js jetstream.JetStream,
+	logger l.Logger) *pb.EventStore {
 
-	AppLogger.Info("Initializing EventStore")
+	logger.Info("Initializing EventStore")
 	eventStore := pb.NewEventStoreServer(
 		ctx,
 		js,
@@ -423,33 +443,35 @@ func initializeEventStore(
 		getEvents,
 		lockProvider,
 		getBoundaryNames(&config.Boundaries),
+		logger,
 	)
-	AppLogger.Info("EventStore initialized")
+	logger.Info("EventStore initialized")
 
 	return eventStore
 }
 
 func startEventPolling(
 	ctx context.Context,
-	config *c.AppConfig,
+	config c.AppConfig,
 	lockProvider pb.LockProvider,
 	getEvents pb.ImplementerGetEvents,
 	js jetstream.JetStream,
-	eventPublishing common.EventPublishing) {
+	eventPublishing common.EventPublishing,
+	logger l.Logger) {
 	for _, schema := range config.Postgres.GetSchemaMapping() {
 		unlock, err := lockProvider.Lock(ctx, schema.Boundary)
 		if err != nil {
-			AppLogger.Fatalf("Failed to acquire lock: %v", err)
+			logger.Fatalf("Failed to acquire lock: %v", err)
 		}
 
-		AppLogger.Infof("Successfully acquired polling lock for %v", schema.Schema)
+		logger.Infof("Successfully acquired polling lock for %v", schema.Schema)
 
 		// Get last published position
 		lastPosition, err := eventPublishing.GetLastPublishedEventPosition(ctx, schema.Boundary)
 		if err != nil {
-			AppLogger.Fatalf("Failed to get last published position: %v", err)
+			logger.Fatalf("Failed to get last published position: %v", err)
 		}
-		AppLogger.Info("Last published position for schema %v: %v", schema, &lastPosition)
+		logger.Info("Last published position for schema %v: %v", schema, &lastPosition)
 
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
 			defer unlock()
@@ -462,22 +484,24 @@ func startEventPolling(
 				boundary.Boundary,
 				eventPublishing,
 				schema.Schema,
+				logger,
 			)
 		}(schema)
 	}
 }
 
 func startAdminServer(
-	config *c.AppConfig,
+	config c.AppConfig,
 	createUserHandler *create_user.CreateUserHandler,
 	dashboardHandler *dashboard.DashboardHandler,
 	loginHandler *login.LoginHandler,
 	deleteUserHandler *delete_user.DeleteUserHandler,
 	usersHandler *users_page.UsersPageHandler,
-	authenticator *admin.Authenticator) {
+	authenticator *admin.Authenticator,
+	logger l.Logger) {
 	go func() {
 		adminServer, err := admin.NewAdminServer(
-			AppLogger,
+			logger,
 			createUserHandler,
 			dashboardHandler,
 			loginHandler,
@@ -485,43 +509,44 @@ func startAdminServer(
 			usersHandler,
 		)
 		if err != nil {
-			AppLogger.Fatalf("Could not start admin server %v", err)
+			logger.Fatalf("Could not start admin server %v", err)
 		}
 		httpServer := &http.Server{
 			Addr:    fmt.Sprintf(":%s", config.Admin.Port),
 			Handler: adminServer,
 		}
 
-		AppLogger.Info("Starting admin server on port %s", config.Admin.Port)
+		logger.Info("Starting admin server on port %s", config.Admin.Port)
 		if err := httpServer.ListenAndServe(); err != nil {
-			AppLogger.Errorf("Admin server error: %v", err)
+			logger.Errorf("Admin server error: %v", err)
 		}
-		AppLogger.Info("Admin server started on port %s", config.Admin.Port)
+		logger.Info("Admin server started on port %s", config.Admin.Port)
 	}()
 }
 
-func startGRPCServer(config *c.AppConfig, eventStore pb.EventStoreServer, authenticator *admin.Authenticator) {
+func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
+	authenticator *admin.Authenticator, logger l.Logger) {
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator)),
 		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator)),
-		grpc.ChainUnaryInterceptor(recoveryInterceptor),
-		grpc.ChainStreamInterceptor(streamErrorInterceptor),
+		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
+		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
 	)
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
 
 	if config.Grpc.EnableReflection {
-		AppLogger.Info("Enabling gRPC server reflection")
+		logger.Info("Enabling gRPC server reflection")
 		reflection.Register(grpcServer)
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", config.Grpc.Port))
 	if err != nil {
-		AppLogger.Fatalf("Failed to listen: %v", err)
+		logger.Fatalf("Failed to listen: %v", err)
 	}
 
-	AppLogger.Info("Grpc Server listening on port %s", config.Grpc.Port)
+	logger.Info("Grpc Server listening on port %s", config.Grpc.Port)
 	if err := grpcServer.Serve(lis); err != nil {
-		AppLogger.Fatalf("Failed to serve: %v", err)
+		logger.Fatalf("Failed to serve: %v", err)
 	}
 }
 
@@ -534,7 +559,8 @@ func startUserProjector(
 	deleteUser up.DeleteUserType,
 	subscribeToEvents common.SubscribeToEventStoreType,
 	saveEvents common.SaveEventsType,
-	getEvents common.GetEventsType) {
+	getEvents common.GetEventsType,
+	logger l.Logger) {
 	go func() {
 		userProjector := up.NewUserProjector(
 			getProjectorLastPosition,
@@ -543,16 +569,16 @@ func startUserProjector(
 			deleteUser,
 			saveEvents,
 			getEvents,
-			AppLogger,
+			logger,
 			adminBoundary,
 			subscribeToEvents,
 		)
 		err := userProjector.Start(ctx)
 
 		if err != nil {
-			AppLogger.Fatalf("Failed to start projection %v", err)
+			logger.Fatalf("Failed to start projection %v", err)
 		}
-		AppLogger.Info("User projector started")
+		logger.Info("User projector started")
 	}()
 }
 
@@ -564,7 +590,8 @@ func startUserCountProjector(
 	subscribeToEvents common.SubscribeToEventStoreType,
 	getUserCount user_count.GetUserCount,
 	publishToPubSub common.PublishToPubSubType,
-	saveUserCount user_count.SaveUserCount) {
+	saveUserCount user_count.SaveUserCount,
+	logger l.Logger) {
 	go func() {
 		userProjector := user_count.NewUserCountProjection(
 			adminBoundary,
@@ -574,14 +601,14 @@ func startUserCountProjector(
 			saveUserCount,
 			subscribeToEvents,
 			updateProjectorPosition,
-			AppLogger,
+			logger,
 		)
 		err := userProjector.Start(ctx)
 
 		if err != nil {
-			AppLogger.Fatalf("Failed to start projection %v", err)
+			logger.Fatalf("Failed to start projection %v", err)
 		}
-		AppLogger.Info("User count projector started")
+		logger.Info("User count projector started")
 	}()
 }
 
@@ -596,15 +623,16 @@ func PollEventsFromDatabaseToNats(
 	boundary string,
 	db common.EventPublishing,
 	schema string,
+	logger l.Logger,
 ) error {
 	// Start polling loop
 	for {
 		if ctx.Err() != nil {
-			AppLogger.Error("Context cancelled, stopping polling")
+			logger.Error("Context cancelled, stopping polling")
 			return ctx.Err()
 		}
 
-		AppLogger.Debugf("Polling for boundary: %v", boundary)
+		logger.Debugf("Polling for boundary: %v", boundary)
 		req := &pb.GetEventsRequest{
 			FromPosition: lastPosition,
 			Count:        batchSize,
@@ -613,11 +641,11 @@ func PollEventsFromDatabaseToNats(
 		}
 		resp, err := eventStore.Get(ctx, req)
 		if err != nil {
-			AppLogger.Errorf("Error retrieving events: %v", err)
+			logger.Errorf("Error retrieving events: %v", err)
 			return fmt.Errorf("failed to get events: %v", err)
 		}
 
-		AppLogger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
+		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
 
 		for _, event := range resp.Events {
 			subjectName := pb.GetEventSubjectName(
@@ -627,10 +655,10 @@ func PollEventsFromDatabaseToNats(
 					PreparePosition: event.Position.PreparePosition,
 				},
 			)
-			AppLogger.Debugf("Subject name is: %s", subjectName)
+			logger.Debugf("Subject name is: %s", subjectName)
 			eventData, err := json.Marshal(event)
 			if err != nil {
-				AppLogger.Errorf("Failed to marshal event: %v", err)
+				logger.Errorf("Failed to marshal event: %v", err)
 				continue
 			}
 			publishEventWithRetry(
@@ -640,6 +668,7 @@ func PollEventsFromDatabaseToNats(
 				subjectName,
 				event.Position.PreparePosition,
 				event.Position.CommitPosition,
+				logger,
 			)
 			lastPosition = event.Position
 		}
@@ -662,13 +691,17 @@ func PollEventsFromDatabaseToNats(
 		if len(resp.Events) > 0 {
 			lastPosition = resp.Events[len(resp.Events)-1].Position
 		}
-		AppLogger.Debugf(":%v Sleeping.....", boundary)
+		logger.Debugf(":%v Sleeping.....", boundary)
 		time.Sleep(500 * time.Millisecond) // Polling interval
 	}
 }
 
-func publishEventWithRetry(ctx context.Context, js jetstream.JetStream, eventData []byte,
-	subjectName string, preparePosition uint64, commitPosition uint64) {
+func publishEventWithRetry(
+	ctx context.Context,
+	js jetstream.JetStream,
+	eventData []byte,
+	subjectName string, preparePosition uint64,
+	commitPosition uint64, logger l.Logger) {
 
 	attempt := 1
 
@@ -679,13 +712,13 @@ func publishEventWithRetry(ctx context.Context, js jetstream.JetStream, eventDat
 
 	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
 	if err == nil {
-		AppLogger.Debugf("Successfully published event after %d attempts", attempt)
+		logger.Debugf("Successfully published event after %d attempts", attempt)
 		return
 	}
 
-	AppLogger.Errorf("Failed to publish event (attempt %d): ", err)
+	logger.Errorf("Failed to publish event (attempt %d): ", err)
 
-	publishEventWithRetry(ctx, js, eventData, subjectName, preparePosition, commitPosition)
+	publishEventWithRetry(ctx, js, eventData, subjectName, preparePosition, commitPosition, logger)
 }
 
 func getBoundaryNames(boundary *[]c.Boundary) *[]string {
@@ -696,31 +729,38 @@ func getBoundaryNames(boundary *[]c.Boundary) *[]string {
 	return &names
 }
 
-func streamErrorInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	err := handler(srv, ss)
-	if err != nil {
-		AppLogger.Errorf("Error in streaming RPC %s: %v", info.FullMethod, err)
-		return status.Errorf(codes.Internal, "Error: %v", err)
-	}
-	return nil
-}
-
-func recoveryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			AppLogger.Errorf("Panic in %s: %v\nStack Trace:\n%s", info.FullMethod, r, debug.Stack())
-			err = status.Errorf(codes.Internal, "Internal server error")
+func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
+	return func(srv interface{},
+		ss grpc.ServerStream,
+		info *grpc.StreamServerInfo,
+		handler grpc.StreamHandler) error {
+		err := handler(srv, ss)
+		if err != nil {
+			logger.Errorf("Error in streaming RPC %s: %v", info.FullMethod, err)
+			return status.Errorf(codes.Internal, "Error: %v", err)
 		}
-	}()
-	return handler(ctx, req)
+		return nil
+	}
 }
 
-func convertToURLSlice(routes []string) []*url.URL {
+func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf("Panic in %s: %v\nStack Trace:\n%s", info.FullMethod, r, debug.Stack())
+				err = status.Errorf(codes.Internal, "Internal server error")
+			}
+		}()
+		return handler(ctx, req)
+	}
+}
+
+func convertToURLSlice(routes []string, logger l.Logger) []*url.URL {
 	var urls []*url.URL
 	for _, route := range routes {
 		u, err := url.Parse(route)
 		if err != nil {
-			AppLogger.Fatalf("Warning: invalid route URL %q: %v", route, err)
+			logger.Fatalf("Warning: invalid route URL %q: %v", route, err)
 			continue
 		}
 		urls = append(urls, u)

@@ -1,10 +1,12 @@
 package logging
 
 import (
-	"fmt"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+// This will be set at build time
+var isDevelopment = true
 
 var appLogger Logger
 
@@ -21,19 +23,23 @@ type Logger interface {
 	Fatalf(format string, args ...interface{})
 }
 
-func GlobalLogger() (Logger, error) {
-	if appLogger != nil {
-		return appLogger, nil
-	}
-	return nil, fmt.Errorf("No logger configured")
-}
-
 func ZapLogger(level string) (Logger, error) {
 	if appLogger != nil {
 		return appLogger, nil
 	}
 
 	var cfg = zap.NewProductionConfig()
+
+	// Configure for colored console output
+	cfg.Encoding = "console"
+	cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	cfg.EncoderConfig.TimeKey = "time"
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	
+	// Disable caller info in production builds
+	if !isDevelopment {
+		cfg.DisableCaller = true
+	}
 
 	lvl, err := zapcore.ParseLevel(level)
 	if err != nil {

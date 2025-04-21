@@ -142,8 +142,8 @@ func TestSaveAndGetEvents(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -307,8 +307,8 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -404,8 +404,8 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
 	// Save multiple events to get different global positions
@@ -478,8 +478,8 @@ func TestPagination(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
 	// Save 10 events
@@ -565,8 +565,8 @@ func TestDirectionOrdering(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
 	// Save 5 events
@@ -652,8 +652,8 @@ func TestComplexTagQueries(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
 	// Save events with different tag combinations
@@ -826,8 +826,8 @@ func TestErrorConditions(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, &logger, mapping)
-	getEvents := NewPostgresGetEvents(db, &logger, mapping)
+	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
 	// Test 1: Non-existent boundary

@@ -25,11 +25,7 @@ type JetStreamLockProvider struct {
 }
 
 // NewJetStreamLockProvider creates a new JetStreamLockProvider
-func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream) (*JetStreamLockProvider, error) {
-	log, err := logging.GlobalLogger()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logger: %w", err)
-	}
+func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream, logger logging.Logger) (*JetStreamLockProvider, error) {
 
 	// Create or get the KV bucket for locks
 	bucket, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
@@ -46,7 +42,7 @@ func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream) (*Jet
 	return &JetStreamLockProvider{
 		js:     js,
 		bucket: bucket,
-		logger: log,
+		logger: logger,
 	}, nil
 }
 

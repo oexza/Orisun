@@ -34,7 +34,7 @@ nats:
 pollingPublisher:
   batchSize: ${ORISUN_POLLING_PUBLISHER_BATCH_SIZE:1000}
 logging:
-  level: ${ORISUN_LOGGING_LEVEL:DEBUG}
+  level: ${ORISUN_LOGGING_LEVEL:INFO}
 
 # authentication configuration
 auth:

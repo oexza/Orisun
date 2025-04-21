@@ -99,11 +99,11 @@ func (c *NatsClusterConfig) GetRoutes() []string {
 //go:embed config.yaml
 var configData []byte
 
-func LoadConfig() (*AppConfig, error) {
+func LoadConfig() (AppConfig, error) {
 	viper.SetConfigType("yaml")
 
 	if err := viper.ReadConfig(bytes.NewReader(configData)); err != nil {
-		return nil, fmt.Errorf("failed to read config data: %w", err)
+		return AppConfig{}, fmt.Errorf("failed to read config data: %w", err)
 	}
 
 	// Correct environment variable substitution
@@ -118,11 +118,30 @@ func LoadConfig() (*AppConfig, error) {
 	var config AppConfig
 
 	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return AppConfig{}, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	fmt.Printf("config is %+v\n", config)
-	return &config, nil
+
+	err := validateConfig(config)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	return config, nil
+}
+
+func validateConfig(config AppConfig) error {
+	isAdminBoundaryDefined := false
+	for _, boundary := range config.Boundaries {
+		if boundary.Name == config.Admin.Boundary {
+			isAdminBoundaryDefined = true
+		}
+	}
+	if !isAdminBoundaryDefined {
+		return fmt.Errorf("admin boundary not defined")
+
+	}
+	return nil
 }
 
 func substituteEnvVars(value string) string {

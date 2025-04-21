@@ -76,12 +76,8 @@ func NewEventStoreServer(
 	getEventsFn ImplementerGetEvents,
 	lockProvider LockProvider,
 	boundaries *[]string,
+	log logging.Logger,
 ) *EventStore {
-	log, err := logging.GlobalLogger()
-
-	if err != nil {
-		log.Fatalf("Could not configure logger")
-	}
 
 	logger = log
 	for _, boundary := range *boundaries {
@@ -264,7 +260,7 @@ func (s *EventStore) SubscribeToEvents(
 			if err := json.Unmarshal(firstMsg.Data, &firstEvent); err == nil {
 				// If the first event in the stream is newer than our position, skip historical events
 				if !isEventNewer(firstEvent.Position, lastPosition) {
-					logger.Infof("First event in stream is older than requested position, skipping historical events")
+					logger.Infof("First event in nats jetstream is older than requested position, skipping historical events")
 					skipHistorical = true
 					lastPosition = firstEvent.Position
 				}
