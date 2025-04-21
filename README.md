@@ -45,7 +45,7 @@ In Orisun, a "boundary" directly corresponds to a PostgreSQL schema. Boundaries 
 
 ```bash
 # Configure allowed boundaries (schemas)
-ORISUN_PG_SCHEMAS=users,orders,payments \
+ORISUN_PG_SCHEMAS=users:test2,orisun_admin:admin \
 ORISUN_PG_HOST=localhost \
 [... other config ...] \
 orisun-darwin-arm64
