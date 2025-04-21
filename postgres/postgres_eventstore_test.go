@@ -538,8 +538,8 @@ func TestPagination(t *testing.T) {
 
 	// Verify the events are different between pages
 	assert.NotEqual(t, resp1.Events[0].EventId, resp2.Events[0].EventId)
-	assert.NotEqual(t, resp1.Events[1].EventId, resp2.Events[0].EventId)
-	assert.NotEqual(t, resp1.Events[2].EventId, resp2.Events[0].EventId)
+	assert.NotEqual(t, resp1.Events[1].EventId, resp2.Events[1].EventId)
+	assert.NotEqual(t, resp1.Events[2].EventId, resp2.Events[2].EventId)
 }
 
 func TestDirectionOrdering(t *testing.T) {

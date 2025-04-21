@@ -159,7 +159,7 @@ func main() {
 								// Context is done, exit gracefully
 								return
 							}
-							AppLogger.Error("Error receiving: %v", err)
+							AppLogger.Errorf("Error receiving: %v", err)
 							// Add a small sleep to prevent CPU spinning on persistent errors
 							time.Sleep(100 * time.Millisecond)
 							continue
@@ -290,7 +290,7 @@ func initializeDatabase(ctx context.Context,
 		if err := postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
 			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
-		logger.Info("Database migrations for schema %s completed successfully", schema)
+		logger.Infof("Database migrations for schema %s completed successfully", schema)
 	}
 
 	saveEvents := postgres.NewPostgresSaveEvents(db, logger, postgesBoundarySchemaMappings)
@@ -471,7 +471,7 @@ func startEventPolling(
 		if err != nil {
 			logger.Fatalf("Failed to get last published position: %v", err)
 		}
-		logger.Info("Last published position for schema %v: %v", schema, &lastPosition)
+		logger.Infof("Last published position for schema %v: %v", schema, &lastPosition)
 
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
 			defer unlock()
