@@ -29,7 +29,7 @@ SELECT * FROM %s.insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb, 
 `
 
 const selectMatchingEvents = `
-SELECT * FROM %s.get_matching_events($1::text, $2, $3::INT, $4::jsonb, $5::jsonb, $6, $7::INT)
+SELECT * FROM get_matching_events($1::text, $2, $3::INT, $4::jsonb, $5::jsonb, $6, $7::INT)
 `
 
 const setSearchPath = `
@@ -170,7 +170,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	var fromPositionMarshaled *[]byte = nil
 
 	if req.FromPosition != nil {
-		fromPosition := &map[string]uint64{
+		fromPosition := map[string]uint64{
 			"transaction_id": req.FromPosition.CommitPosition,
 			"global_id":      req.FromPosition.PreparePosition,
 		}
@@ -226,9 +226,10 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// if err != nil {
 	// 	return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
 	// }
-
+	// Prepare the query once
+	// query := fmt.Sprintf(selectMatchingEvents)
 	rows, err := tx.Query(
-		fmt.Sprintf(selectMatchingEvents, schema),
+		selectMatchingEvents,
 		schema,
 		streamName,
 		fromStreamVersion,
@@ -240,10 +241,9 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
 	}
-
 	defer rows.Close()
 
-	// Pre-allocate events slice with a reasonable capacity
+	// Pre-allocate events slice with exact capacity
 	events := make([]*eventstore.Event, 0, req.Count)
 
 	columns, err := rows.Columns()
@@ -252,48 +252,57 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	// Create a reusable map for column mapping
-	columnMap := make(map[string]int, len(columns))
-	for i, col := range columns {
-		columnMap[col] = i
+	// columnMap := make(map[string]int, len(columns))
+	// for i, col := range columns {
+	// 	columnMap[col] = i
+	// }
+
+	// Create a slice of pointers to scan into
+	scanArgs := make([]interface{}, len(columns))
+	
+	// Reuse these variables for each row to reduce allocations
+	var event eventstore.Event
+	var tagsBytes []byte
+	var transactionID, globalID uint64
+	var dateCreated time.Time
+	
+	// Create a map of pointers to hold our row data - only once
+	rowData := map[string]interface{}{
+		"event_id":       &event.EventId,
+		"event_type":     &event.EventType,
+		"data":           &event.Data,
+		"metadata":       &event.Metadata,
+		"tags":           &tagsBytes,
+		"transaction_id": &transactionID,
+		"global_id":      &globalID,
+		"date_created":   &dateCreated,
+		"stream_name":    &event.StreamId,
+		"stream_version": &event.Version,
 	}
 
+	// Set up scanArgs once before the loop
+	for i, col := range columns {
+		if ptr, ok := rowData[col]; ok {
+			scanArgs[i] = ptr
+		} else {
+			return nil, status.Errorf(codes.Internal, "unexpected column: %s", col)
+		}
+	}
+
+	// Reuse a map for tags to reduce allocations
+	var tagsMap map[string]string
+	
 	for rows.Next() {
-		var event eventstore.Event
-		var tagsBytes []byte
-		var transactionID, globalID uint64
-		var dateCreated time.Time
-
-		// Create a map of pointers to hold our row data
-		rowData := map[string]interface{}{
-			"event_id":       &event.EventId,
-			"event_type":     &event.EventType,
-			"data":           &event.Data,
-			"metadata":       &event.Metadata,
-			"tags":           &tagsBytes,
-			"transaction_id": &transactionID,
-			"global_id":      &globalID,
-			"date_created":   &dateCreated,
-			"stream_name":    &event.StreamId,
-			"stream_version": &event.Version,
-		}
-
-		// Create a slice of pointers to scan into
-		scanArgs := make([]interface{}, len(columns))
-		for i, col := range columns {
-			if ptr, ok := rowData[col]; ok {
-				scanArgs[i] = ptr
-			} else {
-				return nil, status.Errorf(codes.Internal, "unexpected column: %s", col)
-			}
-		}
-
+		// Reset event for reuse
+		event = eventstore.Event{}
+		
 		// Scan the row into our map
 		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
 
 		// Process tags - pre-allocate tags slice
-		var tagsMap map[string]string
+		tagsMap = make(map[string]string)
 		if err := json.Unmarshal(tagsBytes, &tagsMap); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
 		}
@@ -312,7 +321,9 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		// Set the DateCreated
 		event.DateCreated = timestamppb.New(dateCreated)
 
-		events = append(events, &event)
+		// Create a new event pointer for each row
+		eventCopy := event
+		events = append(events, &eventCopy)
 	}
 
 	// Check for errors from iterating over rows

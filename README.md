@@ -378,7 +378,7 @@ ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
 ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=public \
+ORISUN_PG_SCHEMAS=test:public \
 ORISUN_GRPC_PORT=5005 \
 ORISUN_NATS_PORT=4222 \
 ./orisun-darwin-arm64

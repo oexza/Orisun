@@ -259,7 +259,8 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 	}
 	return nil
 }
-func initializeDatabase(ctx context.Context,
+func initializeDatabase(
+	ctx context.Context,
 	config c.AppConfig,
 	js jetstream.JetStream,
 	logger l.Logger,
@@ -442,7 +443,7 @@ func initializeEventStore(
 		saveEvents,
 		getEvents,
 		lockProvider,
-		getBoundaryNames(&config.Boundaries),
+		getBoundaryNames((config.GetBoundaries())),
 		logger,
 	)
 	logger.Info("EventStore initialized")

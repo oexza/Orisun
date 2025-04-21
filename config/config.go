@@ -8,13 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 )
 
 // AppConfig represents the application configuration
 type AppConfig struct {
-	Postgres   DBConfig
-	Boundaries []Boundary `mapstructure:"boundaries"`
+	Postgres DBConfig
+	// Boundaries []Boundary `mapstructure:"boundaries"`
+	Boundaries string
+	boundaries []Boundary
 	Grpc       struct {
 		Port             string
 		EnableReflection bool
@@ -123,6 +126,11 @@ func LoadConfig() (AppConfig, error) {
 
 	fmt.Printf("config is %+v\n", config)
 
+	if err := config.ParseBoundaries(); err != nil {
+		return AppConfig{}, fmt.Errorf("failed to parse boundaries: %w", err)
+	}
+	fmt.Printf("boundaries are %+v\n", config.boundaries)
+
 	err := validateConfig(config)
 	if err != nil {
 		return AppConfig{}, err
@@ -130,9 +138,22 @@ func LoadConfig() (AppConfig, error) {
 	return config, nil
 }
 
+func (c *AppConfig) ParseBoundaries() error {
+	if c.Boundaries == "" {
+		return fmt.Errorf("No boudaries defined") // No boundaries defined
+	}
+
+	fmt.Printf("boundaries are %s\n", c.Boundaries)
+	return json.Unmarshal([]byte(c.Boundaries), &c.boundaries)
+}
+
+func (c *AppConfig) GetBoundaries() *[]Boundary {
+	return &c.boundaries
+}
+
 func validateConfig(config AppConfig) error {
 	isAdminBoundaryDefined := false
-	for _, boundary := range config.Boundaries {
+	for _, boundary := range config.boundaries {
 		if boundary.Name == config.Admin.Boundary {
 			isAdminBoundaryDefined = true
 		}

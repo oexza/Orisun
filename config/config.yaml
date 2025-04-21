@@ -6,13 +6,7 @@ postgres:
   port: ${ORISUN_PG_PORT:5432}
   schemas: ${ORISUN_PG_SCHEMAS:`orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`}
 
-boundaries:
-  - name: orisun_test_1
-    description: boundary1
-  - name: orisun_test_2
-    description: boundary2
-  - name: orisun_admin
-    description: boundary3
+boundaries: ${ORISUN_BOUNDARIES:`[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]`}
 
 grpc:
   port: ${ORISUN_GRPC_PORT:5005}
