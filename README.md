@@ -28,12 +28,14 @@ Orisun is a modern event store designed for building event-driven applications. 
 1. **Configure environment variables**:
 
 ```bash
-export ORISUN_PG_HOST=localhost
-export ORISUN_PG_PORT=5432
-export ORISUN_PG_USER=postgres
-export ORISUN_PG_PASSWORD=your_password
-export ORISUN_PG_NAME=your_database
-export ORISUN_PG_SCHEMAS=your_schema
+ORISUN_PG_HOST=localhost \
+ORISUN_PG_PORT=5432 \
+ORISUN_PG_USER=postgres \
+ORISUN_PG_PASSWORD=your_password \
+ORISUN_PG_NAME=your_database \
+ORISUN_ADMIN_BOUNDARY:orisun_admin \
+ORISUN_PG_SCHEMAS=users:test2,orisun_admin:admin \
+./orisun-darwin-arm64
 ```
 
 ## Key Concepts

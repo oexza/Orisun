@@ -1,7 +1,7 @@
 postgres:
   user: ${ORISUN_PG_USER:postgres}
   name: ${ORISUN_PG_NAME:orisun}
-  password: ${ORISUN_PG_PASSWORD:password@1}
+  password: ${ORISUN_PG_PASSWORD:postgres}
   host: ${ORISUN_PG_HOST:localhost}
   port: ${ORISUN_PG_PORT:5432}
   schemas: ${ORISUN_PG_SCHEMAS:`orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`}
