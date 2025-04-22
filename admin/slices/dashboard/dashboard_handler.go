@@ -54,13 +54,13 @@ func (dh *DashboardHandler) HandleDashboardPage(w http.ResponseWriter, r *http.R
 			for {
 				select {
 				case <-sse.Context().Done():
-					dh.logger.Debug("Context done, stopping dashboard event processing")
+					dh.logger.Debugf("Context done, stopping dashboard event processing")
 					return // Exit the goroutine completely
 				default:
 					// Only try to receive if context is not done
 					event, err := subscription.Recv()
 					if err != nil {
-						dh.logger.Error("Error receiving user count: %v", err)
+						dh.logger.Errorf("Error receiving user count: %v", err)
 						continue
 					}
 					sse.MergeFragmentTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))

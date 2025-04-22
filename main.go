@@ -127,10 +127,13 @@ func main() {
 	)
 
 	//create default user
-	createDefaultUser(
+	err := createDefaultUser(
 		ctx,
 		config.Admin.Boundary, *eventStore,
 	)
+	if err!= nil  {
+		AppLogger.Infof("%v", err)
+	}
 
 	// Start admin server
 	createUserCommandHandler := create_user.NewCreateUserHandler(

@@ -59,7 +59,7 @@ BEGIN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
 
-    set search_path to schema;
+    EXECUTE format('SET search_path TO %I', schema);
     PERFORM pg_advisory_xact_lock(hashtext(stream));
 
     -- Stream version check
@@ -182,6 +182,9 @@ $$
 DECLARE
     op TEXT := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
     schema_prefix TEXT;
+    criteria_array JSONB := criteria -> 'criteria';
+    tx_id TEXT := (after_position ->> 'transaction_id')::text;
+    global_id TEXT := (after_position ->> 'global_id')::text;
 BEGIN
     IF sort_dir NOT IN ('ASC', 'DESC') THEN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
@@ -190,34 +193,55 @@ BEGIN
     -- Instead of SET search_path, use schema prefix in the query
     schema_prefix := quote_ident(schema) || '.';
 
-    RETURN QUERY EXECUTE format(
+    -- Optimize the query based on which parameters are provided
+    IF stream_name IS NOT NULL AND criteria_array IS NULL AND after_position IS NULL THEN
+        -- Optimized path for stream-only queries (common case)
+        RETURN QUERY EXECUTE format(
             $q$
-        SELECT * FROM %10$sorisun_es_event
-        WHERE 
-            (%1$L IS NULL OR stream_name = %1$L) AND
-            (%2$L IS NULL OR stream_version %4$s %2$L) AND
-            (%3$L IS NULL OR 
-             (transaction_id, global_id) %4$s (
-                %5$L::BIGINT, 
-                %6$L::BIGINT
-             )) AND
-            (%7$L::JSONB IS NULL OR tags @> ANY (
-                SELECT jsonb_array_elements(%7$L)
-            ))
-        ORDER BY transaction_id %8$s, global_id %8$s
-        LIMIT %9$L
-        $q$,
+            SELECT * FROM %5$sorisun_es_event
+            WHERE stream_name = %1$L
+            AND (%2$L IS NULL OR stream_version %3$s %2$L)
+            ORDER BY transaction_id %4$s, global_id %4$s
+            LIMIT %6$L
+            $q$,
+            stream_name,
+            from_stream_version,
+            op,
+            sort_dir,
+            schema_prefix,
+            LEAST(GREATEST(max_count, 1), 10000)
+        );
+    ELSE
+        -- General case with all possible filters
+        RETURN QUERY EXECUTE format(
+            $q$
+            SELECT * FROM %10$sorisun_es_event
+            WHERE 
+                (%1$L IS NULL OR stream_name = %1$L) AND
+                (%2$L IS NULL OR stream_version %4$s %2$L) AND
+                (%3$L IS NULL OR 
+                (transaction_id, global_id) %4$s (
+                    %5$L::BIGINT, 
+                    %6$L::BIGINT
+                )) AND
+                (%7$L::JSONB IS NULL OR tags @> ANY (
+                    SELECT jsonb_array_elements(%7$L)
+                ))
+            ORDER BY transaction_id %8$s, global_id %8$s
+            LIMIT %9$L
+            $q$,
             stream_name,
             from_stream_version,
             after_position,
             op,
-            (after_position ->> 'transaction_id')::text,
-            (after_position ->> 'global_id')::text,
-            (criteria -> 'criteria'),
+            tx_id,
+            global_id,
+            criteria_array,
             sort_dir,
             LEAST(GREATEST(max_count, 1), 10000),
             schema_prefix
-    );
+        );
+    END IF;
 END;
 $$;
 

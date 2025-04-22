@@ -3,7 +3,7 @@ version: "3"
 env:
   NATS_PORT: 4222
   STATIC_DIR: "web/static"
-  ORISUN_LOGGING_LEVEL: DEBUG
+  ORISUN_LOGGING_LEVEL: INFO
   ORISUN_PG_PASSWORD: "password@1"
 
 tasks:

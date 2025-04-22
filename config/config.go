@@ -124,13 +124,14 @@ func LoadConfig() (AppConfig, error) {
 		return AppConfig{}, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	fmt.Printf("config is %+v\n", config)
-
 	if err := config.ParseBoundaries(); err != nil {
 		return AppConfig{}, fmt.Errorf("failed to parse boundaries: %w", err)
 	}
 	fmt.Printf("boundaries are %+v\n", config.boundaries)
 
+	fmt.Printf("config is %+v\n", config)
+
+	
 	err := validateConfig(config)
 	if err != nil {
 		return AppConfig{}, err

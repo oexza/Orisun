@@ -25,7 +25,7 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM %s.insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb, $4::jsonb)
+SELECT * FROM insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb, $4::jsonb)
 `
 
 const selectMatchingEvents = `
@@ -84,7 +84,7 @@ func (s *PostgresSaveEvents) Save(
 	streamName string,
 	expectedVersion int32,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
-	s.logger.Debugf("Postgres: Saving events from request: %v", consistencyCondition)
+	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
 	schema, err := s.Schema(boundary)
 	if err != nil {
@@ -113,9 +113,16 @@ func (s *PostgresSaveEvents) Save(
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		s.logger.Errorf("Error beginning transaction: %v", err)
 		return "", 0, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
+
+	_, errr := tx.Exec("SET log_statement = 'all';")
+	if errr != nil {
+		s.logger.Errorf("Error setting log_statement: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	}
 
 	// _, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
 	// if err != nil {
@@ -125,7 +132,7 @@ func (s *PostgresSaveEvents) Save(
 	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
 		ctx,
-		fmt.Sprintf(insertEventsWithConsistency, schema),
+		insertEventsWithConsistency,
 		schema,
 		streamSubsetAsBytes,
 		consistencyConditionJSONString,
@@ -133,6 +140,7 @@ func (s *PostgresSaveEvents) Save(
 	)
 
 	if row.Err() != nil {
+		s.logger.Errorf("Error inserting events: %v", err)
 		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
 	}
 	// Scan the result
@@ -143,6 +151,7 @@ func (s *PostgresSaveEvents) Save(
 	var globID uint64
 	err = row.Scan(&tranID, &globID, &noop)
 	err = tx.Commit()
+	s.logger.Info("Transaction ID: ", tranID)
 
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
@@ -259,13 +268,13 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	// Create a slice of pointers to scan into
 	scanArgs := make([]interface{}, len(columns))
-	
+
 	// Reuse these variables for each row to reduce allocations
 	var event eventstore.Event
 	var tagsBytes []byte
 	var transactionID, globalID uint64
 	var dateCreated time.Time
-	
+
 	// Create a map of pointers to hold our row data - only once
 	rowData := map[string]interface{}{
 		"event_id":       &event.EventId,
@@ -291,11 +300,11 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	// Reuse a map for tags to reduce allocations
 	var tagsMap map[string]string
-	
+
 	for rows.Next() {
 		// Reset event for reuse
 		event = eventstore.Event{}
-		
+
 		// Scan the row into our map
 		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
