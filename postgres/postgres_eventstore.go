@@ -95,9 +95,9 @@ func (s *PostgresSaveEvents) Save(
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
-	// s.logger.Debugf("streamSubsetAsJsonString: %v", jsonStr)
+	//  s.logger.Infof("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
 
-	var consistencyConditionJSONString []byte = nil
+	var consistencyConditionJSONString []byte = []byte("{}")
 	if consistencyCondition != nil {
 		consistencyConditionJSON, err := json.Marshal(getConsistencyConditionAsMap(consistencyCondition))
 		if err != nil {
@@ -105,11 +105,13 @@ func (s *PostgresSaveEvents) Save(
 		}
 		consistencyConditionJSONString = consistencyConditionJSON
 	}
+	//  s.logger.Infof("consistencyConditionJSONString: %v", string(consistencyConditionJSONString))
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
 	}
+	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -124,10 +126,10 @@ func (s *PostgresSaveEvents) Save(
 	// 	return "", 0, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
-	// _, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	// if err != nil {
-	// 	return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	// }
+	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
+	if err != nil {
+		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
+	}
 
 	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
@@ -135,12 +137,12 @@ func (s *PostgresSaveEvents) Save(
 		insertEventsWithConsistency,
 		schema,
 		streamSubsetAsBytes,
+		eventsJSON,
 		consistencyConditionJSONString,
-		string(eventsJSON),
 	)
 
 	if row.Err() != nil {
-		s.logger.Errorf("Error inserting events: %v", err)
+		s.logger.Errorf("Error inserting events: %v", row.Err())
 		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
 	}
 	// Scan the result
@@ -151,7 +153,7 @@ func (s *PostgresSaveEvents) Save(
 	var globID uint64
 	err = row.Scan(&tranID, &globID, &noop)
 	err = tx.Commit()
-	s.logger.Info("Transaction ID: ", tranID)
+	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
@@ -231,10 +233,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
-	// _, err = tx.Exec(fmt.Sprintf(setSearchPath, schema))
-	// if err != nil {
-	// 	return nil, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	// }
 	// Prepare the query once
 	// query := fmt.Sprintf(selectMatchingEvents)
 	rows, err := tx.Query(

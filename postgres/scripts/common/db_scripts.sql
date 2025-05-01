@@ -30,8 +30,8 @@ CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
     schema TEXT,
     stream_info JSONB,
-    global_condition JSONB,
-    events JSONB
+    events JSONB,
+    global_condition JSONB
 )
     RETURNS TABLE
             (

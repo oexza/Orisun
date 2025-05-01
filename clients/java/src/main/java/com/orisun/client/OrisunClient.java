@@ -155,7 +155,6 @@ public class OrisunClient implements AutoCloseable {
     public Eventstore.WriteResult saveEvents(final Eventstore.SaveEventsRequest request) throws OrisunException {
         try {
             return blockingStub
-                    .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
                     .saveEvents(request);
         } catch (StatusRuntimeException e) {
             throw new OrisunException("Failed to save events", e);

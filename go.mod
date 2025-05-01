@@ -9,7 +9,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.11.0
 	github.com/nats-io/nats.go v1.40.1
 	github.com/spf13/viper v1.19.0
-	github.com/starfederation/datastar v0.21.4
+	github.com/starfederation/datastar v1.0.0-beta.11
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.35.0
 	go.uber.org/zap v1.27.0
@@ -20,7 +20,7 @@ require (
 require (
 	github.com/a-h/templ v0.3.833
 	github.com/delaneyj/gostar v0.8.0 // indirect
-	github.com/goccy/go-json v0.10.5 // indirect
+	github.com/goccy/go-json v0.10.5
 	github.com/igrmk/treemap/v2 v2.0.1 // indirect
 	github.com/samber/lo v1.47.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
@@ -78,6 +78,8 @@ require (
 )
 
 require (
+	github.com/CAFxX/httpcompression v0.0.9 // indirect
+	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/google/go-tpm v0.9.3 // indirect

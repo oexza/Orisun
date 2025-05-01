@@ -131,7 +131,7 @@ func main() {
 		ctx,
 		config.Admin.Boundary, *eventStore,
 	)
-	if err!= nil  {
+	if err != nil {
 		AppLogger.Infof("%v", err)
 	}
 
@@ -174,6 +174,11 @@ func main() {
 					}
 				}
 			}()
+			
+			count, err := getUserCount()
+			if err != nil && count != (user_count.UserCountReadModel{})  {
+				messageHandler.Send(&count)
+			}
 			eventStore.SubscribeToPubSubGeneric(
 				ctx,
 				user_count.UserCountPubSubscription,

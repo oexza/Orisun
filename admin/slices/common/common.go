@@ -58,7 +58,7 @@ func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar
 	if sse != nil {
 		return sse, tabId
 	}
-	sse = datastar.NewSSE(w, r)
+	sse = datastar.NewSSE(w, r, datastar.WithCompression())
 	sseConnections[tabId] = sse
 
 	// Set up cleanup when context closes

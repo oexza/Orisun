@@ -165,10 +165,12 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 			updatedCount := UserCountReadModel{
 				Count: newCount,
 			}
+
 			marshaled, err := json.Marshal(updatedCount)
 			if err != nil {
 				return err
 			}
+			
 			p.saveUserCount(newCount)
 			p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
 				Id:      "users-count",
