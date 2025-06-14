@@ -52,7 +52,6 @@ func NewAdminServer(
 
 	// Register routes
 	router.Route("/", func(r chi.Router) {
-		// Apply the tab ID middleware only to routes under /admin
 		r.Use(server.tabIDMiddleware)
 
 		// Serve static files

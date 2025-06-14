@@ -93,21 +93,6 @@ Save events to a specific schema/boundary. Here's an example of saving user regi
 ```bash
 grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
 {
-  "consistency_condition": {
-    "consistency_marker": {
-      "commit_position": "13951879",
-      "prepare_position": "61"
-    },
-    "query": {
-      "criteria": [
-        {
-          "tags": [
-            {"key": "tenant_id", "value": "tenant-456"}
-          ]
-        }
-      ]
-    }
-  },
   "boundary": "users",
   "events": [
     {

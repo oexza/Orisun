@@ -1,6 +1,6 @@
-package com.orisun.client;
+package com.orisunlabs.orisun.client;
 
-public class OrisunException extends Exception {
+public class OrisunException extends RuntimeException {
     public OrisunException(String message) {
         super(message);
     }

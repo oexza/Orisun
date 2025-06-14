@@ -1,8 +1,10 @@
-package com.orisun.client;
+package com.orisunlabs.orisun.client;
 
 import com.orisun.eventstore.EventStoreGrpc;
 import com.orisun.eventstore.Eventstore;
 import com.orisun.eventstore.Eventstore.*;
+
+import io.grpc.ServerBuilder;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -14,6 +16,7 @@ import com.google.protobuf.ByteString;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -29,25 +32,24 @@ class OrisunClientTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        String serverName = InProcessServerBuilder.generateName();
+        // Choose a free port
+        ServerSocket socket = new ServerSocket(8080);
+        int port = socket.getLocalPort();
+        socket.close();
+
         mockService = new MockEventStoreService();
 
-        // Create and start the in-process server
-        grpcCleanup.register(InProcessServerBuilder
-                .forName(serverName)
-                .directExecutor()
+        // Create and start the server on a port
+        final var server = ServerBuilder.forPort(port)
                 .addService(mockService)
                 .build()
-                .start());
+                .start();
+        grpcCleanup.register(server);
 
-        // Create the client
+        // Create the client using the port
         client = OrisunClient
                 .newBuilder()
-                .withChannel(
-                        grpcCleanup.register(
-                                InProcessChannelBuilder.forName(serverName)
-                                        .directExecutor()
-                                        .build()))
+                .withServer("dns:///localhost", port)
                 .build();
     }
 
@@ -57,7 +59,8 @@ class OrisunClientTest {
         String eventId = UUID.randomUUID().toString();
         Eventstore.SaveEventsRequest request = Eventstore.SaveEventsRequest.newBuilder()
                 .setBoundary("users")
-                .addEvents(Eventstore.EventToSave.newBuilder()
+                .addEvents(Eventstore.EventToSave
+                        .newBuilder()
                         .setEventId(eventId)
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")

@@ -3,6 +3,8 @@ package eventstore
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"github.com/goccy/go-json"
 
 	"runtime/debug"
@@ -23,7 +25,7 @@ type GetEventsType = func(ctx context.Context, in *GetEventsRequest) (*GetEvents
 type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
-		indexLockCondition *IndexLockCondition,
+		// indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
 		streamVersion int32,
@@ -198,7 +200,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	transactionID, globalID, err = s.saveEventsFn.Save(
 		ctx,
 		eventsForMarshaling,
-		req.ConsistencyCondition,
+		// req.ConsistencyCondition,
 		req.Boundary,
 		req.Stream.Name,
 		req.Stream.ExpectedVersion,
@@ -206,6 +208,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	)
 
 	if err != nil {
+		if strings.Contains(err.Error(), "OptimisticConcurrencyException")  {
+			return nil, status.Errorf(codes.AlreadyExists, "failed to save events: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
 	}
 
@@ -250,7 +255,7 @@ func (s *EventStore) SubscribeToEvents(
 		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
 	}
 
-	// Check if we need to process historical events by examining the first event in the stream
+	// Check if we need to process historical events by examining the first event in the jetstream
 	skipHistorical := false
 	info, err := subs.Info(ctx)
 	if err == nil && info.State.FirstSeq > 0 {

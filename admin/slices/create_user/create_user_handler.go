@@ -293,21 +293,21 @@ func CreateUser(ctx context.Context, name, username, password string,
 
 	_, err = saveEvents(ctx, &pb.SaveEventsRequest{
 		Boundary: boundary,
-		ConsistencyCondition: &pb.IndexLockCondition{
-			ConsistencyMarker: &pb.Position{
-				PreparePosition: 0,
-				CommitPosition:  0,
-			},
-			Query: &pb.Query{
-				Criteria: []*pb.Criterion{
-					{
-						Tags: []*pb.Tag{
-							{Key: ev.UsernameTag, Value: username},
-						},
-					},
-				},
-			},
-		},
+		// ConsistencyCondition: &pb.IndexLockCondition{
+		// 	ConsistencyMarker: &pb.Position{
+		// 		PreparePosition: 0,
+		// 		CommitPosition:  0,
+		// 	},
+		// 	Query: &pb.Query{
+		// 		Criteria: []*pb.Criterion{
+		// 			{
+		// 				Tags: []*pb.Tag{
+		// 					{Key: ev.UsernameTag, Value: username},
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// },
 		Events: eventsToSave,
 		Stream: &pb.SaveStreamQuery{
 			Name:            ev.UserStreamPrefix + userId.String(),

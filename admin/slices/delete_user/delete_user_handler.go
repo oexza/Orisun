@@ -131,7 +131,7 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 
 		_, err = s.saveEvents(ctx, &eventstore.SaveEventsRequest{
 			Boundary:             s.boundary,
-			ConsistencyCondition: nil,
+			// ConsistencyCondition: nil,
 			Stream: &eventstore.SaveStreamQuery{
 				Name:            events.UserStreamPrefix + userId,
 				ExpectedVersion: int32(lastExpectedVersion),

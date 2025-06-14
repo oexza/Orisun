@@ -174,9 +174,9 @@ func main() {
 					}
 				}
 			}()
-			
+
 			count, err := getUserCount()
-			if err != nil && count != (user_count.UserCountReadModel{})  {
+			if err != nil && count != (user_count.UserCountReadModel{}) {
 				messageHandler.Send(&count)
 			}
 			eventStore.SubscribeToPubSubGeneric(
@@ -187,6 +187,22 @@ func main() {
 			)
 			return nil
 		},
+		// func() uint32 {
+		// 	streams, err := js.Stream(pb.PublishRequest{}.Subject)
+		// 	if err != nil {
+		// 		return 0, err
+		// 	}
+
+		// 	total := 0
+		// 	for _, stream := range streams {
+		// 		consumers, err := js.Consumers(stream.Config.Name)
+		// 		if err != nil {
+		// 			continue
+		// 		}
+		// 		total += len(consumers)
+		// 	}
+		// 	return total
+		// },
 	)
 
 	authenticator := admin.NewAuthenticator(
@@ -525,11 +541,11 @@ func startAdminServer(
 			Handler: adminServer,
 		}
 
-		logger.Info("Starting admin server on port %s", config.Admin.Port)
+		logger.Infof("Starting admin server on port %s", config.Admin.Port)
 		if err := httpServer.ListenAndServe(); err != nil {
 			logger.Errorf("Admin server error: %v", err)
 		}
-		logger.Info("Admin server started on port %s", config.Admin.Port)
+		logger.Infof("Admin server started on port %s", config.Admin.Port)
 	}()
 }
 
@@ -544,7 +560,7 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
 
 	if config.Grpc.EnableReflection {
-		logger.Info("Enabling gRPC server reflection")
+		logger.Infof("Enabling gRPC server reflection")
 		reflection.Register(grpcServer)
 	}
 
@@ -553,7 +569,7 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		logger.Fatalf("Failed to listen: %v", err)
 	}
 
-	logger.Info("Grpc Server listening on port %s", config.Grpc.Port)
+	logger.Infof("Grpc Server listening on port %s", config.Grpc.Port)
 	if err := grpcServer.Serve(lis); err != nil {
 		logger.Fatalf("Failed to serve: %v", err)
 	}

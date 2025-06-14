@@ -25,7 +25,7 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb, $4::jsonb)
+SELECT * FROM insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb)
 `
 
 const selectMatchingEvents = `
@@ -79,7 +79,7 @@ func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 func (s *PostgresSaveEvents) Save(
 	ctx context.Context,
 	events []eventstore.EventWithMapTags,
-	consistencyCondition *eventstore.IndexLockCondition,
+	// consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
 	expectedVersion int32,
@@ -97,14 +97,14 @@ func (s *PostgresSaveEvents) Save(
 	}
 	//  s.logger.Infof("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
 
-	var consistencyConditionJSONString []byte = []byte("{}")
-	if consistencyCondition != nil {
-		consistencyConditionJSON, err := json.Marshal(getConsistencyConditionAsMap(consistencyCondition))
-		if err != nil {
-			return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
-		}
-		consistencyConditionJSONString = consistencyConditionJSON
-	}
+	// var consistencyConditionJSONString []byte = []byte("{}")
+	// if consistencyCondition != nil {
+	// 	consistencyConditionJSON, err := json.Marshal(getConsistencyConditionAsMap(consistencyCondition))
+	// 	if err != nil {
+	// 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
+	// 	}
+	// 	consistencyConditionJSONString = consistencyConditionJSON
+	// }
 	//  s.logger.Infof("consistencyConditionJSONString: %v", string(consistencyConditionJSONString))
 
 	eventsJSON, err := json.Marshal(events)
@@ -126,10 +126,10 @@ func (s *PostgresSaveEvents) Save(
 	// 	return "", 0, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	}
+	// _, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
+	// if err != nil {
+	// 	return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
+	// }
 
 	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
@@ -138,7 +138,7 @@ func (s *PostgresSaveEvents) Save(
 		schema,
 		streamSubsetAsBytes,
 		eventsJSON,
-		consistencyConditionJSONString,
+		// consistencyConditionJSONString,
 	)
 
 	if row.Err() != nil {
@@ -153,11 +153,12 @@ func (s *PostgresSaveEvents) Save(
 	var globID uint64
 	err = row.Scan(&tranID, &globID, &noop)
 	err = tx.Commit()
-	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
-	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
-	}
+	// if err != nil {
+	// 	return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	// }
+
+	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
@@ -353,20 +354,20 @@ func getStreamSectionAsMap(streamName string, expectedVersion int32, consistency
 	return lastRetrievedPositions
 }
 
-func getConsistencyConditionAsMap(consistencyCondition *eventstore.IndexLockCondition) map[string]interface{} {
-	lastRetrievedPositions := make(map[string]uint64)
-	if consistencyCondition.ConsistencyMarker != nil {
-		lastRetrievedPositions["transaction_id"] = consistencyCondition.ConsistencyMarker.CommitPosition
-		lastRetrievedPositions["global_id"] = consistencyCondition.ConsistencyMarker.PreparePosition
-	}
+// func getConsistencyConditionAsMap(consistencyCondition *eventstore.IndexLockCondition) map[string]interface{} {
+// 	lastRetrievedPositions := make(map[string]uint64)
+// 	if consistencyCondition.ConsistencyMarker != nil {
+// 		lastRetrievedPositions["transaction_id"] = consistencyCondition.ConsistencyMarker.CommitPosition
+// 		lastRetrievedPositions["global_id"] = consistencyCondition.ConsistencyMarker.PreparePosition
+// 	}
 
-	criteriaList := getCriteriaAsList(consistencyCondition.Query)
+// 	criteriaList := getCriteriaAsList(consistencyCondition.Query)
 
-	return map[string]interface{}{
-		"last_retrieved_position": lastRetrievedPositions,
-		"criteria":                criteriaList,
-	}
-}
+// 	return map[string]interface{}{
+// 		"last_retrieved_position": lastRetrievedPositions,
+// 		"criteria":                criteriaList,
+// 	}
+// }
 
 func getCriteriaAsList(query *eventstore.Query) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(query.Criteria))

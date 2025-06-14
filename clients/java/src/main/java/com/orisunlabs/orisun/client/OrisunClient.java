@@ -1,4 +1,4 @@
-package com.orisun.client;
+package com.orisunlabs.orisun.client;
 
 import io.grpc.*;
 import io.grpc.stub.StreamObserver;
@@ -21,6 +21,8 @@ public class OrisunClient implements AutoCloseable {
         private boolean useTls = false;
         private ManagedChannel channel;
         private String loadBalancingPolicy = "round_robin";
+        private String username; // Add this field
+        private String password; // Add this field
 
         // Keep the original methods for backward compatibility
         public Builder withHost(String host) {
@@ -76,11 +78,18 @@ public class OrisunClient implements AutoCloseable {
             return this;
         }
 
+        // Add authentication methods
+        public Builder withBasicAuth(String username, String password) {
+            this.username = username;
+            this.password = password;
+            return this;
+        }
+
         public OrisunClient build() {
             if (channel == null) {
                 if (servers.isEmpty()) {
                     // Default to localhost if no servers specified
-                    servers.add(new ServerAddress("localhost", 50051));
+                    servers.add(new ServerAddress("localhost", 5005));
                 }
 
                 // Create channel with load balancing
@@ -88,7 +97,7 @@ public class OrisunClient implements AutoCloseable {
 
                 if (servers.size() == 1) {
                     // Single server case
-                    ServerAddress server = servers.get(0);
+                    ServerAddress server = servers.getFirst();
                     channelBuilder = ManagedChannelBuilder.forAddress(server.host, server.port);
                 } else {
                     // Multiple servers case - use name resolver and load balancing
@@ -99,6 +108,11 @@ public class OrisunClient implements AutoCloseable {
 
                 if (!useTls) {
                     channelBuilder.usePlaintext();
+                }
+
+                // Apply authentication if credentials are provided
+                if (username != null && password != null) {
+                    channelBuilder.intercept(new BasicAuthInterceptor(username, password));
                 }
 
                 channel = channelBuilder.build();
@@ -152,13 +166,23 @@ public class OrisunClient implements AutoCloseable {
     }
 
     // Synchronous methods
-    public Eventstore.WriteResult saveEvents(final Eventstore.SaveEventsRequest request) throws OrisunException {
+    public Eventstore.WriteResult saveEvents(final Eventstore.SaveEventsRequest request) throws Exception {
         try {
             return blockingStub
                     .saveEvents(request);
         } catch (StatusRuntimeException e) {
-            throw new OrisunException("Failed to save events", e);
+            throw handleSaveException(e);
         }
+    }
+
+    private Exception handleSaveException(StatusRuntimeException e) {
+        if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
+            final var versions = Utils.extractVersionNumbers(e.getStatus().getDescription());
+            return new OptimisticConcurrencyException(
+                    e.getStatus().getDescription(), versions[0], versions[1]
+            );
+        }
+        return new OrisunException("Failed to save events", e);
     }
 
     public Eventstore.GetEventsResponse getEvents(Eventstore.GetEventsRequest request) throws OrisunException {
@@ -185,7 +209,10 @@ public class OrisunClient implements AutoCloseable {
 
                     @Override
                     public void onError(Throwable t) {
-                        future.completeExceptionally(new OrisunException("Failed to save events", t));
+                        if (t instanceof StatusRuntimeException e) {
+                            future.completeExceptionally(handleSaveException(e));
+                        } else
+                            future.completeExceptionally(new OrisunException("Failed to save events", t));
                     }
 
                     @Override
@@ -199,12 +226,12 @@ public class OrisunClient implements AutoCloseable {
 
     // Streaming methods
     public EventSubscription subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-            EventSubscription.EventHandler handler) {
+                                               EventSubscription.EventHandler handler) {
         return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 
     public PubSubSubscription subscribeToPubSub(Eventstore.SubscribeRequest request,
-            PubSubSubscription.MessageHandler handler) {
+                                                PubSubSubscription.MessageHandler handler) {
         return new PubSubSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 

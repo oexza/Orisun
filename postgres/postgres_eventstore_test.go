@@ -166,7 +166,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	tranID, globalID, err := saveEvents.Save(
 		t.Context(),
 		events,
-		nil,
+		// nil,
 		"test_boundary",
 		"test-stream",
 		-1,
@@ -253,7 +253,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events,
-		nil,
+		// nil,
 		"test_boundary",
 		"test-stream",
 		-1, // Expected version 0
@@ -274,7 +274,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
-		nil,
+		// nil,
 		"test_boundary",
 		"test-stream",
 		-1, // Expected version -1 again, but should be 0 now
@@ -325,7 +325,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events1,
-		nil,
+		// nil,
 		"test_boundary",
 		"test-stream",
 		-1,
@@ -345,7 +345,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
-		nil,
+		// nil,
 		"test_boundary",
 		"test-stream",
 		0,
@@ -426,7 +426,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		_, globalPos, err := saveEvents.Save(
 			ctx,
 			events,
-			nil,
+			// nil,
 			"test_boundary",
 			"global-pos-stream",
 			int32(i-1),
@@ -499,7 +499,7 @@ func TestPagination(t *testing.T) {
 		_, _, err = saveEvents.Save(
 			ctx,
 			events,
-			nil,
+			// nil,
 			"test_boundary",
 			"pagination-stream",
 			int32(i-1),
@@ -586,7 +586,7 @@ func TestDirectionOrdering(t *testing.T) {
 		_, _, err = saveEvents.Save(
 			ctx,
 			events,
-			nil,
+			// nil,
 			"test_boundary",
 			"direction-stream",
 			int32(i-1),
@@ -671,7 +671,15 @@ func TestComplexTagQueries(t *testing.T) {
 			Tags:      map[string]interface{}{"category": "A", "priority": "high", "region": "east"},
 		},
 	}
-	_, _, err = saveEvents.Save(ctx, events1, nil, "test_boundary", "complex-query-stream", -1, nil)
+	_, _, err = saveEvents.Save(
+		ctx,
+		events1,
+		// nil,
+		"test_boundary",
+		"complex-query-stream",
+		-1,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Event 2: category=A, priority=low, region=west
@@ -686,7 +694,15 @@ func TestComplexTagQueries(t *testing.T) {
 			Tags:      map[string]interface{}{"category": "A", "priority": "low", "region": "west"},
 		},
 	}
-	_, _, err = saveEvents.Save(ctx, events2, nil, "test_boundary", "complex-query-stream", 0, nil)
+	_, _, err = saveEvents.Save(
+		ctx,
+		events2,
+		// nil,
+		"test_boundary",
+		"complex-query-stream",
+		0,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Event 3: category=B, priority=high, region=east
@@ -701,7 +717,14 @@ func TestComplexTagQueries(t *testing.T) {
 			Tags:      map[string]interface{}{"category": "B", "priority": "high", "region": "east"},
 		},
 	}
-	_, _, err = saveEvents.Save(ctx, events3, nil, "test_boundary", "complex-query-stream", 1, nil)
+	_, _, err = saveEvents.Save(
+		ctx, 
+		events3, 
+		// nil, 
+		"test_boundary", 
+		"complex-query-stream", 
+		1, nil,
+	)
 	require.NoError(t, err)
 
 	// Event 4: category=B, priority=low, region=west
@@ -716,7 +739,15 @@ func TestComplexTagQueries(t *testing.T) {
 			Tags:      map[string]interface{}{"category": "B", "priority": "low", "region": "west"},
 		},
 	}
-	_, _, err = saveEvents.Save(ctx, events4, nil, "test_boundary", "complex-query-stream", 2, nil)
+	_, _, err = saveEvents.Save(
+		ctx,
+		events4,
+		// nil,
+		"test_boundary",
+		"complex-query-stream",
+		2,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Test 1: OR query - category A OR category B with priority high
@@ -843,15 +874,36 @@ func TestErrorConditions(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(ctx, events, nil, "non_existent_boundary", "test-stream", -1, nil)
+	_, _, err = saveEvents.Save(
+		ctx,
+		events,
+		// nil,
+		"non_existent_boundary",
+		"test-stream", -1,
+		nil,
+	)
 	assert.Error(t, err)
 
 	// Test 2: Invalid expected version (too high)
-	_, _, err = saveEvents.Save(ctx, events, nil, "test_boundary", "version-test-stream", 100, nil)
+	_, _, err = saveEvents.Save(
+		ctx, events,
+		// nil,
+		"test_boundary",
+		"version-test-stream",
+		100,
+		nil,
+	)
 	assert.Error(t, err)
 
 	// Test 3: Empty event list
-	_, _, err = saveEvents.Save(ctx, []eventstore.EventWithMapTags{}, nil, "test_boundary", "empty-stream", -1, nil)
+	_, _, err = saveEvents.Save(
+		ctx, []eventstore.EventWithMapTags{},
+		// nil,
+		"test_boundary",
+		"empty-stream",
+		-1,
+		nil,
+	)
 	assert.Error(t, err)
 
 	// Test 4: Get from non-existent stream

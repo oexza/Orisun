@@ -5,7 +5,7 @@ import "fmt"
 
 type DashboardDetails struct {
 	UserCount    uint32 `json:"user_count"`
-	CatchupCount int    `json:"catchup_count"`
+	CatchupCount uint32    `json:"catchup_count"`
 	PubsubCount  int    `json:"pubsub_count"`
 	EventCount   int    `json:"event_count"`
 	StreamCount  int    `json:"stream_count"`
@@ -21,6 +21,10 @@ const systemStatusId = "systemStatus"
 
 templ UserCountFragement(userCount uint32) {
 	<p id={ UserCountId } class="text-3xl font-bold mt-2" data-bind-userCount>{ fmt.Sprint(userCount) }</p>
+}
+
+templ CatchupSubscriptionsFragement(catchupSubscriptionsCount uint32) {
+	<p class="text-3xl font-bold mt-2" data-bind-catchupCount>{ fmt.Sprint(catchupSubscriptionsCount) }</p>
 }
 
 templ Dashboard(currentPath string, data DashboardDetails) {
@@ -45,7 +49,7 @@ templ Dashboard(currentPath string, data DashboardDetails) {
 					<div class="flex items-center justify-between">
 						<div>
 							<h3 class="text-lg font-medium text-gray-900">Catchup Subscriptions</h3>
-							<p class="text-3xl font-bold mt-2" data-bind-catchupCount>0</p>
+							@CatchupSubscriptionsFragement(data.CatchupCount)
 						</div>
 						<sl-icon name="arrow-repeat" style="font-size: 2rem"></sl-icon>
 					</div>

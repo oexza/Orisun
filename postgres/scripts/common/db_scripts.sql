@@ -21,17 +21,17 @@ CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_stream ON orisun_es_event (stream_name);
 CREATE INDEX IF NOT EXISTS idx_stream_version ON orisun_es_event (stream_name, stream_version);
-CREATE INDEX IF NOT EXISTS idx_es_event_tags ON orisun_es_event USING GIN (tags jsonb_path_ops);
+-- CREATE INDEX IF NOT EXISTS idx_es_event_tags ON orisun_es_event USING GIN (tags jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
-    USING GIN (stream_name, stream_version, tags jsonb_path_ops);
+    USING GIN (stream_name, stream_version, tags);
 
--- Insert Function (With Improved Locking)
+-- Insert Function
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
     schema TEXT,
     stream_info JSONB,
-    events JSONB,
-    global_condition JSONB
+    events JSONB
+    -- global_condition JSONB
 )
     RETURNS TABLE
             (
@@ -46,14 +46,14 @@ DECLARE
     stream                  TEXT   := stream_info ->> 'stream_name';
     expected_stream_version BIGINT := (stream_info ->> 'expected_version')::BIGINT;
     stream_criteria         JSONB  := stream_info -> 'criteria';
-    last_position           JSONB  := global_condition -> 'last_retrieved_position';
-    global_criteria         JSONB  := global_condition -> 'criteria';
+    -- last_position           JSONB  := global_condition -> 'last_retrieved_position';
+    -- global_criteria         JSONB  := global_condition -> 'criteria';
     current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
     current_stream_version  BIGINT := -1;
-    conflict_transaction_id BIGINT := NULL;
-    conflict_global_id      BIGINT := NULL;
-    global_keys             TEXT[];
-    key_record              TEXT;
+    -- conflict_transaction_id BIGINT := NULL;
+    -- conflict_global_id      BIGINT := NULL;
+    -- global_keys             TEXT[];
+    -- key_record              TEXT;
 BEGIN
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
@@ -78,55 +78,55 @@ BEGIN
             expected_stream_version, current_stream_version;
     END IF;
 
-    IF global_criteria IS NOT NULL THEN
-        -- Extract all unique criteria key-value pairs
-        SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
-        INTO global_keys
-        FROM jsonb_array_elements(global_criteria) AS criterion,
-             jsonb_each_text(criterion) AS key_value;
+    -- IF global_criteria IS NOT NULL THEN
+    --     -- Extract all unique criteria key-value pairs
+    --     SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
+    --     INTO global_keys
+    --     FROM jsonb_array_elements(global_criteria) AS criterion,
+    --          jsonb_each_text(criterion) AS key_value;
 
-        -- Lock key-value pairs in alphabetical order (deadlock prevention)
-        IF global_keys IS NOT NULL THEN
-            global_keys := ARRAY(
-                    SELECT DISTINCT unnest(global_keys)
-                    ORDER BY 1 -- Alphabetical sort
-                           );
+    --     -- Lock key-value pairs in alphabetical order (deadlock prevention)
+    --     IF global_keys IS NOT NULL THEN
+    --         global_keys := ARRAY(
+    --                 SELECT DISTINCT unnest(global_keys)
+    --                 ORDER BY 1 -- Alphabetical sort
+    --                        );
 
-            FOREACH key_record IN ARRAY global_keys
-                LOOP
-                    PERFORM pg_advisory_xact_lock(hashtext(key_record));
-                END LOOP;
-        END IF;
+    --         FOREACH key_record IN ARRAY global_keys
+    --             LOOP
+    --                 PERFORM pg_advisory_xact_lock(hashtext(key_record));
+    --             END LOOP;
+    --     END IF;
 
-        -- Global position check
-        IF last_position IS NOT NULL THEN
-            SELECT e.transaction_id, e.global_id
-            INTO conflict_transaction_id, conflict_global_id
-            FROM orisun_es_event e
-            WHERE e.tags @> ANY (SELECT jsonb_array_elements(global_criteria))
-            ORDER BY e.transaction_id DESC, e.global_id DESC
-            LIMIT 1;
+    --     -- Global criteria position check
+    --     IF last_position IS NOT NULL THEN
+    --         SELECT e.transaction_id, e.global_id
+    --         INTO conflict_transaction_id, conflict_global_id
+    --         FROM orisun_es_event e
+    --         WHERE e.tags @> ANY (SELECT jsonb_array_elements(global_criteria))
+    --         ORDER BY e.transaction_id DESC, e.global_id DESC
+    --         LIMIT 1;
 
-            -- Handle the case when no events are found
-            IF conflict_transaction_id IS NULL THEN
-                conflict_transaction_id := 0;
-            END IF;
+    --         -- Handle the case when no events are found
+    --         IF conflict_transaction_id IS NULL THEN
+    --             conflict_transaction_id := 0;
+    --         END IF;
 
-            IF conflict_global_id IS NULL THEN
-                conflict_global_id := 0;
-            END IF;
+    --         IF conflict_global_id IS NULL THEN
+    --             conflict_global_id := 0;
+    --         END IF;
 
-            -- Compare with expected position
-            IF conflict_transaction_id != (last_position ->> 'transaction_id')::BIGINT OR
-               conflict_global_id != (last_position ->> 'global_id')::BIGINT THEN
-                RAISE EXCEPTION 'OptimisticConcurrencyException: Global Conflict: Expected Position %/% but found Position %/%',
-                    (last_position ->> 'transaction_id'),
-                    (last_position ->> 'global_id'), conflict_transaction_id, conflict_global_id;
-            END IF;
-        END IF;
-    END IF;
+    --         -- Compare with expected position
+    --         IF conflict_transaction_id != (last_position ->> 'transaction_id')::BIGINT OR
+    --            conflict_global_id != (last_position ->> 'global_id')::BIGINT THEN
+    --             RAISE EXCEPTION 'OptimisticConcurrencyException: GlobalPositionConflict: Expected Position %/% but found Position %/%',
+    --                 (last_position ->> 'transaction_id'),
+    --                 (last_position ->> 'global_id'), conflict_transaction_id, conflict_global_id;
+    --         END IF;
+    --     END IF;
+    -- END IF;
 
-    -- select the frontier of the stream if a subset criteria was specified to ensure the next set of events are properly versioned
+    -- select the frontier of the stream if a subset criteria was specified to ensure that the events being inserted are properly versioned.
     IF stream_criteria IS NOT NULL THEN
         SELECT MAX(oe.stream_version)
         INTO current_stream_version

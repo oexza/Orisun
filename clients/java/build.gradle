@@ -2,10 +2,11 @@ plugins {
     id 'java'
     id 'maven-publish'
     id 'com.google.protobuf' version '0.9.4'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
-group = 'io.orisun'
-version = '0.1.0'
+group = 'com.orisunlabs'
+version = '0.0.1'
 
 repositories {
     mavenCentral()
@@ -24,6 +25,16 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testImplementation "io.grpc:grpc-testing:${grpcVersion}"
     testImplementation "io.grpc:grpc-inprocess:${grpcVersion}"
+}
+
+shadowJar {
+    archiveBaseName.set('orisun-client')
+    archiveClassifier.set('')
+//    archiveVersion.set('0.0.1') // Set your version
+    manifest {
+        attributes 'Main-Class': 'com.orisunlabs.orisun.client.OrisunClient' // Replace with your main class if needed
+    }
+    mergeServiceFiles()
 }
 
 protobuf {
@@ -59,12 +70,16 @@ java {
 
 publishing {
     publications {
-        mavenJava(MavenPublication) {
-            from components.java
+        shadow(MavenPublication) { publication ->
+            project.shadow.component(publication)
+            groupId = 'com.orisunlabs'
+            artifactId = 'orisun-java-client'
+            version = version
+            
             pom {
                 name = 'Orisun Java Client'
                 description = 'Java client for the Orisun Event Store'
-                url = 'https://github.com/yourusername/orisun'
+                url = 'https://github.com/orexza/orisun'
                 licenses {
                     license {
                         name = 'MIT License'
@@ -91,6 +106,16 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
+        
+        // If you want to publish to Maven Central
+        // maven {
+        //     name = "OSSRH"
+        //     url = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+        //     credentials {
+        //         username = System.getenv("OSSRH_USERNAME")
+        //         password = System.getenv("OSSRH_PASSWORD")
+        //     }
+        // }
     }
 }
 

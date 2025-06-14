@@ -55,10 +55,10 @@ enum Direction {
   DESC = 1;
 }
 
-message IndexLockCondition {
-  Position consistency_marker = 1;
-  Query query = 2;
-}
+// message IndexLockCondition {
+//   Position consistency_marker = 1;
+//   Query query = 2;
+// }
 
 message SaveStreamQuery{
   string name = 1;
@@ -67,7 +67,7 @@ message SaveStreamQuery{
 }
 
 message SaveEventsRequest {
-  IndexLockCondition consistency_condition = 1;
+  // IndexLockCondition consistency_condition = 1;
   string boundary = 2;
   SaveStreamQuery stream = 3;
   repeated EventToSave events = 4;
