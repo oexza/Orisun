@@ -165,6 +165,10 @@ github.com/starfederation/datastar v0.21.4 h1:Njp0dYokG27WCEWrgAbs5NNU0CVPQDheb8
 github.com/starfederation/datastar v0.21.4/go.mod h1:QRVnnH5KxIIcOzq0b2Dpl7QnV/G70Wsr3+2RiH4X+Mw=
 github.com/starfederation/datastar v1.0.0-beta.11 h1:8P5Yt4B40cDWgHHAI7CkWbuxTxSSYqk48pLDfi3JZF0=
 github.com/starfederation/datastar v1.0.0-beta.11/go.mod h1:PCPV2lpiI0c86BrE2ndc+5yq8rO2IZWvLqILwk9tVV4=
+github.com/starfederation/datastar-go v1.0.0 h1:c9DkVrq1GPrMUBlUmSLQC7inPiom6T4IAg4pt5rzlnE=
+github.com/starfederation/datastar-go v1.0.0/go.mod h1:fLrkAlMKaiMQpMkDVf+IcmrYVGAXj4pBSbeQo33FJxA=
+github.com/starfederation/datastar-go v1.0.1 h1:OimYOKrcSPlt88jfFisUDNR6G78V7U2BKxXNbOoYc0Y=
+github.com/starfederation/datastar-go v1.0.1/go.mod h1:fLrkAlMKaiMQpMkDVf+IcmrYVGAXj4pBSbeQo33FJxA=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=

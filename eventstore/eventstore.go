@@ -122,7 +122,7 @@ type EventWithMapTags struct {
 	EventType string                 `json:"event_type"`
 	Data      interface{}            `json:"data"`
 	Metadata  interface{}            `json:"metadata"`
-	Tags      map[string]interface{} `json:"tags"`
+	// Tags      map[string]interface{} `json:"tags"`
 }
 
 func authorizeRequest(ctx context.Context, boundary string, roles []globalCommon.Role) error {
@@ -189,7 +189,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			EventType: event.EventType,
 			Data:      dataMap,
 			Metadata:  metadataMap,
-			Tags:      getTagsAsMap(event.Tags, event.EventType),
+			// Tags:      getTagsAsMap(event.Tags, event.EventType),
 		}
 	}
 

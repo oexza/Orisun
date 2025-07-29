@@ -43,10 +43,33 @@ type PostgresSaveEvents struct {
 }
 
 func NewPostgresSaveEvents(
+	ctx context.Context,
 	db *sql.DB,
 	logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresSaveEvents {
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		for range ticker.C {
+			if ctx.Err() != nil {
+				return
+			}
+			err := cleanPendingList(ctx, db, logger)
+			if err != nil {
+				logger.Error("Error cleaning pending list: %v", err)
+			}
+		}
+	}()
 	return &PostgresSaveEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
+}
+
+func cleanPendingList(ctx context.Context, db *sql.DB, logger logging.Logger) error {
+	_, err := db.ExecContext(ctx, "select gin_clean_pending_list('idx_stream_version_tags')")
+	if err != nil {
+		logger.Error("Error cleaning pending list: %v", err)
+		return err
+	}
+	logger.Debugf("Cleaned pending list")
+	return nil
 }
 
 func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
@@ -270,7 +293,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	// Reuse these variables for each row to reduce allocations
 	var event eventstore.Event
-	var tagsBytes []byte
+	// var tagsBytes []byte
 	var transactionID, globalID uint64
 	var dateCreated time.Time
 
@@ -280,7 +303,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		"event_type":     &event.EventType,
 		"data":           &event.Data,
 		"metadata":       &event.Metadata,
-		"tags":           &tagsBytes,
+		// "tags":           &tagsBytes,
 		"transaction_id": &transactionID,
 		"global_id":      &globalID,
 		"date_created":   &dateCreated,
@@ -298,7 +321,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	// Reuse a map for tags to reduce allocations
-	var tagsMap map[string]string
+	// var tagsMap map[string]string
 
 	for rows.Next() {
 		// Reset event for reuse
@@ -310,10 +333,10 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		}
 
 		// Process tags - pre-allocate tags slice
-		tagsMap = make(map[string]string)
-		if err := json.Unmarshal(tagsBytes, &tagsMap); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
-		}
+		// tagsMap = make(map[string]string)
+		// if err := json.Unmarshal(tagsBytes, &tagsMap); err != nil {
+		// 	return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
+		// }
 
 		event.Tags = make([]*eventstore.Tag, 0, len(tagsMap))
 		for key, value := range tagsMap {

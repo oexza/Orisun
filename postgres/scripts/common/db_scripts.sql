@@ -11,8 +11,9 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
     event_type     TEXT                      NOT NULL CHECK (event_type <> ''),
     data           JSONB                     NOT NULL,
     metadata       JSONB,
-    date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    tags           JSONB                     NOT NULL
+    date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    -- ,
+    -- tags           JSONB                     NOT NULL
 );
 
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
@@ -24,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_stream_version ON orisun_es_event (stream_name, s
 -- CREATE INDEX IF NOT EXISTS idx_es_event_tags ON orisun_es_event USING GIN (tags jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
-    USING GIN (stream_name, stream_version, tags);
+    USING GIN (stream_name, stream_version, data);
 
 -- Insert Function
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
@@ -60,6 +61,7 @@ BEGIN
     END IF;
 
     EXECUTE format('SET search_path TO %I', schema);
+    
     PERFORM pg_advisory_xact_lock(hashtext(stream));
 
     -- Stream version check
@@ -67,7 +69,7 @@ BEGIN
     INTO current_stream_version
     FROM orisun_es_event oe
     WHERE oe.stream_name = stream
-      AND (stream_criteria IS NULL OR tags @> ANY (SELECT jsonb_array_elements(stream_criteria)));
+      AND (stream_criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(stream_criteria)));
 
     IF current_stream_version IS NULL THEN
         current_stream_version := -1;
@@ -103,7 +105,7 @@ BEGIN
     --         SELECT e.transaction_id, e.global_id
     --         INTO conflict_transaction_id, conflict_global_id
     --         FROM orisun_es_event e
-    --         WHERE e.tags @> ANY (SELECT jsonb_array_elements(global_criteria))
+    --         WHERE e.data @> ANY (SELECT jsonb_array_elements(global_criteria))
     --         ORDER BY e.transaction_id DESC, e.global_id DESC
     --         LIMIT 1;
 
@@ -143,8 +145,7 @@ BEGIN
                                      global_id,
                                      event_type,
                                      data,
-                                     metadata,
-                                     tags
+                                     metadata
             )
             SELECT stream,
                    current_stream_version + ROW_NUMBER() OVER (),
@@ -153,8 +154,7 @@ BEGIN
                    nextval('orisun_es_event_global_id_seq'),
                    e ->> 'event_type',
                    COALESCE(e -> 'data', '{}'),
-                   COALESCE(e -> 'metadata', '{}'),
-                   COALESCE(e -> 'tags', '{}')
+                   COALESCE(e -> 'metadata', '{}')
             FROM jsonb_array_elements(events) AS e
             RETURNING jsonb_array_length(events), global_id
     )
@@ -215,20 +215,22 @@ BEGIN
         -- General case with all possible filters
         RETURN QUERY EXECUTE format(
             $q$
-            SELECT * FROM %10$sorisun_es_event
+            SELECT * FROM %11$sorisun_es_event
             WHERE 
                 (%1$L IS NULL OR stream_name = %1$L) AND
                 (%2$L IS NULL OR stream_version %4$s %2$L) AND
-                (%3$L IS NULL OR 
-                (transaction_id, global_id) %4$s (
-                    %5$L::BIGINT, 
-                    %6$L::BIGINT
+                (%8$L::JSONB IS NULL OR data @> ANY (
+                    SELECT jsonb_array_elements(%8$L)
                 )) AND
-                (%7$L::JSONB IS NULL OR tags @> ANY (
-                    SELECT jsonb_array_elements(%7$L)
-                ))
-            ORDER BY transaction_id %8$s, global_id %8$s
-            LIMIT %9$L
+                (%3$L IS NULL OR (
+                        (transaction_id, global_id) %4$s (
+                            %5$L::BIGINT, 
+                            %6$L::BIGINT
+                        )%7$s
+                    )
+                )
+            ORDER BY transaction_id %9$s, global_id %9$s
+            LIMIT %10$L
             $q$,
             stream_name,
             from_stream_version,
@@ -236,6 +238,9 @@ BEGIN
             op,
             tx_id,
             global_id,
+            format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', 
+                    tx_id
+            ),
             criteria_array,
             sort_dir,
             LEAST(GREATEST(max_count, 1), 10000),

@@ -31,7 +31,7 @@ message EventToSave {
   string event_type = 2;
   string data = 3;
   string metadata = 4;
-  repeated Tag tags = 5;
+  // repeated Tag tags = 5;
 }
 
 message Event {
@@ -39,7 +39,7 @@ message Event {
   string event_type = 2;
   string data = 3;
   string metadata = 4;
-  repeated Tag tags = 5;
+  // repeated Tag tags = 5;
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
   string stream_id = 8;

@@ -142,7 +142,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
@@ -235,7 +235,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	eventId, err := uuid.NewV7()
@@ -404,7 +404,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
@@ -478,7 +478,7 @@ func TestPagination(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
@@ -565,7 +565,7 @@ func TestDirectionOrdering(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
@@ -652,7 +652,7 @@ func TestComplexTagQueries(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 
@@ -857,7 +857,7 @@ func TestErrorConditions(t *testing.T) {
 		},
 	}
 
-	saveEvents := NewPostgresSaveEvents(db, logger, mapping)
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 	ctx := t.Context()
 

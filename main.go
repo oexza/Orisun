@@ -318,7 +318,7 @@ func initializeDatabase(
 		logger.Infof("Database migrations for schema %s completed successfully", schema)
 	}
 
-	saveEvents := postgres.NewPostgresSaveEvents(db, logger, postgesBoundarySchemaMappings)
+	saveEvents := postgres.NewPostgresSaveEvents(ctx, db, logger, postgesBoundarySchemaMappings)
 	getEvents := postgres.NewPostgresGetEvents(db, logger, postgesBoundarySchemaMappings)
 	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {

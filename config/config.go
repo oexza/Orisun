@@ -131,7 +131,6 @@ func LoadConfig() (AppConfig, error) {
 
 	fmt.Printf("config is %+v\n", config)
 
-	
 	err := validateConfig(config)
 	if err != nil {
 		return AppConfig{}, err
