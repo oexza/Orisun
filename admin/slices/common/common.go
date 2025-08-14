@@ -12,7 +12,7 @@ import (
 
 	globalCommon "orisun/common"
 
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/crypto/bcrypt"
 )
 

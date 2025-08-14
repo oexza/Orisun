@@ -19,7 +19,7 @@ import (
 	globalCommon "orisun/common"
 
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type CreateUserHandler struct {
@@ -51,7 +51,7 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 		roleStrings[i] = role.String()
 	}
 
-	sse.MergeFragmentTempl(AddUser(r.URL.Path, roleStrings), datastar.WithMergeMode(datastar.FragmentMergeModeOuter))
+	sse.PatchElementTempl(AddUser(r.URL.Path, roleStrings), datastar.WithModeOuter())
 }
 
 type AddNewUserRequest struct {
@@ -102,7 +102,6 @@ func (r *AddNewUserRequest) validate() error {
 	return nil
 }
 
-
 func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	store := &AddNewUserRequest{}
 	response := struct {
@@ -115,7 +114,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		sse := datastar.NewSSE(w, r)
 		response.Failed = true
 		response.Message = err.Error()
-		sse.MarshalAndMergeSignals(response)
+		sse.MarshalAndPatchSignals(response)
 		return
 	}
 
@@ -125,7 +124,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		sse := datastar.NewSSE(w, r)
 		response.Failed = true
 		response.Message = err.Error()
-		sse.MarshalAndMergeSignals(response)
+		sse.MarshalAndPatchSignals(response)
 		return
 	}
 
@@ -146,32 +145,36 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		response.Failed = true
 		response.Message = err.Error()
-		sse.MarshalAndMergeSignals(response)
+		sse.MarshalAndPatchSignals(response)
 		return
 	}
 
 	response.Success = true
 	response.Message = "User created successfully"
-	sse.MarshalAndMergeSignals(response)
+	sse.MarshalAndPatchSignals(response)
 
 	currentUser, err := common.GetCurrentUser(r)
 	if err != nil {
 		response.Failed = true
 		response.Message = err.Error()
-		sse.MarshalAndMergeSignals(response)
+		sse.MarshalAndPatchSignals(response)
 		return
 	}
-	sse.MergeFragmentTempl(t.UserRow(&t.User{
+	sse.PatchElementTempl(t.UserRow(&t.User{
 		Name:     evt.Name,
 		Id:       evt.UserId,
 		Username: evt.Username,
 		Roles:    []string{store.Role},
 	}, currentUser),
-		datastar.WithMergeAppend(),
+		datastar.WithModeAppend(),
 		datastar.WithSelectorID("users-table-body"),
-		datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+		datastar.WithModePrepend(),
 	)
-	sse.MergeFragmentTempl(t.Alert("User created!", t.AlertSuccess), datastar.WithSelector("body"), datastar.WithMergeMode(datastar.FragmentMergeModePrepend))
+	sse.PatchElementTempl(
+		t.Alert("User created!", t.AlertSuccess),
+		datastar.WithSelector("body"),
+		datastar.WithModePrepend(),
+	)
 	sse.ExecuteScript("document.querySelector('#alert').toast()")
 	sse.ExecuteScript("document.querySelector('#add-user-dialog').hide()")
 }
@@ -283,10 +286,10 @@ func CreateUser(ctx context.Context, name, username, password string,
 			EventId:   eventId.String(),
 			EventType: event.EventType,
 			Data:      string(eventData),
-			Tags: []*pb.Tag{
-				{Key: ev.UsernameTag, Value: username},
-				{Key: ev.RegistrationTag, Value: username},
-			},
+			// Tags: []*pb.Tag{
+			// 	{Key: ev.UsernameTag, Value: username},
+			// 	{Key: ev.RegistrationTag, Value: username},
+			// },
 			Metadata: "{\"schema\":\"" + boundary + "\",\"createdBy\":\"" + username + "\"}",
 		})
 	}

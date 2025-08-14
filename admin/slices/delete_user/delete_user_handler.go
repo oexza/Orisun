@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type DeleteUserHandler struct {
@@ -41,29 +41,29 @@ func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Requ
 	sse := datastar.NewSSE(w, r)
 
 	if err != nil {
-		sse.RemoveFragments("#alert")
-		sse.MergeFragmentTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+		sse.RemoveElement("#alert")
+		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
+			datastar.WithModePrepend(),
 		)
 		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
 
 	if err := s.deleteUser(r.Context(), userId, currentUser); err != nil {
-		sse.RemoveFragments("#alert")
-		sse.MergeFragmentTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+		sse.RemoveElement("#alert")
+		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
+			datastar.WithModePrepend(),
 		)
 		// time.Sleep(1000 * time.Millisecond)
 		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
-	sse.MergeFragmentTempl(templates.Alert("User Deleted", templates.AlertSuccess), datastar.WithSelector("body"),
-		datastar.WithMergeMode(datastar.FragmentMergeModePrepend),
+	sse.PatchElementTempl(templates.Alert("User Deleted", templates.AlertSuccess), datastar.WithSelector("body"),
+		datastar.WithModePrepend(),
 	)
 	// time.Sleep(1000 * time.Millisecond)
 	sse.ExecuteScript("document.querySelector('#alert').toast()")
-	sse.RemoveFragments("#user_" + userId)
+	sse.RemoveElement("#user_" + userId)
 }
 
 func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
@@ -140,9 +140,9 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 				EventId:   id.String(),
 				EventType: events.EventTypeUserDeleted,
 				Data:      string(eventData),
-				Tags: []*eventstore.Tag{
-					{Key: events.RegistrationTag, Value: userId},
-				},
+				// Tags: []*eventstore.Tag{
+				// 	{Key: events.RegistrationTag, Value: userId},
+				// },
 				Metadata: "{\"schema\":\"" + s.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
 			}},
 		})

@@ -10,7 +10,7 @@ tasks:
   tools:
     cmds:
       - go install github.com/a-h/templ/cmd/templ@v0.3.857
-      - go install github.com/air-verse/air@v1.61.7
+      - go install github.com/air-verse/air@latest
       - go install github.com/go-delve/delve/cmd/dlv@v1.24.1
       - go install github.com/go-task/task/v3/cmd/task@latest
 

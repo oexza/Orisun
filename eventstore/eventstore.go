@@ -118,10 +118,10 @@ func getTagsAsMap(criteria []*Tag, eventType string) map[string]interface{} {
 }
 
 type EventWithMapTags struct {
-	EventId   string                 `json:"event_id"`
-	EventType string                 `json:"event_type"`
-	Data      interface{}            `json:"data"`
-	Metadata  interface{}            `json:"metadata"`
+	EventId   string      `json:"event_id"`
+	EventType string      `json:"event_type"`
+	Data      interface{} `json:"data"`
+	Metadata  interface{} `json:"metadata"`
 	// Tags      map[string]interface{} `json:"tags"`
 }
 
@@ -208,7 +208,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "OptimisticConcurrencyException")  {
+		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
 			return nil, status.Errorf(codes.AlreadyExists, "failed to save events: %v", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
@@ -264,7 +264,7 @@ func (s *EventStore) SubscribeToEvents(
 			var firstEvent Event
 			if err := json.Unmarshal(firstMsg.Data, &firstEvent); err == nil {
 				// If the first event in the stream is newer than our position, skip historical events
-				if !isEventNewer(firstEvent.Position, lastPosition) {
+				if !isEventPositionNewerThanPosition(firstEvent.Position, lastPosition) {
 					logger.Infof("First event in nats jetstream is older than requested position, skipping historical events")
 					skipHistorical = true
 					lastPosition = firstEvent.Position
@@ -368,7 +368,7 @@ func (s *EventStore) SubscribeToEvents(
 					continue
 				}
 
-				isNewer := isEventNewer(event.Position, lastPosition)
+				isNewer := isEventPositionNewerThanPosition(event.Position, lastPosition)
 
 				if isNewer && s.eventMatchesQueryCriteria(&event, query) {
 					if err := handler.Send(&event); err != nil {
@@ -454,8 +454,8 @@ func ComparePositions(p1, p2 *Position) ComparationResult {
 	return 1
 }
 
-// isEventNewer checks if the new event position is greater than the last processed position
-func isEventNewer(newPosition, lastPosition *Position) bool {
+// isEventPositionNewerThanPosition checks if the new event position is greater than the last processed position
+func isEventPositionNewerThanPosition(newPosition, lastPosition *Position) bool {
 	compResult := ComparePositions(newPosition, lastPosition)
 
 	return compResult == IsGreaterThan
@@ -526,6 +526,9 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 		return true
 	}
 
+	unmarshaledData := map[string]any{}
+	json.Unmarshal([]byte(event.Data), &unmarshaledData)
+
 	// For multiple criteria groups, ANY group matching is sufficient (OR logic)
 	for _, criteriaGroup := range criteria.Criteria {
 		allTagsMatch := true
@@ -533,8 +536,9 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 		// Within a group, ALL tags must match (AND logic)
 		for _, criteriaTag := range criteriaGroup.Tags {
 			tagFound := false
-			for _, eventTag := range event.Tags {
-				if eventTag.Key == criteriaTag.Key && eventTag.Value == criteriaTag.Value {
+
+			for key, eventTag := range unmarshaledData {
+				if key == criteriaTag.Key && eventTag == criteriaTag.Value {
 					tagFound = true
 					break
 				}

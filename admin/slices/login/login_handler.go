@@ -10,7 +10,7 @@ import (
 
 	globalCommon "orisun/common"
 
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type LoginHandler struct {
@@ -61,15 +61,15 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	user, err := s.login(store.Username, store.Password)
 	if err != nil {
 		sse, _ := common.GetOrCreateSSEConnection(w, r)
-		sse.RemoveFragments("message")
-		sse.MergeFragments(`<div id="message">` + `Login Failed` + `</div>`)
+		sse.RemoveElement("message")
+		sse.PatchElements(`<div id="message">` + `Login Failed` + `</div>`)
 		return
 	}
 
 	userAsString, err := json.Marshal(user)
 	if err != nil {
 		sse, _ := common.GetOrCreateSSEConnection(w, r)
-		sse.MergeFragments(`<div id="message">` + `Login Failed` + `</div>`)
+		sse.PatchElements(`<div id="message">` + `Login Failed` + `</div>`)
 		return
 	}
 
@@ -88,7 +88,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	sse, _ := common.GetOrCreateSSEConnection(w, r)
 
-	sse.MergeFragments(`<div id="message">` + `Login Succeded` + `</div>`)
+	sse.PatchElements(`<div id="message">` + `Login Succeded` + `</div>`)
 
 	// Redirect to users page after successful login
 	sse.Redirect("/dashboard")

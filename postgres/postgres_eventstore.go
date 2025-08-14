@@ -338,10 +338,10 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		// 	return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
 		// }
 
-		event.Tags = make([]*eventstore.Tag, 0, len(tagsMap))
-		for key, value := range tagsMap {
-			event.Tags = append(event.Tags, &eventstore.Tag{Key: key, Value: value})
-		}
+		// event.Tags = make([]*eventstore.Tag, 0, len(tagsMap))
+		// for key, value := range tagsMap {
+		// 	event.Tags = append(event.Tags, &eventstore.Tag{Key: key, Value: value})
+		// }
 
 		// Set the Position
 		event.Position = &eventstore.Position{

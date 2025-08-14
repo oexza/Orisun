@@ -8,7 +8,7 @@ import (
 	"orisun/admin/slices/dashboard/user_count"
 	globalCommon "orisun/common"
 
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type GetCatchupSubscriptionCount = func() uint32
@@ -29,10 +29,10 @@ func NewDashboardHandler(
 	// getGetCatchupSubscriptionCount GetCatchupSubscriptionCount,
 ) *DashboardHandler {
 	return &DashboardHandler{
-		logger:                      logger,
-		boundary:                    boundary,
-		getUserCount:                getUserCount,
-		subscribeToUserCount:        subscribeToUserCount,
+		logger:               logger,
+		boundary:             boundary,
+		getUserCount:         getUserCount,
+		subscribeToUserCount: subscribeToUserCount,
 		// getCatchupSubscriptionCount: getGetCatchupSubscriptionCount,
 	}
 }
@@ -63,7 +63,7 @@ func (dh *DashboardHandler) HandleDashboardPage(w http.ResponseWriter, r *http.R
 
 func (dh *DashboardHandler) handleUserCount(sse *datastar.ServerSentEventGenerator, r *http.Request,
 	tabId string, userCount user_count.UserCountReadModel) {
-	sse.MergeFragmentTempl(UserCountFragement(userCount.Count), datastar.WithSelectorID(UserCountId))
+	sse.PatchElementTempl(UserCountFragement(userCount.Count), datastar.WithSelectorID(UserCountId))
 
 	subscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](r.Context())
 
@@ -80,7 +80,7 @@ func (dh *DashboardHandler) handleUserCount(sse *datastar.ServerSentEventGenerat
 					dh.logger.Errorf("Error receiving user count: %v", err)
 					continue
 				}
-				sse.MergeFragmentTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
+				sse.PatchElementTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
 			}
 		}
 	}()
