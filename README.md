@@ -420,12 +420,12 @@ Orisun uses:
 - **User Management**: Integrated user administration system
 - **Modular Design**: Plugin system for extending functionality
 
-## Performance
+<!-- ## Performance
 - Handles thousands of events per second
 - Efficient querying with PostgreSQL indexes and GIN support
 - Load balanced message distribution
 - Optimized for both write and read operations
-- Real-time event streaming with minimal latency
+- Real-time event streaming with minimal latency -->
 
 ## Contributing
 

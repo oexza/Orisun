@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	reflect "reflect"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-json"
@@ -19,9 +20,6 @@ import (
 	"google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
-
-type SaveEventsType = func(ctx context.Context, in *SaveEventsRequest) (resp *WriteResult, err error)
-type GetEventsType = func(ctx context.Context, in *GetEventsRequest) (*GetEventsResponse, error)
 
 type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
@@ -143,11 +141,9 @@ func authorizeRequest(ctx context.Context, boundary string, roles []globalCommon
 
 	// Check if the user has any of the required roles
 	for _, requiredRole := range roles {
-		for _, userRole := range userObj.Roles {
-			if userRole == requiredRole {
-				// User has at least one of the required roles
-				return nil
-			}
+		if slices.Contains(userObj.Roles, requiredRole) {
+			// User has at least one of the required roles
+			return nil
 		}
 	}
 
