@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
     event_type     TEXT                      NOT NULL CHECK (event_type <> ''),
     data           JSONB                     NOT NULL,
     metadata       JSONB,
-    date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    date_created   TIMESTAMPTZ DEFAULT(NOW() AT TIME ZONE 'UTC') NOT NULL
     -- ,
     -- tags           JSONB                     NOT NULL
 );
@@ -25,14 +25,13 @@ CREATE INDEX IF NOT EXISTS idx_stream_version ON orisun_es_event (stream_name, s
 -- CREATE INDEX IF NOT EXISTS idx_es_event_tags ON orisun_es_event USING GIN (tags jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
-    USING GIN (stream_name, stream_version, data);
+    USING GIN (stream_name, stream_version, data) WITH (fastupdate = true, gin_pending_list_limit = '128');
 
 -- Insert Function
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
     schema TEXT,
     stream_info JSONB,
     events JSONB
-    -- global_condition JSONB
 )
     RETURNS TABLE
             (
@@ -47,14 +46,8 @@ DECLARE
     stream                  TEXT   := stream_info ->> 'stream_name';
     expected_stream_version BIGINT := (stream_info ->> 'expected_version')::BIGINT;
     stream_criteria         JSONB  := stream_info -> 'criteria';
-    -- last_position           JSONB  := global_condition -> 'last_retrieved_position';
-    -- global_criteria         JSONB  := global_condition -> 'criteria';
     current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
     current_stream_version  BIGINT := -1;
-    -- conflict_transaction_id BIGINT := NULL;
-    -- conflict_global_id      BIGINT := NULL;
-    -- global_keys             TEXT[];
-    -- key_record              TEXT;
 BEGIN
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';

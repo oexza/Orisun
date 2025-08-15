@@ -6,9 +6,6 @@ import (
 
 const (
 	AdminStream = "OrisunAdmin"
-
-	// RegistrationTag  = "Registration"
-	// UsernameTag      = "Registration_username"
 )
 
 // Event types

@@ -31,7 +31,6 @@ func NewSQLiteGetEvents(db *sql.DB, logger *logging.Logger) *SQLiteGetEvents {
 func (s *SQLiteSaveEvents) Save(
 	ctx context.Context,
 	events *[]eventstore.EventWithMapTags,
-	consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
 	expectedVersion uint32,

@@ -109,9 +109,6 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// You can remove the old withAuthentication function since it's no longer needed
-
-// Move the middleware to a method on AdminServer
 func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tabId := ""
