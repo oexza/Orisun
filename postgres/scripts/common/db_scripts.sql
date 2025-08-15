@@ -174,7 +174,7 @@ BEGIN
             SELECT * FROM %11$sorisun_es_event
             WHERE 
                 (%1$L IS NULL OR stream_name = %1$L) AND
-                (%2$L IS NULL OR stream_version %4$s %2$L) AND
+                (%2$L IS NULL OR stream_version %4$s= %2$L) AND
                 (%8$L::JSONB IS NULL OR data @> ANY (
                     SELECT jsonb_array_elements(%8$L)
                 )) AND

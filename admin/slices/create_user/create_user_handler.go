@@ -194,9 +194,8 @@ func CreateUser(
 	userCreatedEvent, err := getEvents(
 		ctx,
 		&pb.GetEventsRequest{
-			Boundary:  boundary,
-			Direction: pb.Direction_DESC,
-			Count:     1,
+			Boundary: boundary,
+			Count:    1,
 			Stream: &pb.GetStreamQuery{
 				Name: ev.AdminStream,
 				SubsetQuery: &pb.Query{
@@ -333,6 +332,12 @@ func CreateUser(
 						Tags: []*pb.Tag{
 							{Key: "username", Value: username},
 							{Key: "eventType", Value: ev.EventTypeUserCreated},
+						},
+					},
+					{
+						Tags: []*pb.Tag{
+							{Key: "eventType", Value: ev.EventTypeUserDeleted},
+							{Key: "userId", Value: userId.String()},
 						},
 					},
 				},
