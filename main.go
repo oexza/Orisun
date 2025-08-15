@@ -129,7 +129,9 @@ func main() {
 	//create default user
 	err := createDefaultUser(
 		ctx,
-		config.Admin.Boundary, *eventStore,
+		config.Admin.Boundary,
+		*eventStore,
+		AppLogger,
 	)
 	if err != nil {
 		AppLogger.Infof("%v", err)
@@ -267,7 +269,7 @@ func initializeLogger(config c.AppConfig) l.Logger {
 	return logr
 }
 
-func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore) error {
+func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore, logger l.Logger) error {
 	var userExistsError create_user.UserExistsError
 	if _, err := create_user.CreateUser(
 		ctx,
@@ -278,6 +280,7 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 		adminBoundary,
 		eventstore.SaveEvents,
 		eventstore.GetEvents,
+		logger,
 	); err != nil && !errors.As(err, &userExistsError) {
 		return err
 	}

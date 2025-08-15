@@ -5,9 +5,10 @@ import (
 )
 
 const (
-	UserStreamPrefix = "User-Registration:::::"
-	RegistrationTag  = "Registration"
-	UsernameTag      = "Registration_username"
+	AdminStream = "OrisunAdmin"
+
+	// RegistrationTag  = "Registration"
+	// UsernameTag      = "Registration_username"
 )
 
 // Event types

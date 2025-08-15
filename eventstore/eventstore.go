@@ -3,6 +3,7 @@ package eventstore
 import (
 	"context"
 	"fmt"
+	reflect "reflect"
 	"strings"
 
 	"github.com/goccy/go-json"
@@ -174,11 +175,12 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 
 	eventsForMarshaling := make([]EventWithMapTags, len(req.Events))
 	for i, event := range req.Events {
-		var dataMap, metadataMap map[string]interface{}
+		var dataMap, metadataMap map[string]any
 
 		if err := json.Unmarshal([]byte(event.Data), &dataMap); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in data field: %v", err)
 		}
+		dataMap["eventType"] = event.EventType
 
 		if err := json.Unmarshal([]byte(event.Metadata), &metadataMap); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)
@@ -538,7 +540,8 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 			tagFound := false
 
 			for key, eventTag := range unmarshaledData {
-				if key == criteriaTag.Key && eventTag == criteriaTag.Value {
+				// More robust comparison
+				if key == criteriaTag.Key && reflect.DeepEqual(eventTag, criteriaTag.Value) {
 					tagFound = true
 					break
 				}

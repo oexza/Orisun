@@ -81,7 +81,7 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 			Direction: eventstore.Direction_DESC,
 			Count:     2,
 			Stream: &eventstore.GetStreamQuery{
-				Name:        events.UserStreamPrefix + userId,
+				Name:        events.AdminStream + userId,
 				FromVersion: 999999999,
 				SubsetQuery: &eventstore.Query{
 					Criteria: []*eventstore.Criterion{
@@ -133,7 +133,7 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 			Boundary: s.boundary,
 			// ConsistencyCondition: nil,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            events.UserStreamPrefix + userId,
+				Name:            events.AdminStream + userId,
 				ExpectedVersion: int32(lastExpectedVersion),
 			},
 			Events: []*eventstore.EventToSave{{

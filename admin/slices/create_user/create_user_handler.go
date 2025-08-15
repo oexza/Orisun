@@ -141,6 +141,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		s.boundary,
 		s.saveEvents,
 		s.getEvents,
+		s.logger,
 	)
 	if err != nil {
 		response.Failed = true
@@ -179,10 +180,13 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	sse.ExecuteScript("document.querySelector('#add-user-dialog').hide()")
 }
 
-func CreateUser(ctx context.Context, name, username, password string,
+func CreateUser(
+	ctx context.Context,
+	name, username, password string,
 	roles []globalCommon.Role, boundary string,
 	saveEvents common.SaveEventsType,
 	getEvents common.GetEventsType,
+	logger l.Logger,
 ) (*ev.UserCreated, error) {
 	username = strings.TrimSpace(username)
 	events := []*ev.Event{}
@@ -193,12 +197,15 @@ func CreateUser(ctx context.Context, name, username, password string,
 			Boundary:  boundary,
 			Direction: pb.Direction_DESC,
 			Count:     1,
-			Query: &pb.Query{
-				Criteria: []*pb.Criterion{
-					{
-						Tags: []*pb.Tag{
-							{Key: ev.UsernameTag, Value: username},
-							{Key: "eventType", Value: ev.EventTypeUserCreated},
+			Stream: &pb.GetStreamQuery{
+				Name: ev.AdminStream,
+				SubsetQuery: &pb.Query{
+					Criteria: []*pb.Criterion{
+						{
+							Tags: []*pb.Tag{
+								{Key: "username", Value: username},
+								{Key: "eventType", Value: ev.EventTypeUserCreated},
+							},
 						},
 					},
 				},
@@ -209,6 +216,8 @@ func CreateUser(ctx context.Context, name, username, password string,
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Infof("userCreatedEvent: %v", userCreatedEvent)
 
 	for _, event := range userCreatedEvent.Events {
 		var userCreatedEvent = ev.UserCreated{}
@@ -230,12 +239,15 @@ func CreateUser(ctx context.Context, name, username, password string,
 				Boundary:  boundary,
 				Direction: pb.Direction_DESC,
 				Count:     1,
-				Stream:    &pb.GetStreamQuery{Name: ev.UserStreamPrefix + userCreatedEvent.UserId},
-				Query: &pb.Query{
-					Criteria: []*pb.Criterion{
-						{
-							Tags: []*pb.Tag{
-								{Key: "eventType", Value: ev.EventTypeUserDeleted},
+				Stream: &pb.GetStreamQuery{
+					Name: ev.AdminStream,
+					SubsetQuery: &pb.Query{
+						Criteria: []*pb.Criterion{
+							{
+								Tags: []*pb.Tag{
+									{Key: "eventType", Value: ev.EventTypeUserDeleted},
+									{Key: "userId", Value: userCreatedEvent.UserId},
+								},
 							},
 						},
 					},
@@ -313,8 +325,18 @@ func CreateUser(ctx context.Context, name, username, password string,
 		// },
 		Events: eventsToSave,
 		Stream: &pb.SaveStreamQuery{
-			Name:            ev.UserStreamPrefix + userId.String(),
+			Name:            ev.AdminStream,
 			ExpectedVersion: eventstore.StreamDoesNotExist,
+			SubsetQuery: &pb.Query{
+				Criteria: []*pb.Criterion{
+					{
+						Tags: []*pb.Tag{
+							{Key: "username", Value: username},
+							{Key: "eventType", Value: ev.EventTypeUserCreated},
+						},
+					},
+				},
+			},
 		},
 	})
 
