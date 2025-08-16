@@ -26,7 +26,7 @@ type ImplementerSaveEvents interface {
 		// indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
-		streamVersion int32,
+		streamVersion int64,
 		streamSubSet *Query) (transactionID string, globalID uint64, err error)
 }
 

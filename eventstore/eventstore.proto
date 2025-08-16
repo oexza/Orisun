@@ -43,7 +43,7 @@ message Event {
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
   string stream_id = 8;
-  uint32 version = 9;
+  uint64 version = 9;
 }
 
 message WriteResult {
@@ -62,7 +62,7 @@ enum Direction {
 
 message SaveStreamQuery{
   string name = 1;
-  int32 expected_version = 2;
+  int64 expected_version = 2;
   Query subsetQuery = 3;
 }
 
@@ -75,7 +75,7 @@ message SaveEventsRequest {
 
 message GetStreamQuery{
   string name = 1;
-  int32 from_version = 2;
+  int64 from_version = 2;
 }
 
 message GetEventsRequest {

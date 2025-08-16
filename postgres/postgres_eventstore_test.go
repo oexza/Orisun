@@ -155,10 +155,6 @@ func TestSaveAndGetEvents(t *testing.T) {
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value\"}",
 			Metadata:  "{\"meta\": \"data\"}",
-			Tags: map[string]interface{}{
-				"tag1": "value1",
-				"tag2": "value2",
-			},
 		},
 	}
 
@@ -166,7 +162,6 @@ func TestSaveAndGetEvents(t *testing.T) {
 	tranID, globalID, err := saveEvents.Save(
 		t.Context(),
 		events,
-		// nil,
 		"test_boundary",
 		"test-stream",
 		-1,
@@ -197,19 +192,6 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Equal(t, "TestEvent", resp.Events[0].EventType)
 	assert.Equal(t, "\"{\\\"key\\\": \\\"value\\\"}\"", resp.Events[0].Data)
 	assert.Equal(t, "\"{\\\"meta\\\": \\\"data\\\"}\"", resp.Events[0].Metadata)
-
-	// Verify tags
-	assert.Len(t, resp.Events[0].Tags, 2)
-	for _, tag := range resp.Events[0].Tags {
-		switch tag.Key {
-		case "tag1":
-			assert.Equal(t, "value1", tag.Value)
-		case "tag2":
-			assert.Equal(t, "value2", tag.Value)
-		default:
-			t.Errorf("unexpected tag key: %s", tag.Key)
-		}
-	}
 }
 
 func TestOptimisticConcurrency(t *testing.T) {
@@ -246,14 +228,12 @@ func TestOptimisticConcurrency(t *testing.T) {
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value\"}",
-			Tags:      map[string]interface{}{"tag1": "value1"},
 		},
 	}
 
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events,
-		// nil,
 		"test_boundary",
 		"test-stream",
 		-1, // Expected version 0
@@ -267,14 +247,12 @@ func TestOptimisticConcurrency(t *testing.T) {
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value2\"}",
-			Tags:      map[string]interface{}{"tag1": "value2"},
 		},
 	}
 
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
-		// nil,
 		"test_boundary",
 		"test-stream",
 		-1, // Expected version -1 again, but should be 0 now
@@ -318,14 +296,12 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value1\"}",
-			Tags:      map[string]interface{}{"category": "A", "priority": "high"},
 		},
 	}
 
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events1,
-		// nil,
 		"test_boundary",
 		"test-stream",
 		-1,
@@ -338,14 +314,12 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value2\"}",
-			Tags:      map[string]interface{}{"category": "B", "priority": "low"},
 		},
 	}
 
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
-		// nil,
 		"test_boundary",
 		"test-stream",
 		0,
@@ -368,7 +342,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 				Criteria: []*eventstore.Criterion{
 					&eventstore.Criterion{
 						Tags: []*eventstore.Tag{
-							{Key: "category", Value: "A"},
+							{Key: "key", Value: "value1"},
 						},
 					},
 				},
@@ -419,7 +393,6 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
 				Data:      fmt.Sprintf("{\"index\": %d}", i),
-				Tags:      map[string]interface{}{"index": fmt.Sprintf("%d", i)},
 			},
 		}
 
@@ -429,7 +402,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 			// nil,
 			"test_boundary",
 			"global-pos-stream",
-			int32(i-1),
+			int64(i-1),
 			nil,
 		)
 		require.NoError(t, err)
@@ -492,7 +465,6 @@ func TestPagination(t *testing.T) {
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
 				Data:      fmt.Sprintf("{\"index\": %d}", i),
-				Tags:      map[string]interface{}{"index": fmt.Sprintf("%d", i)},
 			},
 		}
 
@@ -502,7 +474,7 @@ func TestPagination(t *testing.T) {
 			// nil,
 			"test_boundary",
 			"pagination-stream",
-			int32(i-1),
+			int64(i-1),
 			nil,
 		)
 		require.NoError(t, err)
@@ -579,7 +551,6 @@ func TestDirectionOrdering(t *testing.T) {
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
 				Data:      fmt.Sprintf("{\"index\": %d}", i),
-				Tags:      map[string]interface{}{"index": fmt.Sprintf("%d", i)},
 			},
 		}
 
@@ -589,7 +560,7 @@ func TestDirectionOrdering(t *testing.T) {
 			// nil,
 			"test_boundary",
 			"direction-stream",
-			int32(i-1),
+			int64(i-1),
 			nil,
 		)
 		require.NoError(t, err)
@@ -668,7 +639,6 @@ func TestComplexTagQueries(t *testing.T) {
 			EventId:   eventId1.String(),
 			EventType: "TestEvent",
 			Data:      "{\"data\": \"event1\"}",
-			Tags:      map[string]interface{}{"category": "A", "priority": "high", "region": "east"},
 		},
 	}
 	_, _, err = saveEvents.Save(
@@ -691,7 +661,6 @@ func TestComplexTagQueries(t *testing.T) {
 			EventId:   eventId2.String(),
 			EventType: "TestEvent",
 			Data:      "{\"data\": \"event2\"}",
-			Tags:      map[string]interface{}{"category": "A", "priority": "low", "region": "west"},
 		},
 	}
 	_, _, err = saveEvents.Save(
@@ -714,16 +683,15 @@ func TestComplexTagQueries(t *testing.T) {
 			EventId:   eventId3.String(),
 			EventType: "TestEvent",
 			Data:      "{\"data\": \"event3\"}",
-			Tags:      map[string]interface{}{"category": "B", "priority": "high", "region": "east"},
 		},
 	}
 	_, _, err = saveEvents.Save(
 		ctx, 
 		events3, 
-		// nil, 
 		"test_boundary", 
 		"complex-query-stream", 
-		1, nil,
+		1, 
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -736,13 +704,11 @@ func TestComplexTagQueries(t *testing.T) {
 			EventId:   eventId4.String(),
 			EventType: "TestEvent",
 			Data:      "{\"data\": \"event4\"}",
-			Tags:      map[string]interface{}{"category": "B", "priority": "low", "region": "west"},
 		},
 	}
 	_, _, err = saveEvents.Save(
 		ctx,
 		events4,
-		// nil,
 		"test_boundary",
 		"complex-query-stream",
 		2,
@@ -870,24 +836,23 @@ func TestErrorConditions(t *testing.T) {
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
 			Data:      "{\"key\": \"value\"}",
-			Tags:      map[string]interface{}{"tag1": "value1"},
 		},
 	}
 
 	_, _, err = saveEvents.Save(
 		ctx,
 		events,
-		// nil,
 		"non_existent_boundary",
-		"test-stream", -1,
+		"test-stream",
+		-1,
 		nil,
 	)
 	assert.Error(t, err)
 
 	// Test 2: Invalid expected version (too high)
 	_, _, err = saveEvents.Save(
-		ctx, events,
-		// nil,
+		ctx,
+		events,
 		"test_boundary",
 		"version-test-stream",
 		100,
@@ -897,8 +862,8 @@ func TestErrorConditions(t *testing.T) {
 
 	// Test 3: Empty event list
 	_, _, err = saveEvents.Save(
-		ctx, []eventstore.EventWithMapTags{},
-		// nil,
+		ctx,
+		[]eventstore.EventWithMapTags{},
 		"test_boundary",
 		"empty-stream",
 		-1,

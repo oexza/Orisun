@@ -105,7 +105,7 @@ func (s *PostgresSaveEvents) Save(
 	// consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
-	expectedVersion int32,
+	expectedVersion int64,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
@@ -233,7 +233,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	var streamName *string = nil
-	var fromStreamVersion *int32 = nil
+	var fromStreamVersion *int64 = nil
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
@@ -365,7 +365,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	return &eventstore.GetEventsResponse{Events: events}, nil
 }
 
-func getStreamSectionAsMap(streamName string, expectedVersion int32, consistencyCondition *eventstore.Query) map[string]interface{} {
+func getStreamSectionAsMap(streamName string, expectedVersion int64, consistencyCondition *eventstore.Query) map[string]interface{} {
 	lastRetrievedPositions := make(map[string]interface{})
 	lastRetrievedPositions["stream_name"] = streamName
 	lastRetrievedPositions["expected_version"] = expectedVersion

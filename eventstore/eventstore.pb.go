@@ -339,7 +339,7 @@ type Event struct {
 	Position      *Position              `protobuf:"bytes,6,opt,name=position,proto3" json:"position,omitempty"`
 	DateCreated   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=date_created,json=dateCreated,proto3" json:"date_created,omitempty"`
 	StreamId      string                 `protobuf:"bytes,8,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	Version       uint32                 `protobuf:"varint,9,opt,name=version,proto3" json:"version,omitempty"`
+	Version       uint64                 `protobuf:"varint,9,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -423,7 +423,7 @@ func (x *Event) GetStreamId() string {
 	return ""
 }
 
-func (x *Event) GetVersion() uint32 {
+func (x *Event) GetVersion() uint64 {
 	if x != nil {
 		return x.Version
 	}
@@ -477,7 +477,7 @@ func (x *WriteResult) GetLogPosition() *Position {
 type SaveStreamQuery struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	ExpectedVersion int32                  `protobuf:"varint,2,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	ExpectedVersion int64                  `protobuf:"varint,2,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
 	SubsetQuery     *Query                 `protobuf:"bytes,3,opt,name=subsetQuery,proto3" json:"subsetQuery,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -520,7 +520,7 @@ func (x *SaveStreamQuery) GetName() string {
 	return ""
 }
 
-func (x *SaveStreamQuery) GetExpectedVersion() int32 {
+func (x *SaveStreamQuery) GetExpectedVersion() int64 {
 	if x != nil {
 		return x.ExpectedVersion
 	}
@@ -598,7 +598,7 @@ func (x *SaveEventsRequest) GetEvents() []*EventToSave {
 type GetStreamQuery struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FromVersion   int32                  `protobuf:"varint,2,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
+	FromVersion   int64                  `protobuf:"varint,2,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -640,7 +640,7 @@ func (x *GetStreamQuery) GetName() string {
 	return ""
 }
 
-func (x *GetStreamQuery) GetFromVersion() int32 {
+func (x *GetStreamQuery) GetFromVersion() int64 {
 	if x != nil {
 		return x.FromVersion
 	}
@@ -874,12 +874,12 @@ const file_eventstore_proto_rawDesc = "" +
 	"\bposition\x18\x06 \x01(\v2\x14.eventstore.PositionR\bposition\x12=\n" +
 	"\fdate_created\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vdateCreated\x12\x1b\n" +
 	"\tstream_id\x18\b \x01(\tR\bstreamId\x12\x18\n" +
-	"\aversion\x18\t \x01(\rR\aversion\"F\n" +
+	"\aversion\x18\t \x01(\x04R\aversion\"F\n" +
 	"\vWriteResult\x127\n" +
 	"\flog_position\x18\x01 \x01(\v2\x14.eventstore.PositionR\vlogPosition\"\x85\x01\n" +
 	"\x0fSaveStreamQuery\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
-	"\x10expected_version\x18\x02 \x01(\x05R\x0fexpectedVersion\x123\n" +
+	"\x10expected_version\x18\x02 \x01(\x03R\x0fexpectedVersion\x123\n" +
 	"\vsubsetQuery\x18\x03 \x01(\v2\x11.eventstore.QueryR\vsubsetQuery\"\x95\x01\n" +
 	"\x11SaveEventsRequest\x12\x1a\n" +
 	"\bboundary\x18\x02 \x01(\tR\bboundary\x123\n" +
@@ -887,7 +887,7 @@ const file_eventstore_proto_rawDesc = "" +
 	"\x06events\x18\x04 \x03(\v2\x17.eventstore.EventToSaveR\x06events\"G\n" +
 	"\x0eGetStreamQuery\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
-	"\ffrom_version\x18\x02 \x01(\x05R\vfromVersion\"\x91\x02\n" +
+	"\ffrom_version\x18\x02 \x01(\x03R\vfromVersion\"\x91\x02\n" +
 	"\x10GetEventsRequest\x12'\n" +
 	"\x05query\x18\x01 \x01(\v2\x11.eventstore.QueryR\x05query\x129\n" +
 	"\rfrom_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\ffromPosition\x12\x14\n" +
