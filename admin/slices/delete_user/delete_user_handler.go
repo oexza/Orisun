@@ -35,7 +35,7 @@ func NewDeleteUserHandler(logger l.Logger, saveEvents admin_common.SaveEventsTyp
 	}
 }
 
-func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Request) {
+func (dUH *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Request) {
 	userId := chi.URLParam(r, "userId")
 	currentUser, err := admin_common.GetCurrentUser(r)
 	sse := datastar.NewSSE(w, r)
@@ -49,7 +49,7 @@ func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.deleteUser(r.Context(), userId, currentUser); err != nil {
+	if err := dUH.deleteUser(r.Context(), userId, currentUser); err != nil {
 		sse.RemoveElement("#alert")
 		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithModePrepend(),
@@ -66,37 +66,38 @@ func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Requ
 	sse.RemoveElement("#user_" + userId)
 }
 
-func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
+func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
 	userId = strings.TrimSpace(userId)
 	currentUserId = strings.TrimSpace(currentUserId)
-	s.logger.Debug("Current Userrrr: " + currentUserId)
+	dUH.logger.Debug("Current Userrrr: " + currentUserId)
 
 	if userId == currentUserId {
 		return fmt.Errorf("You cannot delete your own account")
 	}
-	evts, err := s.getEvents(
+	dUH.logger.Infof("Deleting user: %s", userId)
+	evts, err := dUH.getEvents(
 		ctx,
 		&eventstore.GetEventsRequest{
-			Boundary:  s.boundary,
-			Direction: eventstore.Direction_DESC,
-			Count:     2,
+			Boundary: dUH.boundary,
+			Count:    2,
 			Query: &eventstore.Query{
 				Criteria: []*eventstore.Criterion{
 					{
 						Tags: []*eventstore.Tag{
+							{Key: "user_id", Value: userId},
 							{Key: "eventType", Value: events.EventTypeUserCreated},
 						},
 					},
 					{
 						Tags: []*eventstore.Tag{
+							{Key: "user_id", Value: userId},
 							{Key: "eventType", Value: events.EventTypeUserDeleted},
 						},
 					},
 				},
 			},
 			Stream: &eventstore.GetStreamQuery{
-				Name:        events.AdminStream,
-				FromVersion: 999999999,
+				Name: events.AdminStream,
 			},
 		},
 	)
@@ -129,12 +130,28 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 
 		lastExpectedVersion = int(evts.Events[len(evts.Events)-1].Version)
 
-		_, err = s.saveEvents(ctx, &eventstore.SaveEventsRequest{
-			Boundary: s.boundary,
+		_, err = dUH.saveEvents(ctx, &eventstore.SaveEventsRequest{
+			Boundary: dUH.boundary,
 			// ConsistencyCondition: nil,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            events.AdminStream + userId,
+				Name:            events.AdminStream,
 				ExpectedVersion: int32(lastExpectedVersion),
+				SubsetQuery: &eventstore.Query{
+					Criteria: []*eventstore.Criterion{
+						{
+							Tags: []*eventstore.Tag{
+								{Key: "user_id", Value: userId},
+								{Key: "eventType", Value: events.EventTypeUserCreated},
+							},
+						},
+						{
+							Tags: []*eventstore.Tag{
+								{Key: "user_id", Value: userId},
+								{Key: "eventType", Value: events.EventTypeUserDeleted},
+							},
+						},
+					},
+				},
 			},
 			Events: []*eventstore.EventToSave{{
 				EventId:   id.String(),
@@ -143,7 +160,7 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 				// Tags: []*eventstore.Tag{
 				// 	{Key: events.RegistrationTag, Value: userId},
 				// },
-				Metadata: "{\"schema\":\"" + s.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
+				Metadata: "{\"schema\":\"" + dUH.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
 			}},
 		})
 
