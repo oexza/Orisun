@@ -1,4 +1,4 @@
-package common
+package admin_common
 
 import (
 	"context"
@@ -36,7 +36,6 @@ type SaveEventsType = func(ctx context.Context, in *eventstore.SaveEventsRequest
 type GetEventsType = func(ctx context.Context, in *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error)
 type GetProjectorLastPositionType = func(projectorName string) (*eventstore.Position, error)
 type UpdateProjectorPositionType = func(projectorName string, position *eventstore.Position) error
-type PublishToPubSubType = func(ctx context.Context, req *eventstore.PublishRequest) error
 type SubscribeToEventStoreType = func(
 	ctx context.Context,
 	boundary string,
@@ -45,6 +44,14 @@ type SubscribeToEventStoreType = func(
 	query *eventstore.Query,
 	handler globalCommon.MessageHandler[eventstore.Event],
 ) error
+
+type PublishRequest struct {
+	Id      string `json:"id"`
+	Subject string `json:"subject"`
+	Data    []byte `json:"data"`
+}
+
+type PublishToPubSubType = func(ctx context.Context, req *PublishRequest) error
 
 var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*datastar.ServerSentEventGenerator{}
 var sseConnectionsMutex sync.RWMutex

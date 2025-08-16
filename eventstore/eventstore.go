@@ -18,7 +18,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ImplementerSaveEvents interface {
@@ -50,10 +49,8 @@ type EventStore struct {
 }
 
 const (
-	eventsStreamPrefix          = "ORISUN_EVENTS"
-	EventsSubjectName           = "events"
-	pubsubPrefix                = "orisun_pubsub__"
-	activeSubscriptionsKVBucket = "ACTIVE_SUBSCRIPTIONS"
+	eventsStreamPrefix = "ORISUN_EVENTS"
+	EventsSubjectName  = "events"
 )
 
 var logger logging.Logger
@@ -557,159 +554,10 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 	return false
 }
 
-func getPubSubStreamName(subjectName string) string {
-	return pubsubPrefix + subjectName
-}
-
-// SubscribeToPubSubGeneric creates a subscription to a pub/sub topic and handles messages with the provided handler
-func (s *EventStore) SubscribeToPubSubGeneric(
-	ctx context.Context,
-	subject string,
-	consumerName string,
-	handler *globalCommon.MessageHandler[Message]) error {
-	logger.Infof("SubscribeToPubSubGeneric called with subject: %s, consumer_name: %s", subject, consumerName)
-
-	pubSubStreamName := getPubSubStreamName(subject)
-	natsStream, err := s.js.Stream(ctx, pubSubStreamName)
-
-	if err != nil && err.Error() != jetstream.ErrStreamNotFound.Error() {
-		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-	}
-
-	if natsStream == nil {
-		natsStream, err = s.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-			Name:              pubSubStreamName,
-			Subjects:          []string{pubSubStreamName + ".*"},
-			Storage:           jetstream.MemoryStorage,
-			MaxConsumers:      -1, // Allow unlimited consumers
-			MaxAge:            24 * time.Hour,
-			MaxMsgsPerSubject: 10,
-		})
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to add stream: %v", err)
-		}
-		logger.Debugf("stream info: %v", natsStream)
-	}
-
-	sub, err := natsStream.CreateOrUpdateConsumer(
-		ctx,
-		jetstream.ConsumerConfig{
-			Name:          consumerName,
-			DeliverPolicy: jetstream.DeliverNewPolicy,
-			AckPolicy:     jetstream.AckNonePolicy,
-			MaxAckPending: 100,
-		},
-	)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-	}
-	defer s.js.DeleteConsumer(ctx, consumerName, pubsubPrefix+subject)
-
-	_, err = sub.Consume(func(natsNsg jetstream.Msg) {
-		// Add panic recovery to prevent system crashes
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Errorf("Recovered from panic in message handler: %v", r)
-				// Try to acknowledge the message to prevent redelivery
-				if ackErr := natsNsg.Ack(); ackErr != nil {
-					logger.Errorf("Failed to acknowledge message after panic: %v", ackErr)
-				}
-			}
-		}()
-
-		// Try to send the message to the handler
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			message := Message{}
-			json.Unmarshal(natsNsg.Data(), &message)
-			err := handler.Send(&message)
-
-			if err == nil {
-				// Message sent successfully, break the retry loop
-				natsNsg.Ack()
-				break
-			}
-
-			if ctx.Err() != nil {
-				// Context is done, exit handler
-				logger.Infof("Context done, stopping message handling: %v", ctx.Err())
-				return
-			}
-
-			// Log the error and retry
-			logger.Errorf("Error handling message: %v. Retrying...", err)
-			// Add a short delay before retrying
-			time.Sleep(time.Millisecond * 100)
-		}
-	})
-
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-	}
-
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func (s *EventStore) SubscribeToPubSub(req *SubscribeRequest, stream EventStore_SubscribeToPubSubServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-
-	// Create a MessageHandler that forwards messages to the gRPC stream
-	handler := globalCommon.NewMessageHandler[Message](ctx)
-
-	// Start a goroutine to forward messages from the handler to the gRPC stream
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				msg, err := handler.Recv()
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					logger.Errorf("Error receiving message from handler: %v", err)
-					continue
-				}
-
-				if err := stream.Send(&SubscribeResponse{Message: msg}); err != nil {
-					logger.Errorf("Error sending to gRPC stream: %v", err)
-				}
-			}
-		}
-	}()
-
-	// Use the generic function with a handler that sends to the MessageHandler
-	return s.SubscribeToPubSubGeneric(
-		ctx,
-		req.Subject,
-		req.ConsumerName,
-		handler,
-	)
-}
-
 func parseInt64(s string) uint64 {
 	var i uint64
 	fmt.Sscanf(s, "%d", &i)
 	return i
-}
-
-func (s *EventStore) PublishToPubSub(ctx context.Context, req *PublishRequest) (*emptypb.Empty, error) {
-	msgJSON, err := json.Marshal(req)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to marshal message: %v", err)
-	}
-
-	_, err = s.js.Publish(ctx, getPubSubStreamName(req.Subject)+"."+req.Subject, msgJSON)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to publish message: %v", err)
-	}
-
-	return &emptypb.Empty{}, nil
 }
 
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {

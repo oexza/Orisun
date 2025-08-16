@@ -35,7 +35,7 @@ auth:
   adminUsername: ${ORISUN_ADMIN_USERNAME:admin}
   adminPassword: ${ORISUN_ADMIN_PASSWORD:changeit}
 
-# Add to existing config:
+# admin dashboard configuration
 admin:
   port: ${ORISUN_ADMIN_PORT:8991}
   boundary: ${ORISUN_ADMIN_BOUNDARY:orisun_admin}

@@ -2,14 +2,13 @@ package user_count
 
 import (
 	"context"
+	"encoding/json"
 	ev "orisun/admin/events"
-	common "orisun/admin/slices/common"
+	admin_common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
-	"orisun/eventstore"
+	eventstore "orisun/eventstore"
 	l "orisun/logging"
 	"time"
-
-	"github.com/goccy/go-json"
 )
 
 const (
@@ -28,23 +27,23 @@ type SubscribeToUserCount = func(consumerName string, ctx context.Context, strea
 
 type UserCountEventHandler struct {
 	boundary                 string
-	getProjectorLastPosition common.GetProjectorLastPositionType
-	publishUserCountToPubSub common.PublishToPubSubType
+	getProjectorLastPosition admin_common.GetProjectorLastPositionType
+	publishUserCountToPubSub admin_common.PublishToPubSubType
 	getUsersCount            GetUserCount
 	saveUserCount            SaveUserCount
-	subscribeToEventStore    common.SubscribeToEventStoreType
-	updateProjectorPosition  common.UpdateProjectorPositionType
+	subscribeToEventStore    admin_common.SubscribeToEventStoreType
+	updateProjectorPosition  admin_common.UpdateProjectorPositionType
 	logger                   l.Logger
 }
 
 func NewUserCountProjection(
 	boundary string,
-	getProjectorLastPosition common.GetProjectorLastPositionType,
-	publishUsersCountToPubSub common.PublishToPubSubType,
+	getProjectorLastPosition admin_common.GetProjectorLastPositionType,
+	publishUsersCountToPubSub admin_common.PublishToPubSubType,
 	getUsersCount GetUserCount,
 	saveUserCount SaveUserCount,
-	subscribeToEventStore common.SubscribeToEventStoreType,
-	updateProjectorPosition common.UpdateProjectorPositionType,
+	subscribeToEventStore admin_common.SubscribeToEventStoreType,
+	updateProjectorPosition admin_common.UpdateProjectorPositionType,
 	logger l.Logger,
 ) *UserCountEventHandler {
 	return &UserCountEventHandler{
@@ -145,7 +144,7 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 				return err
 			}
 			p.saveUserCount(newCount)
-			p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
+			p.publishUserCountToPubSub(ctx, &admin_common.PublishRequest{
 				Id:      "users-count",
 				Subject: "users-count",
 				Data:    marshaled,
@@ -170,9 +169,9 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 			if err != nil {
 				return err
 			}
-			
+
 			p.saveUserCount(newCount)
-			p.publishUserCountToPubSub(ctx, &eventstore.PublishRequest{
+			p.publishUserCountToPubSub(ctx, &admin_common.PublishRequest{
 				Id:      "users-count",
 				Subject: UserCountPubSubscription,
 				Data:    marshaled,

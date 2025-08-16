@@ -14,7 +14,7 @@ import (
 
 	pb "orisun/eventstore"
 
-	"orisun/admin/slices/common"
+	admin_common "orisun/admin/slices/common"
 
 	globalCommon "orisun/common"
 
@@ -25,15 +25,15 @@ import (
 type CreateUserHandler struct {
 	logger     l.Logger
 	boundary   string
-	saveEvents common.SaveEventsType
-	getEvents  common.GetEventsType
+	saveEvents admin_common.SaveEventsType
+	getEvents  admin_common.GetEventsType
 }
 
 func NewCreateUserHandler(
 	logger l.Logger,
 	boundary string,
-	saveEvents common.SaveEventsType,
-	getEvents common.GetEventsType) *CreateUserHandler {
+	saveEvents admin_common.SaveEventsType,
+	getEvents admin_common.GetEventsType) *CreateUserHandler {
 	return &CreateUserHandler{
 		logger:     logger,
 		boundary:   boundary,
@@ -104,6 +104,7 @@ func (r *AddNewUserRequest) validate() error {
 
 func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	store := &AddNewUserRequest{}
+	s.logger.Infof("Handling create user request %v", *store)
 	response := struct {
 		Message string `json:"message"`
 		Success bool   `json:"success"`
@@ -147,6 +148,13 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		response.Failed = true
 		response.Message = err.Error()
 		sse.MarshalAndPatchSignals(response)
+		sse.PatchElementTempl(
+			t.Alert(err.Error(), t.AlertDanger),
+			datastar.WithSelector("body"),
+			datastar.WithModePrepend(),
+		)
+		// delay the toast
+		sse.ExecuteScript("setTimeout(() => { document.querySelector('#alert').toast() }, 50)")
 		return
 	}
 
@@ -154,19 +162,20 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	response.Message = "User created successfully"
 	sse.MarshalAndPatchSignals(response)
 
-	currentUser, err := common.GetCurrentUser(r)
+	currentUser, err := admin_common.GetCurrentUser(r)
 	if err != nil {
 		response.Failed = true
 		response.Message = err.Error()
 		sse.MarshalAndPatchSignals(response)
 		return
 	}
-	sse.PatchElementTempl(t.UserRow(&t.User{
-		Name:     evt.Name,
-		Id:       evt.UserId,
-		Username: evt.Username,
-		Roles:    []string{store.Role},
-	}, currentUser),
+	sse.PatchElementTempl(
+		t.UserRow(&t.User{
+			Name:     evt.Name,
+			Id:       evt.UserId,
+			Username: evt.Username,
+			Roles:    []string{store.Role},
+		}, currentUser),
 		datastar.WithModeAppend(),
 		datastar.WithSelectorID("users-table-body"),
 		datastar.WithModePrepend(),
@@ -184,8 +193,8 @@ func CreateUser(
 	ctx context.Context,
 	name, username, password string,
 	roles []globalCommon.Role, boundary string,
-	saveEvents common.SaveEventsType,
-	getEvents common.GetEventsType,
+	saveEvents admin_common.SaveEventsType,
+	getEvents admin_common.GetEventsType,
 	logger l.Logger,
 ) (*ev.UserCreated, error) {
 	username = strings.TrimSpace(username)
@@ -196,18 +205,18 @@ func CreateUser(
 		&pb.GetEventsRequest{
 			Boundary: boundary,
 			Count:    1,
-			Stream: &pb.GetStreamQuery{
-				Name: ev.AdminStream,
-				SubsetQuery: &pb.Query{
-					Criteria: []*pb.Criterion{
-						{
-							Tags: []*pb.Tag{
-								{Key: "username", Value: username},
-								{Key: "eventType", Value: ev.EventTypeUserCreated},
-							},
+			Query: &pb.Query{
+				Criteria: []*pb.Criterion{
+					{
+						Tags: []*pb.Tag{
+							{Key: "username", Value: username},
+							{Key: "eventType", Value: ev.EventTypeUserCreated},
 						},
 					},
 				},
+			},
+			Stream: &pb.GetStreamQuery{
+				Name: ev.AdminStream,
 			},
 		},
 	)
@@ -238,18 +247,18 @@ func CreateUser(
 				Boundary:  boundary,
 				Direction: pb.Direction_DESC,
 				Count:     1,
-				Stream: &pb.GetStreamQuery{
-					Name: ev.AdminStream,
-					SubsetQuery: &pb.Query{
-						Criteria: []*pb.Criterion{
-							{
-								Tags: []*pb.Tag{
-									{Key: "eventType", Value: ev.EventTypeUserDeleted},
-									{Key: "userId", Value: userCreatedEvent.UserId},
-								},
+				Query: &pb.Query{
+					Criteria: []*pb.Criterion{
+						{
+							Tags: []*pb.Tag{
+								{Key: "eventType", Value: ev.EventTypeUserDeleted},
+								{Key: "userId", Value: userCreatedEvent.UserId},
 							},
 						},
 					},
+				},
+				Stream: &pb.GetStreamQuery{
+					Name: ev.AdminStream,
 				},
 			},
 		)
@@ -372,7 +381,7 @@ func createUserCommandHandler(userId string, username, password string, name str
 		}
 	}
 
-	hash, err := common.HashPassword(password)
+	hash, err := admin_common.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}

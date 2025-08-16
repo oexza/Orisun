@@ -85,11 +85,14 @@ func main() {
 	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
 
 	// Start projectors
-	var pubSubFunction = func(ctx context.Context, req *pb.PublishRequest) error {
-		_, err := eventStore.PublishToPubSub(ctx, req)
+	var pubSubFunction = func(ctx context.Context, req *common.PublishRequest) error {
+		AppLogger.Debugf("Publishing to jetstream: %v", req)
+		res, err := js.Publish(ctx, req.Subject, req.Data)
 		if err != nil {
+			AppLogger.Errorf("Failed to publish to pubsub: %v", err)
 			return err
 		}
+		AppLogger.Debugf("Published to jetstream: %v", res)
 		return nil
 	}
 
@@ -149,7 +152,7 @@ func main() {
 		config.Admin.Boundary,
 		getUserCount,
 		func(consumerName string, ctx context.Context, messageHandler *globalCommon.MessageHandler[user_count.UserCountReadModel]) error {
-			handler := globalCommon.NewMessageHandler[pb.Message](ctx)
+			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
 			go func() {
 				for {
 					select {
@@ -181,30 +184,90 @@ func main() {
 			if err != nil && count != (user_count.UserCountReadModel{}) {
 				messageHandler.Send(&count)
 			}
-			eventStore.SubscribeToPubSubGeneric(
-				ctx,
-				user_count.UserCountPubSubscription,
-				consumerName,
-				handler,
-			)
-			return nil
-		},
-		// func() uint32 {
-		// 	streams, err := js.Stream(pb.PublishRequest{}.Subject)
-		// 	if err != nil {
-		// 		return 0, err
-		// 	}
+			AppLogger.Infof("SubscribeToPubSubGeneric called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
 
-		// 	total := 0
-		// 	for _, stream := range streams {
-		// 		consumers, err := js.Consumers(stream.Config.Name)
-		// 		if err != nil {
-		// 			continue
-		// 		}
-		// 		total += len(consumers)
-		// 	}
-		// 	return total
-		// },
+			natsStream, err := js.Stream(ctx, user_count.UserCountPubSubscription)
+
+			if err != nil && err.Error() != jetstream.ErrStreamNotFound.Error() {
+				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
+			}
+
+			if natsStream == nil {
+				natsStream, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+					Name:              user_count.UserCountPubSubscription,
+					Subjects:          []string{user_count.UserCountPubSubscription + ".*"},
+					Storage:           jetstream.MemoryStorage,
+					MaxConsumers:      -1, // Allow unlimited consumers
+					MaxAge:            24 * time.Second,
+					MaxMsgsPerSubject: 10,
+				})
+				if err != nil {
+					return status.Errorf(codes.Internal, "failed to add stream: %v", err)
+				}
+				AppLogger.Debugf("stream info: %v", natsStream)
+			}
+
+			sub, err := natsStream.CreateOrUpdateConsumer(
+				ctx,
+				jetstream.ConsumerConfig{
+					Name:          consumerName,
+					DeliverPolicy: jetstream.DeliverNewPolicy,
+					AckPolicy:     jetstream.AckNonePolicy,
+					MaxAckPending: 100,
+				},
+			)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
+			}
+			defer js.DeleteConsumer(ctx, consumerName, user_count.UserCountPubSubscription)
+
+			_, err = sub.Consume(func(natsNsg jetstream.Msg) {
+				// Add panic recovery to prevent system crashes
+				defer func() {
+					if r := recover(); r != nil {
+						AppLogger.Errorf("Recovered from panic in message handler: %v", r)
+						// Try to acknowledge the message to prevent redelivery
+						if ackErr := natsNsg.Ack(); ackErr != nil {
+							AppLogger.Errorf("Failed to acknowledge message after panic: %v", ackErr)
+						}
+					}
+				}()
+
+				// Try to send the message to the handler
+				for {
+					if ctx.Err() != nil {
+						return
+					}
+					message := common.PublishRequest{}
+					json.Unmarshal(natsNsg.Data(), &message)
+					err := handler.Send(&message)
+
+					if err == nil {
+						// Message sent successfully, break the retry loop
+						natsNsg.Ack()
+						break
+					}
+
+					if ctx.Err() != nil {
+						// Context is done, exit handler
+						AppLogger.Infof("Context done, stopping message handling: %v", ctx.Err())
+						return
+					}
+
+					// Log the error and retry
+					AppLogger.Errorf("Error handling message: %v. Retrying...", err)
+					// Add a short delay before retrying
+					time.Sleep(time.Millisecond * 100)
+				}
+			})
+
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
+			}
+
+			<-ctx.Done()
+			return ctx.Err()
+		},
 	)
 
 	authenticator := admin.NewAuthenticator(

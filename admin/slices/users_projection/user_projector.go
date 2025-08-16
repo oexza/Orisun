@@ -27,7 +27,6 @@ type UserProjector struct {
 	getEvents                common.GetEventsType
 	subscribeToEvents        common.SubscribeToEventStoreType
 	countUsers               CountUsersType
-	publishToPubSub          common.PublishToPubSubType
 }
 
 func NewUserProjector(

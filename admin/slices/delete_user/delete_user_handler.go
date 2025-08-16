@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"orisun/admin/slices/common"
+	admin_common "orisun/admin/slices/common"
 	"orisun/admin/templates"
 	l "orisun/logging"
 	"strings"
@@ -21,12 +21,12 @@ import (
 
 type DeleteUserHandler struct {
 	logger     l.Logger
-	saveEvents common.SaveEventsType
-	getEvents  common.GetEventsType
+	saveEvents admin_common.SaveEventsType
+	getEvents  admin_common.GetEventsType
 	boundary   string
 }
 
-func NewDeleteUserHandler(logger l.Logger, saveEvents common.SaveEventsType, getEvents common.GetEventsType, boundary string) *DeleteUserHandler {
+func NewDeleteUserHandler(logger l.Logger, saveEvents admin_common.SaveEventsType, getEvents admin_common.GetEventsType, boundary string) *DeleteUserHandler {
 	return &DeleteUserHandler{
 		logger:     logger,
 		saveEvents: saveEvents,
@@ -37,7 +37,7 @@ func NewDeleteUserHandler(logger l.Logger, saveEvents common.SaveEventsType, get
 
 func (s *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Request) {
 	userId := chi.URLParam(r, "userId")
-	currentUser, err := common.GetCurrentUser(r)
+	currentUser, err := admin_common.GetCurrentUser(r)
 	sse := datastar.NewSSE(w, r)
 
 	if err != nil {
@@ -80,23 +80,23 @@ func (s *DeleteUserHandler) deleteUser(ctx context.Context, userId string, curre
 			Boundary:  s.boundary,
 			Direction: eventstore.Direction_DESC,
 			Count:     2,
-			Stream: &eventstore.GetStreamQuery{
-				Name:        events.AdminStream + userId,
-				FromVersion: 999999999,
-				SubsetQuery: &eventstore.Query{
-					Criteria: []*eventstore.Criterion{
-						{
-							Tags: []*eventstore.Tag{
-								{Key: "eventType", Value: events.EventTypeUserCreated},
-							},
+			Query: &eventstore.Query{
+				Criteria: []*eventstore.Criterion{
+					{
+						Tags: []*eventstore.Tag{
+							{Key: "eventType", Value: events.EventTypeUserCreated},
 						},
-						{
-							Tags: []*eventstore.Tag{
-								{Key: "eventType", Value: events.EventTypeUserDeleted},
-							},
+					},
+					{
+						Tags: []*eventstore.Tag{
+							{Key: "eventType", Value: events.EventTypeUserDeleted},
 						},
 					},
 				},
+			},
+			Stream: &eventstore.GetStreamQuery{
+				Name:        events.AdminStream,
+				FromVersion: 999999999,
 			},
 		},
 	)

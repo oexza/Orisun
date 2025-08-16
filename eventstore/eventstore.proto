@@ -76,7 +76,6 @@ message SaveEventsRequest {
 message GetStreamQuery{
   string name = 1;
   int32 from_version = 2;
-  Query subsetQuery = 3;
 }
 
 message GetEventsRequest {
@@ -99,35 +98,8 @@ message CatchUpSubscribeToEventStoreRequest {
   string boundary = 4;
 }
 
-message PublishRequest {
-  string id = 1;
-  string subject = 2;
-  bytes data = 3;
-}
-
-message SubscribeRequest {
-  string subject = 1;
-  string consumer_name = 2;
-}
-
-message SubscribeResponse {
-  Message message = 1;
-}
-
-message Message {
-  string id = 1;
-  string subject = 2;
-  bytes data = 3;
-}
-
-message AckRequest {
-  string ack_id = 1;
-}
-
 service EventStore {
   rpc SaveEvents(SaveEventsRequest) returns (WriteResult) {}
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
   rpc CatchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest) returns (stream Event) {}
-  rpc PublishToPubSub(PublishRequest) returns (google.protobuf.Empty) {}
-  rpc SubscribeToPubSub(SubscribeRequest) returns (stream SubscribeResponse) {}
 }

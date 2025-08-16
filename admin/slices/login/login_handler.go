@@ -3,7 +3,7 @@ package login
 import (
 	"encoding/base64"
 	"net/http"
-	"orisun/admin/slices/common"
+	admin_common "orisun/admin/slices/common"
 	l "orisun/logging"
 
 	"github.com/goccy/go-json"
@@ -60,7 +60,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Validate credentials
 	user, err := s.login(store.Username, store.Password)
 	if err != nil {
-		sse, _ := common.GetOrCreateSSEConnection(w, r)
+		sse, _ := admin_common.GetOrCreateSSEConnection(w, r)
 		sse.RemoveElement("message")
 		sse.PatchElements(`<div id="message">` + `Login Failed` + `</div>`)
 		return
@@ -68,7 +68,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	userAsString, err := json.Marshal(user)
 	if err != nil {
-		sse, _ := common.GetOrCreateSSEConnection(w, r)
+		sse, _ := admin_common.GetOrCreateSSEConnection(w, r)
 		sse.PatchElements(`<div id="message">` + `Login Failed` + `</div>`)
 		return
 	}
@@ -86,7 +86,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	sse, _ := common.GetOrCreateSSEConnection(w, r)
+	sse, _ := admin_common.GetOrCreateSSEConnection(w, r)
 
 	sse.PatchElements(`<div id="message">` + `Login Succeded` + `</div>`)
 
