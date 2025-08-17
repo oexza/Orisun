@@ -316,22 +316,7 @@ func CreateUser(
 
 	_, err = saveEvents(ctx, &pb.SaveEventsRequest{
 		Boundary: boundary,
-		// ConsistencyCondition: &pb.IndexLockCondition{
-		// 	ConsistencyMarker: &pb.Position{
-		// 		PreparePosition: 0,
-		// 		CommitPosition:  0,
-		// 	},
-		// 	Query: &pb.Query{
-		// 		Criteria: []*pb.Criterion{
-		// 			{
-		// 				Tags: []*pb.Tag{
-		// 					{Key: ev.UsernameTag, Value: username},
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// },
-		Events: eventsToSave,
+		Events:   eventsToSave,
 		Stream: &pb.SaveStreamQuery{
 			Name:            ev.AdminStream,
 			ExpectedVersion: eventstore.StreamDoesNotExist,

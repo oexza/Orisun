@@ -103,16 +103,6 @@ func NewEventStoreServer(
 	}
 }
 
-func getTagsAsMap(criteria []*Tag, eventType string) map[string]interface{} {
-	result := make(map[string]interface{}, len(criteria))
-
-	for _, criterion := range criteria {
-		result[criterion.Key] = criterion.Value
-	}
-	result["eventType"] = eventType
-	return result
-}
-
 type EventWithMapTags struct {
 	EventId   string      `json:"event_id"`
 	EventType string      `json:"event_type"`

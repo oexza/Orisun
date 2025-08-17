@@ -139,7 +139,6 @@ BEGIN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
     END IF;
     
-    -- Instead of SET search_path, use schema prefix in the query
     schema_prefix := quote_ident(schema) || '.';
 
     -- Optimize the query based on which parameters are provided
