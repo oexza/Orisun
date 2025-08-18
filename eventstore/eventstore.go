@@ -152,7 +152,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		}
 	}()
 
-	if err := validateSaveEventsRequest(req); err != nil {
+	if err = validateSaveEventsRequest(req); err != nil {
 		return nil, err
 	}
 
@@ -160,12 +160,12 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	for i, event := range req.Events {
 		var dataMap, metadataMap map[string]any
 
-		if err := json.Unmarshal([]byte(event.Data), &dataMap); err != nil {
+		if err = json.Unmarshal([]byte(event.Data), &dataMap); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in data field: %v", err)
 		}
 		dataMap["eventType"] = event.EventType
 
-		if err := json.Unmarshal([]byte(event.Metadata), &metadataMap); err != nil {
+		if err = json.Unmarshal([]byte(event.Metadata), &metadataMap); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)
 		}
 
@@ -284,7 +284,7 @@ func (s *EventStore) SubscribeToEvents(
 			return
 		}
 
-		if (lastTime == time.Time{}) {
+		if (lastTime.Equal(time.Time{})) {
 			lastTime = time.Now()
 		}
 

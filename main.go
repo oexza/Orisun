@@ -294,12 +294,9 @@ func main() {
 
 			err = setupJetStreamConsumer(ctx, js, pubsubStreamName, consumerName, user_count.UserCountPubSubscription, handler, AppLogger)
 			if err != nil {
-				AppLogger.Errorf("failed to subscribe: %v", err)
 				return fmt.Errorf("failed to subscribe: %v", err)
 			}
 			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
-
-			// <-ctx.Done()
 			return nil
 		},
 	)
