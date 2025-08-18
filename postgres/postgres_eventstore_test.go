@@ -340,7 +340,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			},
 			Query: &eventstore.Query{
 				Criteria: []*eventstore.Criterion{
-					&eventstore.Criterion{
+					{
 						Tags: []*eventstore.Tag{
 							{Key: "key", Value: "value1"},
 						},
@@ -384,7 +384,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 
 	// Save multiple events to get different global positions
 	var globalPositions []uint64
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 

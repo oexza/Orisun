@@ -6,7 +6,6 @@ templ AddUser(currentPath string, roles []string) {
 		label="Create New User"
 		class="dialog-overview"
 		data-signals={ `{name: '', username: '', password: '' , role: '' , message: '' , success: '' , failed: '' }` }
-		data-on-load="document.querySelector('#add-user-dialog').show()"
 	>
 		<form method="post" action="/users" data-on-submit="@post('/users')">
 			<div class="space-y-4">

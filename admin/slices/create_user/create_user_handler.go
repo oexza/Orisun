@@ -52,6 +52,7 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 	}
 
 	sse.PatchElementTempl(AddUser(r.URL.Path, roleStrings), datastar.WithModeOuter())
+	sse.ExecuteScript("document.querySelector('#add-user-dialog').show()")
 }
 
 type AddNewUserRequest struct {

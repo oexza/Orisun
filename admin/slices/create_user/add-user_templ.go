@@ -42,7 +42,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" data-on-load=\"document.querySelector(&#39;#add-user-dialog&#39;).show()\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" required clearable data-bind-name><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select label=\"Role\" clearable help-text=\"Select role\" data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" required clearable data-bind-name><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select label=\"Role\" clearable help-text=\"Select role\" data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -54,7 +54,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 31, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 30, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -67,7 +67,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 31, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 30, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
