@@ -9,7 +9,6 @@ package eventstore
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -266,7 +265,7 @@ type EventToSave struct {
 	EventId       string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
 	EventType     string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
 	Data          string                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	Metadata      string                 `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"` // repeated Tag tags = 5;
+	Metadata      string                 `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -330,12 +329,11 @@ func (x *EventToSave) GetMetadata() string {
 }
 
 type Event struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	EventId   string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
-	EventType string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
-	Data      string                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	Metadata  string                 `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// repeated Tag tags = 5;
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventId       string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	EventType     string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Data          string                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	Metadata      string                 `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Position      *Position              `protobuf:"bytes,6,opt,name=position,proto3" json:"position,omitempty"`
 	DateCreated   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=date_created,json=dateCreated,proto3" json:"date_created,omitempty"`
 	StreamId      string                 `protobuf:"bytes,8,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
@@ -535,11 +533,10 @@ func (x *SaveStreamQuery) GetSubsetQuery() *Query {
 }
 
 type SaveEventsRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// IndexLockCondition consistency_condition = 1;
-	Boundary      string           `protobuf:"bytes,2,opt,name=boundary,proto3" json:"boundary,omitempty"`
-	Stream        *SaveStreamQuery `protobuf:"bytes,3,opt,name=stream,proto3" json:"stream,omitempty"`
-	Events        []*EventToSave   `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Boundary      string                 `protobuf:"bytes,2,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	Stream        *SaveStreamQuery       `protobuf:"bytes,3,opt,name=stream,proto3" json:"stream,omitempty"`
+	Events        []*EventToSave         `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -848,7 +845,7 @@ var File_eventstore_proto protoreflect.FileDescriptor
 const file_eventstore_proto_rawDesc = "" +
 	"\n" +
 	"\x10eventstore.proto\x12\n" +
-	"eventstore\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"^\n" +
+	"eventstore\x1a\x1fgoogle/protobuf/timestamp.proto\"^\n" +
 	"\bPosition\x12'\n" +
 	"\x0fcommit_position\x18\x01 \x01(\x04R\x0ecommitPosition\x12)\n" +
 	"\x10prepare_position\x18\x02 \x01(\x04R\x0fpreparePosition\"-\n" +

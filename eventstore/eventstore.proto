@@ -6,7 +6,6 @@ option go_package = "orisun/eventstore";
 option java_package = "com.orisun.eventstore";
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/empty.proto";
 
 message Position {
   uint64 commit_position = 1;
@@ -31,7 +30,6 @@ message EventToSave {
   string event_type = 2;
   string data = 3;
   string metadata = 4;
-  // repeated Tag tags = 5;
 }
 
 message Event {
@@ -39,7 +37,6 @@ message Event {
   string event_type = 2;
   string data = 3;
   string metadata = 4;
-  // repeated Tag tags = 5;
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
   string stream_id = 8;
@@ -55,11 +52,6 @@ enum Direction {
   DESC = 1;
 }
 
-// message IndexLockCondition {
-//   Position consistency_marker = 1;
-//   Query query = 2;
-// }
-
 message SaveStreamQuery{
   string name = 1;
   int64 expected_version = 2;
@@ -67,7 +59,6 @@ message SaveStreamQuery{
 }
 
 message SaveEventsRequest {
-  // IndexLockCondition consistency_condition = 1;
   string boundary = 2;
   SaveStreamQuery stream = 3;
   repeated EventToSave events = 4;

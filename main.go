@@ -23,7 +23,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-
 	logger "log"
 	pb "orisun/eventstore"
 	"runtime/debug"
@@ -47,6 +46,98 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
+// ensureJetStreamStreamIsProperlySetup ensures that a JetStream stream with the given name exists.
+// If the stream doesn't exist, it creates a new one with default configuration.
+func ensureJetStreamStreamIsProperlySetup(ctx context.Context, js jetstream.JetStream, streamName string, logger l.Logger) (jetstream.Stream, error) {
+	natsStream, err := js.Stream(ctx, streamName)
+
+	if err != nil && err.Error() != jetstream.ErrStreamNotFound.Error() {
+		return nil, fmt.Errorf("failed to subscribe: %v", err)
+	}
+
+	if natsStream == nil {
+		natsStream, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+			Name:              streamName,
+			Subjects:          []string{streamName + ".>"},
+			Storage:           jetstream.MemoryStorage,
+			MaxConsumers:      -1, // Allow unlimited consumers
+			MaxAge:            24 * time.Second,
+			MaxMsgsPerSubject: 10,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to add stream: %v", err)
+		}
+		logger.Debugf("stream info: %v", natsStream)
+	}
+
+	return natsStream, nil
+}
+
+// setupJetStreamConsumer sets up a JetStream consumer for the given stream and handles message consumption.
+// It creates or updates the consumer, sets up message handling with retry logic, and cleans up resources when done.
+func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamName string, consumerName string, subject string, handler *globalCommon.MessageHandler[common.PublishRequest], logger l.Logger) error {
+	jetStreamStream, err := ensureJetStreamStreamIsProperlySetup(ctx, js, streamName, logger)
+	if err != nil {
+		return err
+	}
+
+	consumer, err := jetStreamStream.CreateOrUpdateConsumer(
+		ctx,
+		jetstream.ConsumerConfig{
+			Name:          consumerName,
+			DeliverPolicy: jetstream.DeliverNewPolicy,
+			AckPolicy:     jetstream.AckNonePolicy,
+			MaxAckPending: 100,
+		},
+	)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
+	}
+
+	consumption, err := consumer.Consume(func(natsNsg jetstream.Msg) {
+		// Try to send the message to the handler
+		for {
+			logger.Infof("Consuming message: %v", string(natsNsg.Data()))
+			if ctx.Err() != nil {
+				return
+			}
+			message := common.PublishRequest{}
+			json.Unmarshal(natsNsg.Data(), &message)
+			logger.Infof("message: %v", message)
+			err = handler.Send(&message)
+
+			if err == nil {
+				// Message sent successfully, break the retry loop
+				natsNsg.Ack()
+				break
+			}
+
+			if ctx.Err() != nil {
+				// Context is done, exit handler
+				logger.Infof("Context done, stopping message handling: %v", ctx.Err())
+				return
+			}
+
+			// Log the error and retry
+			logger.Errorf("Error handling message: %v. Retrying...", err)
+			// Add a short delay before retrying
+			time.Sleep(time.Millisecond * 100)
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+	go func() {
+		<-ctx.Done()
+		logger.Infof("Context done, stopping message consumption: %v", ctx.Err())
+		consumption.Stop()
+		js.DeleteConsumer(ctx, streamName, consumerName)
+	}()
+
+	return nil
+}
+
 func main() {
 	defer logger.Println("Server shutting down")
 
@@ -55,7 +146,7 @@ func main() {
 
 	// Initialize logger
 	AppLogger := initializeLogger(config)
-
+	AppLogger.Debugf("config: %v", config)
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -81,17 +172,30 @@ func main() {
 		AppLogger,
 	)
 
-	// Start polling events
+	// Start polling events from the event store and publish them to NATS jetstream
 	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
 
 	// Start projectors
-	var pubSubFunction = func(ctx context.Context, req *common.PublishRequest) error {
+	pubsubStreamName := "ORISUN-ADMIN"
+	var jetStreamPublishFunction = func(ctx context.Context, req *common.PublishRequest) error {
 		AppLogger.Debugf("Publishing to jetstream: %v", req)
-		res, err := js.Publish(ctx, req.Subject, req.Data)
+
+		_, err := ensureJetStreamStreamIsProperlySetup(ctx, js, pubsubStreamName, AppLogger)
+		if err != nil {
+			return err
+		}
+
+		data, err := json.Marshal(req)
+		if err != nil {
+			return err
+		}
+
+		res, err := js.Publish(ctx, pubsubStreamName+"."+req.Subject, data)
 		if err != nil {
 			AppLogger.Errorf("Failed to publish to pubsub: %v", err)
 			return err
 		}
+
 		AppLogger.Debugf("Published to jetstream: %v", res)
 		return nil
 	}
@@ -105,6 +209,7 @@ func main() {
 			Count: count,
 		}, nil
 	}
+
 	startUserCountProjector(
 		ctx,
 		config.Admin.Boundary,
@@ -112,10 +217,11 @@ func main() {
 		adminDB.UpdateProjectorPosition,
 		eventStore.SubscribeToEvents,
 		getUserCount,
-		pubSubFunction,
+		jetStreamPublishFunction,
 		adminDB.SaveUsersCount,
 		AppLogger,
 	)
+
 	startUserProjector(
 		ctx,
 		config.Admin.Boundary,
@@ -184,89 +290,17 @@ func main() {
 			if err != nil && count != (user_count.UserCountReadModel{}) {
 				messageHandler.Send(&count)
 			}
-			AppLogger.Infof("SubscribeToPubSubGeneric called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
+			AppLogger.Infof("Subscribe To user count called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
 
-			natsStream, err := js.Stream(ctx, user_count.UserCountPubSubscription)
-
-			if err != nil && err.Error() != jetstream.ErrStreamNotFound.Error() {
-				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-			}
-
-			if natsStream == nil {
-				natsStream, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-					Name:              user_count.UserCountPubSubscription,
-					Subjects:          []string{user_count.UserCountPubSubscription + ".*"},
-					Storage:           jetstream.MemoryStorage,
-					MaxConsumers:      -1, // Allow unlimited consumers
-					MaxAge:            24 * time.Second,
-					MaxMsgsPerSubject: 10,
-				})
-				if err != nil {
-					return status.Errorf(codes.Internal, "failed to add stream: %v", err)
-				}
-				AppLogger.Debugf("stream info: %v", natsStream)
-			}
-
-			sub, err := natsStream.CreateOrUpdateConsumer(
-				ctx,
-				jetstream.ConsumerConfig{
-					Name:          consumerName,
-					DeliverPolicy: jetstream.DeliverNewPolicy,
-					AckPolicy:     jetstream.AckNonePolicy,
-					MaxAckPending: 100,
-				},
-			)
+			err = setupJetStreamConsumer(ctx, js, pubsubStreamName, consumerName, user_count.UserCountPubSubscription, handler, AppLogger)
 			if err != nil {
-				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
+				AppLogger.Errorf("failed to subscribe: %v", err)
+				return fmt.Errorf("failed to subscribe: %v", err)
 			}
-			defer js.DeleteConsumer(ctx, consumerName, user_count.UserCountPubSubscription)
+			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
 
-			_, err = sub.Consume(func(natsNsg jetstream.Msg) {
-				// Add panic recovery to prevent system crashes
-				defer func() {
-					if r := recover(); r != nil {
-						AppLogger.Errorf("Recovered from panic in message handler: %v", r)
-						// Try to acknowledge the message to prevent redelivery
-						if ackErr := natsNsg.Ack(); ackErr != nil {
-							AppLogger.Errorf("Failed to acknowledge message after panic: %v", ackErr)
-						}
-					}
-				}()
-
-				// Try to send the message to the handler
-				for {
-					if ctx.Err() != nil {
-						return
-					}
-					message := common.PublishRequest{}
-					json.Unmarshal(natsNsg.Data(), &message)
-					err := handler.Send(&message)
-
-					if err == nil {
-						// Message sent successfully, break the retry loop
-						natsNsg.Ack()
-						break
-					}
-
-					if ctx.Err() != nil {
-						// Context is done, exit handler
-						AppLogger.Infof("Context done, stopping message handling: %v", ctx.Err())
-						return
-					}
-
-					// Log the error and retry
-					AppLogger.Errorf("Error handling message: %v. Retrying...", err)
-					// Add a short delay before retrying
-					time.Sleep(time.Millisecond * 100)
-				}
-			})
-
-			if err != nil {
-				return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-			}
-
-			<-ctx.Done()
-			return ctx.Err()
+			// <-ctx.Done()
+			return nil
 		},
 	)
 
@@ -378,7 +412,7 @@ func initializeDatabase(
 	postgesBoundarySchemaMappings := config.Postgres.GetSchemaMapping()
 	for _, schema := range postgesBoundarySchemaMappings {
 		isAdminBoundary := schema.Boundary == config.Admin.Boundary
-		if err := postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
+		if err = postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
 			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
 		logger.Infof("Database migrations for schema %s completed successfully", schema)
@@ -821,7 +855,7 @@ func getBoundaryNames(boundary *[]c.Boundary) *[]string {
 }
 
 func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
-	return func(srv interface{},
+	return func(srv any,
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler) error {

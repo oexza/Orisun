@@ -23,7 +23,7 @@ import (
 type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
-		// indexLockCondition *IndexLockCondition,
+	// indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
 		streamVersion int64,
@@ -271,7 +271,7 @@ func (s *EventStore) SubscribeToEvents(
 			return
 		}
 
-		lastPosition, lastTime, historicalErr = s.sendHistoricalEvents(
+		lastPosition, lastTime, historicalErr = s.sendHistoricalEventsFromDatabaseToNats(
 			ctx,
 			lastPosition,
 			query,
@@ -446,7 +446,7 @@ func isEventPositionNewerThanPosition(newPosition, lastPosition *Position) bool 
 	return compResult == IsGreaterThan
 }
 
-func (s *EventStore) sendHistoricalEvents(
+func (s *EventStore) sendHistoricalEventsFromDatabaseToNats(
 	ctx context.Context,
 	fromPosition *Position,
 	query *Query,

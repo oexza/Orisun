@@ -2,7 +2,7 @@ package user_count
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/goccy/go-json"
 	ev "orisun/admin/events"
 	admin_common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
@@ -128,6 +128,7 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 	switch event.EventType {
 	case ev.EventTypeUserCreated:
 		{
+			p.logger.Infof("Projecting event: %v", event)
 			// Get current user count
 			currentCount, err := p.getUsersCount()
 			if err != nil {
