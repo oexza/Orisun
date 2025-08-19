@@ -2,13 +2,15 @@ package user_count
 
 import (
 	"context"
-	"github.com/goccy/go-json"
 	ev "orisun/admin/events"
 	admin_common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
 	eventstore "orisun/eventstore"
 	l "orisun/logging"
 	"time"
+
+	"github.com/goccy/go-json"
+	"github.com/google/uuid"
 )
 
 const (
@@ -145,9 +147,13 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 				return err
 			}
 			p.saveUserCount(newCount)
+			userId, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
 			p.publishUserCountToPubSub(ctx, &admin_common.PublishRequest{
-				Id:      "users-count",
-				Subject: "users-count",
+				Id:      userId.String(),
+				Subject: UserCountPubSubscription,
 				Data:    marshaled,
 			})
 		}
@@ -172,8 +178,12 @@ func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.E
 			}
 
 			p.saveUserCount(newCount)
+			userId, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
 			p.publishUserCountToPubSub(ctx, &admin_common.PublishRequest{
-				Id:      "users-count",
+				Id:      userId.String(),
 				Subject: UserCountPubSubscription,
 				Data:    marshaled,
 			})

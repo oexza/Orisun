@@ -165,7 +165,7 @@ func Dashboard(currentPath string, data DashboardDetails) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><sl-icon name=\"people\" style=\"font-size: 2rem\"></sl-icon></div></a></sl-card> <sl-card><div class=\"flex items-center justify-between\"><div><h3 class=\"text-lg font-medium text-gray-900\">Catchup Subscriptions</h3>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><sl-icon name=\"people\" style=\"font-size: 2rem\"></sl-icon> <sl-icon name=\"people\" style=\"font-size: 2rem\"></sl-icon></div></a></sl-card> <sl-card><div class=\"flex items-center justify-between\"><div><h3 class=\"text-lg font-medium text-gray-900\">Catchup Subscriptions</h3>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -2,14 +2,9 @@ package admin_common
 
 import (
 	"context"
-	"encoding/base64"
-	"fmt"
 	"net/http"
 	eventstore "orisun/eventstore"
 	"sync"
-
-	"github.com/goccy/go-json"
-
 	globalCommon "orisun/common"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -87,26 +82,14 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-func GetCurrentUser(r *http.Request) (string, error) {
-	cookie, err := r.Cookie("auth")
-	if err != nil {
-		return "", err
+func GetCurrentUser(r *http.Request) (*globalCommon.User) {
+	currentUser := r.Context().Value(globalCommon.UserContextKey).(globalCommon.User)
+	if currentUser.Id != "" {
+		return &currentUser
 	}
+	return nil
+}
 
-	// Base64 decode the cookie value
-	decodedBytes, err := base64.StdEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return "", err
-	}
-
-	var user globalCommon.User
-	if err := json.Unmarshal(decodedBytes, &user); err != nil {
-		return "", err
-	}
-
-	if user.Id == "" {
-		return "", fmt.Errorf("user ID is empty")
-	}
-
-	return user.Id, nil
+func ComparePassword(hashedPassword string, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }

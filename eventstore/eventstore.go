@@ -106,8 +106,8 @@ func NewEventStoreServer(
 type EventWithMapTags struct {
 	EventId   string      `json:"event_id"`
 	EventType string      `json:"event_type"`
-	Data      interface{} `json:"data"`
-	Metadata  interface{} `json:"metadata"`
+	Data      any `json:"data"`
+	Metadata  any `json:"metadata"`
 	// Tags      map[string]interface{} `json:"tags"`
 }
 

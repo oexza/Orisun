@@ -119,7 +119,7 @@ $$;
 CREATE OR REPLACE FUNCTION get_matching_events(
     schema TEXT,
     stream_name TEXT DEFAULT NULL,
-    from_stream_version INT DEFAULT NULL,
+    from_stream_version BIGINT DEFAULT NULL,
     criteria JSONB DEFAULT NULL,
     after_position JSONB DEFAULT NULL,
     sort_dir TEXT DEFAULT 'ASC',

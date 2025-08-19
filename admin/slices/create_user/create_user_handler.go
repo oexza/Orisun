@@ -51,8 +51,8 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 		roleStrings[i] = role.String()
 	}
 
-	sse.PatchElementTempl(AddUser(r.URL.Path, roleStrings), datastar.WithModeOuter())
-	sse.ExecuteScript("document.querySelector('#add-user-dialog').show()")
+	sse.PatchElementTempl(AddUser(r.URL.Path, roleStrings), datastar.WithModeReplace())
+	sse.ExecuteScript("setTimeout(() => { document.querySelector('#add-user-dialog').show() }, 1)")
 }
 
 type AddNewUserRequest struct {
@@ -104,15 +104,14 @@ func (r *AddNewUserRequest) validate() error {
 }
 
 func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
-	store := &AddNewUserRequest{}
-	s.logger.Infof("Handling create user request %v", *store)
+	addUserRequest := &AddNewUserRequest{}
 	response := struct {
 		Message string `json:"message"`
 		Success bool   `json:"success"`
 		Failed  bool   `json:"failed"`
 	}{}
 
-	if err := datastar.ReadSignals(r, store); err != nil {
+	if err := datastar.ReadSignals(r, addUserRequest); err != nil {
 		sse := datastar.NewSSE(w, r)
 		response.Failed = true
 		response.Message = err.Error()
@@ -120,30 +119,39 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	err := store.validate()
+	err := addUserRequest.validate()
 
 	if err != nil {
 		sse := datastar.NewSSE(w, r)
 		response.Failed = true
 		response.Message = err.Error()
 		sse.MarshalAndPatchSignals(response)
+		sse.PatchElementTempl(
+			t.Alert(err.Error(), t.AlertDanger),
+			datastar.WithSelector("body"),
+			datastar.WithModePrepend(),
+		)
+		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
 
-	s.logger.Debugf("Creating user %v", store)
+	s.logger.Debugf("Creating user %v", addUserRequest)
 
 	sse := datastar.NewSSE(w, r)
 
+	currentUser := admin_common.GetCurrentUser(r)
+
 	evt, err := CreateUser(
 		r.Context(),
-		store.Name,
-		store.Username,
-		store.Password,
-		[]globalCommon.Role{globalCommon.Role(strings.ToUpper(store.Role))},
+		addUserRequest.Name,
+		addUserRequest.Username,
+		addUserRequest.Password,
+		[]globalCommon.Role{globalCommon.Role(strings.ToUpper(addUserRequest.Role))},
 		s.boundary,
 		s.saveEvents,
 		s.getEvents,
 		s.logger,
+		&currentUser.Id,
 	)
 	if err != nil {
 		response.Failed = true
@@ -163,20 +171,13 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	response.Message = "User created successfully"
 	sse.MarshalAndPatchSignals(response)
 
-	currentUser, err := admin_common.GetCurrentUser(r)
-	if err != nil {
-		response.Failed = true
-		response.Message = err.Error()
-		sse.MarshalAndPatchSignals(response)
-		return
-	}
 	sse.PatchElementTempl(
 		t.UserRow(&t.User{
 			Name:     evt.Name,
 			Id:       evt.UserId,
 			Username: evt.Username,
-			Roles:    []string{store.Role},
-		}, currentUser),
+			Roles:    []string{addUserRequest.Role},
+		}, currentUser.Id),
 		datastar.WithModeAppend(),
 		datastar.WithSelectorID("users-table-body"),
 		datastar.WithModePrepend(),
@@ -193,13 +194,14 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 func CreateUser(
 	ctx context.Context,
 	name, username, password string,
-	roles []globalCommon.Role, boundary string,
+	roles []globalCommon.Role,
+	boundary string,
 	saveEvents admin_common.SaveEventsType,
 	getEvents admin_common.GetEventsType,
 	logger l.Logger,
+	currentUserId *string,
 ) (*ev.UserCreated, error) {
 	username = strings.TrimSpace(username)
-	events := []*ev.Event{}
 
 	userCreatedEvent, err := getEvents(
 		ctx,
@@ -228,6 +230,7 @@ func CreateUser(
 
 	logger.Infof("userCreatedEvent: %v", userCreatedEvent)
 
+	events := []*ev.Event{}
 	for _, event := range userCreatedEvent.Events {
 		var userCreatedEvent = ev.UserCreated{}
 		err := json.Unmarshal([]byte(event.Data), &userCreatedEvent)
@@ -303,15 +306,15 @@ func CreateUser(
 		if err != nil {
 			return nil, err
 		}
+		currentUserIdVerified := "SYSTEM"
+		if currentUserId != nil {
+			currentUserIdVerified = *currentUserId
+		}
 		eventsToSave = append(eventsToSave, &pb.EventToSave{
 			EventId:   eventId.String(),
 			EventType: event.EventType,
 			Data:      string(eventData),
-			// Tags: []*pb.Tag{
-			// 	{Key: ev.UsernameTag, Value: username},
-			// 	{Key: ev.RegistrationTag, Value: username},
-			// },
-			Metadata: "{\"schema\":\"" + boundary + "\",\"createdBy\":\"" + username + "\"}",
+			Metadata:  "{\"schema\":\"" + boundary + "\",\"createdBy\":\"" + currentUserIdVerified + "\"}",
 		})
 	}
 

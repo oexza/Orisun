@@ -30,15 +30,33 @@ templ Admin(currentPath string, title ...string) {
 					</div>
 				</nav>
 				<div class="absolute bottom-0 w-64 p-4 border-t bg-white">
-					<sl-button variant="text" size="small" class="w-full" href="/logout">
-						<sl-icon slot="prefix" name="box-arrow-left"></sl-icon>
-						Logout
-					</sl-button>
+					<sl-dropdown>
+						<sl-button slot="trigger" variant="text" size="small" class="w-full" caret>
+							<sl-icon slot="prefix" name="person-circle"></sl-icon>
+							Profile
+						</sl-button>
+						<sl-menu>
+							<sl-menu-item>
+								<a href="/change-password" onclick="event.preventDefault();" data-on-click="@get('/change-password')">
+									<sl-icon slot="prefix" name="key"></sl-icon>
+									Change Password
+								</a>
+							</sl-menu-item>
+							<sl-divider></sl-divider>
+							<sl-menu-item>
+								<a href="/logout">
+									<sl-icon slot="prefix" name="box-arrow-left"></sl-icon>
+									Logout
+								</a>
+							</sl-menu-item>
+						</sl-menu>
+					</sl-dropdown>
 				</div>
 			</aside>
 			<!-- Main Content -->
 			<main class="flex-1 overflow-auto">
 				{ children... }
+				<sl-dialog id="change-password-dialog"></sl-dialog>
 			</main>
 		</div>
 	}

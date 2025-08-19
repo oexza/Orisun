@@ -42,7 +42,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" required clearable data-bind-name><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select label=\"Role\" clearable help-text=\"Select role\" data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" pill required clearable data-bind-name><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" pill required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" pill label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select pill label=\"Role\" clearable data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -78,7 +78,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</sl-select></div><div slot=\"footer\" class=\"flex justify-end gap-2\"><sl-button data-on-click=\"document.querySelector(&#39;#add-user-dialog&#39;).hide()\"><sl-icon slot=\"prefix\" name=\"x-circle\"></sl-icon> Cancel</sl-button> <sl-button variant=\"primary\" type=\"submit\"><sl-icon slot=\"prefix\" name=\"check2-circle\"></sl-icon> Create User</sl-button></div></form></sl-dialog>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</sl-select></div><div slot=\"footer\" class=\"flex justify-end gap-2 mt-5\"><sl-button pill data-on-click=\"document.querySelector(&#39;#add-user-dialog&#39;).hide()\"><sl-icon slot=\"prefix\" name=\"x-circle\"></sl-icon> Cancel</sl-button> <sl-button pill variant=\"primary\" type=\"submit\"><sl-icon slot=\"prefix\" name=\"check2-circle\"></sl-icon> Create User</sl-button></div></form></sl-dialog>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -37,19 +37,10 @@ func NewDeleteUserHandler(logger l.Logger, saveEvents admin_common.SaveEventsTyp
 
 func (dUH *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Request) {
 	userId := chi.URLParam(r, "userId")
-	currentUser, err := admin_common.GetCurrentUser(r)
+	currentUser := admin_common.GetCurrentUser(r)
 	sse := datastar.NewSSE(w, r)
 
-	if err != nil {
-		sse.RemoveElement("#alert")
-		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-
-	if err := dUH.deleteUser(r.Context(), userId, currentUser); err != nil {
+	if err := dUH.deleteUser(r.Context(), userId, currentUser.Id); err != nil {
 		sse.RemoveElement("#alert")
 		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithModePrepend(),

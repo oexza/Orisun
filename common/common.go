@@ -2,7 +2,8 @@ package common
 
 import "context"
 
-const UserContextKey string = "user"
+type UserContextKeyType string
+const UserContextKey UserContextKeyType = "user"
 const DatastarTabCookieKey = "tab"
 
 type Role string

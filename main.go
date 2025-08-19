@@ -16,6 +16,10 @@ import (
 	"os"
 	"time"
 
+	logger "log"
+	pb "orisun/eventstore"
+	"runtime/debug"
+
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc"
@@ -23,15 +27,13 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-	logger "log"
-	pb "orisun/eventstore"
-	"runtime/debug"
 
 	c "orisun/config"
 	l "orisun/logging"
 	postgres "orisun/postgres"
 
 	admin "orisun/admin"
+	changepassword "orisun/admin/slices/change_password"
 	common "orisun/admin/slices/common"
 	"orisun/admin/slices/create_user"
 	"orisun/admin/slices/dashboard"
@@ -314,7 +316,7 @@ func main() {
 	loginHandler := login.NewLoginHandler(
 		AppLogger,
 		config.Admin.Boundary,
-		authenticator,
+		eventStore.GetEvents,
 	)
 
 	deleteUserHandler := delete_user.NewDeleteUserHandler(
@@ -330,6 +332,13 @@ func main() {
 		adminDB.ListAdminUsers,
 	)
 
+	changePasswordHandler := changepassword.NewChangePasswordHandler(
+		AppLogger,
+		config.Admin.Boundary,
+		eventStore.SaveEvents,
+		eventStore.GetEvents,
+	)
+
 	startAdminServer(
 		config,
 		createUserCommandHandler,
@@ -337,7 +346,7 @@ func main() {
 		loginHandler,
 		deleteUserHandler,
 		usersPageHandler,
-		authenticator,
+		changePasswordHandler,
 		AppLogger,
 	)
 
@@ -375,6 +384,7 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 		eventstore.SaveEvents,
 		eventstore.GetEvents,
 		logger,
+		nil,
 	); err != nil && !errors.As(err, &userExistsError) {
 		return err
 	}
@@ -619,7 +629,7 @@ func startAdminServer(
 	loginHandler *login.LoginHandler,
 	deleteUserHandler *delete_user.DeleteUserHandler,
 	usersHandler *users_page.UsersPageHandler,
-	authenticator *admin.Authenticator,
+	changePasswordHandler *changepassword.ChangePasswordHandler,
 	logger l.Logger) {
 	go func() {
 		adminServer, err := admin.NewAdminServer(
@@ -629,6 +639,7 @@ func startAdminServer(
 			loginHandler,
 			deleteUserHandler,
 			usersHandler,
+			changePasswordHandler,
 		)
 		if err != nil {
 			logger.Fatalf("Could not start admin server %v", err)

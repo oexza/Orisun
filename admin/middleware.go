@@ -14,7 +14,7 @@ import (
 )
 
 func UnaryAuthInterceptor(auth *Authenticator) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		user, err := authenticate(ctx, auth)
 		if err != nil {
 			return nil, err
@@ -26,7 +26,7 @@ func UnaryAuthInterceptor(auth *Authenticator) grpc.UnaryServerInterceptor {
 }
 
 func StreamAuthInterceptor(auth *Authenticator) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		user, err := authenticate(ss.Context(), auth)
 		if err != nil {
 			return err

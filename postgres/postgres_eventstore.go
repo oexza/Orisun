@@ -29,7 +29,7 @@ SELECT * FROM insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM get_matching_events($1::text, $2, $3::INT, $4::jsonb, $5::jsonb, $6, $7::INT)
+SELECT * FROM get_matching_events($1::text, $2, $3::BIGINT, $4::jsonb, $5::jsonb, $6, $7::INT)
 `
 
 const setSearchPath = `
@@ -149,12 +149,6 @@ func (s *PostgresSaveEvents) Save(
 	// 	return "", 0, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
-	// _, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	// if err != nil {
-	// 	return "", 0, status.Errorf(codes.Internal, "failed to set search path: %v", err)
-	// }
-
-	// s.logger.Debugf("Postgres: Consistency Condition: %v", *consistencyConditionJSONString)
 	row := tx.QueryRowContext(
 		ctx,
 		insertEventsWithConsistency,
@@ -228,7 +222,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 				return nil, status.Errorf(codes.Internal, "failed to marshal params: %v", err)
 			}
 			paramsJSON = &paramsBytes
-			// s.logger.Debugf("paramsJson: %v", jsonStr)
 		}
 	}
 
@@ -282,14 +275,8 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		return nil, status.Errorf(codes.Internal, "failed to get column names: %v", err)
 	}
 
-	// Create a reusable map for column mapping
-	// columnMap := make(map[string]int, len(columns))
-	// for i, col := range columns {
-	// 	columnMap[col] = i
-	// }
-
 	// Create a slice of pointers to scan into
-	scanArgs := make([]interface{}, len(columns))
+	scanArgs := make([]any, len(columns))
 
 	// Reuse these variables for each row to reduce allocations
 	var event eventstore.Event
@@ -298,12 +285,11 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	var dateCreated time.Time
 
 	// Create a map of pointers to hold our row data - only once
-	rowData := map[string]interface{}{
-		"event_id":   &event.EventId,
-		"event_type": &event.EventType,
-		"data":       &event.Data,
-		"metadata":   &event.Metadata,
-		// "tags":           &tagsBytes,
+	rowData := map[string]any{
+		"event_id":       &event.EventId,
+		"event_type":     &event.EventType,
+		"data":           &event.Data,
+		"metadata":       &event.Metadata,
 		"transaction_id": &transactionID,
 		"global_id":      &globalID,
 		"date_created":   &dateCreated,
@@ -311,7 +297,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		"stream_version": &event.Version,
 	}
 
-	// Set up scanArgs once before the loop
 	for i, col := range columns {
 		if ptr, ok := rowData[col]; ok {
 			scanArgs[i] = ptr
@@ -319,9 +304,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			return nil, status.Errorf(codes.Internal, "unexpected column: %s", col)
 		}
 	}
-
-	// Reuse a map for tags to reduce allocations
-	// var tagsMap map[string]string
 
 	for rows.Next() {
 		// Reset event for reuse
@@ -331,17 +313,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
-
-		// Process tags - pre-allocate tags slice
-		// tagsMap = make(map[string]string)
-		// if err := json.Unmarshal(tagsBytes, &tagsMap); err != nil {
-		// 	return nil, status.Errorf(codes.Internal, "failed to unmarshal tags: %v", err)
-		// }
-
-		// event.Tags = make([]*eventstore.Tag, 0, len(tagsMap))
-		// for key, value := range tagsMap {
-		// 	event.Tags = append(event.Tags, &eventstore.Tag{Key: key, Value: value})
-		// }
 
 		// Set the Position
 		event.Position = &eventstore.Position{
@@ -353,7 +324,16 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		event.DateCreated = timestamppb.New(dateCreated)
 
 		// Create a new event pointer for each row
-		eventCopy := event
+		eventCopy := eventstore.Event{
+			EventId:     event.EventId,
+			EventType:   event.EventType,
+			Data:        event.Data,
+			Metadata:    event.Metadata,
+			StreamId:    event.StreamId,
+			Version:     event.Version,
+			Position:    event.Position,
+			DateCreated: event.DateCreated,
+		}
 		events = append(events, &eventCopy)
 	}
 
@@ -377,25 +357,10 @@ func getStreamSectionAsMap(streamName string, expectedVersion int64, consistency
 	return lastRetrievedPositions
 }
 
-// func getConsistencyConditionAsMap(consistencyCondition *eventstore.IndexLockCondition) map[string]interface{} {
-// 	lastRetrievedPositions := make(map[string]uint64)
-// 	if consistencyCondition.ConsistencyMarker != nil {
-// 		lastRetrievedPositions["transaction_id"] = consistencyCondition.ConsistencyMarker.CommitPosition
-// 		lastRetrievedPositions["global_id"] = consistencyCondition.ConsistencyMarker.PreparePosition
-// 	}
-
-// 	criteriaList := getCriteriaAsList(consistencyCondition.Query)
-
-// 	return map[string]interface{}{
-// 		"last_retrieved_position": lastRetrievedPositions,
-// 		"criteria":                criteriaList,
-// 	}
-// }
-
-func getCriteriaAsList(query *eventstore.Query) []map[string]interface{} {
-	result := make([]map[string]interface{}, 0, len(query.Criteria))
+func getCriteriaAsList(query *eventstore.Query) []map[string]any {
+	result := make([]map[string]any, 0, len(query.Criteria))
 	for _, criterion := range query.Criteria {
-		anded := make(map[string]interface{}, len(criterion.Tags))
+		anded := make(map[string]any, len(criterion.Tags))
 		for _, tag := range criterion.Tags {
 			anded[tag.Key] = tag.Value
 		}

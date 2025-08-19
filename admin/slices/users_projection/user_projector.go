@@ -149,20 +149,14 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		if err != nil {
 			return err
 		}
+	
+	case ev.EventTypeUserPasswordChanged:
+		var userEvent ev.UserPasswordChanged
+		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
+			return err
+		}
 
-		// case EventTypeRolesChanged:
-		// 	_, err = tx.Exec(
-		// 		fmt.Sprintf("UPDATE %s.users SET roles = $1 WHERE username = $2",
-		// 			p.schema),
-		// 		userEvent.Roles, userEvent.Username,
-		// 	)
-
-		// case EventTypePasswordChanged:
-		// 	_, err = tx.Exec(
-		// 		fmt.Sprintf("UPDATE %s.users SET password_hash = $1 WHERE username = $2",
-		// 			p.schema),
-		// 		userEvent.PasswordHash, userEvent.Username,
-		// 	)
+		
 	}
 	return nil
 }

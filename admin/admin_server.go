@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"orisun/admin/assets"
+	changepassword "orisun/admin/slices/change_password"
 	create_user "orisun/admin/slices/create_user"
 	dashboard "orisun/admin/slices/dashboard"
 	"orisun/admin/slices/delete_user"
@@ -28,6 +29,7 @@ type AdminServer struct {
 	loginHandler      *login.LoginHandler
 	deleteUserHandler *delete_user.DeleteUserHandler
 	usersHandler      *users_page.UsersPageHandler
+	changePasswordHandler *changepassword.ChangePasswordHandler
 }
 
 func NewAdminServer(
@@ -36,7 +38,9 @@ func NewAdminServer(
 	dashboardHandler *dashboard.DashboardHandler,
 	loginHandler *login.LoginHandler,
 	deleteUserHandler *delete_user.DeleteUserHandler,
-	usersHandler *users_page.UsersPageHandler) (*AdminServer, error) {
+	usersHandler *users_page.UsersPageHandler,
+	changePasswordHandler *changepassword.ChangePasswordHandler,
+	) (*AdminServer, error) {
 
 	router := chi.NewRouter()
 
@@ -48,6 +52,7 @@ func NewAdminServer(
 		loginHandler:      loginHandler,
 		deleteUserHandler: deleteUserHandler,
 		usersHandler:      usersHandler,
+		changePasswordHandler: changePasswordHandler,
 	}
 
 	// Register routes
@@ -74,6 +79,8 @@ func NewAdminServer(
 			protected.Post("/users", server.createUserHandler.HandleCreateUser)
 			protected.Get("/users/add", server.createUserHandler.HandleCreateUserPage)
 			protected.Delete("/users/{userId}/delete", server.deleteUserHandler.HandleUserDelete)
+			protected.Get("/change-password", server.changePasswordHandler.HandleChangePasswordPage)
+			protected.Post("/change-password", server.changePasswordHandler.HandleChangePassword)
 		})
 	})
 

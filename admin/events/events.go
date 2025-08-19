@@ -13,7 +13,7 @@ const (
 	EventTypeUserCreated     = "$UserCreated"
 	EventTypeUserDeleted     = "$UserDeleted"
 	EventTypeRolesChanged    = "$RolesChanged"
-	EventTypePasswordChanged = "$PasswordChanged"
+	EventTypeUserPasswordChanged = "$UserPasswordChanged"
 )
 
 type UserCreated struct {
@@ -28,12 +28,7 @@ type UserDeleted struct {
 	UserId string `json:"user_id"`
 }
 
-type UserRolesChanged struct {
-	UserId string   `json:"username"`
-	Roles  []string `json:"roles,omitempty"`
-}
-
 type UserPasswordChanged struct {
-	UserId       string `json:"username"`
+	UserId       string `json:"user_id"`
 	PasswordHash string `json:"password_hash,omitempty"`
 }

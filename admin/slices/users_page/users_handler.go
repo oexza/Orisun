@@ -48,12 +48,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	currentUser, err := common.GetCurrentUser(r)
-	if err != nil {
-		s.logger.Debugf("Failed to get current user: %v", err)
-		http.Error(w, "Failed to get current user", http.StatusInternalServerError)
-		return
-	}
+	currentUser := common.GetCurrentUser(r)
 
-	templates.Users(templateUsers, currentUser, r.URL.Path).Render(r.Context(), w)
+	templates.Users(templateUsers, r.URL.Path, currentUser.Id).Render(r.Context(), w)
 }

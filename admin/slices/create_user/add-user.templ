@@ -9,19 +9,19 @@ templ AddUser(currentPath string, roles []string) {
 	>
 		<form method="post" action="/users" data-on-submit="@post('/users')">
 			<div class="space-y-4">
-				<sl-input label="Name" required clearable data-bind-name>
+				<sl-input label="Name" pill required clearable data-bind-name>
 					<sl-icon slot="prefix" name="person"></sl-icon>
 				</sl-input>
-				<sl-input label="Username" required clearable data-bind-username>
+				<sl-input label="Username" pill required clearable data-bind-username>
 					<sl-icon slot="prefix" name="person"></sl-icon>
 				</sl-input>
-				<sl-input type="password" label="Password" required password-toggle data-bind-password>
+				<sl-input type="password" pill label="Password" required password-toggle data-bind-password>
 					<sl-icon slot="prefix" name="key"></sl-icon>
 				</sl-input>
 				<sl-select
+					pill
 					label="Role"
 					clearable
-					help-text="Select role"
 					data-on-sl-input__case.kebab="$role = evt.target.value"
 				>
 					<sl-icon slot="prefix" name="shield"></sl-icon>
@@ -31,12 +31,12 @@ templ AddUser(currentPath string, roles []string) {
 					}
 				</sl-select>
 			</div>
-			<div slot="footer" class="flex justify-end gap-2">
-				<sl-button data-on-click="document.querySelector('#add-user-dialog').hide()">
+			<div slot="footer" class="flex justify-end gap-2 mt-5">
+				<sl-button pill data-on-click="document.querySelector('#add-user-dialog').hide()">
 					<sl-icon slot="prefix" name="x-circle"></sl-icon>
 					Cancel
 				</sl-button>
-				<sl-button variant="primary" type="submit">
+				<sl-button pill variant="primary" type="submit">
 					<sl-icon slot="prefix" name="check2-circle"></sl-icon>
 					Create User
 				</sl-button>

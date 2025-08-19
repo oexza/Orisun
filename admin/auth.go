@@ -2,9 +2,8 @@ package admin
 
 import (
 	"fmt"
+	admin_common "orisun/admin/slices/common"
 	globalCommon "orisun/common"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Authenticator struct {
@@ -24,11 +23,7 @@ func (a *Authenticator) ValidateCredentials(username string, password string) (g
 		return globalCommon.User{}, fmt.Errorf("user not found")
 	}
 
-	if err != nil {
-		return globalCommon.User{}, fmt.Errorf("failed to hash password")
-	}
-
-	if err = ComparePassword(user.HashedPassword, password); err != nil {
+	if err = admin_common.ComparePassword(user.HashedPassword, password); err != nil {
 		return globalCommon.User{}, fmt.Errorf("invalid credentials")
 	}
 	return user, nil
@@ -41,8 +36,4 @@ func (a *Authenticator) HasRole(roles []globalCommon.Role, requiredRole globalCo
 		}
 	}
 	return false
-}
-
-func ComparePassword(hashedPassword string, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
