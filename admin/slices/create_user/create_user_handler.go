@@ -177,7 +177,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 			Id:       evt.UserId,
 			Username: evt.Username,
 			Roles:    []string{addUserRequest.Role},
-		}, currentUser.Id),
+		}, currentUser.Id, 0),
 		datastar.WithModeAppend(),
 		datastar.WithSelectorID("users-table-body"),
 		datastar.WithModePrepend(),
