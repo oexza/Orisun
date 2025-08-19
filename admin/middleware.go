@@ -3,7 +3,9 @@ package admin
 import (
 	"context"
 	"encoding/base64"
+	"log"
 	"strings"
+	"time"
 
 	globalCommon "orisun/common"
 
@@ -12,6 +14,17 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+//middleware to measure performance of grpc requests
+func UnaryPerformanceInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+		elapsed := time.Since(start)
+		log.Printf("Unary request %s took %v", info.FullMethod, elapsed)
+		return resp, err
+	}
+}
 
 func UnaryAuthInterceptor(auth *Authenticator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

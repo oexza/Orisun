@@ -660,13 +660,13 @@ func startAdminServer(
 func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	authenticator *admin.Authenticator, logger l.Logger) {
 	grpcServer := grpc.NewServer(
+		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
 		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator)),
 		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator)),
 		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
 		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
 	)
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
-
 	if config.Grpc.EnableReflection {
 		logger.Infof("Enabling gRPC server reflection")
 		reflection.Register(grpcServer)
