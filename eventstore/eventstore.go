@@ -23,11 +23,11 @@ import (
 type ImplementerSaveEvents interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
-	// indexLockCondition *IndexLockCondition,
+		// indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
 		streamVersion int64,
-		streamSubSet *Query) (transactionID string, globalID uint64, err error)
+		streamSubSet *Query) (transactionID string, globalID int64, err error)
 }
 
 type ImplementerGetEvents interface {
@@ -104,14 +104,14 @@ func NewEventStoreServer(
 }
 
 type EventWithMapTags struct {
-	EventId   string      `json:"event_id"`
-	EventType string      `json:"event_type"`
-	Data      any `json:"data"`
-	Metadata  any `json:"metadata"`
+	EventId   string `json:"event_id"`
+	EventType string `json:"event_type"`
+	Data      any    `json:"data"`
+	Metadata  any    `json:"metadata"`
 	// Tags      map[string]interface{} `json:"tags"`
 }
 
-func authorizeRequest(ctx context.Context, boundary string, roles []globalCommon.Role) error {
+func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 	// Check if the user has the necessary permissions to perform the query
 	user := ctx.Value(globalCommon.UserContextKey)
 	if user == nil {
@@ -140,7 +140,8 @@ func authorizeRequest(ctx context.Context, boundary string, roles []globalCommon
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	logger.Debugf("SaveEvents called with req: %v", req)
-	err = authorizeRequest(ctx, req.Boundary, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
+	
+	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +180,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	}
 
 	var transactionID string
-	var globalID uint64
+	var globalID int64
 
 	// Execute the query
 	transactionID, globalID, err = s.saveEventsFn.Save(
@@ -218,7 +219,7 @@ func (s *EventStore) SubscribeToEvents(
 	ctx context.Context,
 	boundary string,
 	subscriberName string,
-	position *Position,
+	fromPosition *Position,
 	query *Query,
 	handler globalCommon.MessageHandler[Event],
 ) error {
@@ -232,7 +233,7 @@ func (s *EventStore) SubscribeToEvents(
 	defer unlockFunc()
 
 	// Initialize position tracking
-	lastPosition := position
+	lastPosition := fromPosition
 
 	// Set up NATS subscription for live events
 	subs, err := s.js.Stream(ctx, GetEventsStreamName(boundary))
@@ -291,6 +292,28 @@ func (s *EventStore) SubscribeToEvents(
 		logger.Infof("Historical events processed up to %v", lastTime)
 	}()
 
+	if skipHistorical {
+		events, err := s.GetEvents(ctx, &GetEventsRequest{
+			Query:        query,
+			FromPosition: fromPosition,
+			Count:        1,
+			Direction:    Direction_DESC,
+			Boundary:     boundary,
+		})
+
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to get events: %v", err)
+		}
+
+		if len(events.Events) > 0 {
+			lastPosition = events.Events[0].Position
+			//start from 5 seconds before event time
+			lastTime = events.Events[0].DateCreated.AsTime().Add(-5 * time.Second)
+		} else {
+			return status.Errorf(codes.NotFound, "No event with position %v found", fromPosition)
+		}
+	}
+
 	// Wait for historical processing
 	select {
 	case <-historicalDone:
@@ -306,7 +329,6 @@ func (s *EventStore) SubscribeToEvents(
 		// Name:          subscriberName,
 		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
-		MaxDeliver:    -1,
 		ReplayPolicy:  jetstream.ReplayInstantPolicy,
 		OptStartTime:  &lastTime,
 	})
@@ -353,13 +375,23 @@ func (s *EventStore) SubscribeToEvents(
 					continue
 				}
 
-				isNewer := isEventPositionNewerThanPosition(event.Position, lastPosition)
+				isNewer := isEventPositionNewerThanPosition(event.Position, fromPosition)
 
 				if isNewer && s.eventMatchesQueryCriteria(&event, query) {
-					if err := handler.Send(&event); err != nil {
-						logger.Errorf("Failed to send event: %v", err)
-						msg.Nak() // Negative acknowledgment to retry later
+					// Check context before attempting to send
+					select {
+					case <-msgCtx.Done():
+						// Context is cancelled, don't try to send
+						logger.Info("Context cancelled, not sending event")
+						msg.Ack() // Acknowledge the message since we're shutting down
 						continue
+					default:
+						// Context is still active, proceed with send
+						if err := handler.Send(&event); err != nil {
+							logger.Errorf("Failed to send event: %v", err)
+							msg.Nak() // Negative acknowledgment to retry later
+							continue
+						}
 					}
 
 					lastPosition = event.Position
@@ -400,12 +432,27 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 			default:
 				event, err := messageHandler.Recv()
 				if err != nil {
+					if ctx.Err() != nil {
+						// Context is cancelled, exit gracefully
+						logger.Info("Context cancelled, stopping event processing")
+						return
+					}
 					logger.Errorf("Failed to receive event: %v", err)
 					continue
 				}
-				if err := stream.Send(event); err != nil {
-					logger.Errorf("Failed to send event: %v", err)
-					continue
+				
+				// Check context before sending to stream
+				select {
+				case <-ctx.Done():
+					// Context is cancelled, don't try to send
+					logger.Info("Context cancelled, not sending event to stream")
+					return
+				default:
+					// Context is still active, proceed with send
+					if err := stream.Send(event); err != nil {
+						logger.Errorf("Failed to send event: %v", err)
+						continue
+					}
 				}
 			}
 		}
@@ -544,8 +591,8 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 	return false
 }
 
-func parseInt64(s string) uint64 {
-	var i uint64
+func parseInt64(s string) int64 {
+	var i int64
 	fmt.Sscanf(s, "%d", &i)
 	return i
 }

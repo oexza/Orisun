@@ -102,11 +102,10 @@ func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 func (s *PostgresSaveEvents) Save(
 	ctx context.Context,
 	events []eventstore.EventWithMapTags,
-	// consistencyCondition *eventstore.IndexLockCondition,
 	boundary string,
 	streamName string,
 	expectedVersion int64,
-	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
+	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
 	schema, err := s.Schema(boundary)
@@ -119,16 +118,6 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
 	s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
-
-	// var consistencyConditionJSONString []byte = []byte("{}")
-	// if consistencyCondition != nil {
-	// 	consistencyConditionJSON, err := json.Marshal(getConsistencyConditionAsMap(consistencyCondition))
-	// 	if err != nil {
-	// 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
-	// 	}
-	// 	consistencyConditionJSONString = consistencyConditionJSON
-	// }
-	//  s.logger.Infof("consistencyConditionJSONString: %v", string(consistencyConditionJSONString))
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
@@ -155,7 +144,6 @@ func (s *PostgresSaveEvents) Save(
 		schema,
 		streamSubsetAsBytes,
 		eventsJSON,
-		// consistencyConditionJSONString,
 	)
 
 	if row.Err() != nil {
@@ -167,13 +155,13 @@ func (s *PostgresSaveEvents) Save(
 	err = error(nil)
 
 	var tranID string
-	var globID uint64
+	var globID int64
 	err = row.Scan(&tranID, &globID, &noop)
 	err = tx.Commit()
 
-	// if err != nil {
-	// 	return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
-	// }
+	if err != nil {
+		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
 
 	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
@@ -199,7 +187,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	var fromPositionMarshaled *[]byte = nil
 
 	if req.FromPosition != nil {
-		fromPosition := map[string]uint64{
+		fromPosition := map[string]int64{
 			"transaction_id": req.FromPosition.CommitPosition,
 			"global_id":      req.FromPosition.PreparePosition,
 		}
@@ -230,9 +218,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
-		// if req.Stream.FromVersion != 0 {
 		fromStreamVersion = &req.Stream.FromVersion
-		// }
 	}
 
 	// s.logger.Debugf("params: %v", paramsJSON)
@@ -281,7 +267,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// Reuse these variables for each row to reduce allocations
 	var event eventstore.Event
 	// var tagsBytes []byte
-	var transactionID, globalID uint64
+	var transactionID, globalID int64
 	var dateCreated time.Time
 
 	// Create a map of pointers to hold our row data - only once
@@ -454,6 +440,9 @@ func (s *PostgresAdminDB) ListAdminUsers() ([]*globalCommon.User, error) {
 	for rows.Next() {
 		var user globalCommon.User
 		user, err = s.scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
 		users = append(users, &user)
 	}
 
@@ -461,7 +450,7 @@ func (s *PostgresAdminDB) ListAdminUsers() ([]*globalCommon.User, error) {
 }
 
 func (s *PostgresAdminDB) GetProjectorLastPosition(projectorName string) (*eventstore.Position, error) {
-	var commitPos, preparePos uint64
+	var commitPos, preparePos int64
 	err := s.db.QueryRow(
 		fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.projector_checkpoint where name = $1", s.adminSchema),
 		projectorName,

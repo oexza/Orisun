@@ -78,8 +78,9 @@ func authenticate(ctx context.Context, auth *Authenticator) (globalCommon.User, 
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "invalid authorization header format")
 	}
 
-	user, err := auth.ValidateCredentials(credentials[0], credentials[1])
+	user, err := auth.ValidateCredentials(ctx, credentials[0], credentials[1])
 	if err != nil {
+		auth.logger.Error(ctx, err.Error())
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 

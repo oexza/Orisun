@@ -67,8 +67,8 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	if err != nil {
 		return eventstore.Position{}, fmt.Errorf("failed to set search path: %v", err)
 	}
-	var transactionID uint64
-	var globalID uint64
+	var transactionID int64
+	var globalID int64
 	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema), boundary).Scan(&transactionID, &globalID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -88,7 +88,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 }
 
 func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
-	boundaryOfInterest string, transactionId uint64, globalId uint64) error {
+	boundaryOfInterest string, transactionId int64, globalId int64) error {
 	conn, err := s.db.Conn(ctx)
 
 	if err != nil {

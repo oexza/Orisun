@@ -70,8 +70,8 @@ func (Direction) EnumDescriptor() ([]byte, []int) {
 
 type Position struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	CommitPosition  uint64                 `protobuf:"varint,1,opt,name=commit_position,json=commitPosition,proto3" json:"commit_position,omitempty"`
-	PreparePosition uint64                 `protobuf:"varint,2,opt,name=prepare_position,json=preparePosition,proto3" json:"prepare_position,omitempty"`
+	CommitPosition  int64                  `protobuf:"varint,1,opt,name=commit_position,json=commitPosition,proto3" json:"commit_position,omitempty"`
+	PreparePosition int64                  `protobuf:"varint,2,opt,name=prepare_position,json=preparePosition,proto3" json:"prepare_position,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -106,14 +106,14 @@ func (*Position) Descriptor() ([]byte, []int) {
 	return file_eventstore_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Position) GetCommitPosition() uint64 {
+func (x *Position) GetCommitPosition() int64 {
 	if x != nil {
 		return x.CommitPosition
 	}
 	return 0
 }
 
-func (x *Position) GetPreparePosition() uint64 {
+func (x *Position) GetPreparePosition() int64 {
 	if x != nil {
 		return x.PreparePosition
 	}
@@ -847,8 +847,8 @@ const file_eventstore_proto_rawDesc = "" +
 	"\x10eventstore.proto\x12\n" +
 	"eventstore\x1a\x1fgoogle/protobuf/timestamp.proto\"^\n" +
 	"\bPosition\x12'\n" +
-	"\x0fcommit_position\x18\x01 \x01(\x04R\x0ecommitPosition\x12)\n" +
-	"\x10prepare_position\x18\x02 \x01(\x04R\x0fpreparePosition\"-\n" +
+	"\x0fcommit_position\x18\x01 \x01(\x03R\x0ecommitPosition\x12)\n" +
+	"\x10prepare_position\x18\x02 \x01(\x03R\x0fpreparePosition\"-\n" +
 	"\x03Tag\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"0\n" +

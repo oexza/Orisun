@@ -8,8 +8,8 @@ option java_package = "com.orisun.eventstore";
 import "google/protobuf/timestamp.proto";
 
 message Position {
-  uint64 commit_position = 1;
-  uint64 prepare_position = 2;
+  int64 commit_position = 1;
+  int64 prepare_position = 2;
 }
 
 message Tag {

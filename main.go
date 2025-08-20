@@ -237,6 +237,13 @@ func main() {
 		AppLogger,
 	)
 
+	startAuthUserProjector(
+		ctx,
+		config.Admin.Boundary,
+		eventStore.SubscribeToEvents,
+		AppLogger,
+	)
+
 	//create default user
 	err := createDefaultUser(
 		ctx,
@@ -304,19 +311,15 @@ func main() {
 	)
 
 	authenticator := admin.NewAuthenticator(
-		func(username string) (globalCommon.User, error) {
-			user, err := adminDB.GetUserByUsername(username)
-			if err != nil {
-				return globalCommon.User{}, err
-			}
-			return user, nil
-		},
+		eventStore.GetEvents,
+		AppLogger,
+		config.Admin.Boundary,
 	)
 
 	loginHandler := login.NewLoginHandler(
 		AppLogger,
 		config.Admin.Boundary,
-		eventStore.GetEvents,
+		authenticator,
 	)
 
 	deleteUserHandler := delete_user.NewDeleteUserHandler(
@@ -715,6 +718,26 @@ func startUserProjector(
 	}()
 }
 
+func startAuthUserProjector(
+	ctx context.Context,
+	adminBoundary string,
+	subscribeToEvents common.SubscribeToEventStoreType,
+	logger l.Logger) {
+	go func() {
+		userProjector := admin.NewAuthUserProjector(
+			logger,
+			subscribeToEvents,
+			adminBoundary,
+		)
+		err := userProjector.Start(ctx)
+
+		if err != nil {
+			logger.Fatalf("Failed to start projection %v", err)
+		}
+		logger.Info("User projector started")
+	}()
+}
+
 func startUserCountProjector(
 	ctx context.Context,
 	adminBoundary string,
@@ -833,8 +856,8 @@ func publishEventWithRetry(
 	ctx context.Context,
 	js jetstream.JetStream,
 	eventData []byte,
-	subjectName string, preparePosition uint64,
-	commitPosition uint64, logger l.Logger) {
+	subjectName string, preparePosition int64,
+	commitPosition int64, logger l.Logger) {
 
 	attempt := 1
 

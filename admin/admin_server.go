@@ -9,7 +9,7 @@ import (
 	create_user "orisun/admin/slices/create_user"
 	dashboard "orisun/admin/slices/dashboard"
 	"orisun/admin/slices/delete_user"
-	login "orisun/admin/slices/login"
+	"orisun/admin/slices/login"
 	"orisun/admin/slices/users_page"
 	l "orisun/logging"
 
@@ -22,13 +22,13 @@ import (
 )
 
 type AdminServer struct {
-	logger            l.Logger
-	router            *chi.Mux
-	createUserHandler *create_user.CreateUserHandler
-	dashboardHandler  *dashboard.DashboardHandler
-	loginHandler      *login.LoginHandler
-	deleteUserHandler *delete_user.DeleteUserHandler
-	usersHandler      *users_page.UsersPageHandler
+	logger                l.Logger
+	router                *chi.Mux
+	createUserHandler     *create_user.CreateUserHandler
+	dashboardHandler      *dashboard.DashboardHandler
+	loginHandler          *login.LoginHandler
+	deleteUserHandler     *delete_user.DeleteUserHandler
+	usersHandler          *users_page.UsersPageHandler
 	changePasswordHandler *changepassword.ChangePasswordHandler
 }
 
@@ -40,18 +40,18 @@ func NewAdminServer(
 	deleteUserHandler *delete_user.DeleteUserHandler,
 	usersHandler *users_page.UsersPageHandler,
 	changePasswordHandler *changepassword.ChangePasswordHandler,
-	) (*AdminServer, error) {
+) (*AdminServer, error) {
 
 	router := chi.NewRouter()
 
 	server := &AdminServer{
-		logger:            logger,
-		router:            router,
-		createUserHandler: createUserHandler,
-		dashboardHandler:  dashboardHandler,
-		loginHandler:      loginHandler,
-		deleteUserHandler: deleteUserHandler,
-		usersHandler:      usersHandler,
+		logger:                logger,
+		router:                router,
+		createUserHandler:     createUserHandler,
+		dashboardHandler:      dashboardHandler,
+		loginHandler:          loginHandler,
+		deleteUserHandler:     deleteUserHandler,
+		usersHandler:          usersHandler,
 		changePasswordHandler: changePasswordHandler,
 	}
 

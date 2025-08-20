@@ -24,7 +24,7 @@ type DB interface {
 
 type EventPublishing interface {
 	GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error)
-	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId uint64, globalId uint64) error
+	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
 }
 
 type SaveEventsType = func(ctx context.Context, in *eventstore.SaveEventsRequest) (resp *eventstore.WriteResult, err error)

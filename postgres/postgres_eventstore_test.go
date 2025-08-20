@@ -383,7 +383,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	ctx := t.Context()
 
 	// Save multiple events to get different global positions
-	var globalPositions []uint64
+	var globalPositions []int64
 	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
