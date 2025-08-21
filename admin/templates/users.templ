@@ -9,7 +9,7 @@ type User struct {
 
 templ Users(users []User, currentPath string, currentUser string) {
 	@Admin(currentPath, "Users") {
-		<div id="users-page" class="p-6">
+		<div id="users-page" class="p-6" data-on-load="@get('/users')">
 			<div class="mb-6 flex justify-between items-center">
 				<h1 class="text-2xl font-bold text-gray-900">User Management</h1>
 				<sl-button pill variant="primary" size="medium" data-on-click="@get('/users/add')">
@@ -31,8 +31,9 @@ templ Users(users []User, currentPath string, currentUser string) {
 	}
 }
 
+const UsersTableId = "users-table-container"
 templ UserList(users []User, currentUser string) {
-	<div class="overflow-hidden shadow-lg rounded-lg border border-gray-200">
+	<div id={ UsersTableId } class="overflow-hidden shadow-lg rounded-lg border border-gray-200">
 		<table id="users-table" class="min-w-full divide-y divide-gray-200">
 			<thead>
 				<tr class="bg-gradient-to-r from-blue-50 to-indigo-50">

@@ -141,7 +141,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 
 	currentUser := admin_common.GetCurrentUser(r)
 
-	evt, err := CreateUser(
+	_, err = CreateUser(
 		r.Context(),
 		addUserRequest.Name,
 		addUserRequest.Username,
@@ -172,17 +172,6 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 	sse.MarshalAndPatchSignals(response)
 
 	sse.PatchElementTempl(
-		t.UserRow(&t.User{
-			Name:     evt.Name,
-			Id:       evt.UserId,
-			Username: evt.Username,
-			Roles:    []string{addUserRequest.Role},
-		}, currentUser.Id, 0),
-		datastar.WithModeAppend(),
-		datastar.WithSelectorID("users-table-body"),
-		datastar.WithModePrepend(),
-	)
-	sse.PatchElementTempl(
 		t.Alert("User created!", t.AlertSuccess),
 		datastar.WithSelector("body"),
 		datastar.WithModePrepend(),
@@ -206,8 +195,8 @@ func CreateUser(
 	userCreatedEvent, err := getEvents(
 		ctx,
 		&pb.GetEventsRequest{
-			Boundary: boundary,
-			Count:    1,
+			Boundary:  boundary,
+			Count:     1,
 			Direction: pb.Direction_DESC,
 			Query: &pb.Query{
 				Criteria: []*pb.Criterion{
@@ -220,7 +209,7 @@ func CreateUser(
 				},
 			},
 			Stream: &pb.GetStreamQuery{
-				Name: ev.AdminStream,
+				Name:        ev.AdminStream,
 				FromVersion: 999999999999999999,
 			},
 		},
@@ -264,7 +253,7 @@ func CreateUser(
 					},
 				},
 				Stream: &pb.GetStreamQuery{
-					Name:       ev.AdminStream,
+					Name:        ev.AdminStream,
 					FromVersion: 999999999999999999,
 				},
 			},

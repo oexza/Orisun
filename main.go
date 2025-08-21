@@ -411,6 +411,7 @@ func main() {
 		AppLogger,
 		config.Admin.Boundary,
 		adminDB.ListAdminUsers,
+		eventStore.SubscribeToEvents,
 	)
 
 	changePasswordHandler := changepassword.NewChangePasswordHandler(
