@@ -43,6 +43,7 @@ import (
 	up "orisun/admin/slices/users_projection"
 	globalCommon "orisun/common"
 
+	event_count "orisun/admin/slices/dashboard/event_count"
 	user_count "orisun/admin/slices/dashboard/user_count"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -90,6 +91,9 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 			DeliverPolicy: jetstream.DeliverNewPolicy,
 			AckPolicy:     jetstream.AckNonePolicy,
 			MaxAckPending: 100,
+			FilterSubjects: []string{
+				streamName + "." + subject,
+			},
 		},
 	)
 	if err != nil {
@@ -212,6 +216,16 @@ func main() {
 		}, nil
 	}
 
+	getEventCount := func(boundary string) (event_count.EventCountReadModel, error) {
+		count, err := adminDB.GetEventsCount(boundary)
+		if err != nil {
+			return event_count.EventCountReadModel{}, err
+		}
+		return event_count.EventCountReadModel{
+			Count: count,
+		}, nil
+	}
+
 	startUserCountProjector(
 		ctx,
 		config.Admin.Boundary,
@@ -221,6 +235,22 @@ func main() {
 		getUserCount,
 		jetStreamPublishFunction,
 		adminDB.SaveUsersCount,
+		AppLogger,
+	)
+
+	boundariesArray := []string{}
+	for _, boundary := range *config.GetBoundaries() {
+		boundariesArray = append(boundariesArray, boundary.Name)
+	}
+	startEventCountProjector(
+		ctx,
+		boundariesArray,
+		adminDB.GetProjectorLastPosition,
+		adminDB.UpdateProjectorPosition,
+		eventStore.SubscribeToEvents,
+		getEventCount,
+		jetStreamPublishFunction,
+		adminDB.SaveEventCount,
 		AppLogger,
 	)
 
@@ -264,7 +294,7 @@ func main() {
 	)
 	dashboardHandler := dashboard.NewDashboardHandler(
 		AppLogger,
-		config.Admin.Boundary,
+		boundariesArray,
 		getUserCount,
 		func(consumerName string, ctx context.Context, messageHandler *globalCommon.MessageHandler[user_count.UserCountReadModel]) error {
 			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
@@ -306,6 +336,54 @@ func main() {
 				return fmt.Errorf("failed to subscribe: %v", err)
 			}
 			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
+			return nil
+		},
+		getEventCount,
+		func(consumerName string, boundary string, ctx context.Context, messageHandler *globalCommon.MessageHandler[event_count.EventCountReadModel]) error {
+			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
+			go func(boundary string, logger l.Logger) {
+				for {
+					select {
+					case <-ctx.Done():
+						logger.Debug("Context done, stopping...")
+						return // Exit the goroutine completely
+					default:
+						// Only try to receive if context is not done
+						event, err := handler.Recv()
+						if err != nil {
+							if ctx.Err() != nil {
+								// Context is done, exit gracefully
+								return
+							}
+							logger.Errorf("Error receiving: %v", err)
+							// Add a small sleep to prevent CPU spinning on persistent errors
+							time.Sleep(100 * time.Millisecond)
+							continue
+						}
+						eventReadModel := event_count.EventCountReadModel{}
+						json.Unmarshal(event.Data, &eventReadModel)
+
+						//Check if the boundary from the event is the same with the current boundary
+						if eventReadModel.Boundary == boundary {
+							messageHandler.Send(&eventReadModel)
+							AppLogger.Debugf("Event count updated is: %v", string(event.Data))
+
+						}
+					}
+				}
+			}(boundary, AppLogger)
+
+			count, err := getEventCount(boundary)
+			if err != nil && count != (event_count.EventCountReadModel{}) {
+				messageHandler.Send(&count)
+			}
+			AppLogger.Infof("Subscribe To event count called with subject: %s, consumer_name: %s", event_count.EventCountPubSubscription, consumerName)
+
+			err = setupJetStreamConsumer(ctx, js, pubsubStreamName, consumerName, event_count.EventCountPubSubscription, handler, AppLogger)
+			if err != nil {
+				return fmt.Errorf("failed to subscribe: %v", err)
+			}
+			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", event_count.EventCountPubSubscription, consumerName)
 			return nil
 		},
 	)
@@ -444,6 +522,7 @@ func initializeDatabase(
 		db,
 		logger,
 		adminSchema.Schema,
+		postgesBoundarySchemaMappings,
 	)
 
 	eventPublishing := postgres.NewPostgresEventPublishing(
@@ -748,9 +827,10 @@ func startUserCountProjector(
 	publishToPubSub common.PublishToPubSubType,
 	saveUserCount user_count.SaveUserCount,
 	logger l.Logger) {
-	go func() {
+
+	go func(boundary string) {
 		userProjector := user_count.NewUserCountProjection(
-			adminBoundary,
+			boundary,
 			getProjectorLastPosition,
 			publishToPubSub,
 			getUserCount,
@@ -765,7 +845,41 @@ func startUserCountProjector(
 			logger.Fatalf("Failed to start projection %v", err)
 		}
 		logger.Info("User count projector started")
-	}()
+	}(adminBoundary)
+
+}
+
+func startEventCountProjector(
+	ctx context.Context,
+	boundaries []string,
+	getProjectorLastPosition common.GetProjectorLastPositionType,
+	updateProjectorPosition common.UpdateProjectorPositionType,
+	subscribeToEvents common.SubscribeToEventStoreType,
+	getEventCount event_count.GetEventCount,
+	publishToPubSub common.PublishToPubSubType,
+	saveEventCount event_count.SaveEventCount,
+	logger l.Logger) {
+	for _, boundary := range boundaries {
+		go func(boundary string) {
+			eventProjector := event_count.NewEventCountProjection(
+				boundary,
+				getProjectorLastPosition,
+				publishToPubSub,
+				getEventCount,
+				saveEventCount,
+				subscribeToEvents,
+				updateProjectorPosition,
+				logger,
+			)
+			err := eventProjector.Start(ctx)
+
+			if err != nil {
+				logger.Fatalf("Failed to start projection %v", err)
+			}
+			logger.Info("Event count projector started")
+		}(boundary)
+	}
+
 }
 
 var mutex sync.RWMutex

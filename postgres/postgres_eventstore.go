@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"orisun/logging"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,7 @@ func (s *PostgresSaveEvents) Save(
 		s.logger.Errorf("Error inserting events: %v", row.Err())
 		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
 	}
+
 	// Scan the result
 	noop := false
 	err = error(nil)
@@ -414,16 +416,18 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]any {
 // }
 
 type PostgresAdminDB struct {
-	db          *sql.DB
-	logger      logging.Logger
-	adminSchema string
+	db                     *sql.DB
+	logger                 logging.Logger
+	adminSchema            string
+	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
 }
 
-func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string) *PostgresAdminDB {
+func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string, boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresAdminDB {
 	return &PostgresAdminDB{
-		db:          db,
-		logger:      logger,
-		adminSchema: schema,
+		db:                     db,
+		logger:                 logger,
+		adminSchema:            schema,
+		boundarySchemaMappings: boundarySchemaMappings,
 	}
 }
 
@@ -591,12 +595,54 @@ func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
 	return count, nil
 }
 
-const id = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
+func (s *PostgresAdminDB) GetEventsCount(boundary string) (int, error) {
+	schemaMapping, ok := s.boundarySchemaMappings[boundary]
+	// First try to get the count from the events_count table
+	rows, err := s.db.Query(fmt.Sprintf("SELECT event_count FROM %s.events_count limit 1", schemaMapping.Schema))
+	if err != nil {
+		s.logger.Debugf("Event count table query error: %v", err)
+		// If the table doesn't exist yet or there's another error, fall back to counting directly
+		if !ok {
+			return 0, fmt.Errorf("no schema mapping found for boundary: %s", boundary)
+		}
+
+		query := fmt.Sprintf("SELECT COUNT(*) FROM %s.orisun_es_event", schemaMapping.Schema)
+		var count int
+		err := s.db.QueryRow(query).Scan(&count)
+		if err != nil {
+			s.logger.Errorf("Error getting events count for boundary %s: %v", boundary, err)
+			return 0, err
+		}
+
+		return count, nil
+	}
+	defer rows.Close()
+
+	var count int = 0
+	if rows.Next() {
+		var countStr string
+		if err := rows.Scan(&countStr); err != nil {
+			s.logger.Error("Failed to scan event count: %v", err)
+			return 0, err
+		}
+		count, err = strconv.Atoi(countStr)
+		if err != nil {
+			s.logger.Error("Failed to convert event count to int: %v", err)
+			return 0, err
+		}
+	}
+	return count, nil
+}
+
+const (
+	userCountId  = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
+	eventCountId = "0195c053-57e7-7a6d-8e17-a2a695f67d2f"
+)
 
 func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 	_, err := s.db.Exec(
 		fmt.Sprintf("INSERT INTO %s.users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.adminSchema),
-		id,
+		userCountId,
 		users_count,
 		time.Now().UTC(),
 		time.Now().UTC(),
@@ -604,6 +650,29 @@ func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 
 	if err != nil {
 		s.logger.Error("Error creating user count: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (s *PostgresAdminDB) SaveEventCount(event_count int, boundary string) error {
+	// Get the schema mapping for the boundary
+	schemaMapping, ok := s.boundarySchemaMappings[boundary]
+	if !ok {
+		return fmt.Errorf("no schema mapping found for boundary: %s", boundary)
+	}
+
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO %s.events_count (id, event_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET event_count = $2, updated_at = $4", schemaMapping.Schema),
+		eventCountId,
+		strconv.Itoa(event_count),
+		time.Now().UTC(),
+		time.Now().UTC(),
+	)
+
+	if err != nil {
+		s.logger.Error("Error creating event count: %v", err)
 		return err
 	}
 

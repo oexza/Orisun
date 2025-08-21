@@ -208,6 +208,7 @@ func CreateUser(
 		&pb.GetEventsRequest{
 			Boundary: boundary,
 			Count:    1,
+			Direction: pb.Direction_DESC,
 			Query: &pb.Query{
 				Criteria: []*pb.Criterion{
 					{
@@ -220,6 +221,7 @@ func CreateUser(
 			},
 			Stream: &pb.GetStreamQuery{
 				Name: ev.AdminStream,
+				FromVersion: 999999999999999999,
 			},
 		},
 	)
@@ -262,7 +264,8 @@ func CreateUser(
 					},
 				},
 				Stream: &pb.GetStreamQuery{
-					Name: ev.AdminStream,
+					Name:       ev.AdminStream,
+					FromVersion: 999999999999999999,
 				},
 			},
 		)

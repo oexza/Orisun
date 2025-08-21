@@ -4,12 +4,12 @@ import "orisun/admin/templates"
 import "fmt"
 
 type DashboardDetails struct {
-	UserCount    uint32 `json:"user_count"`
-	CatchupCount uint32    `json:"catchup_count"`
-	PubsubCount  int    `json:"pubsub_count"`
-	EventCount   int    `json:"event_count"`
-	StreamCount  int    `json:"stream_count"`
-	SystemStatus int    `json:"system_status"`
+	UserCount    uint32         `json:"user_count"`
+	CatchupCount uint32         `json:"catchup_count"`
+	PubsubCount  int            `json:"pubsub_count"`
+	EventCounts  map[string]int `json:"event_counts"`
+	StreamCount  int            `json:"stream_count"`
+	SystemStatus int            `json:"system_status"`
 }
 
 const UserCountId string = "userCount"
@@ -18,6 +18,7 @@ const pubsubCountId = "pubsubCount"
 const eventCountId = "eventCount"
 const streamCountId = "streamCount"
 const systemStatusId = "systemStatus"
+const eventsCountId = "eventsCount"
 
 templ UserCountFragement(userCount uint32) {
 	<p id={ UserCountId } class="text-3xl font-bold mt-2" data-bind-userCount>{ fmt.Sprint(userCount) }</p>
@@ -25,6 +26,27 @@ templ UserCountFragement(userCount uint32) {
 
 templ CatchupSubscriptionsFragement(catchupSubscriptionsCount uint32) {
 	<p class="text-3xl font-bold mt-2" data-bind-catchupCount>{ fmt.Sprint(catchupSubscriptionsCount) }</p>
+}
+
+templ EventCountFragment(eventCount int, boundary string) {
+	<div id={ eventCountId + boundary } class="flex items-center gap-2 mt-2" data-bind-eventCount>
+		<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-sm font-medium">{ boundary }</span>
+		<span class="text-3xl font-bold">{ fmt.Sprint(eventCount) }</span>
+	</div>
+}
+
+templ EventCountsFragement(eventCounts map[string]int) {
+	<sl-card id={ eventsCountId }>
+		<div class="flex items-center justify-between">
+			<div>
+				<h3 class="text-lg font-medium text-gray-900">Total Events</h3>
+				for boundary, eventCount := range eventCounts {
+					@EventCountFragment(eventCount, boundary)
+				}
+			</div>
+			<sl-icon name="database" style="font-size: 2rem"></sl-icon>
+		</div>
+	</sl-card>
 }
 
 templ Dashboard(currentPath string, data DashboardDetails) {
@@ -54,15 +76,7 @@ templ Dashboard(currentPath string, data DashboardDetails) {
 						<sl-icon name="arrow-repeat" style="font-size: 2rem"></sl-icon>
 					</div>
 				</sl-card>
-				<sl-card>
-					<div class="flex items-center justify-between">
-						<div>
-							<h3 class="text-lg font-medium text-gray-900">Total Events</h3>
-							<p class="text-3xl font-bold mt-2" data-bind-eventCount>0</p>
-						</div>
-						<sl-icon name="database" style="font-size: 2rem"></sl-icon>
-					</div>
-				</sl-card>
+				@EventCountsFragement(data.EventCounts)
 				<sl-card>
 					<div class="flex items-center justify-between">
 						<div>

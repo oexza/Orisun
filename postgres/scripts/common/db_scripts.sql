@@ -148,7 +148,7 @@ BEGIN
             $q$
             SELECT * FROM %5$sorisun_es_event
             WHERE stream_name = %1$L
-            AND (%2$L IS NULL OR stream_version %3$s= %2$L)
+            AND (%2$L IS NULL OR stream_version %3$s %2$L)
             ORDER BY transaction_id %4$s, global_id %4$s
             LIMIT %6$L
             $q$,
@@ -166,7 +166,7 @@ BEGIN
             SELECT * FROM %11$sorisun_es_event
             WHERE 
                 (%1$L IS NULL OR stream_name = %1$L) AND
-                (%2$L IS NULL OR stream_version %4$s= %2$L) AND
+                (%2$L IS NULL OR stream_version %4$s %2$L) AND
                 (%8$L::JSONB IS NULL OR data @> ANY (
                     SELECT jsonb_array_elements(%8$L)
                 )) AND
@@ -205,4 +205,18 @@ CREATE TABLE IF NOT EXISTS orisun_last_published_event_position
     global_id      BIGINT NOT NULL DEFAULT 0,
     date_created   TIMESTAMPTZ     DEFAULT NOW() NOT NULL,
     date_updated   TIMESTAMPTZ     DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS events_count (
+    id VARCHAR(255) PRIMARY KEY,
+    event_count VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS projector_checkpoint (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    commit_position BIGINT NOT NULL,
+    prepare_position BIGINT NOT NULL
 );

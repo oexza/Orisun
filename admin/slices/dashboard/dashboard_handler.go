@@ -4,7 +4,8 @@ import (
 	"net/http"
 	l "orisun/logging"
 
-	common "orisun/admin/slices/common"
+	adminCommon "orisun/admin/slices/common"
+	"orisun/admin/slices/dashboard/event_count"
 	"orisun/admin/slices/dashboard/user_count"
 	globalCommon "orisun/common"
 
@@ -15,24 +16,31 @@ type GetCatchupSubscriptionCount = func() uint32
 
 type DashboardHandler struct {
 	logger                      l.Logger
-	boundary                    string
+	boundaries                  []string
 	getUserCount                user_count.GetUserCount
 	subscribeToUserCount        user_count.SubscribeToUserCount
 	getCatchupSubscriptionCount GetCatchupSubscriptionCount
+	getEventCount               event_count.GetEventCount
+	subscribeToEventCount       event_count.SubscribeToEventCount
+	db                          adminCommon.DB
 }
 
 func NewDashboardHandler(
 	logger l.Logger,
-	boundary string,
+	boundaries []string,
 	getUserCount user_count.GetUserCount,
 	subscribeToUserCount user_count.SubscribeToUserCount,
+	getEventCount event_count.GetEventCount,
+	subscribeToEventCount event_count.SubscribeToEventCount,
 	// getGetCatchupSubscriptionCount GetCatchupSubscriptionCount,
 ) *DashboardHandler {
 	return &DashboardHandler{
-		logger:               logger,
-		boundary:             boundary,
-		getUserCount:         getUserCount,
-		subscribeToUserCount: subscribeToUserCount,
+		logger:                logger,
+		boundaries:            boundaries,
+		getUserCount:          getUserCount,
+		subscribeToUserCount:  subscribeToUserCount,
+		getEventCount:         getEventCount,
+		subscribeToEventCount: subscribeToEventCount,
 		// getCatchupSubscriptionCount: getGetCatchupSubscriptionCount,
 	}
 }
@@ -42,48 +50,89 @@ func (dh *DashboardHandler) HandleDashboardPage(w http.ResponseWriter, r *http.R
 	dh.logger.Debugf("User count: %d", userCount.Count)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
-	// catchUpSubscriptionCount := dh.getCatchupSubscriptionCount()
+	eventCounts := map[string]int{}
+	for _, boundary := range dh.boundaries {
+		eventCountModel, err := dh.getEventCount(boundary)
+		if err != nil {
+			dh.logger.Errorf("Error getting events count: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		dh.logger.Debugf("Event count: %d", eventCountModel.Count)
+		eventCounts[boundary] = eventCountModel.Count
+	}
 
 	isDatastarRequest := r.Header.Get("datastar-request") == "true"
 	if !isDatastarRequest {
 		Dashboard(r.URL.Path, DashboardDetails{
 			UserCount:    userCount.Count,
 			CatchupCount: 0,
+			EventCounts:  eventCounts,
 		}).Render(r.Context(), w)
 	} else {
-		sse, tabId := common.GetOrCreateSSEConnection(w, r)
-		dh.handleUserCount(sse, r, tabId, userCount)
+		sse, tabId := adminCommon.GetOrCreateSSEConnection(w, r)
+		dh.handleUserCount(sse, r, tabId, dh.boundaries)
 
 		// Wait for connection to close
 		<-sse.Context().Done()
 	}
 }
 
-func (dh *DashboardHandler) handleUserCount(sse *datastar.ServerSentEventGenerator, r *http.Request,
-	tabId string, userCount user_count.UserCountReadModel) {
-	sse.PatchElementTempl(UserCountFragement(userCount.Count), datastar.WithSelectorID(UserCountId))
-
-	subscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](r.Context())
+func (dh *DashboardHandler) handleUserCount(
+	sse *datastar.ServerSentEventGenerator,
+	r *http.Request,
+	tabId string,
+	boudaries []string,
+) {
+	userSubscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](r.Context())
 
 	go func() {
 		for {
 			select {
-			case <-sse.Context().Done():
+			case <-r.Context().Done():
 				dh.logger.Debugf("Context done, stopping dashboard event processing")
 				return // Exit the goroutine completely
 			default:
 				// Only try to receive if context is not done
-				event, err := subscription.Recv()
+				event, err := userSubscription.Recv()
 				if err != nil {
 					dh.logger.Errorf("Error receiving user count: %v", err)
+					if r.Context().Err() != nil {
+						return
+					}
 					continue
 				}
 				sse.PatchElementTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
 			}
 		}
 	}()
+	dh.subscribeToUserCount("tab::::"+tabId, r.Context(), userSubscription)
 
-	dh.subscribeToUserCount("tab::::"+tabId, r.Context(), subscription)
+	for _, boundary := range boudaries {
+		eventSubscription := globalCommon.NewMessageHandler[event_count.EventCountReadModel](r.Context())
+		go func() {
+			for {
+				select {
+				case <-r.Context().Done():
+					dh.logger.Debugf("Context done, stopping event count processing")
+					return // Exit the goroutine completely
+				default:
+					// Only try to receive if context is not done
+					event, err := eventSubscription.Recv()
+					if err != nil {
+						dh.logger.Errorf("Error receiving event count: %v", err)
+						if r.Context().Err() != nil {
+							return
+						}
+						continue
+					}
+					sse.PatchElementTempl(EventCountFragment(event.Count, boundary), datastar.WithSelectorID(eventCountId+boundary))
+				}
+			}
+		}()
+		dh.subscribeToEventCount("tab::::"+tabId+boundary, boundary, r.Context(), eventSubscription)
+	}
 }

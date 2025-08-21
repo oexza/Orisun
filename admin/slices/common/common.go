@@ -20,6 +20,8 @@ type DB interface {
 	GetUserByUsername(username string) (globalCommon.User, error)
 	GetUsersCount() (uint32, error)
 	SaveUsersCount(uint32) error
+	GetEventsCount(boundary string) (int, error)
+	SaveEventCount(int, string) error
 }
 
 type EventPublishing interface {
