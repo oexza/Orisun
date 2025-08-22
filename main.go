@@ -744,8 +744,8 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	authenticator *admin.Authenticator, logger l.Logger) {
 	grpcServer := grpc.NewServer(
 		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
-		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator)),
-		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator)),
+		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
+		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
 		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
 		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
 	)

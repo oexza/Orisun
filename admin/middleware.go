@@ -8,6 +8,7 @@ import (
 	"time"
 
 	globalCommon "orisun/common"
+	l "orisun/logging"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -26,9 +27,9 @@ func UnaryPerformanceInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func UnaryAuthInterceptor(auth *Authenticator) grpc.UnaryServerInterceptor {
+func UnaryAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		user, err := authenticate(ctx, auth)
+		user, err := authenticate(ctx, auth, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -38,9 +39,9 @@ func UnaryAuthInterceptor(auth *Authenticator) grpc.UnaryServerInterceptor {
 	}
 }
 
-func StreamAuthInterceptor(auth *Authenticator) grpc.StreamServerInterceptor {
+func StreamAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		user, err := authenticate(ss.Context(), auth)
+		user, err := authenticate(ss.Context(), auth, logger)
 		if err != nil {
 			return err
 		}
@@ -51,13 +52,14 @@ func StreamAuthInterceptor(auth *Authenticator) grpc.StreamServerInterceptor {
 	}
 }
 
-func authenticate(ctx context.Context, auth *Authenticator) (globalCommon.User, error) {
+func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (globalCommon.User, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "missing metadata")
 	}
 
 	values := md.Get("authorization")
+	logger.Infof("Authorization header: %v", values)
 	if len(values) == 0 {
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "missing authorization header")
 	}
