@@ -90,7 +90,6 @@ func NewEventStoreServer(
 		if err != nil {
 			log.Fatalf("failed to add stream: %v %v", streamName, err)
 		}
-
 		log.Infof("stream info: %v", info)
 	}
 

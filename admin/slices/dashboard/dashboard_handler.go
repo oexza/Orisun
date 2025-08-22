@@ -100,10 +100,7 @@ func (dh *DashboardHandler) handleUserCount(
 				event, err := userSubscription.Recv()
 				if err != nil {
 					dh.logger.Errorf("Error receiving user count: %v", err)
-					if r.Context().Err() != nil {
-						return
-					}
-					continue
+					return
 				}
 				sse.PatchElementTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
 			}
@@ -124,10 +121,7 @@ func (dh *DashboardHandler) handleUserCount(
 					event, err := eventSubscription.Recv()
 					if err != nil {
 						dh.logger.Errorf("Error receiving event count: %v", err)
-						if r.Context().Err() != nil {
-							return
-						}
-						continue
+						return
 					}
 					sse.PatchElementTempl(EventCountFragment(event.Count, boundary), datastar.WithSelectorID(eventCountId+boundary))
 				}

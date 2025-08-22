@@ -230,21 +230,6 @@ public class OrisunClient implements AutoCloseable {
         return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
     }
 
-    public PubSubSubscription subscribeToPubSub(Eventstore.SubscribeRequest request,
-                                                PubSubSubscription.MessageHandler handler) {
-        return new PubSubSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
-    }
-
-    public void publishToPubSub(Eventstore.PublishRequest request) throws OrisunException {
-        try {
-            blockingStub
-                    .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
-                    .publishToPubSub(request);
-        } catch (StatusRuntimeException e) {
-            throw new OrisunException("Failed to publish message", e);
-        }
-    }
-
     @Override
     public void close() {
         if (channel != null && !channel.isShutdown()) {

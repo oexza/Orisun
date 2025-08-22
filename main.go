@@ -109,7 +109,7 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 			}
 			message := common.PublishRequest{}
 			json.Unmarshal(natsNsg.Data(), &message)
-			logger.Infof("message: %v", message)
+			logger.Debugf("message: %v", message)
 			err = handler.Send(&message)
 
 			if err == nil {
@@ -308,14 +308,8 @@ func main() {
 						// Only try to receive if context is not done
 						event, err := handler.Recv()
 						if err != nil {
-							if ctx.Err() != nil {
-								// Context is done, exit gracefully
-								return
-							}
 							AppLogger.Errorf("Error receiving: %v", err)
-							// Add a small sleep to prevent CPU spinning on persistent errors
-							time.Sleep(100 * time.Millisecond)
-							continue
+							return
 						}
 						userReadModel := user_count.UserCountReadModel{}
 						json.Unmarshal(event.Data, &userReadModel)

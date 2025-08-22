@@ -5,14 +5,11 @@ import com.orisun.eventstore.Eventstore;
 import com.orisun.eventstore.Eventstore.*;
 
 import io.grpc.ServerBuilder;
-import io.grpc.inprocess.InProcessChannelBuilder;
-import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
 import org.junit.Rule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.google.protobuf.ByteString;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -49,7 +46,7 @@ class OrisunClientTest {
         // Create the client using the port
         client = OrisunClient
                 .newBuilder()
-                .withServer("dns:///localhost", port)
+                .withServer("localhost", port)
                 .build();
     }
 
@@ -64,10 +61,6 @@ class OrisunClientTest {
                         .setEventId(eventId)
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")
-                        .addTags(Eventstore.Tag.newBuilder()
-                                .setKey("registration-domain")
-                                .setValue("user-123")
-                                .build())
                         .build())
                 .setStream(
                         Eventstore.SaveStreamQuery
@@ -137,57 +130,11 @@ class OrisunClientTest {
         }
     }
 
-    @Test
-    void testSubscribeToPubSub() throws Exception {
-        final var messageLatch = new CountDownLatch(1);
-        final var receivedMessages = new ArrayList<SubscribeResponse>();
-
-        // Prepare subscription request
-        SubscribeRequest request = SubscribeRequest.newBuilder()
-                .setSubject("test-subject")
-                .setConsumerName("test-consumer")
-                .build();
-
-        // Set up subscription
-        try (PubSubSubscription subscription = client.subscribeToPubSub(request,
-                new PubSubSubscription.MessageHandler() {
-                    @Override
-                    public void onMessage(SubscribeResponse message) {
-                        receivedMessages.add(message);
-                        messageLatch.countDown();
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        fail("Unexpected error: " + error);
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        // Not expected in this test
-                    }
-                })) {
-
-            // Simulate server sending a message
-            mockService.sendPubSubMessage(Message.newBuilder()
-                    .setId(UUID.randomUUID().toString())
-                    .setSubject("test-subject")
-                    .setData(ByteString.copyFromUtf8("test data"))
-                    .build());
-
-            // Wait for message to be received
-            assertTrue(messageLatch.await(5, TimeUnit.SECONDS));
-            assertEquals(1, receivedMessages.size());
-            assertEquals("test-subject", receivedMessages.get(0).getMessage().getSubject());
-        }
-    }
-
     // Mock service implementation
     private static class MockEventStoreService extends EventStoreGrpc.EventStoreImplBase {
         private WriteResult nextWriteResult;
         private SaveEventsRequest lastSaveEventsRequest;
         private StreamObserver<Event> eventObserver;
-        private StreamObserver<SubscribeResponse> pubSubObserver;
 
         void setNextWriteResult(WriteResult result) {
             this.nextWriteResult = result;
@@ -203,14 +150,6 @@ class OrisunClientTest {
             }
         }
 
-        void sendPubSubMessage(Eventstore.Message message) {
-            if (pubSubObserver != null) {
-                pubSubObserver.onNext(Eventstore.SubscribeResponse.newBuilder()
-                        .setMessage(message)
-                        .build());
-            }
-        }
-
         @Override
         public void saveEvents(Eventstore.SaveEventsRequest request, StreamObserver<WriteResult> responseObserver) {
             lastSaveEventsRequest = request;
@@ -222,12 +161,6 @@ class OrisunClientTest {
         public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
                 StreamObserver<Eventstore.Event> responseObserver) {
             this.eventObserver = responseObserver;
-        }
-
-        @Override
-        public void subscribeToPubSub(Eventstore.SubscribeRequest request,
-                StreamObserver<Eventstore.SubscribeResponse> responseObserver) {
-            this.pubSubObserver = responseObserver;
         }
     }
 }
