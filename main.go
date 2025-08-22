@@ -477,7 +477,7 @@ func initializeDatabase(
 	config c.AppConfig,
 	js jetstream.JetStream,
 	logger l.Logger,
-) (pb.ImplementerSaveEvents, pb.ImplementerGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
+) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
 	db, err := sql.Open(
 		"postgres",
 		fmt.Sprintf(
@@ -644,8 +644,8 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logg
 func initializeEventStore(
 	ctx context.Context,
 	config c.AppConfig,
-	saveEvents pb.ImplementerSaveEvents,
-	getEvents pb.ImplementerGetEvents,
+	saveEvents pb.EventstoreSaveEvents,
+	getEvents pb.EventstoreGetEvents,
 	lockProvider pb.LockProvider,
 	js jetstream.JetStream,
 	logger l.Logger) *pb.EventStore {
@@ -669,7 +669,7 @@ func startEventPolling(
 	ctx context.Context,
 	config c.AppConfig,
 	lockProvider pb.LockProvider,
-	getEvents pb.ImplementerGetEvents,
+	getEvents pb.EventstoreGetEvents,
 	js jetstream.JetStream,
 	eventPublishing common.EventPublishing,
 	logger l.Logger) {
@@ -888,7 +888,7 @@ var mutex sync.RWMutex
 func PollEventsFromDatabaseToNats(
 	ctx context.Context,
 	js jetstream.JetStream,
-	eventStore pb.ImplementerGetEvents,
+	eventStore pb.EventstoreGetEvents,
 	batchSize uint32,
 	lastPosition *pb.Position,
 	boundary string,

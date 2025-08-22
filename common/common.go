@@ -3,8 +3,15 @@ package common
 import "context"
 
 type UserContextKeyType string
+
 const UserContextKey UserContextKeyType = "user"
-const DatastarTabCookieKey = "tab"
+
+type DatastarTabCookieKeyType string
+
+const DatastarTabCookieKey DatastarTabCookieKeyType = DatastarTabCookieKeyType("tab")
+func (k DatastarTabCookieKeyType) String() string {
+	return string(k)
+}
 
 type Role string
 

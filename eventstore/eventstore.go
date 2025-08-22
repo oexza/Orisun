@@ -20,17 +20,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type ImplementerSaveEvents interface {
+type EventstoreSaveEvents interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
-		// indexLockCondition *IndexLockCondition,
 		boundary string,
 		streamName string,
 		streamVersion int64,
-		streamSubSet *Query) (transactionID string, globalID int64, err error)
+		streamSubSet *Query,
+	) (transactionID string, globalID int64, err error)
 }
 
-type ImplementerGetEvents interface {
+type EventstoreGetEvents interface {
 	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
 }
 
@@ -43,8 +43,8 @@ type LockProvider interface {
 type EventStore struct {
 	UnimplementedEventStoreServer
 	js           jetstream.JetStream
-	saveEventsFn ImplementerSaveEvents
-	getEventsFn  ImplementerGetEvents
+	saveEventsFn EventstoreSaveEvents
+	getEventsFn  EventstoreGetEvents
 	lockProvider LockProvider
 }
 
@@ -70,8 +70,8 @@ func GetEventSubjectName(boundary string, position *Position) string {
 func NewEventStoreServer(
 	ctx context.Context,
 	js jetstream.JetStream,
-	saveEventsFn ImplementerSaveEvents,
-	getEventsFn ImplementerGetEvents,
+	saveEventsFn EventstoreSaveEvents,
+	getEventsFn EventstoreGetEvents,
 	lockProvider LockProvider,
 	boundaries *[]string,
 	log logging.Logger,
@@ -108,7 +108,6 @@ type EventWithMapTags struct {
 	EventType string `json:"event_type"`
 	Data      any    `json:"data"`
 	Metadata  any    `json:"metadata"`
-	// Tags      map[string]interface{} `json:"tags"`
 }
 
 func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
@@ -175,7 +174,6 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			EventType: event.EventType,
 			Data:      dataMap,
 			Metadata:  metadataMap,
-			// Tags:      getTagsAsMap(event.Tags, event.EventType),
 		}
 	}
 

@@ -54,7 +54,7 @@ var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*d
 var sseConnectionsMutex sync.RWMutex
 
 func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
-	tabId := r.Context().Value(globalCommon.DatastarTabCookieKey).(string)
+	tabId := r.Context().Value(globalCommon.DatastarTabCookieKey).(globalCommon.DatastarTabCookieKeyType).String()
 	sseConnectionsMutex.Lock()
 	defer sseConnectionsMutex.Unlock()
 

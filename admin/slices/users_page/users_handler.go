@@ -3,7 +3,7 @@ package users_page
 import (
 	"net/http"
 	admin_events "orisun/admin/events"
-	common "orisun/admin/slices/common"
+	"orisun/admin/slices/common"
 	"orisun/admin/templates"
 	globalCommon "orisun/common"
 	"orisun/eventstore"
@@ -17,12 +17,12 @@ type UsersPageHandler struct {
 	logger                l.Logger
 	boundary              string
 	ListAdminUsers        func() ([]*globalCommon.User, error)
-	subscribeToEventstore common.SubscribeToEventStoreType
+	subscribeToEventstore admin_common.SubscribeToEventStoreType
 }
 
 func NewUsersPageHandler(logger l.Logger, boundary string,
 	listAdminUsers func() ([]*globalCommon.User, error),
-	subscribeToEventstore common.SubscribeToEventStoreType) *UsersPageHandler {
+	subscribeToEventstore admin_common.SubscribeToEventStoreType) *UsersPageHandler {
 	return &UsersPageHandler{
 		logger:                logger,
 		boundary:              boundary,
@@ -39,10 +39,10 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	currentUser := common.GetCurrentUser(r)
+	currentUser := admin_common.GetCurrentUser(r)
 
 	if isDatastarRequest(r) {
-		sse := datastar.NewSSE(w, r)
+		sse, tabId := admin_common.GetOrCreateSSEConnection(w, r)
 		userSubscription := globalCommon.NewMessageHandler[eventstore.Event](r.Context())
 
 		go func() {
@@ -74,7 +74,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 				}
 			}
 		}()
-		s.subscribeToEventstore(r.Context(), s.boundary, "users-dashboard", nil, nil, *userSubscription)
+		s.subscribeToEventstore(r.Context(), s.boundary, "users-dashboard-"+tabId, nil, nil, *userSubscription)
 		// Wait for connection to close
 		<-sse.Context().Done()
 	} else {

@@ -74,6 +74,10 @@ func NewAdminServer(
 			// Apply authentication middleware to all routes in this group
 			protected.Use(server.authMiddleware)
 
+			//redirect to /dashboard
+			protected.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+			})
 			protected.Get("/dashboard", server.dashboardHandler.HandleDashboardPage)
 			protected.Get("/users", server.usersHandler.HandleUsersPage)
 			protected.Post("/users", server.createUserHandler.HandleCreateUser)
@@ -119,7 +123,7 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tabId := ""
-		tabIDCookie, err := r.Cookie(globalCommon.DatastarTabCookieKey)
+		tabIDCookie, err := r.Cookie(globalCommon.DatastarTabCookieKey.String())
 
 		if err != nil {
 			newTabId, err := uuid.NewUUID()
@@ -134,7 +138,7 @@ func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 		}
 
 		http.SetCookie(w, &http.Cookie{
-			Name:     globalCommon.DatastarTabCookieKey,
+			Name:     globalCommon.DatastarTabCookieKey.String(),
 			Value:    tabId,
 			HttpOnly: true,
 			Secure:   true,
@@ -142,7 +146,7 @@ func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 			Path:     "/",
 		})
 
-		ctx := context.WithValue(r.Context(), globalCommon.DatastarTabCookieKey, tabId)
+		ctx := context.WithValue(r.Context(), globalCommon.DatastarTabCookieKey, globalCommon.DatastarTabCookieKeyType(tabId))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
