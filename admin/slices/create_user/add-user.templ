@@ -5,17 +5,20 @@ templ AddUser(currentPath string, roles []string) {
 		id="add-user-dialog"
 		label="Create New User"
 		class="dialog-overview"
-		data-signals={ `{name: '', username: '', password: '' , role: '' , message: '' , success: '' , failed: '' }` }
+		data-signals={ `{name: '', username: '', password: '', confirmPassword: '', role: '' , message: '' , success: '' , failed: '' }` }
 	>
 		<form method="post" action="/users" data-on-submit="@post('/users')">
 			<div class="space-y-4">
-				<sl-input label="Name" pill required clearable data-bind-name>
+				<sl-input label="Name" pill required clearable data-on-sl-input__case.kebab="$name = evt.target.value">
 					<sl-icon slot="prefix" name="person"></sl-icon>
 				</sl-input>
-				<sl-input label="Username" pill required clearable data-bind-username>
+				<sl-input label="Username" pill required clearable data-on-sl-input__case.kebab="$username = evt.target.value">
 					<sl-icon slot="prefix" name="person"></sl-icon>
 				</sl-input>
-				<sl-input type="password" pill label="Password" required password-toggle data-bind-password>
+				<sl-input type="password" pill label="Password" required password-toggle data-on-sl-input__case.kebab="$password = evt.target.value">
+					<sl-icon slot="prefix" name="key"></sl-icon>
+				</sl-input>
+				<sl-input type="password" pill label="Confirm Password" required password-toggle data-on-sl-input__case.kebab="$confirmPassword = evt.target.value">
 					<sl-icon slot="prefix" name="key"></sl-icon>
 				</sl-input>
 				<sl-select

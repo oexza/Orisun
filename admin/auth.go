@@ -239,10 +239,7 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 		ctx,
 		p.boundary,
 		projectorName,
-		&eventstore.Position{
-			CommitPosition:  0,
-			PreparePosition: 0,
-		},
+		nil,
 		nil,
 		*stream,
 	)

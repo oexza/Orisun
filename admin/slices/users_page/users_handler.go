@@ -74,7 +74,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 				}
 			}
 		}()
-		s.subscribeToEventstore(r.Context(), s.boundary, "users-dashboard", &eventstore.Position{}, nil, *userSubscription)
+		s.subscribeToEventstore(r.Context(), s.boundary, "users-dashboard", nil, nil, *userSubscription)
 		// Wait for connection to close
 		<-sse.Context().Done()
 	} else {

@@ -12,7 +12,6 @@ import (
 
 const (
 	lockBucketName = "ORISUN_LOCKS"
-	lockTTL        = 30 * time.Second
 	lockRetryDelay = 500 * time.Millisecond
 	maxRetries     = 10
 )
@@ -31,7 +30,6 @@ func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream, logge
 	bucket, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket:      lockBucketName,
 		Description: "Distributed locks for Orisun",
-		// TTL:         lockTTL,
 		Storage:     jetstream.MemoryStorage,
 		Replicas:    1,
 	})
@@ -48,10 +46,11 @@ func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream, logge
 
 // Lock acquires a distributed lock with the given name
 func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) (UnlockFunc, error) {
-	lockID := fmt.Sprintf("%s", lockName)
+	lockID := fmt.Sprint(lockName)
+	p.logger.Infof("Locking: %s", lockID)
 	
 	// Try to acquire the lock with retries
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		// Check if context is cancelled
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

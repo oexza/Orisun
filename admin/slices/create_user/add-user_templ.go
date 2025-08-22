@@ -34,15 +34,15 @@ func AddUser(currentPath string, roles []string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(`{name: '', username: '', password: '' , role: '' , message: '' , success: '' , failed: '' }`)
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(`{name: '', username: '', password: '', confirmPassword: '', role: '' , message: '' , success: '' , failed: '' }`)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 8, Col: 110}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 8, Col: 130}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" pill required clearable data-bind-name><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" pill required clearable data-bind-username><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" pill label=\"Password\" required password-toggle data-bind-password><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select pill label=\"Role\" clearable data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\"><form method=\"post\" action=\"/users\" data-on-submit=\"@post(&#39;/users&#39;)\"><div class=\"space-y-4\"><sl-input label=\"Name\" pill required clearable data-on-sl-input__case.kebab=\"$name = evt.target.value\"><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input label=\"Username\" pill required clearable data-on-sl-input__case.kebab=\"$username = evt.target.value\"><sl-icon slot=\"prefix\" name=\"person\"></sl-icon></sl-input> <sl-input type=\"password\" pill label=\"Password\" required password-toggle data-on-sl-input__case.kebab=\"$password = evt.target.value\"><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-input type=\"password\" pill label=\"Confirm Password\" required password-toggle data-on-sl-input__case.kebab=\"$confirmPassword = evt.target.value\"><sl-icon slot=\"prefix\" name=\"key\"></sl-icon></sl-input> <sl-select pill label=\"Role\" clearable data-on-sl-input__case.kebab=\"$role = evt.target.value\"><sl-icon slot=\"prefix\" name=\"shield\"></sl-icon>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -54,7 +54,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 30, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 33, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -67,7 +67,7 @@ func AddUser(currentPath string, roles []string) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 30, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admin/slices/create_user/add-user.templ`, Line: 33, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {

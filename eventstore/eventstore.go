@@ -140,7 +140,7 @@ func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	logger.Debugf("SaveEvents called with req: %v", req)
-	
+
 	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
 	if err != nil {
 		return nil, err
@@ -223,6 +223,33 @@ func (s *EventStore) SubscribeToEvents(
 	query *Query,
 	handler globalCommon.MessageHandler[Event],
 ) error {
+	if fromPosition == nil {
+		//get the latest event in the event store
+		resp, err := s.getEventsFn.Get(
+			ctx,
+			&GetEventsRequest{
+				Count:     1,
+				Direction: Direction_DESC,
+				Boundary:  boundary,
+				Query:     query,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if len(resp.Events) > 0 {
+			// set the from position to the last event in the stream
+			fromPosition = &Position{
+				CommitPosition:  resp.Events[0].Position.CommitPosition,
+				PreparePosition: resp.Events[0].Position.PreparePosition,
+			}
+		} else {
+			fromPosition = &Position{
+				CommitPosition:  0,
+				PreparePosition: 0,
+			}
+		}
+	}
 	unlockFunc, err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
 
 	if err != nil {
@@ -440,7 +467,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 					logger.Errorf("Failed to receive event: %v", err)
 					continue
 				}
-				
+
 				// Check context before sending to stream
 				select {
 				case <-ctx.Done():

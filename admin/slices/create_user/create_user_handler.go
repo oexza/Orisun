@@ -56,10 +56,11 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 }
 
 type AddNewUserRequest struct {
-	Name     string
-	Username string
-	Password string
-	Role     string
+	Name            string
+	Username        string
+	Password        string
+	ConfirmPassword string
+	Role            string
 }
 
 func (r *AddNewUserRequest) validate() error {
@@ -81,6 +82,10 @@ func (r *AddNewUserRequest) validate() error {
 
 	if len(r.Password) < 6 {
 		return fmt.Errorf("password must be at least 6 characters")
+	}
+
+	if r.Password != r.ConfirmPassword {
+		return fmt.Errorf("passwords do not match")
 	}
 
 	if r.Role == "" {
