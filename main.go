@@ -103,7 +103,7 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 	consumption, err := consumer.Consume(func(natsNsg jetstream.Msg) {
 		// Try to send the message to the handler
 		for {
-			logger.Infof("Consuming message: %v", string(natsNsg.Data()))
+			logger.Debugf("Consuming message: %v", string(natsNsg.Data()))
 			if ctx.Err() != nil {
 				return
 			}
@@ -743,7 +743,7 @@ func startAdminServer(
 func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	authenticator *admin.Authenticator, logger l.Logger) {
 	grpcServer := grpc.NewServer(
-		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
+		grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
 		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
 		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
 		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
