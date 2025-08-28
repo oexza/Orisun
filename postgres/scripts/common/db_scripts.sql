@@ -148,7 +148,7 @@ BEGIN
             $q$
             SELECT * FROM %5$sorisun_es_event
             WHERE stream_name = %1$L
-            AND (%2$L IS NULL OR stream_version %3$s %2$L)
+            AND (%2$L IS NULL OR stream_version %3$s= %2$L)
             ORDER BY transaction_id %4$s, global_id %4$s
             LIMIT %6$L
             $q$,
@@ -166,12 +166,12 @@ BEGIN
             SELECT * FROM %11$sorisun_es_event
             WHERE 
                 (%1$L IS NULL OR stream_name = %1$L) AND
-                (%2$L IS NULL OR stream_version %4$s %2$L) AND
+                (%2$L IS NULL OR stream_version %4$s= %2$L) AND
                 (%8$L::JSONB IS NULL OR data @> ANY (
                     SELECT jsonb_array_elements(%8$L)
                 )) AND
                 (%3$L IS NULL OR (
-                        (transaction_id, global_id) %4$s (
+                        (transaction_id, global_id) %4$s= (
                             %5$L::BIGINT, 
                             %6$L::BIGINT
                         )%7$s

@@ -45,7 +45,8 @@ func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream, logge
 }
 
 // Lock acquires a distributed lock with the given name
-func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) (UnlockFunc, error) {
+// The lock is automatically released when the context is done
+func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) error {
 	lockID := fmt.Sprint(lockName)
 	p.logger.Infof("Locking: %s", lockID)
 	
@@ -53,7 +54,7 @@ func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) (Unlo
 	for range maxRetries {
 		// Check if context is cancelled
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 
 		// Try to create the key (which will fail if it already exists)
@@ -63,33 +64,35 @@ func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) (Unlo
 			// Lock acquired successfully
 			p.logger.Debugf("Lock acquired: %s (revision: %d)", lockID, revision)
 			
-			// Return unlock function
-			return func() error {
+			// Start goroutine to automatically unlock when context is done
+			go func() {
+				<-ctx.Done()
 				// Delete the key to release the lock
 				err := p.bucket.Delete(context.Background(), lockID, jetstream.LastRevision(revision))
 				if err != nil {
 					p.logger.Warnf("Failed to release lock %s: %v", lockID, err)
-					return fmt.Errorf("failed to release lock: %w", err)
+				} else {
+					p.logger.Infof("Lock released: %s", lockID)
 				}
-				p.logger.Infof("Lock released: %s", lockID)
-				return nil
-			}, nil
+			}()
+			
+			return nil
 		}
 
 		// If the error is not because the key already exists, return it
 		if !errors.Is(err, jetstream.ErrKeyExists) {
-			return nil, fmt.Errorf("failed to acquire lock: %w", err)
+			return fmt.Errorf("failed to acquire lock: %w", err)
 		}
 
 		// Lock is already held, wait and retry
 		p.logger.Debugf("Lock %s already held, retrying in %v", lockID, lockRetryDelay)
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(lockRetryDelay):
 			// Continue to next retry
 		}
 	}
 
-	return nil, fmt.Errorf("failed to acquire lock after %d retries", maxRetries)
+	return fmt.Errorf("failed to acquire lock after %d retries", maxRetries)
 }

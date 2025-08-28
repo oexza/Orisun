@@ -123,6 +123,7 @@ func (dh *DashboardHandler) handleUserCount(
 						dh.logger.Errorf("Error receiving event count: %v", err)
 						return
 					}
+					
 					sse.PatchElementTempl(EventCountFragment(event.Count, boundary), datastar.WithSelectorID(eventCountId+boundary))
 				}
 			}

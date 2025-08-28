@@ -34,10 +34,8 @@ type EventstoreGetEvents interface {
 	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
 }
 
-type UnlockFunc func() error
-
 type LockProvider interface {
-	Lock(ctx context.Context, lockName string) (UnlockFunc, error)
+	Lock(ctx context.Context, lockName string) error
 }
 
 type EventStore struct {
@@ -46,6 +44,7 @@ type EventStore struct {
 	saveEventsFn EventstoreSaveEvents
 	getEventsFn  EventstoreGetEvents
 	lockProvider LockProvider
+	logger       logging.Logger
 }
 
 const (
@@ -53,18 +52,25 @@ const (
 	EventsSubjectName  = "events"
 )
 
-var logger logging.Logger
-
-func GetEventsStreamName(boundary string) string {
+func GetEventsNatsJetstreamStreamStreamName(boundary string) string {
 	return eventsStreamPrefix + "__" + boundary
 }
 
 func GetEventsSubjectName(boundary string) string {
-	return GetEventsStreamName(boundary) + "." + EventsSubjectName + ".*"
+	return GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + ".>"
 }
 
-func GetEventSubjectName(boundary string, position *Position) string {
-	return GetEventsStreamName(boundary) + "." + EventsSubjectName + "." + GetEventNatsMessageId(int64(position.PreparePosition), int64(position.CommitPosition))
+func GetEventsStreamSubjectFilterForSubscription(boundary string, stream *string) string {
+	subject := GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + "."
+	if stream != nil {
+		return subject + *stream + ".>"
+	}
+
+	return subject + ">"
+}
+
+func GetEventJetstreamSubjectName(boundary string, stream string, position *Position) string {
+	return GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + "." + stream + "." + GetEventNatsMessageId(int64(position.PreparePosition), int64(position.CommitPosition))
 }
 
 func NewEventStoreServer(
@@ -74,11 +80,10 @@ func NewEventStoreServer(
 	getEventsFn EventstoreGetEvents,
 	lockProvider LockProvider,
 	boundaries *[]string,
-	log logging.Logger,
+	logger logging.Logger,
 ) *EventStore {
-	logger = log
 	for _, boundary := range *boundaries {
-		streamName := GetEventsStreamName(boundary)
+		streamName := GetEventsNatsJetstreamStreamStreamName(boundary)
 		info, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 			Name: streamName,
 			Subjects: []string{
@@ -88,9 +93,9 @@ func NewEventStoreServer(
 		})
 
 		if err != nil {
-			log.Fatalf("failed to add stream: %v %v", streamName, err)
+			logger.Fatalf("failed to add stream: %v %v", streamName, err)
 		}
-		log.Infof("stream info: %v", info)
+		logger.Infof("stream info: %v", info)
 	}
 
 	return &EventStore{
@@ -98,6 +103,7 @@ func NewEventStoreServer(
 		saveEventsFn: saveEventsFn,
 		getEventsFn:  getEventsFn,
 		lockProvider: lockProvider,
+		logger:       logger,
 	}
 }
 
@@ -136,7 +142,7 @@ func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 }
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
-	logger.Debugf("SaveEvents called with req: %v", req)
+	s.logger.Debugf("SaveEvents called with req: %v", req)
 
 	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
 	if err != nil {
@@ -145,7 +151,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	// Defer a recovery function to catch any panics
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf("Panic in SaveEvents: %v\nStack Trace:\n%s", r, debug.Stack())
+			s.logger.Errorf("Panic in SaveEvents: %v\nStack Trace:\n%s", r, debug.Stack())
 			err = status.Errorf(codes.Internal, "Internal server error")
 		}
 	}()
@@ -182,7 +188,6 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	transactionID, globalID, err = s.saveEventsFn.Save(
 		ctx,
 		eventsForMarshaling,
-		// req.ConsistencyCondition,
 		req.Boundary,
 		req.Stream.Name,
 		req.Stream.ExpectedVersion,
@@ -208,144 +213,135 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	if req.Count == 0 {
 		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
 	}
+	// if req.FromPosition != nil && req.Stream != nil {
+	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
+	// }
 	return s.getEventsFn.Get(ctx, req)
 }
 
-func (s *EventStore) SubscribeToEvents(
+func (s *EventStore) SubscribeToAllEvents(
 	ctx context.Context,
 	boundary string,
 	subscriberName string,
-	fromPosition *Position,
+	afterPosition *Position,
 	query *Query,
 	handler globalCommon.MessageHandler[Event],
 ) error {
-	if fromPosition == nil {
-		//get the latest event in the event store
-		resp, err := s.getEventsFn.Get(
-			ctx,
-			&GetEventsRequest{
-				Count:     1,
-				Direction: Direction_DESC,
-				Boundary:  boundary,
-				Query:     query,
-			},
-		)
-		if err != nil {
-			return err
-		}
-		if len(resp.Events) > 0 {
-			// set the from position to the last event in the stream
-			fromPosition = &Position{
-				CommitPosition:  resp.Events[0].Position.CommitPosition,
-				PreparePosition: resp.Events[0].Position.PreparePosition,
-			}
-		} else {
-			fromPosition = &Position{
-				CommitPosition:  0,
-				PreparePosition: 0,
-			}
-		}
-	}
-	unlockFunc, err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
+	err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
 
 	if err != nil {
 		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
 	}
 
-	// Ensure cleanup happens in all cases
-	defer unlockFunc()
+	var now = time.Now()
+	var timeToSubscribeFromJetstream time.Time = now
 
-	// Initialize position tracking
-	lastPosition := fromPosition
+	// first get the latest event in the event store
+	latestEventInTheEventstore, err := s.getEventsFn.Get(
+		ctx,
+		&GetEventsRequest{
+			Count:     1,
+			Direction: Direction_DESC,
+			Boundary:  boundary,
+		},
+	)
 
-	// Set up NATS subscription for live events
-	subs, err := s.js.Stream(ctx, GetEventsStreamName(boundary))
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
+		return err
 	}
 
-	// Check if we need to process historical events by examining the first event in the jetstream
-	skipHistorical := false
-	info, err := subs.Info(ctx)
-	if err == nil && info.State.FirstSeq > 0 {
-		firstMsg, err := subs.GetMsg(ctx, info.State.FirstSeq)
-		if err == nil {
-			var firstEvent Event
-			if err := json.Unmarshal(firstMsg.Data, &firstEvent); err == nil {
-				// If the first event in the stream is newer than our position, skip historical events
-				if !isEventPositionNewerThanPosition(firstEvent.Position, lastPosition) {
-					logger.Infof("First event in nats jetstream is older than requested position, skip polling historical events from the event store.")
-					skipHistorical = true
-					lastPosition = firstEvent.Position
-				}
+	if afterPosition == nil {
+		// client is trying to subscribe from the latest position
+		s.logger.Infof("Position is nil")
+
+		// get the latest event matching the query criteria
+		resp, err := s.getEventsFn.Get(ctx, &GetEventsRequest{
+			Count:     1,
+			Direction: Direction_DESC,
+			Boundary:  boundary,
+			Query:     query,
+		})
+
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Events) > 0 {
+			// set the from position to the last event in the eventstore matching the query condition
+			timeToSubscribeFromJetstream = resp.Events[0].DateCreated.AsTime()
+		} else {
+			// no events match the query criteria, so we default to the latest event in the eventstore
+			if len(latestEventInTheEventstore.Events) > 0 {
+				timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
 			}
 		}
-	}
+	} else if afterPosition.CommitPosition == 0 && afterPosition.PreparePosition == 0 {
+		// client is subscribing from the beginning of the eventstore
+		s.logger.Infof("Position is 0,0")
 
-	// Process historical events
-	historicalDone := make(chan struct{})
-	var historicalErr error
-	var lastTime time.Time
-
-	go func() {
-		defer close(historicalDone)
-
-		if skipHistorical {
-			lastTime = time.Now()
-			return
-		}
-
-		lastPosition, lastTime, historicalErr = s.sendHistoricalEventsFromDatabaseToNats(
+		//there's a chance for an optimisation here, we fetch the oldest event matching the query criteria
+		// and set the timeToSubscribeFromJetstream to that event's time
+		oldestMatchingEvent, err := s.GetEvents(
 			ctx,
-			lastPosition,
-			query,
-			handler,
-			boundary,
+			&GetEventsRequest{
+				Query: query,
+				FromPosition: &Position{
+					CommitPosition:  0,
+					PreparePosition: 0,
+				},
+				Count:     1,
+				Direction: Direction_ASC,
+				Boundary:  boundary,
+			},
 		)
 
-		if historicalErr != nil {
-			logger.Errorf("Historical events processing failed: %v", historicalErr)
-			return
+		if err != nil {
+			return err
 		}
 
-		if (lastTime.Equal(time.Time{})) {
-			lastTime = time.Now()
+		if len(oldestMatchingEvent.Events) > 0 {
+			timeToSubscribeFromJetstream = oldestMatchingEvent.Events[0].DateCreated.AsTime()
+		} else {
+			// no events match the query criteria, so we default to the latest event in the eventstore.
+			timeToSubscribeFromJetstream = time.Unix(0, 0)
 		}
-
-		logger.Infof("Historical events processed up to %v", lastTime)
-	}()
-
-	if skipHistorical {
-		events, err := s.GetEvents(ctx, &GetEventsRequest{
-			Query:        query,
-			FromPosition: fromPosition,
-			Count:        1,
-			Direction:    Direction_DESC,
-			Boundary:     boundary,
-		})
+	} else {
+		events, err := s.GetEvents(
+			ctx,
+			&GetEventsRequest{
+				Query: query,
+				FromPosition: &Position{
+					CommitPosition:  afterPosition.CommitPosition,
+					PreparePosition: afterPosition.PreparePosition,
+				},
+				Count:     1,
+				Direction: Direction_DESC,
+				Boundary:  boundary,
+			},
+		)
 
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to get events: %v", err)
 		}
 
 		if len(events.Events) > 0 {
-			lastPosition = events.Events[0].Position
 			//start from 5 seconds before event time
-			lastTime = events.Events[0].DateCreated.AsTime().Add(-5 * time.Second)
+			timeToSubscribeFromJetstream = events.Events[0].DateCreated.AsTime()
 		} else {
-			return status.Errorf(codes.NotFound, "No event with position %v found", fromPosition)
+			// no events match the query criteria, so we default to the latest event in the eventstore, or now.
+			if len(latestEventInTheEventstore.Events) > 0 {
+				timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
+			}
 		}
 	}
 
-	// Wait for historical processing
-	select {
-	case <-historicalDone:
-		if historicalErr != nil {
-			return status.Errorf(codes.Internal, "historical events failed: %v", historicalErr)
-		}
-	case <-ctx.Done():
-		logger.Error("Context cancelled, stopping subscription")
-		return ctx.Err()
+	// Initialize position tracking
+	lastProcessedPosition := afterPosition
+
+	// Set up NATS subscription for live events
+	subs, err := s.js.Stream(ctx, GetEventsNatsJetstreamStreamStreamName(boundary))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
 	}
 
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
@@ -353,7 +349,7 @@ func (s *EventStore) SubscribeToEvents(
 		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
 		ReplayPolicy:  jetstream.ReplayInstantPolicy,
-		OptStartTime:  &lastTime,
+		OptStartTime:  &timeToSubscribeFromJetstream,
 	})
 
 	if err != nil {
@@ -378,49 +374,52 @@ func (s *EventStore) SubscribeToEvents(
 		for {
 			select {
 			case <-msgCtx.Done():
-				logger.Info("Message processing stopped")
+				s.logger.Info("Message processing stopped")
 				return
 			default:
 				msg, err := msgs.Next()
 				if err != nil {
 					if msgCtx.Err() != nil {
-						logger.Info("Context cancelled, stopping message processing")
+						s.logger.Info("Context cancelled, stopping message processing")
 						return
 					}
-					logger.Errorf("Error getting next message: %v", err)
+					s.logger.Errorf("Error getting next message: %v", err)
 					continue
 				}
 
 				var event Event
 				if err := json.Unmarshal(msg.Data(), &event); err != nil {
-					logger.Errorf("Failed to unmarshal event: %v", err)
+					s.logger.Errorf("Failed to unmarshal event: %v", err)
 					msg.Ack()
 					continue
 				}
 
-				isNewer := isEventPositionNewerThanPosition(event.Position, fromPosition)
+				isNewer := false
+				if lastProcessedPosition != nil {
+					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
+				}
 
-				if isNewer && s.eventMatchesQueryCriteria(&event, query) {
+				if isNewer && s.eventMatchesQueryCriteria(&event, query, nil) {
 					// Check context before attempting to send
 					select {
 					case <-msgCtx.Done():
 						// Context is cancelled, don't try to send
-						logger.Info("Context cancelled, not sending event")
+						s.logger.Info("Context cancelled, not sending event")
 						msg.Ack() // Acknowledge the message since we're shutting down
 						continue
 					default:
 						// Context is still active, proceed with send
 						if err := handler.Send(&event); err != nil {
-							logger.Errorf("Failed to send event: %v", err)
+							s.logger.Errorf("Failed to send event: %v", err)
 							msg.Nak() // Negative acknowledgment to retry later
 							continue
 						}
 					}
 
-					lastPosition = event.Position
+					lastProcessedPosition = event.Position
 
 					if err := msg.Ack(); err != nil {
-						logger.Errorf("Failed to acknowledge message: %v", err)
+						s.logger.Errorf("Failed to acknowledge message: %v", err)
 					}
 				} else {
 					msg.Ack() // Acknowledge messages that don't match criteria
@@ -432,10 +431,287 @@ func (s *EventStore) SubscribeToEvents(
 	// Wait for either context cancellation or message processing completion
 	select {
 	case <-ctx.Done():
-		logger.Info("Context cancelled, cleaning up subscription")
+		s.logger.Info("Context cancelled, cleaning up subscription")
 		return ctx.Err()
 	case <-msgDone:
-		logger.Info("Message processing completed")
+		s.logger.Info("Message processing completed")
+		return nil
+	}
+}
+
+func (s *EventStore) SubscribeToStream(
+	ctx context.Context,
+	boundary string,
+	subscriberName string,
+	query *Query,
+	stream string,
+	afterStreamVersion *int64,
+	handler globalCommon.MessageHandler[Event],
+) error {
+	err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName+"__"+stream)
+
+	if err != nil {
+		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
+	}
+
+	var now = time.Now()
+	var timeToSubscribeFromJetstream time.Time = now
+
+	// first get the latest event in the stream
+	latestEventInStream, err := s.getEventsFn.Get(
+		ctx,
+		&GetEventsRequest{
+			Count:     1,
+			Direction: Direction_DESC,
+			Boundary:  boundary,
+			Stream: &GetStreamQuery{
+				Name: stream,
+			},
+		},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// also get the latest event in the event store
+	latestEventInTheEventstore, err := s.getEventsFn.Get(
+		ctx,
+		&GetEventsRequest{
+			Count:     1,
+			Direction: Direction_DESC,
+			Boundary:  boundary,
+		},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if afterStreamVersion == nil {
+		// client is trying to subscribe from the latest version
+		s.logger.Infof("Version is nil")
+
+		// get the latest event matching the query criteria
+		resp, err := s.getEventsFn.Get(ctx, &GetEventsRequest{
+			Count:     1,
+			Direction: Direction_DESC,
+			Boundary:  boundary,
+			Query:     query,
+			Stream: &GetStreamQuery{
+				Name:        stream,
+				FromVersion: 999999999999999999,
+			},
+		})
+
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Events) > 0 {
+			// set timeToSubscribeFromJetstream to the last event in the stream matching the query condition
+			timeToSubscribeFromJetstream = resp.Events[0].DateCreated.AsTime()
+		} else {
+			if len(latestEventInStream.Events) > 0 {
+				// no events match the query criteria, so we default to the latest event in the stream
+				timeToSubscribeFromJetstream = latestEventInStream.Events[0].DateCreated.AsTime()
+			} else if len(latestEventInTheEventstore.Events) > 0 {
+				// no events in the stream, so we default to the latest event in the eventstore
+				timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
+			}
+		}
+	} else if *afterStreamVersion == -1 {
+		// client is subscribing from the beginning of the stream
+		s.logger.Infof("Version is -1")
+
+		//there's a chance for an optimisation here, we fetch the oldest event matching the query criteria
+		// and set the timeToSubscribeFromJetstream to that event's time
+		oldestMatchingEvent, err := s.GetEvents(
+			ctx,
+			&GetEventsRequest{
+				Query:     query,
+				Count:     1,
+				Direction: Direction_ASC,
+				Boundary:  boundary,
+				Stream: &GetStreamQuery{
+					Name:        stream,
+					FromVersion: 0,
+				},
+			},
+		)
+
+		if err != nil {
+			return err
+		}
+
+		if len(oldestMatchingEvent.Events) > 0 {
+			s.logger.Infof("Oldest matching event: %v", oldestMatchingEvent.Events[0])
+			timeToSubscribeFromJetstream = oldestMatchingEvent.Events[0].DateCreated.AsTime()
+		} else {
+			// no events match the query criteria, so we default to the first event in the stream.
+			firstEventInStream, err := s.GetEvents(
+				ctx,
+				&GetEventsRequest{
+					Count:     1,
+					Direction: Direction_ASC,
+					Boundary:  boundary,
+					Stream: &GetStreamQuery{
+						Name: stream,
+					},
+				},
+			)
+
+			if err != nil {
+				return err
+			}
+
+			if len(firstEventInStream.Events) > 0 {
+				timeToSubscribeFromJetstream = firstEventInStream.Events[0].DateCreated.AsTime()
+			} else {
+				//stream does not exist we can simply start from the latest event in the eventstore
+				if latestEventInTheEventstore.Events[0].DateCreated.AsTime() != time.Unix(0, 0) {
+					timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
+				}
+			}
+		}
+	} else {
+		events, err := s.GetEvents(
+			ctx,
+			&GetEventsRequest{
+				Query: query,
+				Stream: &GetStreamQuery{
+					Name:        stream,
+					FromVersion: *afterStreamVersion,
+				},
+				Count:     1,
+				Direction: Direction_DESC,
+				Boundary:  boundary,
+			},
+		)
+
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to get events: %v", err)
+		}
+
+		if len(events.Events) > 0 {
+			s.logger.Infof("Event: %v", events.Events[0])
+			timeToSubscribeFromJetstream = events.Events[0].DateCreated.AsTime()
+		} else {
+			// no events match the query criteria, so we default to the latest event in the eventstore, or now.
+			if len(latestEventInStream.Events) > 0 {
+				timeToSubscribeFromJetstream = latestEventInStream.Events[0].DateCreated.AsTime()
+			} else if len(latestEventInTheEventstore.Events) > 0 {
+				timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
+			}
+		}
+	}
+
+	// Initialize position tracking
+	var lastProcessedPosition *Position
+
+	// Set up NATS subscription for live events
+	subs, err := s.js.Stream(ctx, GetEventsNatsJetstreamStreamStreamName(boundary))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
+	}
+
+	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		// Name:          subscriberName,
+		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
+		AckPolicy:     jetstream.AckNonePolicy,
+		ReplayPolicy:  jetstream.ReplayInstantPolicy,
+		OptStartTime:  &timeToSubscribeFromJetstream,
+	})
+
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
+	}
+	defer subs.DeleteConsumer(ctx, subscriberName)
+
+	// Start consuming messages with a done channel for cleanup
+	msgDone := make(chan struct{})
+	msgCtx, msgCancel := context.WithCancel(ctx)
+	defer msgCancel()
+
+	// Start consuming messages
+	msgs, err := consumer.Messages(jetstream.PullMaxMessages(200))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get message iterator: %v", err)
+	}
+
+	// Start message processing in a separate goroutine
+	go func() {
+		defer close(msgDone)
+		for {
+			select {
+			case <-msgCtx.Done():
+				s.logger.Info("Message processing stopped")
+				return
+			default:
+				msg, err := msgs.Next()
+				if err != nil {
+					if msgCtx.Err() != nil {
+						s.logger.Info("Context cancelled, stopping message processing")
+						return
+					}
+					s.logger.Errorf("Error getting next message: %v", err)
+					continue
+				}
+
+				var event Event
+				if err := json.Unmarshal(msg.Data(), &event); err != nil {
+					s.logger.Errorf("Failed to unmarshal event: %v", err)
+					msg.Ack()
+					continue
+				}
+
+				isNewer := false
+				if lastProcessedPosition == nil {
+					if *afterStreamVersion == -1 {
+						isNewer = event.DateCreated.AsTime().After(timeToSubscribeFromJetstream) || event.DateCreated.AsTime().Equal(timeToSubscribeFromJetstream)
+					} else {
+						isNewer = event.DateCreated.AsTime().After(timeToSubscribeFromJetstream)
+					}
+				} else {
+					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
+				}
+
+				if isNewer && s.eventMatchesQueryCriteria(&event, query, &stream) {
+					// Check context before attempting to send
+					select {
+					case <-msgCtx.Done():
+						// Context is cancelled, don't try to send
+						s.logger.Info("Context cancelled, not sending event")
+						msg.Ack() // Acknowledge the message since we're shutting down
+						continue
+					default:
+						// Context is still active, proceed with send
+						if err := handler.Send(&event); err != nil {
+							s.logger.Errorf("Failed to send event: %v", err)
+							msg.Nak() // Negative acknowledgment to retry later
+							continue
+						}
+					}
+
+					lastProcessedPosition = event.Position
+
+					if err := msg.Ack(); err != nil {
+						s.logger.Errorf("Failed to acknowledge message: %v", err)
+					}
+				} else {
+					msg.Ack() // Acknowledge messages that don't match criteria
+				}
+			}
+		}
+	}()
+
+	// Wait for either context cancellation or message processing completion
+	select {
+	case <-ctx.Done():
+		s.logger.Info("Context cancelled, cleaning up subscription")
+		return ctx.Err()
+	case <-msgDone:
+		s.logger.Info("Message processing completed")
 		return nil
 	}
 }
@@ -449,7 +725,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Info("Message processing stopped")
+				s.logger.Info("Message processing stopped")
 				return
 
 			default:
@@ -457,10 +733,10 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 				if err != nil {
 					if ctx.Err() != nil {
 						// Context is cancelled, exit gracefully
-						logger.Info("Context cancelled, stopping event processing")
+						s.logger.Info("Context cancelled, stopping event processing")
 						return
 					}
-					logger.Errorf("Failed to receive event: %v", err)
+					s.logger.Errorf("Failed to receive event: %v", err)
 					continue
 				}
 
@@ -468,24 +744,75 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 				select {
 				case <-ctx.Done():
 					// Context is cancelled, don't try to send
-					logger.Info("Context cancelled, not sending event to stream")
+					s.logger.Info("Context cancelled, not sending event to stream")
 					return
 				default:
 					// Context is still active, proceed with send
 					if err := stream.Send(event); err != nil {
-						logger.Errorf("Failed to send event: %v", err)
+						s.logger.Errorf("Failed to send event: %v", err)
 						continue
 					}
 				}
 			}
 		}
 	}()
-	return s.SubscribeToEvents(
+	return s.SubscribeToAllEvents(
 		ctx,
 		req.Boundary,
 		req.SubscriberName,
-		req.GetPosition(),
+		req.GetAfterPosition(),
 		req.Query,
+		*messageHandler,
+	)
+}
+
+func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamRequest, stream EventStore_CatchUpSubscribeToStreamServer) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	messageHandler := globalCommon.NewMessageHandler[Event](ctx)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				s.logger.Info("Message processing stopped")
+				return
+
+			default:
+				event, err := messageHandler.Recv()
+				if err != nil {
+					if ctx.Err() != nil {
+						// Context is cancelled, exit gracefully
+						s.logger.Info("Context cancelled, stopping event processing")
+						return
+					}
+					s.logger.Errorf("Failed to receive event: %v", err)
+					continue
+				}
+
+				// Check context before sending to stream
+				select {
+				case <-ctx.Done():
+					// Context is cancelled, don't try to send
+					s.logger.Info("Context cancelled, not sending event to stream")
+					return
+				default:
+					// Context is still active, proceed with send
+					if err := stream.Send(event); err != nil {
+						s.logger.Errorf("Failed to send event: %v", err)
+						continue
+					}
+				}
+			}
+		}
+	}()
+	return s.SubscribeToStream(
+		ctx,
+		req.Boundary,
+		req.SubscriberName,
+		req.Query,
+		req.Stream,
+		&req.AfterVersion,
 		*messageHandler,
 	)
 }
@@ -520,32 +847,50 @@ func (s *EventStore) sendHistoricalEventsFromDatabaseToNats(
 	ctx context.Context,
 	fromPosition *Position,
 	query *Query,
-	stream globalCommon.MessageHandler[Event],
-	boundary string) (*Position, time.Time, error) {
-
+	stream *string,
+	fromStreamVersion *int64,
+	messageHandler globalCommon.MessageHandler[Event],
+	boundary string,
+) (*Position, time.Time, error) {
 	lastPosition := fromPosition
 	var lastEventTime time.Time
 	batchSize := uint32(100) // Adjust as needed
 
+	getEventsRequest := &GetEventsRequest{
+		Query:        query,
+		FromPosition: lastPosition,
+		Count:        batchSize,
+		Direction:    Direction_ASC,
+		Boundary:     boundary,
+	}
+
+	if stream != nil && strings.TrimSpace(*stream) != "" {
+		getEventsRequest.FromPosition = nil
+		getEventsRequest.Stream = &GetStreamQuery{
+			Name: *stream,
+		}
+		if fromStreamVersion != nil {
+			getEventsRequest.Stream.FromVersion = *fromStreamVersion
+		}
+	}
+
 	for {
-		events, err := s.GetEvents(ctx, &GetEventsRequest{
-			Query:        query,
-			FromPosition: lastPosition,
-			Count:        batchSize,
-			Direction:    Direction_ASC,
-			Boundary:     boundary,
-		})
+		events, err := s.GetEvents(ctx, getEventsRequest)
 
 		if err != nil {
 			return nil, time.Time{}, status.Errorf(codes.Internal, "failed to fetch historical events: %v", err)
 		}
 
 		for _, event := range events.Events {
-			if err := stream.Send(event); err != nil {
+			if err := messageHandler.Send(event); err != nil {
 				return nil, time.Time{}, err
 			}
 			lastPosition = event.Position
 			lastEventTime = event.DateCreated.AsTime()
+			if fromStreamVersion != nil && stream != nil && strings.TrimSpace(*stream) != "" {
+				version := int64(event.Version)
+				getEventsRequest.Stream.FromVersion = version
+			}
 		}
 
 		if len(events.Events) < int(batchSize) {
@@ -554,7 +899,7 @@ func (s *EventStore) sendHistoricalEventsFromDatabaseToNats(
 		}
 	}
 
-	logger.Debugf("Finished sending historical events %v")
+	s.logger.Debugf("Finished sending historical events %v")
 
 	return lastPosition, lastEventTime, nil
 }
@@ -576,7 +921,11 @@ func validateSaveEventsRequest(req *SaveEventsRequest) error {
 	return nil
 }
 
-func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bool {
+func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query, stream *string) bool {
+	if stream != nil && strings.TrimSpace(*stream) != event.StreamId {
+		return false
+	}
+
 	if criteria == nil || len(criteria.Criteria) == 0 {
 		return true
 	}

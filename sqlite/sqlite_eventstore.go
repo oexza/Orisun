@@ -53,7 +53,7 @@ func NewSQLiteLockProvider(db *sql.DB, logger logging.Logger) *SQLiteLockProvide
 	return &SQLiteLockProvider{db: db, logger: logger}
 }
 
-func (m *SQLiteLockProvider) Lock(ctx context.Context, lockName string) (eventstore.UnlockFunc, error) {
+func (m *SQLiteLockProvider) Lock(ctx context.Context, lockName string) error {
 	// Implementation for SQLite locking
-	return nil, status.Errorf(codes.Unimplemented, "SQLite implementation not yet complete")
+	return status.Errorf(codes.Unimplemented, "SQLite implementation not yet complete")
 }

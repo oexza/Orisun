@@ -231,7 +231,17 @@ func main() {
 		config.Admin.Boundary,
 		adminDB.GetProjectorLastPosition,
 		adminDB.UpdateProjectorPosition,
-		eventStore.SubscribeToEvents,
+		func(
+			ctx context.Context,
+			boundary string,
+			subscriberName string,
+			pos *pb.Position,
+			query *pb.Query,
+			handler globalCommon.MessageHandler[pb.Event]) error {
+			return eventStore.SubscribeToAllEvents(
+				ctx, boundary, subscriberName, pos, query, handler,
+			)
+		},
 		getUserCount,
 		jetStreamPublishFunction,
 		adminDB.SaveUsersCount,
@@ -247,7 +257,17 @@ func main() {
 		boundariesArray,
 		adminDB.GetProjectorLastPosition,
 		adminDB.UpdateProjectorPosition,
-		eventStore.SubscribeToEvents,
+		func(
+			ctx context.Context,
+			boundary string,
+			subscriberName string,
+			pos *pb.Position,
+			query *pb.Query,
+			handler globalCommon.MessageHandler[pb.Event]) error {
+			return eventStore.SubscribeToAllEvents(
+				ctx, boundary, subscriberName, pos, query, handler,
+			)
+		},
 		getEventCount,
 		jetStreamPublishFunction,
 		adminDB.SaveEventCount,
@@ -261,7 +281,17 @@ func main() {
 		adminDB.UpdateProjectorPosition,
 		adminDB.CreateNewUser,
 		adminDB.DeleteUser,
-		eventStore.SubscribeToEvents,
+		func(
+			ctx context.Context,
+			boundary string,
+			subscriberName string,
+			pos *pb.Position,
+			query *pb.Query,
+			handler globalCommon.MessageHandler[pb.Event]) error {
+			return eventStore.SubscribeToAllEvents(
+				ctx, boundary, subscriberName, pos, query, handler,
+			)
+		},
 		eventStore.SaveEvents,
 		eventStore.GetEvents,
 		AppLogger,
@@ -270,7 +300,17 @@ func main() {
 	startAuthUserProjector(
 		ctx,
 		config.Admin.Boundary,
-		eventStore.SubscribeToEvents,
+		func(
+			ctx context.Context,
+			boundary string,
+			subscriberName string,
+			pos *pb.Position,
+			query *pb.Query,
+			handler globalCommon.MessageHandler[pb.Event]) error {
+			return eventStore.SubscribeToAllEvents(
+				ctx, boundary, subscriberName, pos, query, handler,
+			)
+		},
 		AppLogger,
 	)
 
@@ -405,7 +445,17 @@ func main() {
 		AppLogger,
 		config.Admin.Boundary,
 		adminDB.ListAdminUsers,
-		eventStore.SubscribeToEvents,
+		func(
+			ctx context.Context,
+			boundary string,
+			subscriberName string,
+			pos *pb.Position,
+			query *pb.Query,
+			handler globalCommon.MessageHandler[pb.Event]) error {
+			return eventStore.SubscribeToAllEvents(
+				ctx, boundary, subscriberName, pos, query, handler,
+			)
+		},
 	)
 
 	changePasswordHandler := changepassword.NewChangePasswordHandler(
@@ -668,7 +718,9 @@ func startEventPolling(
 	eventPublishing common.EventPublishing,
 	logger l.Logger) {
 	for _, schema := range config.Postgres.GetSchemaMapping() {
-		unlock, err := lockProvider.Lock(ctx, schema.Boundary)
+		// acquire this lock so that all instances of the event store
+		// for this boundary are not polling at the same time
+		err := lockProvider.Lock(ctx, schema.Boundary)
 		if err != nil {
 			logger.Fatalf("Failed to acquire lock: %v", err)
 		}
@@ -683,7 +735,6 @@ func startEventPolling(
 		logger.Infof("Last published position for schema %v: %v", schema, &lastPosition)
 
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
-			defer unlock()
 			PollEventsFromDatabaseToNats(
 				ctx,
 				js,
@@ -899,10 +950,13 @@ func PollEventsFromDatabaseToNats(
 
 		logger.Debugf("Polling for boundary: %v", boundary)
 		req := &pb.GetEventsRequest{
-			FromPosition: lastPosition,
-			Count:        batchSize,
-			Direction:    pb.Direction_ASC,
-			Boundary:     boundary,
+			FromPosition: &pb.Position{
+				CommitPosition:  lastPosition.CommitPosition,
+				PreparePosition: lastPosition.PreparePosition + 1, // we start from the next position since the underlying database is assumed to be position inclusive in its query handling.
+			},
+			Count:     batchSize,
+			Direction: pb.Direction_ASC,
+			Boundary:  boundary,
 		}
 		resp, err := eventStore.Get(ctx, req)
 		if err != nil {
@@ -913,8 +967,9 @@ func PollEventsFromDatabaseToNats(
 		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
 
 		for _, event := range resp.Events {
-			subjectName := pb.GetEventSubjectName(
+			subjectName := pb.GetEventJetstreamSubjectName(
 				boundary,
+				event.StreamId,
 				&pb.Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,
@@ -924,7 +979,7 @@ func PollEventsFromDatabaseToNats(
 			eventData, err := json.Marshal(event)
 			if err != nil {
 				logger.Errorf("Failed to marshal event: %v", err)
-				continue
+				panic(err)
 			}
 			publishEventWithRetry(
 				ctx,
@@ -968,22 +1023,19 @@ func publishEventWithRetry(
 	subjectName string, preparePosition int64,
 	commitPosition int64, logger l.Logger) {
 
-	attempt := 1
-
 	messageIdOpts := jetstream.PublishOpt(
 		jetstream.WithMsgID(pb.GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
 	)
-	retryOpts := jetstream.WithRetryAttempts(999999999999)
+	retryOpts := jetstream.WithRetryAttempts(5)
 
 	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
 	if err == nil {
-		logger.Debugf("Successfully published event after %d attempts", attempt)
+		logger.Debugf("Successfully published event to jetstream")
 		return
 	}
 
-	logger.Errorf("Failed to publish event (attempt %d): ", err)
-
-	publishEventWithRetry(ctx, js, eventData, subjectName, preparePosition, commitPosition, logger)
+	logger.Errorf("Failed to publish event: %v, this should not happen.", err)
+	panic(err)
 }
 
 func getBoundaryNames(boundary *[]c.Boundary) *[]string {

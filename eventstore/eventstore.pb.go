@@ -774,7 +774,7 @@ func (x *GetEventsResponse) GetEvents() []*Event {
 
 type CatchUpSubscribeToEventStoreRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	Position       *Position              `protobuf:"bytes,1,opt,name=position,proto3" json:"position,omitempty"`
+	AfterPosition  *Position              `protobuf:"bytes,1,opt,name=afterPosition,proto3" json:"afterPosition,omitempty"`
 	Query          *Query                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
 	SubscriberName string                 `protobuf:"bytes,3,opt,name=subscriber_name,json=subscriberName,proto3" json:"subscriber_name,omitempty"`
 	Boundary       string                 `protobuf:"bytes,4,opt,name=boundary,proto3" json:"boundary,omitempty"`
@@ -812,9 +812,9 @@ func (*CatchUpSubscribeToEventStoreRequest) Descriptor() ([]byte, []int) {
 	return file_eventstore_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *CatchUpSubscribeToEventStoreRequest) GetPosition() *Position {
+func (x *CatchUpSubscribeToEventStoreRequest) GetAfterPosition() *Position {
 	if x != nil {
-		return x.Position
+		return x.AfterPosition
 	}
 	return nil
 }
@@ -838,6 +838,82 @@ func (x *CatchUpSubscribeToEventStoreRequest) GetBoundary() string {
 		return x.Boundary
 	}
 	return ""
+}
+
+type CatchUpSubscribeToStreamRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Query          *Query                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
+	SubscriberName string                 `protobuf:"bytes,3,opt,name=subscriber_name,json=subscriberName,proto3" json:"subscriber_name,omitempty"`
+	Boundary       string                 `protobuf:"bytes,4,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	Stream         string                 `protobuf:"bytes,5,opt,name=stream,proto3" json:"stream,omitempty"`
+	AfterVersion   int64                  `protobuf:"varint,6,opt,name=afterVersion,proto3" json:"afterVersion,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CatchUpSubscribeToStreamRequest) Reset() {
+	*x = CatchUpSubscribeToStreamRequest{}
+	mi := &file_eventstore_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CatchUpSubscribeToStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CatchUpSubscribeToStreamRequest) ProtoMessage() {}
+
+func (x *CatchUpSubscribeToStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_eventstore_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CatchUpSubscribeToStreamRequest.ProtoReflect.Descriptor instead.
+func (*CatchUpSubscribeToStreamRequest) Descriptor() ([]byte, []int) {
+	return file_eventstore_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *CatchUpSubscribeToStreamRequest) GetQuery() *Query {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *CatchUpSubscribeToStreamRequest) GetSubscriberName() string {
+	if x != nil {
+		return x.SubscriberName
+	}
+	return ""
+}
+
+func (x *CatchUpSubscribeToStreamRequest) GetBoundary() string {
+	if x != nil {
+		return x.Boundary
+	}
+	return ""
+}
+
+func (x *CatchUpSubscribeToStreamRequest) GetStream() string {
+	if x != nil {
+		return x.Stream
+	}
+	return ""
+}
+
+func (x *CatchUpSubscribeToStreamRequest) GetAfterVersion() int64 {
+	if x != nil {
+		return x.AfterVersion
+	}
+	return 0
 }
 
 var File_eventstore_proto protoreflect.FileDescriptor
@@ -893,21 +969,28 @@ const file_eventstore_proto_rawDesc = "" +
 	"\bboundary\x18\x05 \x01(\tR\bboundary\x122\n" +
 	"\x06stream\x18\x06 \x01(\v2\x1a.eventstore.GetStreamQueryR\x06stream\">\n" +
 	"\x11GetEventsResponse\x12)\n" +
-	"\x06events\x18\x01 \x03(\v2\x11.eventstore.EventR\x06events\"\xc5\x01\n" +
-	"#CatchUpSubscribeToEventStoreRequest\x120\n" +
-	"\bposition\x18\x01 \x01(\v2\x14.eventstore.PositionR\bposition\x12'\n" +
+	"\x06events\x18\x01 \x03(\v2\x11.eventstore.EventR\x06events\"\xcf\x01\n" +
+	"#CatchUpSubscribeToEventStoreRequest\x12:\n" +
+	"\rafterPosition\x18\x01 \x01(\v2\x14.eventstore.PositionR\rafterPosition\x12'\n" +
 	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
-	"\bboundary\x18\x04 \x01(\tR\bboundary*\x1e\n" +
+	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xcb\x01\n" +
+	"\x1fCatchUpSubscribeToStreamRequest\x12'\n" +
+	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
+	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
+	"\bboundary\x18\x04 \x01(\tR\bboundary\x12\x16\n" +
+	"\x06stream\x18\x05 \x01(\tR\x06stream\x12\"\n" +
+	"\fafterVersion\x18\x06 \x01(\x03R\fafterVersion*\x1e\n" +
 	"\tDirection\x12\a\n" +
 	"\x03ASC\x10\x00\x12\b\n" +
-	"\x04DESC\x10\x012\x84\x02\n" +
+	"\x04DESC\x10\x012\xe4\x02\n" +
 	"\n" +
 	"EventStore\x12F\n" +
 	"\n" +
 	"SaveEvents\x12\x1d.eventstore.SaveEventsRequest\x1a\x17.eventstore.WriteResult\"\x00\x12J\n" +
 	"\tGetEvents\x12\x1c.eventstore.GetEventsRequest\x1a\x1d.eventstore.GetEventsResponse\"\x00\x12b\n" +
-	"\x18CatchUpSubscribeToEvents\x12/.eventstore.CatchUpSubscribeToEventStoreRequest\x1a\x11.eventstore.Event\"\x000\x01B*\n" +
+	"\x18CatchUpSubscribeToEvents\x12/.eventstore.CatchUpSubscribeToEventStoreRequest\x1a\x11.eventstore.Event\"\x000\x01\x12^\n" +
+	"\x18CatchUpSubscribeToStream\x12+.eventstore.CatchUpSubscribeToStreamRequest\x1a\x11.eventstore.Event\"\x000\x01B*\n" +
 	"\x15com.orisun.eventstoreZ\x11orisun/eventstoreb\x06proto3"
 
 var (
@@ -923,7 +1006,7 @@ func file_eventstore_proto_rawDescGZIP() []byte {
 }
 
 var file_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_eventstore_proto_goTypes = []any{
 	(Direction)(0),                              // 0: eventstore.Direction
 	(*Position)(nil),                            // 1: eventstore.Position
@@ -939,13 +1022,14 @@ var file_eventstore_proto_goTypes = []any{
 	(*GetEventsRequest)(nil),                    // 11: eventstore.GetEventsRequest
 	(*GetEventsResponse)(nil),                   // 12: eventstore.GetEventsResponse
 	(*CatchUpSubscribeToEventStoreRequest)(nil), // 13: eventstore.CatchUpSubscribeToEventStoreRequest
-	(*timestamppb.Timestamp)(nil),               // 14: google.protobuf.Timestamp
+	(*CatchUpSubscribeToStreamRequest)(nil),     // 14: eventstore.CatchUpSubscribeToStreamRequest
+	(*timestamppb.Timestamp)(nil),               // 15: google.protobuf.Timestamp
 }
 var file_eventstore_proto_depIdxs = []int32{
 	2,  // 0: eventstore.Criterion.tags:type_name -> eventstore.Tag
 	3,  // 1: eventstore.Query.criteria:type_name -> eventstore.Criterion
 	1,  // 2: eventstore.Event.position:type_name -> eventstore.Position
-	14, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
+	15, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
 	1,  // 4: eventstore.WriteResult.log_position:type_name -> eventstore.Position
 	4,  // 5: eventstore.SaveStreamQuery.subsetQuery:type_name -> eventstore.Query
 	8,  // 6: eventstore.SaveEventsRequest.stream:type_name -> eventstore.SaveStreamQuery
@@ -955,19 +1039,22 @@ var file_eventstore_proto_depIdxs = []int32{
 	0,  // 10: eventstore.GetEventsRequest.direction:type_name -> eventstore.Direction
 	10, // 11: eventstore.GetEventsRequest.stream:type_name -> eventstore.GetStreamQuery
 	6,  // 12: eventstore.GetEventsResponse.events:type_name -> eventstore.Event
-	1,  // 13: eventstore.CatchUpSubscribeToEventStoreRequest.position:type_name -> eventstore.Position
+	1,  // 13: eventstore.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> eventstore.Position
 	4,  // 14: eventstore.CatchUpSubscribeToEventStoreRequest.query:type_name -> eventstore.Query
-	9,  // 15: eventstore.EventStore.SaveEvents:input_type -> eventstore.SaveEventsRequest
-	11, // 16: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
-	13, // 17: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
-	7,  // 18: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
-	12, // 19: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
-	6,  // 20: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
-	18, // [18:21] is the sub-list for method output_type
-	15, // [15:18] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	4,  // 15: eventstore.CatchUpSubscribeToStreamRequest.query:type_name -> eventstore.Query
+	9,  // 16: eventstore.EventStore.SaveEvents:input_type -> eventstore.SaveEventsRequest
+	11, // 17: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
+	13, // 18: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
+	14, // 19: eventstore.EventStore.CatchUpSubscribeToStream:input_type -> eventstore.CatchUpSubscribeToStreamRequest
+	7,  // 20: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
+	12, // 21: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
+	6,  // 22: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
+	6,  // 23: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
+	20, // [20:24] is the sub-list for method output_type
+	16, // [16:20] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_eventstore_proto_init() }
@@ -981,7 +1068,7 @@ func file_eventstore_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_eventstore_proto_rawDesc), len(file_eventstore_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

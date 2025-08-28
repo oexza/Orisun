@@ -22,6 +22,7 @@ const (
 	EventStore_SaveEvents_FullMethodName               = "/eventstore.EventStore/SaveEvents"
 	EventStore_GetEvents_FullMethodName                = "/eventstore.EventStore/GetEvents"
 	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToEvents"
+	EventStore_CatchUpSubscribeToStream_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToStream"
 )
 
 // EventStoreClient is the client API for EventStore service.
@@ -31,6 +32,7 @@ type EventStoreClient interface {
 	SaveEvents(ctx context.Context, in *SaveEventsRequest, opts ...grpc.CallOption) (*WriteResult, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	CatchUpSubscribeToEvents(ctx context.Context, in *CatchUpSubscribeToEventStoreRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
+	CatchUpSubscribeToStream(ctx context.Context, in *CatchUpSubscribeToStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 }
 
 type eventStoreClient struct {
@@ -80,6 +82,25 @@ func (c *eventStoreClient) CatchUpSubscribeToEvents(ctx context.Context, in *Cat
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventStore_CatchUpSubscribeToEventsClient = grpc.ServerStreamingClient[Event]
 
+func (c *eventStoreClient) CatchUpSubscribeToStream(ctx context.Context, in *CatchUpSubscribeToStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &EventStore_ServiceDesc.Streams[1], EventStore_CatchUpSubscribeToStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[CatchUpSubscribeToStreamRequest, Event]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventStore_CatchUpSubscribeToStreamClient = grpc.ServerStreamingClient[Event]
+
 // EventStoreServer is the server API for EventStore service.
 // All implementations must embed UnimplementedEventStoreServer
 // for forward compatibility.
@@ -87,6 +108,7 @@ type EventStoreServer interface {
 	SaveEvents(context.Context, *SaveEventsRequest) (*WriteResult, error)
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error
+	CatchUpSubscribeToStream(*CatchUpSubscribeToStreamRequest, grpc.ServerStreamingServer[Event]) error
 	mustEmbedUnimplementedEventStoreServer()
 }
 
@@ -105,6 +127,9 @@ func (UnimplementedEventStoreServer) GetEvents(context.Context, *GetEventsReques
 }
 func (UnimplementedEventStoreServer) CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method CatchUpSubscribeToEvents not implemented")
+}
+func (UnimplementedEventStoreServer) CatchUpSubscribeToStream(*CatchUpSubscribeToStreamRequest, grpc.ServerStreamingServer[Event]) error {
+	return status.Errorf(codes.Unimplemented, "method CatchUpSubscribeToStream not implemented")
 }
 func (UnimplementedEventStoreServer) mustEmbedUnimplementedEventStoreServer() {}
 func (UnimplementedEventStoreServer) testEmbeddedByValue()                    {}
@@ -174,6 +199,17 @@ func _EventStore_CatchUpSubscribeToEvents_Handler(srv interface{}, stream grpc.S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventStore_CatchUpSubscribeToEventsServer = grpc.ServerStreamingServer[Event]
 
+func _EventStore_CatchUpSubscribeToStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(CatchUpSubscribeToStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(EventStoreServer).CatchUpSubscribeToStream(m, &grpc.GenericServerStream[CatchUpSubscribeToStreamRequest, Event]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventStore_CatchUpSubscribeToStreamServer = grpc.ServerStreamingServer[Event]
+
 // EventStore_ServiceDesc is the grpc.ServiceDesc for EventStore service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -194,6 +230,11 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "CatchUpSubscribeToEvents",
 			Handler:       _EventStore_CatchUpSubscribeToEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "CatchUpSubscribeToStream",
+			Handler:       _EventStore_CatchUpSubscribeToStream_Handler,
 			ServerStreams: true,
 		},
 	},

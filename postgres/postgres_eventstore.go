@@ -48,29 +48,7 @@ func NewPostgresSaveEvents(
 	db *sql.DB,
 	logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresSaveEvents {
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		for range ticker.C {
-			if ctx.Err() != nil {
-				return
-			}
-			err := cleanPendingList(ctx, db, logger)
-			if err != nil {
-				logger.Error("Error cleaning pending list: %v", err)
-			}
-		}
-	}()
 	return &PostgresSaveEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
-}
-
-func cleanPendingList(ctx context.Context, db *sql.DB, logger logging.Logger) error {
-	_, err := db.ExecContext(ctx, "select gin_clean_pending_list('idx_stream_version_tags')")
-	if err != nil {
-		logger.Error("Error cleaning pending list: %v", err)
-		return err
-	}
-	logger.Debugf("Cleaned pending list")
-	return nil
 }
 
 func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
@@ -233,10 +211,10 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 	defer tx.Rollback()
 
-	// _, errr := tx.Exec("SET log_statement = 'all';")
-	// if errr != nil {
-	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
-	// }
+	_, errr := tx.Exec("SET log_statement = 'all';")
+	if errr != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	}
 
 	// Prepare the query once
 	// query := fmt.Sprintf(selectMatchingEvents)
