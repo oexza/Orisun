@@ -843,67 +843,6 @@ func isEventPositionNewerThanPosition(newPosition, lastPosition *Position) bool 
 	return compResult == IsGreaterThan
 }
 
-func (s *EventStore) sendHistoricalEventsFromDatabaseToNats(
-	ctx context.Context,
-	fromPosition *Position,
-	query *Query,
-	stream *string,
-	fromStreamVersion *int64,
-	messageHandler globalCommon.MessageHandler[Event],
-	boundary string,
-) (*Position, time.Time, error) {
-	lastPosition := fromPosition
-	var lastEventTime time.Time
-	batchSize := uint32(100) // Adjust as needed
-
-	getEventsRequest := &GetEventsRequest{
-		Query:        query,
-		FromPosition: lastPosition,
-		Count:        batchSize,
-		Direction:    Direction_ASC,
-		Boundary:     boundary,
-	}
-
-	if stream != nil && strings.TrimSpace(*stream) != "" {
-		getEventsRequest.FromPosition = nil
-		getEventsRequest.Stream = &GetStreamQuery{
-			Name: *stream,
-		}
-		if fromStreamVersion != nil {
-			getEventsRequest.Stream.FromVersion = *fromStreamVersion
-		}
-	}
-
-	for {
-		events, err := s.GetEvents(ctx, getEventsRequest)
-
-		if err != nil {
-			return nil, time.Time{}, status.Errorf(codes.Internal, "failed to fetch historical events: %v", err)
-		}
-
-		for _, event := range events.Events {
-			if err := messageHandler.Send(event); err != nil {
-				return nil, time.Time{}, err
-			}
-			lastPosition = event.Position
-			lastEventTime = event.DateCreated.AsTime()
-			if fromStreamVersion != nil && stream != nil && strings.TrimSpace(*stream) != "" {
-				version := int64(event.Version)
-				getEventsRequest.Stream.FromVersion = version
-			}
-		}
-
-		if len(events.Events) < int(batchSize) {
-			// We've reached the end of historical events
-			break
-		}
-	}
-
-	s.logger.Debugf("Finished sending historical events %v")
-
-	return lastPosition, lastEventTime, nil
-}
-
 // Add the validation function
 func validateSaveEventsRequest(req *SaveEventsRequest) error {
 	if req == nil {
