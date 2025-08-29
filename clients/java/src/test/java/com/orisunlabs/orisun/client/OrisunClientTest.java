@@ -3,51 +3,65 @@ package com.orisunlabs.orisun.client;
 import com.orisun.eventstore.EventStoreGrpc;
 import com.orisun.eventstore.Eventstore;
 import com.orisun.eventstore.Eventstore.*;
-
+import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
-import io.grpc.testing.GrpcCleanupRule;
-import org.junit.Rule;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.net.ServerSocket;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class OrisunClientTest {
-    @Rule
-    public final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
 
     private MockEventStoreService mockService;
     private OrisunClient client;
+    private Server server;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Choose a free port
-        ServerSocket socket = new ServerSocket(8087);
-        int port = socket.getLocalPort();
-        socket.close();
+        // Choose a free ephemeral port
+        final int port;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+        }
 
         mockService = new MockEventStoreService();
 
-        // Create and start the server on a port
-        final var server = ServerBuilder.forPort(port)
+        // Create and start the server on the chosen port
+        server = ServerBuilder.forPort(port)
                 .addService(mockService)
                 .build()
                 .start();
-        grpcCleanup.register(server);
 
         // Create the client using the port
         client = OrisunClient
                 .newBuilder()
                 .withServer("localhost", port)
                 .build();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        // Best-effort client cleanup if it supports it
+        if (client instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) client).close();
+            } catch (Exception ignored) {
+                // Ignore shutdown errors in tests
+            }
+        }
+        if (server != null) {
+            server.shutdownNow();
+            server.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test
@@ -90,7 +104,7 @@ class OrisunClientTest {
     @Test
     void testSubscribeToEvents() throws Exception {
         CountDownLatch eventLatch = new CountDownLatch(1);
-        List<Event> receivedEvents = new ArrayList<>();
+        List<Event> receivedEvents = new CopyOnWriteArrayList<>();
 
         // Prepare subscription request
         final var request = CatchUpSubscribeToEventStoreRequest.newBuilder()

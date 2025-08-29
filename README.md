@@ -654,7 +654,106 @@ go run main.go
 ```
 
 ### Client Libraries
-- coming soon...
+
+While official client libraries are coming soon, you can generate clients for your favorite programming language using the Protocol Buffers definition file.
+
+**Generate clients from the proto file:**
+
+The gRPC service definition is available at `eventstore/eventstore.proto`. You can use the Protocol Buffers compiler (`protoc`) to generate client code for any supported language.
+
+**Examples:**
+
+**Go Client:**
+```bash
+# Install protoc-gen-go and protoc-gen-go-grpc
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go client
+protoc --go_out=. --go_opt=paths=source_relative \
+       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+       eventstore/eventstore.proto
+```
+
+**Python Client:**
+```bash
+# Install grpcio-tools
+pip install grpcio-tools
+
+# Generate Python client
+python -m grpc_tools.protoc -I. \
+       --python_out=. \
+       --grpc_python_out=. \
+       eventstore/eventstore.proto
+```
+
+**Java Client:**
+```bash
+# Using protoc with Java plugin
+protoc --java_out=src/main/java \
+       --grpc-java_out=src/main/java \
+       --plugin=protoc-gen-grpc-java=/path/to/protoc-gen-grpc-java \
+       eventstore/eventstore.proto
+```
+
+**Node.js/TypeScript Client:**
+```bash
+# Install dependencies
+npm install grpc-tools @grpc/grpc-js @grpc/proto-loader
+
+# Generate TypeScript definitions
+protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts \
+       --ts_out=grpc_js:. \
+       --js_out=import_style=commonjs:. \
+       --grpc_out=grpc_js:. \
+       eventstore/eventstore.proto
+```
+
+**C# Client:**
+```bash
+# Install Grpc.Tools package
+dotnet add package Grpc.Tools
+
+# Generate C# client (add to .csproj)
+<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
+```
+
+**Using the Generated Client:**
+
+Once you've generated the client code, you can connect to Orisun and use the EventStore service:
+
+```go
+// Go example
+conn, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
+if err != nil {
+    log.Fatal(err)
+}
+defer conn.Close()
+
+client := eventstore.NewEventStoreClient(conn)
+
+// Add basic auth header
+ctx := metadata.AppendToOutgoingContext(context.Background(), 
+    "authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("username:password")))
+
+// Save events
+response, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
+    Boundary: "orisun_test_1",
+    Events: []*eventstore.Event{
+        {
+            EventId: "unique-event-id",
+            EventType: "UserRegistered",
+            Data: `{"email": "user@example.com"}`,
+        },
+    },
+})
+```
+
+**Authentication:**
+All gRPC calls require basic authentication. Include the authorization header with base64-encoded credentials:
+```
+Authorization: Basic <base64(username:password)>
+```
 
 ## Architecture
 Orisun uses:
