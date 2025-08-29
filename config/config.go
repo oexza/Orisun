@@ -55,6 +55,9 @@ type DBConfig struct {
 	Host     string
 	Port     string
 	Schemas  string
+	MaxOpenConns  int
+	MaxIdleConns  int
+	ConnMaxIdleTime time.Duration
 }
 
 type BoundaryToPostgresSchemaMapping struct {

@@ -5,6 +5,9 @@ postgres:
   host: ${ORISUN_PG_HOST:localhost}
   port: ${ORISUN_PG_PORT:5434}
   schemas: ${ORISUN_PG_SCHEMAS:`orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`}
+  maxOpenConns: ${ORISUN_PG_MAX_OPEN_CONNS:25}
+  maxIdleConns: ${ORISUN_PG_MAX_IDLE_CONNS:5}
+  connMaxIdleTime: ${ORISUN_PG_CONN_MAX_IDLE_TIME:1m}
 
 boundaries: ${ORISUN_BOUNDARIES:`[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]`}
 

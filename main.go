@@ -536,6 +536,17 @@ func initializeDatabase(
 	if err != nil {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}
+
+	// Configure connection pooling
+	db.SetMaxOpenConns(config.Postgres.MaxOpenConns)       // Maximum number of open connections
+	db.SetMaxIdleConns(config.Postgres.MaxIdleConns)       // Maximum number of idle connections
+	db.SetConnMaxIdleTime(config.Postgres.ConnMaxIdleTime) // Maximum idle time of a connection
+
+	// Test the connection
+	if err = db.PingContext(ctx); err != nil {
+		logger.Fatalf("Failed to ping database: %v", err)
+	}
+	logger.Info("Database connection established with connection pooling")
 	go func() {
 		<-ctx.Done()
 		logger.Info("Shutting down database connection")
