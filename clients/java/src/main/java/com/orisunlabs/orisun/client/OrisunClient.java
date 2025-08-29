@@ -182,6 +182,7 @@ public class OrisunClient implements AutoCloseable {
                     e.getStatus().getDescription(), versions[0], versions[1]
             );
         }
+
         return new OrisunException("Failed to save events", e);
     }
 

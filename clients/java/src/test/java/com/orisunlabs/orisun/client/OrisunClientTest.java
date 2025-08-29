@@ -30,7 +30,7 @@ class OrisunClientTest {
     @BeforeEach
     void setUp() throws Exception {
         // Choose a free port
-        ServerSocket socket = new ServerSocket(8080);
+        ServerSocket socket = new ServerSocket(8087);
         int port = socket.getLocalPort();
         socket.close();
 
@@ -118,10 +118,13 @@ class OrisunClientTest {
                 })) {
 
             // Simulate server sending an event
-            mockService.sendEvent(Event.newBuilder()
-                    .setEventId(UUID.randomUUID().toString())
-                    .setEventType("UserCreated")
-                    .build());
+            mockService.sendEvent(
+                    Event.newBuilder()
+                            .setEventId(UUID.randomUUID().toString())
+                            .setEventType("UserCreated")
+                            .setData("{\"username\":\"test\"}")
+                            .build()
+            );
 
             // Wait for event to be received
             assertTrue(eventLatch.await(5, TimeUnit.SECONDS));
@@ -159,7 +162,7 @@ class OrisunClientTest {
 
         @Override
         public void catchUpSubscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-                StreamObserver<Eventstore.Event> responseObserver) {
+                                             StreamObserver<Eventstore.Event> responseObserver) {
             this.eventObserver = responseObserver;
         }
     }

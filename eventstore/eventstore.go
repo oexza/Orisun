@@ -252,7 +252,7 @@ func (s *EventStore) SubscribeToAllEvents(
 
 	if afterPosition == nil {
 		// client is trying to subscribe from the latest position
-		s.logger.Infof("Position is nil")
+		s.logger.Infof("Position is nil, subscribing from the latest position")
 
 		// get the latest event matching the query criteria
 		resp, err := s.getEventsFn.Get(ctx, &GetEventsRequest{
@@ -267,6 +267,7 @@ func (s *EventStore) SubscribeToAllEvents(
 		}
 
 		if len(resp.Events) > 0 {
+			s.logger.Infof("Found %v events matching the query criteria", resp.Events[0])
 			// set the from position to the last event in the eventstore matching the query condition
 			timeToSubscribeFromJetstream = resp.Events[0].DateCreated.AsTime()
 		} else {
@@ -397,6 +398,8 @@ func (s *EventStore) SubscribeToAllEvents(
 				isNewer := false
 				if lastProcessedPosition != nil {
 					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
+				} else {
+					isNewer = timeToSubscribeFromJetstream.Before(event.DateCreated.AsTime())
 				}
 
 				if isNewer && s.eventMatchesQueryCriteria(&event, query, nil) {
