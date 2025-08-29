@@ -8,7 +8,7 @@ Orisun is a modern event store designed for building event-driven applications. 
 
 ### Key Features
 
-- **PostgreSQL Backend**: Reliable, transactional event storage
+- **PostgreSQL Backend**: Reliable, transactional event storage with ACID guarantees
 - **Embedded NATS**: Real-time event streaming without external dependencies
 - **Multi-tenant Architecture**: Isolated boundaries with separate schemas
 - **Optimistic Concurrency**: Stream-based versioning with expected version checks
@@ -17,6 +17,11 @@ Orisun is a modern event store designed for building event-driven applications. 
 - **Admin Dashboard**: Built-in web interface for user management and system monitoring
 - **Event Projections**: Built-in read models and projections for common use cases
 - **User Management**: Create, view, and manage users through the admin interface
+- **Clustered Deployment**: High availability with automatic failover and distributed locking
+- **Horizontal Scaling**: Add nodes dynamically for increased throughput and resilience
+- **Resilient Projections**: Automatic retry and failover for projection services across nodes
+- **Load Balancing**: Event processing automatically distributed across healthy nodes
+- **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
 
 ## Getting Started
 
@@ -302,16 +307,30 @@ ORISUN_NATS_PORT=4222 \
 ```
 
 #### Clustered Mode
-For high availability, you can run Orisun in clustered mode. Here's an example configuration:
+For high availability and horizontal scaling, Orisun supports clustered deployments with automatic failover and distributed locking. 
 
+**Key Features:**
+- **Distributed Locking**: JetStream-based locks prevent duplicate processing across nodes
+- **Resilient Projections**: Automatic retry and failover for projection services
+- **Load Balancing**: Event processing distributed across available nodes
+- **High Availability**: Automatic failover when nodes go down
+- **Consistent Event Processing**: Each boundary processed by exactly one node at a time
+
+**Cluster Requirements:**
+- Minimum 3 nodes for NATS JetStream quorum
+- Shared PostgreSQL database accessible by all nodes
+- Network connectivity between all cluster nodes
+- Unique ports for each node (NATS, gRPC, Admin)
+
+**Node 1 Configuration:**
 ```bash
-ORISUN_PG_HOST=localhost \
+ORISUN_PG_HOST=your-postgres-host \
 ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
 ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
+ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ORISUN_ADMIN_PORT=8991 \
 ORISUN_ADMIN_USERNAME=admin \
@@ -320,13 +339,220 @@ ORISUN_GRPC_PORT=5005 \
 ORISUN_NATS_PORT=4222 \
 ORISUN_NATS_CLUSTER_ENABLED=true \
 ORISUN_NATS_CLUSTER_NAME=orisun-cluster \
-ORISUN_NATS_CLUSTER_HOST=localhost \
+ORISUN_NATS_CLUSTER_HOST=node1.example.com \
 ORISUN_NATS_CLUSTER_PORT=6222 \
 ORISUN_NATS_CLUSTER_USERNAME=nats \
-ORISUN_NATS_CLUSTER_PASSWORD=your_cluster_password \
-ORISUN_NATS_CLUSTER_ROUTES='nats://localhost:6333,nats://localhost:6334' \
-./orisun-darwin-arm64
+ORISUN_NATS_CLUSTER_PASSWORD=secure_cluster_password \
+ORISUN_NATS_CLUSTER_ROUTES='nats://node2.example.com:6222,nats://node3.example.com:6222' \
+ORISUN_NATS_SERVER_NAME=orisun-node-1 \
+ORISUN_NATS_STORE_DIR=./data/node1/nats \
+./orisun-linux-amd64
 ```
+
+**Node 2 Configuration:**
+```bash
+ORISUN_PG_HOST=your-postgres-host \
+ORISUN_PG_PORT=5432 \
+ORISUN_PG_USER=postgres \
+ORISUN_PG_PASSWORD=your_password \
+ORISUN_PG_NAME=your_database \
+ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+ORISUN_ADMIN_PORT=8992 \
+ORISUN_ADMIN_USERNAME=admin \
+ORISUN_ADMIN_PASSWORD=changeit \
+ORISUN_GRPC_PORT=5006 \
+ORISUN_NATS_PORT=4223 \
+ORISUN_NATS_CLUSTER_ENABLED=true \
+ORISUN_NATS_CLUSTER_NAME=orisun-cluster \
+ORISUN_NATS_CLUSTER_HOST=node2.example.com \
+ORISUN_NATS_CLUSTER_PORT=6222 \
+ORISUN_NATS_CLUSTER_USERNAME=nats \
+ORISUN_NATS_CLUSTER_PASSWORD=secure_cluster_password \
+ORISUN_NATS_CLUSTER_ROUTES='nats://node1.example.com:6222,nats://node3.example.com:6222' \
+ORISUN_NATS_SERVER_NAME=orisun-node-2 \
+ORISUN_NATS_STORE_DIR=./data/node2/nats \
+./orisun-linux-amd64
+```
+
+**Node 3 Configuration:**
+```bash
+ORISUN_PG_HOST=your-postgres-host \
+ORISUN_PG_PORT=5432 \
+ORISUN_PG_USER=postgres \
+ORISUN_PG_PASSWORD=your_password \
+ORISUN_PG_NAME=your_database \
+ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+ORISUN_ADMIN_PORT=8993 \
+ORISUN_ADMIN_USERNAME=admin \
+ORISUN_ADMIN_PASSWORD=changeit \
+ORISUN_GRPC_PORT=5007 \
+ORISUN_NATS_PORT=4224 \
+ORISUN_NATS_CLUSTER_ENABLED=true \
+ORISUN_NATS_CLUSTER_NAME=orisun-cluster \
+ORISUN_NATS_CLUSTER_HOST=node3.example.com \
+ORISUN_NATS_CLUSTER_PORT=6222 \
+ORISUN_NATS_CLUSTER_USERNAME=nats \
+ORISUN_NATS_CLUSTER_PASSWORD=secure_cluster_password \
+ORISUN_NATS_CLUSTER_ROUTES='nats://node1.example.com:6222,nats://node2.example.com:6222' \
+ORISUN_NATS_SERVER_NAME=orisun-node-3 \
+ORISUN_NATS_STORE_DIR=./data/node3/nats \
+./orisun-linux-amd64
+```
+
+**Cluster Behavior:**
+- **Event Polling**: Each boundary is processed by exactly one node at a time using distributed locks
+- **Projection Processing**: User, auth, and count projections automatically failover between nodes
+- **Lock Acquisition**: Nodes continuously attempt to acquire locks for available boundaries
+- **Automatic Failover**: When a node goes down, other nodes automatically pick up its workload
+- **Load Distribution**: Work is automatically distributed across healthy nodes
+
+**Monitoring Cluster Health:**
+- Check logs for lock acquisition messages: `"Successfully acquired lock for boundary: <boundary_name>"`
+- Monitor projection startup messages: `"User projector started"`, `"Auth user projector started"`
+- Watch for failover events: `"Failed to acquire lock"` followed by retry attempts
+- Admin dashboards on each node show local metrics
+
+**Best Practices:**
+- Use a load balancer for gRPC endpoints across nodes
+- Monitor PostgreSQL connection pool usage
+- Set up proper network security between cluster nodes
+- Use persistent storage for NATS data directories
+- Configure appropriate timeouts for your network latency
+- Monitor NATS cluster status and JetStream health
+
+#### Docker Deployment
+Orisun can be deployed using Docker for easier container orchestration:
+
+**Dockerfile Example:**
+```dockerfile
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY orisun-linux-amd64 .
+CMD ["./orisun-linux-amd64"]
+```
+
+**Docker Compose for Clustered Deployment:**
+```yaml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: orisun
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  orisun-node-1:
+    image: orisun:latest
+    environment:
+      ORISUN_PG_HOST: postgres
+      ORISUN_PG_PORT: 5432
+      ORISUN_PG_USER: postgres
+      ORISUN_PG_PASSWORD: postgres
+      ORISUN_PG_NAME: orisun
+      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
+      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_PORT: 8991
+      ORISUN_GRPC_PORT: 5005
+      ORISUN_NATS_PORT: 4222
+      ORISUN_NATS_CLUSTER_ENABLED: "true"
+      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
+      ORISUN_NATS_CLUSTER_HOST: orisun-node-1
+      ORISUN_NATS_CLUSTER_PORT: 6222
+      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-2:6222,nats://orisun-node-3:6222"
+      ORISUN_NATS_SERVER_NAME: orisun-node-1
+    ports:
+      - "5005:5005"
+      - "8991:8991"
+      - "4222:4222"
+    depends_on:
+      - postgres
+    volumes:
+      - node1_data:/root/data
+
+  orisun-node-2:
+    image: orisun:latest
+    environment:
+      ORISUN_PG_HOST: postgres
+      ORISUN_PG_PORT: 5432
+      ORISUN_PG_USER: postgres
+      ORISUN_PG_PASSWORD: postgres
+      ORISUN_PG_NAME: orisun
+      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
+      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_PORT: 8992
+      ORISUN_GRPC_PORT: 5006
+      ORISUN_NATS_PORT: 4223
+      ORISUN_NATS_CLUSTER_ENABLED: "true"
+      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
+      ORISUN_NATS_CLUSTER_HOST: orisun-node-2
+      ORISUN_NATS_CLUSTER_PORT: 6222
+      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-1:6222,nats://orisun-node-3:6222"
+      ORISUN_NATS_SERVER_NAME: orisun-node-2
+    ports:
+      - "5006:5006"
+      - "8992:8992"
+      - "4223:4223"
+    depends_on:
+      - postgres
+    volumes:
+      - node2_data:/root/data
+
+  orisun-node-3:
+    image: orisun:latest
+    environment:
+      ORISUN_PG_HOST: postgres
+      ORISUN_PG_PORT: 5432
+      ORISUN_PG_USER: postgres
+      ORISUN_PG_PASSWORD: postgres
+      ORISUN_PG_NAME: orisun
+      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
+      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_PORT: 8993
+      ORISUN_GRPC_PORT: 5007
+      ORISUN_NATS_PORT: 4224
+      ORISUN_NATS_CLUSTER_ENABLED: "true"
+      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
+      ORISUN_NATS_CLUSTER_HOST: orisun-node-3
+      ORISUN_NATS_CLUSTER_PORT: 6222
+      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-1:6222,nats://orisun-node-2:6222"
+      ORISUN_NATS_SERVER_NAME: orisun-node-3
+    ports:
+      - "5007:5007"
+      - "8993:8993"
+      - "4224:4224"
+    depends_on:
+      - postgres
+    volumes:
+      - node3_data:/root/data
+
+volumes:
+  postgres_data:
+  node1_data:
+  node2_data:
+  node3_data:
+```
+
+**Kubernetes Deployment:**
+For production Kubernetes deployments, consider:
+- Using StatefulSets for persistent NATS storage
+- ConfigMaps for environment configuration
+- Services for load balancing gRPC endpoints
+- PersistentVolumes for NATS data directories
+- Horizontal Pod Autoscaler for scaling based on load
+- Network policies for security between pods
 
 ## Error Handling
 
@@ -341,21 +567,41 @@ ORISUN_NATS_CLUSTER_ROUTES='nats://localhost:6333,nats://localhost:6334' \
    - Verify PostgreSQL connection settings
    - Check if PostgreSQL is running and accessible
    - Ensure NATS ports are available
+   - For clusters: Verify network connectivity between nodes
+   - Check firewall rules for cluster ports (NATS cluster port 6222)
 
 2. **Performance Issues**
    - Monitor PostgreSQL query performance
    - Check NATS message backlog
    - Verify system resources (CPU, memory, disk)
+   - For clusters: Monitor lock contention in logs
+   - Check projection processing delays
 
 3. **Schema Issues**
    - Ensure schemas are properly configured
    - Check PostgreSQL user permissions
    - Verify boundary configurations match schema mappings
+   - Validate JSON format in ORISUN_BOUNDARIES environment variable
 
 4. **Admin Dashboard Issues**
    - Check admin boundary configuration
    - Verify admin credentials
    - Ensure admin port is accessible
+   - For clusters: Each node has its own admin dashboard
+
+5. **Cluster-Specific Issues**
+   - **Lock Acquisition Failures**: Check logs for "Failed to acquire lock" messages - this is normal behavior when other nodes hold locks
+   - **Projection Startup Issues**: Look for "Failed to start [projection] projection" followed by retry attempts
+   - **NATS Cluster Issues**: Verify cluster routes configuration and ensure all nodes can reach each other
+   - **Split Brain Prevention**: Ensure minimum 3 nodes for proper JetStream quorum
+   - **Failover Delays**: Nodes may take 5-10 seconds to detect and take over from failed nodes
+   - **Data Directory Conflicts**: Ensure each node has unique NATS storage directories
+
+6. **Common Log Messages (Normal Behavior)**
+   - `"Failed to acquire lock for boundary: <name>"` - Another node is processing this boundary
+   - `"Successfully acquired lock for boundary: <name>"` - This node is now processing the boundary
+   - `"User projector started"` - Projection service started successfully
+   - `"Failed to start user projection (likely due to lock contention)"` - Will retry automatically
 
 ## Building from Source
 
