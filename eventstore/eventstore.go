@@ -267,7 +267,7 @@ func (s *EventStore) SubscribeToAllEvents(
 		}
 
 		if len(resp.Events) > 0 {
-			s.logger.Infof("Found %v events matching the query criteria", resp.Events[0])
+			s.logger.Infof("Found oldest event matching query criteria: %v", resp.Events[0].EventId)
 			// set the from position to the last event in the eventstore matching the query condition
 			timeToSubscribeFromJetstream = resp.Events[0].DateCreated.AsTime()
 		} else {
