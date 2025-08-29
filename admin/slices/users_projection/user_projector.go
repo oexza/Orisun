@@ -66,8 +66,9 @@ func (p *UserProjector) Start(ctx context.Context) error {
 	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
 
 	go func() {
+		p.logger.Debugf("Receiving events for: %s", projectorName)
+
 		for {
-			p.logger.Debugf("Receiving events for: %s", projectorName)
 			event, err := stream.Recv()
 			if err != nil {
 				p.logger.Error("Error receiving event: %v", err)
@@ -118,7 +119,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 }
 
 func (p *UserProjector) handleEvent(event *eventstore.Event) error {
-	p.logger.Debug("Handling event %v", event)
+	p.logger.Debugf("Handling event %v", event)
 
 	switch event.EventType {
 	case ev.EventTypeUserCreated:
@@ -149,14 +150,13 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		if err != nil {
 			return err
 		}
-	
+
 	case ev.EventTypeUserPasswordChanged:
 		var userEvent ev.UserPasswordChanged
 		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
 			return err
 		}
 
-		
 	}
 	return nil
 }

@@ -729,34 +729,53 @@ func startEventPolling(
 	eventPublishing common.EventPublishing,
 	logger l.Logger) {
 	for _, schema := range config.Postgres.GetSchemaMapping() {
-		// acquire this lock so that all instances of the event store
-		// for this boundary are not polling at the same time
-		err := lockProvider.Lock(ctx, schema.Boundary)
-		if err != nil {
-			logger.Fatalf("Failed to acquire lock: %v", err)
-		}
-
-		logger.Infof("Successfully acquired polling lock for %v", schema.Schema)
-
-		// Get last published position
-		lastPosition, err := eventPublishing.GetLastPublishedEventPosition(ctx, schema.Boundary)
-		if err != nil {
-			logger.Fatalf("Failed to get last published position: %v", err)
-		}
-		logger.Infof("Last published position for schema %v: %v", schema, &lastPosition)
-
+		// Start a goroutine for each boundary that continuously tries to acquire lock and poll
 		go func(boundary c.BoundaryToPostgresSchemaMapping) {
-			PollEventsFromDatabaseToNats(
-				ctx,
-				js,
-				getEvents,
-				config.PollingPublisher.BatchSize,
-				&lastPosition,
-				boundary.Boundary,
-				eventPublishing,
-				schema.Schema,
-				logger,
-			)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					// Try to acquire lock for this boundary
+					err := lockProvider.Lock(ctx, boundary.Boundary)
+					if err != nil {
+						// If lock acquisition fails, wait a bit and try again
+						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary.Boundary, err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+
+					logger.Infof("Successfully acquired polling lock for boundary %v", boundary.Boundary)
+
+					// Get last published position
+					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(ctx, boundary.Boundary)
+					if err != nil {
+						logger.Errorf("Failed to get last published position for boundary %s: %v", boundary.Boundary, err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+					logger.Infof("Last published position for boundary %v: %v", boundary.Boundary, &lastPosition)
+
+					// Start polling - this will block until context is cancelled or error occurs
+					err = PollEventsFromDatabaseToNats(
+						ctx,
+						js,
+						getEvents,
+						config.PollingPublisher.BatchSize,
+						&lastPosition,
+						boundary.Boundary,
+						eventPublishing,
+						boundary.Schema,
+						logger,
+					)
+
+					if err != nil {
+						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary.Boundary, err)
+						time.Sleep(5 * time.Second)
+					}
+					// Loop will continue to try acquiring lock again
+				}
+			}
 		}(schema)
 	}
 }
@@ -845,12 +864,23 @@ func startUserProjector(
 			adminBoundary,
 			subscribeToEvents,
 		)
-		err := userProjector.Start(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				err := userProjector.Start(ctx)
 
-		if err != nil {
-			logger.Fatalf("Failed to start projection %v", err)
+				if err != nil {
+					logger.Debugf("Failed to start user projection (likely due to lock contention): %v - will retry", err)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				logger.Info("User projector started")
+				// Projector will run until context is cancelled or error occurs
+				return
+			}
 		}
-		logger.Info("User projector started")
 	}()
 }
 
@@ -865,12 +895,23 @@ func startAuthUserProjector(
 			subscribeToEvents,
 			adminBoundary,
 		)
-		err := userProjector.Start(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				err := userProjector.Start(ctx)
 
-		if err != nil {
-			logger.Fatalf("Failed to start projection %v", err)
+				if err != nil {
+					logger.Debugf("Failed to start auth user projection (likely due to lock contention): %v - will retry", err)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				logger.Info("Auth user projector started")
+				// Projector will run until context is cancelled or error occurs
+				return
+			}
 		}
-		logger.Info("User projector started")
 	}()
 }
 
@@ -885,9 +926,9 @@ func startUserCountProjector(
 	saveUserCount user_count.SaveUserCount,
 	logger l.Logger) {
 
-	go func(boundary string) {
+	go func() {
 		userProjector := user_count.NewUserCountProjection(
-			boundary,
+			adminBoundary,
 			getProjectorLastPosition,
 			publishToPubSub,
 			getUserCount,
@@ -896,13 +937,24 @@ func startUserCountProjector(
 			updateProjectorPosition,
 			logger,
 		)
-		err := userProjector.Start(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				err := userProjector.Start(ctx)
 
-		if err != nil {
-			logger.Fatalf("Failed to start projection %v", err)
+				if err != nil {
+					logger.Debugf("Failed to start user count projection (likely due to lock contention): %v - will retry", err)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				logger.Info("User count projector started")
+				// Projector will run until context is cancelled or error occurs
+				return
+			}
 		}
-		logger.Info("User count projector started")
-	}(adminBoundary)
+	}()
 
 }
 
@@ -928,12 +980,23 @@ func startEventCountProjector(
 				updateProjectorPosition,
 				logger,
 			)
-			err := eventProjector.Start(ctx)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					err := eventProjector.Start(ctx)
 
-			if err != nil {
-				logger.Fatalf("Failed to start projection %v", err)
+					if err != nil {
+						logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", boundary, err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+					logger.Infof("Event count projector started for boundary %s", boundary)
+					// Projector will run until context is cancelled or error occurs
+					return
+				}
 			}
-			logger.Info("Event count projector started")
 		}(boundary)
 	}
 

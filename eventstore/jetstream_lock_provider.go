@@ -12,8 +12,8 @@ import (
 
 const (
 	lockBucketName = "ORISUN_LOCKS"
-	lockRetryDelay = 500 * time.Millisecond
-	maxRetries     = 10
+	lockRetryDelay = 100 * time.Millisecond
+	maxRetries     = 3
 )
 
 // JetStreamLockProvider implements the LockProvider interface using NATS JetStream
