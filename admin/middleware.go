@@ -59,7 +59,6 @@ func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (gl
 	}
 
 	values := md.Get("authorization")
-	logger.Infof("Authorization header: %v", values)
 	if len(values) == 0 {
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "missing authorization header")
 	}

@@ -1,0 +1,171 @@
+boundaries are [{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}]
+boundaries are [{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}]
+config is {Postgres:{User:postgres Name:orisun Password:postgres Host:localhost Port:61692 Schemas:benchmark_test:public,benchmark_admin:admin MaxOpenConns:25 MaxIdleConns:5 ConnMaxIdleTime:1m0s} Boundaries:[{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}] boundaries:[{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}] Grpc:{Port:15006 EnableReflection:true} PollingPublisher:{BatchSize:1000} Logging:{Enabled:false Level:ERROR} Nats:{ServerName:orisun-nats-2 Port:14224 MaxPayload:1048576 MaxConnections:0 StoreDir:./data/orisun/nats Cluster:{Name:orisun-nats-cluster Host:0.0.0.0 Port:16222 Routes:nats://0.0.0.0:6223,nats://0.0.0.0:6224 Username:nats Password:password@1 Enabled:false Timeout:30m0s}} Auth:{AdminUsername:admin AdminPassword:changeit} Admin:{Port:18992 Boundary:benchmark_admin}}
+[24621] [INF] Starting nats-server
+[24621] [INF]   Version:  2.11.1
+[24621] [INF]   Git:      [8654510]
+[24621] [INF]   Name:     orisun-nats-2
+[24621] [INF]   Node:     6VBncXDI
+[24621] [INF]   ID:       NBN552VHBDCZ6QYS46AVKH47FDWOZXSDUWZ7W67JZSQIT6V5IC4L4AO3
+[24621] [INF] Starting JetStream
+[24621] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[24621] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[24621] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[24621] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[24621] [INF] 
+[24621] [INF]          https://docs.nats.io/jetstream
+[24621] [INF] 
+[24621] [INF] ---------------- JETSTREAM ----------------
+[24621] [INF]   Max Memory:      18.00 GB
+[24621] [INF]   Max Storage:     274.70 GB
+[24621] [INF]   Store Directory: "data/orisun/nats/jetstream"
+[24621] [INF]   API Level:       1
+[24621] [INF] -------------------------------------------
+[24621] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_admin'
+[24621] [INF]   Restored 116 messages for stream '$G > ORISUN_EVENTS__benchmark_admin' in 1ms
+[24621] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_test'
+[24621] [INF]   Restored 30,450 messages for stream '$G > ORISUN_EVENTS__benchmark_test' in 11ms
+[24621] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_admin'
+[24621] [INF]   Restored 22 messages for stream '$G > ORISUN_EVENTS__orisun_admin' in 1ms
+[24621] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_1'
+[24621] [INF]   Restored 20 messages for stream '$G > ORISUN_EVENTS__orisun_test_1' in 0s
+[24621] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_2'
+[24621] [INF]   Restored 0 messages for stream '$G > ORISUN_EVENTS__orisun_test_2' in 0s
+[24621] [INF]   Starting restore for stream '$G > test_jetstream'
+[24621] [INF]   Restored 1 messages for stream '$G > test_jetstream' in 0s
+[24621] [INF]   Recovering 9 consumers for stream - '$G > ORISUN_EVENTS__benchmark_admin'
+[24621] [INF]   Recovering 3 consumers for stream - '$G > ORISUN_EVENTS__benchmark_test'
+[24621] [INF] Listening for client connections on 0.0.0.0:14224
+[24621] [INF] Server is ready
+[24621] [INF] Initiating Shutdown...
+[24621] [INF] Initiating JetStream Shutdown...
+[24621] [INF] JetStream Shutdown
+[24621] [INF] Server Exiting..
+goos: darwin
+goarch: arm64
+cpu: Apple M4 Pro
+BenchmarkSaveEvents_Single-14       	boundaries are [{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}]
+boundaries are [{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}]
+config is {Postgres:{User:postgres Name:orisun Password:postgres Host:localhost Port:61710 Schemas:benchmark_test:public,benchmark_admin:admin MaxOpenConns:25 MaxIdleConns:5 ConnMaxIdleTime:1m0s} Boundaries:[{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}] boundaries:[{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}] Grpc:{Port:15006 EnableReflection:true} PollingPublisher:{BatchSize:1000} Logging:{Enabled:false Level:ERROR} Nats:{ServerName:orisun-nats-2 Port:14224 MaxPayload:1048576 MaxConnections:0 StoreDir:./data/orisun/nats Cluster:{Name:orisun-nats-cluster Host:0.0.0.0 Port:16222 Routes:nats://0.0.0.0:6223,nats://0.0.0.0:6224 Username:nats Password:password@1 Enabled:false Timeout:30m0s}} Auth:{AdminUsername:admin AdminPassword:changeit} Admin:{Port:18992 Boundary:benchmark_admin}}
+[24658] [INF] Starting nats-server
+[24658] [INF]   Version:  2.11.1
+[24658] [INF]   Git:      [8654510]
+[24658] [INF]   Name:     orisun-nats-2
+[24658] [INF]   Node:     6VBncXDI
+[24658] [INF]   ID:       NDDPBRFDI7WMHPEKWIPTB7OQWSRBSVAVE5YXVH2C23P6LVALHXGC242X
+[24658] [INF] Starting JetStream
+[24658] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[24658] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[24658] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[24658] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[24658] [INF] 
+[24658] [INF]          https://docs.nats.io/jetstream
+[24658] [INF] 
+[24658] [INF] ---------------- JETSTREAM ----------------
+[24658] [INF]   Max Memory:      18.00 GB
+[24658] [INF]   Max Storage:     274.70 GB
+[24658] [INF]   Store Directory: "data/orisun/nats/jetstream"
+[24658] [INF]   API Level:       1
+[24658] [INF] -------------------------------------------
+[24658] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_admin'
+[24658] [INF]   Restored 117 messages for stream '$G > ORISUN_EVENTS__benchmark_admin' in 0s
+[24658] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_test'
+[24658] [INF]   Restored 30,450 messages for stream '$G > ORISUN_EVENTS__benchmark_test' in 11ms
+[24658] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_admin'
+[24658] [INF]   Restored 22 messages for stream '$G > ORISUN_EVENTS__orisun_admin' in 1ms
+[24658] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_1'
+[24658] [INF]   Restored 20 messages for stream '$G > ORISUN_EVENTS__orisun_test_1' in 0s
+[24658] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_2'
+[24658] [INF]   Restored 0 messages for stream '$G > ORISUN_EVENTS__orisun_test_2' in 0s
+[24658] [INF]   Starting restore for stream '$G > test_jetstream'
+[24658] [INF]   Restored 1 messages for stream '$G > test_jetstream' in 0s
+[24658] [INF]   Recovering 13 consumers for stream - '$G > ORISUN_EVENTS__benchmark_admin'
+[24658] [INF]   Recovering 4 consumers for stream - '$G > ORISUN_EVENTS__benchmark_test'
+[24658] [INF] Listening for client connections on 0.0.0.0:14224
+[24658] [INF] Server is ready
+[24658] [INF] Initiating Shutdown...
+[24658] [INF] Initiating JetStream Shutdown...
+[24658] [INF] JetStream Shutdown
+[24658] [INF] Server Exiting..
+boundaries are [{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}]
+boundaries are [{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}]
+config is {Postgres:{User:postgres Name:orisun Password:postgres Host:localhost Port:61751 Schemas:benchmark_test:public,benchmark_admin:admin MaxOpenConns:25 MaxIdleConns:5 ConnMaxIdleTime:1m0s} Boundaries:[{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}] boundaries:[{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}] Grpc:{Port:15006 EnableReflection:true} PollingPublisher:{BatchSize:1000} Logging:{Enabled:false Level:ERROR} Nats:{ServerName:orisun-nats-2 Port:14224 MaxPayload:1048576 MaxConnections:0 StoreDir:./data/orisun/nats Cluster:{Name:orisun-nats-cluster Host:0.0.0.0 Port:16222 Routes:nats://0.0.0.0:6223,nats://0.0.0.0:6224 Username:nats Password:password@1 Enabled:false Timeout:30m0s}} Auth:{AdminUsername:admin AdminPassword:changeit} Admin:{Port:18992 Boundary:benchmark_admin}}
+[24704] [INF] Starting nats-server
+[24704] [INF]   Version:  2.11.1
+[24704] [INF]   Git:      [8654510]
+[24704] [INF]   Name:     orisun-nats-2
+[24704] [INF]   Node:     6VBncXDI
+[24704] [INF]   ID:       NAZ7EBT6SXWLES74737TPNM2EG6U2NUNK7KIE46QIRBF2RHYYXMFTBY4
+[24704] [INF] Starting JetStream
+[24704] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[24704] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[24704] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[24704] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[24704] [INF] 
+[24704] [INF]          https://docs.nats.io/jetstream
+[24704] [INF] 
+[24704] [INF] ---------------- JETSTREAM ----------------
+[24704] [INF]   Max Memory:      18.00 GB
+[24704] [INF]   Max Storage:     274.70 GB
+[24704] [INF]   Store Directory: "data/orisun/nats/jetstream"
+[24704] [INF]   API Level:       1
+[24704] [INF] -------------------------------------------
+[24704] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_admin'
+[24704] [INF]   Restored 118 messages for stream '$G > ORISUN_EVENTS__benchmark_admin' in 0s
+[24704] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_test'
+[24704] [INF]   Restored 30,494 messages for stream '$G > ORISUN_EVENTS__benchmark_test' in 13ms
+[24704] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_admin'
+[24704] [INF]   Restored 22 messages for stream '$G > ORISUN_EVENTS__orisun_admin' in 0s
+[24704] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_1'
+[24704] [INF]   Restored 20 messages for stream '$G > ORISUN_EVENTS__orisun_test_1' in 0s
+[24704] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_2'
+[24704] [INF]   Restored 0 messages for stream '$G > ORISUN_EVENTS__orisun_test_2' in 0s
+[24704] [INF]   Starting restore for stream '$G > test_jetstream'
+[24704] [INF]   Restored 1 messages for stream '$G > test_jetstream' in 0s
+[24704] [INF]   Recovering 17 consumers for stream - '$G > ORISUN_EVENTS__benchmark_admin'
+[24704] [INF]   Recovering 5 consumers for stream - '$G > ORISUN_EVENTS__benchmark_test'
+[24704] [INF] Listening for client connections on 0.0.0.0:14224
+[24704] [INF] Server is ready
+[24704] [INF] Initiating Shutdown...
+[24704] [INF] Initiating JetStream Shutdown...
+[24704] [INF] JetStream Shutdown
+[24704] [INF] Server Exiting..
+boundaries are [{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}]
+boundaries are [{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}]
+config is {Postgres:{User:postgres Name:orisun Password:postgres Host:localhost Port:61800 Schemas:benchmark_test:public,benchmark_admin:admin MaxOpenConns:25 MaxIdleConns:5 ConnMaxIdleTime:1m0s} Boundaries:[{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}] boundaries:[{Name:benchmark_test Description:benchmark boundary} {Name:benchmark_admin Description:admin boundary}] Grpc:{Port:15006 EnableReflection:true} PollingPublisher:{BatchSize:1000} Logging:{Enabled:false Level:ERROR} Nats:{ServerName:orisun-nats-2 Port:14224 MaxPayload:1048576 MaxConnections:0 StoreDir:./data/orisun/nats Cluster:{Name:orisun-nats-cluster Host:0.0.0.0 Port:16222 Routes:nats://0.0.0.0:6223,nats://0.0.0.0:6224 Username:nats Password:password@1 Enabled:false Timeout:30m0s}} Auth:{AdminUsername:admin AdminPassword:changeit} Admin:{Port:18992 Boundary:benchmark_admin}}
+[24756] [INF] Starting nats-server
+[24756] [INF]   Version:  2.11.1
+[24756] [INF]   Git:      [8654510]
+[24756] [INF]   Name:     orisun-nats-2
+[24756] [INF]   Node:     6VBncXDI
+[24756] [INF]   ID:       NCBMYNRZT234MK2RRAVXHXACEKHRKS3ZV26UGNL2Z25EKXSVNLCBSK27
+[24756] [INF] Starting JetStream
+[24756] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[24756] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[24756] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[24756] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[24756] [INF] 
+[24756] [INF]          https://docs.nats.io/jetstream
+[24756] [INF] 
+[24756] [INF] ---------------- JETSTREAM ----------------
+[24756] [INF]   Max Memory:      18.00 GB
+[24756] [INF]   Max Storage:     274.70 GB
+[24756] [INF]   Store Directory: "data/orisun/nats/jetstream"
+[24756] [INF]   API Level:       1
+[24756] [INF] -------------------------------------------
+[24756] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_admin'
+[24756] [INF]   Restored 119 messages for stream '$G > ORISUN_EVENTS__benchmark_admin' in 0s
+[24756] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__benchmark_test'
+[24756] [INF]   Restored 31,593 messages for stream '$G > ORISUN_EVENTS__benchmark_test' in 15ms
+[24756] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_admin'
+[24756] [INF]   Restored 22 messages for stream '$G > ORISUN_EVENTS__orisun_admin' in 0s
+[24756] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_1'
+[24756] [INF]   Restored 20 messages for stream '$G > ORISUN_EVENTS__orisun_test_1' in 0s
+[24756] [INF]   Starting restore for stream '$G > ORISUN_EVENTS__orisun_test_2'
+[24756] [INF]   Restored 0 messages for stream '$G > ORISUN_EVENTS__orisun_test_2' in 0s
+[24756] [INF]   Starting restore for stream '$G > test_jetstream'
+[24756] [INF]   Restored 1 messages for stream '$G > test_jetstream' in 0s
+[24756] [INF]   Recovering 8 consumers for stream - '$G > ORISUN_EVENTS__benchmark_admin'
+[24756] [INF]   Recovering 2 consumers for stream - '$G > ORISUN_EVENTS__benchmark_test'
+[24756] [INF] Listening for client connections on 0.0.0.0:14224
+[24756] [INF] Server is ready
