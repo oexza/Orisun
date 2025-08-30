@@ -218,8 +218,6 @@ func (s *BenchmarkSetup) cleanup(b *testing.B) {
 		}
 	}
 
-
-
 	// Stop PostgreSQL container
 	if s.postgresContainer != nil {
 		err := s.postgresContainer.Terminate(s.ctx)
@@ -344,12 +342,12 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 		b.Run(fmt.Sprintf("BatchSize_%d", batchSize), func(b *testing.B) {
 			// Create unique stream ID for this sub-benchmark to avoid conflicts
 			streamId := uuid.New().String()
-			
+
 			// Pre-generate all events and expected versions before timing
 			batches := make([][]*eventstore.EventToSave, b.N)
 			expectedVersions := make([]int64, b.N)
-			
-			for i := 0; i < b.N; i++ {
+
+			for i := 0; b.Loop(); i++ {
 				batches[i] = make([]*eventstore.EventToSave, batchSize)
 				for j := 0; j < batchSize; j++ {
 					batches[i][j] = generateRandomEvent("SingleStreamEvent")
@@ -360,10 +358,10 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 					expectedVersions[i] = expectedVersions[i-1] + int64(batchSize)
 				}
 			}
-			
+
 			b.ResetTimer()
 			totalEvents := 0
-			for i := 0; i < b.N; i++ {
+			for i := 0; b.Loop(); i++ {
 				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 					Boundary: "benchmark_test",
 					Stream: &eventstore.SaveStreamQuery{
@@ -396,7 +394,7 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 			// Pre-generate events for each worker before timing
 			workerEvents := make(map[int][]*eventstore.EventToSave)
 			workerStreamIds := make(map[int]string)
-			
+
 			// Estimate events per worker (b.N gets distributed across workers)
 			eventsPerWorker := (b.N + workers - 1) / workers
 			for w := 0; w < workers; w++ {
@@ -406,11 +404,11 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 					workerEvents[w][i] = generateRandomEvent("ConcurrentUserEvent")
 				}
 			}
-			
+
 			b.ResetTimer()
 			totalEvents := 0
 			eventsMutex := sync.Mutex{}
-			
+
 			b.RunParallel(func(pb *testing.PB) {
 				// Each goroutine gets its own stream and pre-generated events
 				workerID := 0 // This will be different for each goroutine
@@ -419,15 +417,15 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 				userStreamId := workerStreamIds[workerID]
 				userEvents := workerEvents[workerID]
 				eventsMutex.Unlock()
-				
+
 				currentVersion := int64(eventstore.StreamDoesNotExist)
 				eventIndex := 0
-				
+
 				for pb.Next() {
 					if eventIndex >= len(userEvents) {
 						break // No more pre-generated events
 					}
-					
+
 					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: "benchmark_test",
 						Stream: &eventstore.SaveStreamQuery{
@@ -441,13 +439,13 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 					}
 					currentVersion++
 					eventIndex++
-					
+
 					eventsMutex.Lock()
 					totalEvents++
 					eventsMutex.Unlock()
 				}
 			})
-			
+
 			// Report custom metric for events per second
 			b.ReportMetric(float64(totalEvents)/b.Elapsed().Seconds(), "events/sec")
 		})
@@ -475,8 +473,8 @@ func BenchmarkGetEvents(b *testing.B) {
 		b.Fatalf("Failed to pre-populate events: %v", err)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	
+	for b.Loop() {
 		_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
 			Boundary: boundary,
 			Count:    50,
@@ -500,7 +498,7 @@ func BenchmarkGetStream(b *testing.B) {
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name: streamName,
+				Name:            streamName,
 				ExpectedVersion: -1, // Any version
 			},
 			Events: []*eventstore.EventToSave{event},
@@ -516,7 +514,7 @@ func BenchmarkGetStream(b *testing.B) {
 			_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
 				Boundary: boundary,
 				Stream: &eventstore.GetStreamQuery{
-					Name: streamName,
+					Name:        streamName,
 					FromVersion: 0,
 				},
 				Count: 100,
@@ -538,7 +536,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		stream, err := setup.client.CatchUpSubscribeToEvents(setup.authContext(), &eventstore.CatchUpSubscribeToEventStoreRequest{
-			Boundary: boundary,
+			Boundary:       boundary,
 			SubscriberName: fmt.Sprintf("benchmark_subscriber_%d", i),
 		})
 		if err != nil {
