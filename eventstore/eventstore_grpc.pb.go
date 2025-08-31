@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.31.1
-// source: eventstore.proto
+// source: eventstore/eventstore.proto
 
 package eventstore
 
@@ -21,6 +21,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	EventStore_SaveEvents_FullMethodName               = "/eventstore.EventStore/SaveEvents"
 	EventStore_GetEvents_FullMethodName                = "/eventstore.EventStore/GetEvents"
+	EventStore_GetEventsEnhanced_FullMethodName        = "/eventstore.EventStore/GetEventsEnhanced"
+	EventStore_GetEventsChained_FullMethodName         = "/eventstore.EventStore/GetEventsChained"
 	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToEvents"
 	EventStore_CatchUpSubscribeToStream_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToStream"
 )
@@ -31,6 +33,8 @@ const (
 type EventStoreClient interface {
 	SaveEvents(ctx context.Context, in *SaveEventsRequest, opts ...grpc.CallOption) (*WriteResult, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
+	GetEventsEnhanced(ctx context.Context, in *GetEventsRequestEnhanced, opts ...grpc.CallOption) (*GetEventsResponse, error)
+	GetEventsChained(ctx context.Context, in *GetEventsChainedRequest, opts ...grpc.CallOption) (*GetEventsChainedResponse, error)
 	CatchUpSubscribeToEvents(ctx context.Context, in *CatchUpSubscribeToEventStoreRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	CatchUpSubscribeToStream(ctx context.Context, in *CatchUpSubscribeToStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 }
@@ -57,6 +61,26 @@ func (c *eventStoreClient) GetEvents(ctx context.Context, in *GetEventsRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEventsResponse)
 	err := c.cc.Invoke(ctx, EventStore_GetEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *eventStoreClient) GetEventsEnhanced(ctx context.Context, in *GetEventsRequestEnhanced, opts ...grpc.CallOption) (*GetEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEventsResponse)
+	err := c.cc.Invoke(ctx, EventStore_GetEventsEnhanced_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *eventStoreClient) GetEventsChained(ctx context.Context, in *GetEventsChainedRequest, opts ...grpc.CallOption) (*GetEventsChainedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEventsChainedResponse)
+	err := c.cc.Invoke(ctx, EventStore_GetEventsChained_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +131,8 @@ type EventStore_CatchUpSubscribeToStreamClient = grpc.ServerStreamingClient[Even
 type EventStoreServer interface {
 	SaveEvents(context.Context, *SaveEventsRequest) (*WriteResult, error)
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
+	GetEventsEnhanced(context.Context, *GetEventsRequestEnhanced) (*GetEventsResponse, error)
+	GetEventsChained(context.Context, *GetEventsChainedRequest) (*GetEventsChainedResponse, error)
 	CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error
 	CatchUpSubscribeToStream(*CatchUpSubscribeToStreamRequest, grpc.ServerStreamingServer[Event]) error
 	mustEmbedUnimplementedEventStoreServer()
@@ -124,6 +150,12 @@ func (UnimplementedEventStoreServer) SaveEvents(context.Context, *SaveEventsRequ
 }
 func (UnimplementedEventStoreServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEvents not implemented")
+}
+func (UnimplementedEventStoreServer) GetEventsEnhanced(context.Context, *GetEventsRequestEnhanced) (*GetEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEventsEnhanced not implemented")
+}
+func (UnimplementedEventStoreServer) GetEventsChained(context.Context, *GetEventsChainedRequest) (*GetEventsChainedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEventsChained not implemented")
 }
 func (UnimplementedEventStoreServer) CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method CatchUpSubscribeToEvents not implemented")
@@ -188,6 +220,42 @@ func _EventStore_GetEvents_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EventStore_GetEventsEnhanced_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEventsRequestEnhanced)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventStoreServer).GetEventsEnhanced(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventStore_GetEventsEnhanced_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventStoreServer).GetEventsEnhanced(ctx, req.(*GetEventsRequestEnhanced))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EventStore_GetEventsChained_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEventsChainedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventStoreServer).GetEventsChained(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventStore_GetEventsChained_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventStoreServer).GetEventsChained(ctx, req.(*GetEventsChainedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EventStore_CatchUpSubscribeToEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(CatchUpSubscribeToEventStoreRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -225,6 +293,14 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetEvents",
 			Handler:    _EventStore_GetEvents_Handler,
 		},
+		{
+			MethodName: "GetEventsEnhanced",
+			Handler:    _EventStore_GetEventsEnhanced_Handler,
+		},
+		{
+			MethodName: "GetEventsChained",
+			Handler:    _EventStore_GetEventsChained_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -238,5 +314,5 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "eventstore.proto",
+	Metadata: "eventstore/eventstore.proto",
 }

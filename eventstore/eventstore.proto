@@ -25,6 +25,70 @@ message Query {
   repeated Criterion criteria = 1;
 }
 
+enum QueryType {
+  SIMPLE = 0;        // Current behavior
+  RELATED_EVENTS = 1; // New: find related events by extracted field
+  CHAINED = 2;
+}
+
+message RelatedEventsQuery {
+  // Step 1: Find source event
+  Criterion source_criterion = 1;
+  string extract_field = 2;        // Field to extract from source event (e.g., "userCreatedId")
+  
+  // Step 2: Find related events
+  string target_field = 3;         // Field to match in target events (e.g., "userCreatedId")
+  repeated string event_types = 4; // Optional: filter by event types
+}
+
+// Chained query system for multi-hop event traversal
+enum ChainExecutionMode {
+  SEQUENTIAL = 0;     // Execute steps one by one
+  PARALLEL = 1;       // Execute independent steps in parallel
+  BATCH_OPTIMIZED = 2; // Optimize for batch processing
+}
+
+enum ConditionType {
+  ALWAYS = 0;
+  FIELD_EXISTS = 1;
+  FIELD_EQUALS = 2;
+  FIELD_MATCHES_REGEX = 3;
+  FIELD_IN_LIST = 4;
+}
+
+message StepCondition {
+  ConditionType type = 1;
+  string field_name = 2;
+  repeated string allowed_values = 3;
+  string regex_pattern = 4;
+}
+
+message QueryStep {
+  string step_id = 1;
+  Criterion source_criterion = 2;
+  string extract_field = 3;
+  string target_field = 4;
+  repeated string event_types = 5;
+  StepCondition condition = 6;
+  repeated string depends_on_steps = 7; // For parallel execution
+}
+
+message ChainedQuery {
+  repeated QueryStep steps = 1;
+  ChainExecutionMode execution_mode = 2;
+  int32 max_results_per_step = 3;
+  bool return_intermediate_results = 4;
+}
+
+message EnhancedQuery {
+  QueryType type = 1;
+  
+  // Use one of these based on type
+  Query simple_query = 2;                    // For SIMPLE type
+  RelatedEventsQuery related_query = 3;      // For RELATED_EVENTS type
+  ChainedQuery chained_query = 4;
+}
+
 message EventToSave {
   string event_id = 1;
   string event_type = 2;
@@ -78,6 +142,53 @@ message GetEventsRequest {
   GetStreamQuery stream = 6;
 }
 
+// Chained query result types
+message ChainExecutionStats {
+  int32 total_steps_executed = 1;
+  int32 total_events_processed = 2;
+  int64 total_execution_time_ms = 3;
+  repeated string failed_steps = 4;
+}
+
+message StepResult {
+  string step_id = 1;
+  repeated Event events = 2;
+  map<string, string> extracted_values = 3;
+  int32 events_found = 4;
+  int64 execution_time_ms = 5;
+}
+
+message ChainedQueryResult {
+  repeated StepResult step_results = 1;
+  repeated Event final_events = 2;
+  ChainExecutionStats stats = 3;
+}
+
+message GetEventsRequestEnhanced {
+  EnhancedQuery enhanced_query = 1;
+  Position from_position = 2;
+  uint32 count = 3;
+  Direction direction = 4;
+  string boundary = 5;
+  GetStreamQuery stream = 6;
+}
+
+message GetEventsChainedRequest {
+  ChainedQuery chained_query = 1;
+  string boundary = 2;
+  string stream = 3;
+  int64 position_start = 4;
+  int64 position_end = 5;
+  Direction direction = 6;
+  int32 count = 7;
+}
+
+message GetEventsChainedResponse {
+  ChainedQueryResult result = 1;
+  bool has_more = 2;
+  string continuation_token = 3;
+}
+
 message GetEventsResponse {
   repeated Event events = 1;
 }
@@ -100,6 +211,8 @@ message CatchUpSubscribeToStreamRequest {
 service EventStore {
   rpc SaveEvents(SaveEventsRequest) returns (WriteResult) {}
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+  rpc GetEventsEnhanced(GetEventsRequestEnhanced) returns (GetEventsResponse) {}
+  rpc GetEventsChained(GetEventsChainedRequest) returns (GetEventsChainedResponse) {}
   rpc CatchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest) returns (stream Event) {}
   rpc CatchUpSubscribeToStream(CatchUpSubscribeToStreamRequest) returns (stream Event) {}
 }
