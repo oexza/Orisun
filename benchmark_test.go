@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -347,7 +348,7 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 			batches := make([][]*eventstore.EventToSave, b.N)
 			expectedVersions := make([]int64, b.N)
 
-			for i := 0; b.Loop(); i++ {
+			for i := 0; i < b.N; i++ {
 				batches[i] = make([]*eventstore.EventToSave, batchSize)
 				for j := 0; j < batchSize; j++ {
 					batches[i][j] = generateRandomEvent("SingleStreamEvent")
@@ -361,7 +362,7 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 
 			b.ResetTimer()
 			totalEvents := 0
-			for i := 0; b.Loop(); i++ {
+			for i := 0; i < b.N; i++ {
 				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 					Boundary: "benchmark_test",
 					Stream: &eventstore.SaveStreamQuery{
@@ -391,40 +392,17 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 
 	for _, workers := range workerCounts {
 		b.Run(fmt.Sprintf("Workers_%d", workers), func(b *testing.B) {
-			// Pre-generate events for each worker before timing
-			workerEvents := make(map[int][]*eventstore.EventToSave)
-			workerStreamIds := make(map[int]string)
-
-			// Estimate events per worker (b.N gets distributed across workers)
-			eventsPerWorker := (b.N + workers - 1) / workers
-			for w := 0; w < workers; w++ {
-				workerEvents[w] = make([]*eventstore.EventToSave, eventsPerWorker)
-				workerStreamIds[w] = uuid.New().String()
-				for i := 0; i < eventsPerWorker; i++ {
-					workerEvents[w][i] = generateRandomEvent("ConcurrentUserEvent")
-				}
-			}
-
 			b.ResetTimer()
-			totalEvents := 0
-			eventsMutex := sync.Mutex{}
+			totalEvents := int64(0)
 
 			b.RunParallel(func(pb *testing.PB) {
-				// Each goroutine gets its own stream and pre-generated events
-				workerID := 0 // This will be different for each goroutine
-				eventsMutex.Lock()
-				workerID = len(workerStreamIds) % workers
-				userStreamId := workerStreamIds[workerID]
-				userEvents := workerEvents[workerID]
-				eventsMutex.Unlock()
-
+				// Each goroutine gets its own unique stream
+				userStreamId := uuid.New().String()
 				currentVersion := int64(eventstore.StreamDoesNotExist)
-				eventIndex := 0
+				localEvents := 0
 
 				for pb.Next() {
-					if eventIndex >= len(userEvents) {
-						break // No more pre-generated events
-					}
+					event := generateRandomEvent("ConcurrentUserEvent")
 
 					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: "benchmark_test",
@@ -432,18 +410,17 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 							Name:            userStreamId,
 							ExpectedVersion: currentVersion,
 						},
-						Events: []*eventstore.EventToSave{userEvents[eventIndex]},
+						Events: []*eventstore.EventToSave{event},
 					})
 					if err != nil {
 						b.Errorf("Failed to save event to user stream: %v", err)
 					}
 					currentVersion++
-					eventIndex++
-
-					eventsMutex.Lock()
-					totalEvents++
-					eventsMutex.Unlock()
+					localEvents++
 				}
+
+				// Add local events to total atomically
+				atomic.AddInt64(&totalEvents, int64(localEvents))
 			})
 
 			// Report custom metric for events per second
@@ -474,7 +451,8 @@ func BenchmarkGetEvents(b *testing.B) {
 	}
 
 	
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
 			Boundary: boundary,
 			Count:    50,
