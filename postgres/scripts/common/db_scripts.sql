@@ -12,8 +12,6 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
     data           JSONB                     NOT NULL,
     metadata       JSONB,
     date_created   TIMESTAMPTZ DEFAULT(NOW() AT TIME ZONE 'UTC') NOT NULL
-    -- ,
-    -- tags           JSONB                     NOT NULL
 );
 
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
@@ -21,13 +19,36 @@ CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_stream ON orisun_es_event (stream_name);
-CREATE INDEX IF NOT EXISTS idx_stream_version ON orisun_es_event (stream_name, stream_version);
--- CREATE INDEX IF NOT EXISTS idx_es_event_tags ON orisun_es_event USING GIN (tags jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS idx_stream_name_version ON orisun_es_event (stream_name, stream_version);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
     USING GIN (stream_name, stream_version, data) WITH (fastupdate = true, gin_pending_list_limit = '128');
 
 -- Insert Function
+--
+-- This function inserts a batch of events into the event store while enforcing
+-- stream consistency. It locks the stream or specific criteria keys for the duration
+-- of the transaction to prevent concurrent modifications.
+--
+-- Parameters:
+--   schema (TEXT): The schema to use for the event store table.
+--   stream_info (JSONB): A JSON object containing stream metadata.
+--     - stream_name (TEXT): The name of the stream to insert events into.
+--     - expected_version (BIGINT): The expected stream version for optimistic locking.
+--     - criteria (JSONB): Optional JSON object for granular locking.
+--   events (JSONB): A JSON array of events to insert. Each event is a JSON object
+--     with the following properties:
+--     - event_id (UUID): A unique identifier for the event.
+--     - event_type (TEXT): The type of the event.
+--     - data (JSONB): The event data.
+--     - metadata (JSONB): Optional event metadata.
+--
+-- Returns:
+--   TABLE: A table with the following columns:
+-- example input to this function:
+-- Parameters: $1 = 'test2', $2 = '{"criteria": [{"username": "iskaba"}], 
+-- "stream_name": "new", "expected_version": 17}', $3 = '[{"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}, {"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}]'
+
 CREATE OR REPLACE FUNCTION insert_events_with_consistency(
     schema TEXT,
     stream_info JSONB,
@@ -48,14 +69,41 @@ DECLARE
     stream_criteria         JSONB  := stream_info -> 'criteria';
     current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
     current_stream_version  BIGINT := -1;
+    stream_criteria_tags    TEXT[];
+    key_record              TEXT;
 BEGIN
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
 
     EXECUTE format('SET search_path TO %I', schema);
-    
-    PERFORM pg_advisory_xact_lock(hashtext(stream));
+
+    -- If stream_criteria is present then we acquire granular locks for each key value pair.
+    -- This is to ensure that we don't block other insert operations targeting the same stream, 
+    -- but different criteria.
+    IF stream_criteria IS NOT NULL THEN
+        -- Extract all unique criteria key-value pairs
+        SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
+        INTO stream_criteria_tags
+        FROM jsonb_array_elements(stream_criteria) AS criterion,
+             jsonb_each_text(criterion) AS key_value;
+
+        -- Lock key-value pairs in alphabetical order (deadlock prevention)
+        IF stream_criteria_tags IS NOT NULL THEN
+            stream_criteria_tags := ARRAY(
+                    SELECT DISTINCT unnest(stream_criteria_tags)
+                    ORDER BY 1 -- Alphabetical sort
+            );
+
+            FOREACH key_record IN ARRAY stream_criteria_tags
+                LOOP
+                    PERFORM pg_advisory_xact_lock(('x' || substr(md5(key_record), 1, 15))::bit(60)::bigint);
+                END LOOP;
+        END IF;
+    ELSE
+        -- lock the whole stream.
+        PERFORM pg_advisory_xact_lock(('x' || substr(md5(stream), 1, 15))::bit(60)::bigint);
+    END IF;
 
     -- Stream version check
     SELECT MAX(oe.stream_version)
@@ -71,6 +119,13 @@ BEGIN
     IF current_stream_version <> expected_stream_version THEN
         RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected %, Actual %',
             expected_stream_version, current_stream_version;
+    END IF;
+
+    -- just before getting the frontier, we need to lock the stream to ensure that no other transaction
+    -- inserts events into the stream while we are getting the frontier. If there is no stream criteria,
+    -- the stream would already be locked before getting here.
+    IF stream_criteria IS NOT NULL THEN
+        PERFORM pg_advisory_xact_lock(('x' || substr(md5(stream), 1, 15))::bit(60)::bigint);
     END IF;
 
     -- select the frontier of the stream if a subset criteria was specified to ensure that the events being inserted are properly versioned.
@@ -105,8 +160,7 @@ BEGIN
                    COALESCE(e -> 'data', '{}'),
                    COALESCE(e -> 'metadata', '{}')
             FROM jsonb_array_elements(events) AS e
-            RETURNING jsonb_array_length(events), global_id
-    )
+            RETURNING jsonb_array_length(events), global_id)
     SELECT current_stream_version + jsonb_array_length(events), current_tx_id, MAX(global_id)
     INTO new_stream_version, latest_transaction_id, latest_global_id
     FROM inserted_events;

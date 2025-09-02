@@ -211,10 +211,10 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 	defer tx.Rollback()
 
-	_, errr := tx.Exec("SET log_statement = 'all';")
-	if errr != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
-	}
+	// _, errr := tx.Exec("SET log_statement = 'all';")
+	// if errr != nil {
+	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	// }
 
 	// Prepare the query once
 	// query := fmt.Sprintf(selectMatchingEvents)
