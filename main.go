@@ -522,48 +522,92 @@ func initializeDatabase(
 	js jetstream.JetStream,
 	logger l.Logger,
 ) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
-	db, err := sql.Open(
-		"postgres",
-		fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			config.Postgres.Host,
-			config.Postgres.Port,
-			config.Postgres.User,
-			config.Postgres.Password,
-			config.Postgres.Name,
-		),
+	// Create database connection string
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		config.Postgres.Host,
+		config.Postgres.Port,
+		config.Postgres.User,
+		config.Postgres.Password,
+		config.Postgres.Name,
 	)
+
+	// Create write database pool (optimized for write operations)
+	writeDB, err := sql.Open("postgres", connStr)
 	if err != nil {
-		logger.Fatalf("Failed to connect to database: %v", err)
+		logger.Fatalf("Failed to connect to write database: %v", err)
 	}
 
-	// Configure connection pooling
-	db.SetMaxOpenConns(config.Postgres.MaxOpenConns)       // Maximum number of open connections
-	db.SetMaxIdleConns(config.Postgres.MaxIdleConns)       // Maximum number of idle connections
-	db.SetConnMaxIdleTime(config.Postgres.ConnMaxIdleTime) // Maximum idle time of a connection
+	// Configure write pool - fewer connections, shorter lifetimes for consistency
+	writeDB.SetMaxOpenConns(config.Postgres.WriteMaxOpenConns)
+	writeDB.SetMaxIdleConns(config.Postgres.WriteMaxIdleConns)
+	writeDB.SetConnMaxIdleTime(config.Postgres.WriteConnMaxIdleTime)
+	writeDB.SetConnMaxLifetime(config.Postgres.WriteConnMaxLifetime)
 
-	// Test the connection
-	if err = db.PingContext(ctx); err != nil {
-		logger.Fatalf("Failed to ping database: %v", err)
+	// Create read database pool (optimized for read operations)
+	readDB, err := sql.Open("postgres", connStr)
+	if err != nil {
+		logger.Fatalf("Failed to connect to read database: %v", err)
 	}
-	logger.Info("Database connection established with connection pooling")
+
+	// Configure read pool - more connections, longer lifetimes for performance
+	readDB.SetMaxOpenConns(config.Postgres.ReadMaxOpenConns)
+	readDB.SetMaxIdleConns(config.Postgres.ReadMaxIdleConns)
+	readDB.SetConnMaxIdleTime(config.Postgres.ReadConnMaxIdleTime)
+	readDB.SetConnMaxLifetime(config.Postgres.ReadConnMaxLifetime)
+
+	// Create admin database pool (optimized for admin operations)
+	adminDBPool, err := sql.Open("postgres", connStr)
+	if err != nil {
+		logger.Fatalf("Failed to connect to admin database: %v", err)
+	}
+
+	// Configure admin pool - moderate connections, longer lifetimes for admin tasks
+	adminDBPool.SetMaxOpenConns(config.Postgres.AdminMaxOpenConns)
+	adminDBPool.SetMaxIdleConns(config.Postgres.AdminMaxIdleConns)
+	adminDBPool.SetConnMaxIdleTime(config.Postgres.AdminConnMaxIdleTime)
+	adminDBPool.SetConnMaxLifetime(config.Postgres.AdminConnMaxLifetime)
+
+	// Test all connections
+	if err = writeDB.PingContext(ctx); err != nil {
+		logger.Fatalf("Failed to ping write database: %v", err)
+	}
+	if err = readDB.PingContext(ctx); err != nil {
+		logger.Fatalf("Failed to ping read database: %v", err)
+	}
+	if err = adminDBPool.PingContext(ctx); err != nil {
+		logger.Fatalf("Failed to ping admin database: %v", err)
+	}
+
+	logger.Info("Database connections established with separate read/write/admin pools")
+	logger.Infof("Write pool: %d max open, %d max idle connections", 
+		config.Postgres.WriteMaxOpenConns, config.Postgres.WriteMaxIdleConns)
+	logger.Infof("Read pool: %d max open, %d max idle connections", 
+		config.Postgres.ReadMaxOpenConns, config.Postgres.ReadMaxIdleConns)
+	logger.Infof("Admin pool: %d max open, %d max idle connections", 
+		config.Postgres.AdminMaxOpenConns, config.Postgres.AdminMaxIdleConns)
+
 	go func() {
 		<-ctx.Done()
-		logger.Info("Shutting down database connection")
-		db.Close()
+		logger.Info("Shutting down database connections")
+		writeDB.Close()
+		readDB.Close()
+		adminDBPool.Close()
 	}()
 
 	postgesBoundarySchemaMappings := config.Postgres.GetSchemaMapping()
 	for _, schema := range postgesBoundarySchemaMappings {
 		isAdminBoundary := schema.Boundary == config.Admin.Boundary
-		if err = postgres.RunDbScripts(db, schema.Schema, isAdminBoundary, ctx); err != nil {
+		// Use write pool for database migrations (schema changes)
+		if err = postgres.RunDbScripts(writeDB, schema.Schema, isAdminBoundary, ctx); err != nil {
 			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
 		logger.Infof("Database migrations for schema %s completed successfully", schema)
 	}
 
-	saveEvents := postgres.NewPostgresSaveEvents(ctx, db, logger, postgesBoundarySchemaMappings)
-	getEvents := postgres.NewPostgresGetEvents(db, logger, postgesBoundarySchemaMappings)
+	// Use write pool for save operations and read pool for get operations
+	saveEvents := postgres.NewPostgresSaveEvents(ctx, writeDB, logger, postgesBoundarySchemaMappings)
+	getEvents := postgres.NewPostgresGetEvents(readDB, logger, postgesBoundarySchemaMappings)
 	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
 		logger.Fatalf("Failed to create lock provider: %v", err)
@@ -574,15 +618,17 @@ func initializeDatabase(
 		logger.Fatalf("No schema specified for admin boundary", err)
 	}
 
+	// Use admin pool for admin operations (user management)
 	adminDB := postgres.NewPostgresAdminDB(
-		db,
+		adminDBPool,
 		logger,
 		adminSchema.Schema,
 		postgesBoundarySchemaMappings,
 	)
 
+	// Use write pool for event publishing operations
 	eventPublishing := postgres.NewPostgresEventPublishing(
-		db,
+		writeDB,
 		logger,
 		postgesBoundarySchemaMappings,
 	)

@@ -55,9 +55,21 @@ type DBConfig struct {
 	Host     string
 	Port     string
 	Schemas  string
-	MaxOpenConns  int
-	MaxIdleConns  int
-	ConnMaxIdleTime time.Duration
+	// Write pool configuration (optimized for write operations)
+	WriteMaxOpenConns  int
+	WriteMaxIdleConns  int
+	WriteConnMaxIdleTime time.Duration
+	WriteConnMaxLifetime time.Duration
+	// Read pool configuration (optimized for read operations)
+	ReadMaxOpenConns  int
+	ReadMaxIdleConns  int
+	ReadConnMaxIdleTime time.Duration
+	ReadConnMaxLifetime time.Duration
+	// Admin pool configuration (optimized for admin operations)
+	AdminMaxOpenConns    int
+	AdminMaxIdleConns    int
+	AdminConnMaxIdleTime time.Duration
+	AdminConnMaxLifetime time.Duration
 }
 
 type BoundaryToPostgresSchemaMapping struct {
