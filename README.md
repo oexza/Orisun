@@ -796,12 +796,15 @@ The following benchmarks were conducted on a local development environment:
 
 ### Performance Insights
 
-- **Batching Benefits**: Batch operations show significant performance improvements, with 10,000-event batches achieving ~59,400 events/sec compared to ~213 events/sec for single events
-- **Optimal Batch Size**: 1,000-10,000 events per batch provides the best balance of throughput and latency
-- **Concurrent Access**: Individual concurrent operations achieve ~221 events/sec per worker, demonstrating good scalability
-- **Stream Versioning**: Sequential appends to the same stream maintain high throughput (~14,884 events/sec for 1,000-event batches)
-- **Memory Efficiency**: The system maintains stable performance even under memory-intensive workloads
-- **High Throughput**: Can sustain over 1,000 concurrent operations while maintaining good performance
+- **Enhanced Granular Locking**: The updated implementation with two-tier locking (criteria-based + stream-level fallback) delivers excellent performance scaling
+- **Batch Size Optimization**: Performance scales dramatically with batch size:
+  - **100 events**: 1,769 events/sec (56.5ms latency)
+  - **1,000 events**: 15,131 events/sec (66.1ms latency)
+  - **5,000 events**: 45,607 events/sec (109.6ms latency)
+- **Memory Efficiency**: Stable allocation patterns (115-165 allocs/op) with linear memory scaling relative to batch size
+- **Consistency Guarantees**: Zero data corruption with optimistic concurrency control through dual version checking
+- **Deadlock Prevention**: Ordered lock acquisition prevents deadlocks in high-concurrency scenarios
+- **CTE Performance**: Optimized Common Table Expression-based insertion maintains high throughput while ensuring data integrity
 
 ### Key Performance Features
 

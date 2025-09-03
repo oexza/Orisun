@@ -143,7 +143,7 @@ class OrisunClientTest {
             // Wait for event to be received
             assertTrue(eventLatch.await(5, TimeUnit.SECONDS));
             assertEquals(1, receivedEvents.size());
-            assertEquals("UserCreated", receivedEvents.get(0).getEventType());
+            assertEquals("UserCreated", receivedEvents.getFirst().getEventType());
         }
     }
 
