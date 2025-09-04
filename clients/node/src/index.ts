@@ -9,7 +9,9 @@ export {
   Tag,
   Criterion,
   Query,
-  EventStoreClientOptions
+  RetryPolicy,
+  EventStoreClientOptions,
+  Logger
 } from './client';
 
 import { EventStoreClient } from './client';

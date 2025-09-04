@@ -1,12 +1,45 @@
 import { EventStoreClient, Event } from '../src';
 
 async function basicUsageExample() {
-  // Create a client instance
+  // Create a client instance with keep-alive options and load balancing
   const client = new EventStoreClient({
+    // Option 1: Single host and port
     host: 'localhost',
     port: 5005,
+    
+    // Option 2: Multiple hosts for load balancing
+    // host: 'eventstore1.example.com,eventstore2.example.com,eventstore3.example.com',
+    // port: 5005,
+    
+    // Option 3: DNS-based load balancing
+    // target: 'dns:///eventstore.example.com:5005',
+    
     username: 'admin',
-    password: 'changeit'
+    password: 'changeit',
+    
+    // Load balancing policy
+    loadBalancingPolicy: 'round_robin', // or 'pick_first'
+    
+    // Retry configuration
+    enableRetries: true, // Enable automatic retries for failed requests
+    retryPolicy: {
+      maxAttempts: 5, // Maximum number of retry attempts
+      initialBackoff: '0.1s', // Initial backoff time
+      maxBackoff: '10s', // Maximum backoff time
+      backoffMultiplier: 2, // Backoff multiplier for exponential backoff
+      retryableStatusCodes: ['UNAVAILABLE'] // Status codes that trigger retries
+    },
+    
+    // Logging configuration
+    enableLogging: true, // Enable logging (set to false in production if you want to minimize output)
+    logger: console, // Use the default console logger (you can provide a custom logger)
+    
+
+    
+    // Keep-alive options for maintaining long-lived connections
+    keepaliveTimeMs: 30000, // Send keep-alive ping every 30 seconds
+    keepaliveTimeoutMs: 10000, // Wait 10 seconds for ping response before considering connection dead
+    keepalivePermitWithoutCalls: true // Allow keep-alive pings even when there are no active calls
   });
 
   try {

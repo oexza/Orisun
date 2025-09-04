@@ -35,3 +35,7 @@ src/orisun/data/
 ./bin
 .project
 clients/java/.gradle/
+node_modules/
+clients/node_modules/
+dist/
+clients/dist/

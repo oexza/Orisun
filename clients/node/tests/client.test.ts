@@ -1,4 +1,4 @@
-import { EventStoreClient, Event, EventToSave } from '../src';
+import { EventStoreClient, Event, EventToSave, Position } from '../src';
 import * as grpc from '@grpc/grpc-js';
 
 // Mock gRPC and protobuf modules
@@ -44,14 +44,14 @@ beforeEach(() => {
     callback(null, {
       events: [
         {
-          id: 'test-event-1',
-          type: 'TestEvent',
+          event_id: 'test-event-1',
+          event_type: 'TestEvent',
           data: JSON.stringify({ test: 'data' }),
           metadata: JSON.stringify({ source: 'test' }),
-          streamId: 'test-stream',
-          streamVersion: 1,
-          position: 1,
-          timestamp: '2024-01-01T00:00:00Z'
+          stream_id: 'test-stream',
+          version: 1,
+          position: { commitPosition: 1, preparePosition: 1 },
+          date_created: '2024-01-01T00:00:00Z'
         }
       ]
     });
@@ -86,13 +86,91 @@ describe('EventStoreClient', () => {
 
   describe('constructor', () => {
     it('should create client with default options', () => {
-      const defaultClient = new EventStoreClient();
+      const defaultClient = new EventStoreClient({ host: 'localhost', port: 5005 });
       expect(defaultClient).toBeInstanceOf(EventStoreClient);
       defaultClient.close();
     });
 
     it('should create client with custom options', () => {
       expect(client).toBeInstanceOf(EventStoreClient);
+    });
+    
+    it('should create client with keep-alive options', () => {
+      const clientWithKeepalive = new EventStoreClient({
+        host: 'localhost',
+        port: 5005,
+        username: 'test',
+        password: 'test',
+        keepaliveTimeMs: 60000,
+        keepaliveTimeoutMs: 20000,
+        keepalivePermitWithoutCalls: false
+      });
+      expect(clientWithKeepalive).toBeInstanceOf(EventStoreClient);
+      clientWithKeepalive.close();
+    });
+    
+    it('should create client with load balancing options', () => {
+      const clientWithLoadBalancing = new EventStoreClient({
+        host: 'localhost',
+        port: 5005,
+        username: 'test',
+        password: 'test',
+        loadBalancingPolicy: 'round_robin'
+      });
+      expect(clientWithLoadBalancing).toBeInstanceOf(EventStoreClient);
+      clientWithLoadBalancing.close();
+    });
+    
+    it('should create client with comma-separated hosts for load balancing', () => {
+      const clientWithMultipleHosts = new EventStoreClient({
+        host: 'host1.example.com,host2.example.com,host3.example.com',
+        port: 5005,
+        username: 'test',
+        password: 'test'
+      });
+      expect(clientWithMultipleHosts).toBeInstanceOf(EventStoreClient);
+      clientWithMultipleHosts.close();
+    });
+    
+    it('should create client with target string for DNS-based load balancing', () => {
+      const clientWithTarget = new EventStoreClient({
+        target: 'dns:///eventstore.example.com:5005',
+        username: 'test',
+        password: 'test'
+      });
+      expect(clientWithTarget).toBeInstanceOf(EventStoreClient);
+      clientWithTarget.close();
+    });
+    
+    it('should create client with custom retry policy', () => {
+      const clientWithRetryPolicy = new EventStoreClient({
+        host: 'localhost',
+        port: 5005,
+        username: 'test',
+        password: 'test',
+        enableRetries: true,
+        retryPolicy: {
+          maxAttempts: 10,
+          initialBackoff: '0.5s',
+          maxBackoff: '30s',
+          backoffMultiplier: 1.5,
+          retryableStatusCodes: ['UNAVAILABLE', 'RESOURCE_EXHAUSTED']
+        }
+      });
+      expect(clientWithRetryPolicy).toBeInstanceOf(EventStoreClient);
+      clientWithRetryPolicy.close();
+    });
+    
+    it('should create client with retries disabled', () => {
+      const clientWithoutRetries = new EventStoreClient({
+        host: 'localhost',
+        port: 5005,
+        username: 'test',
+        password: 'test',
+        enableRetries: false
+      });
+      expect(clientWithoutRetries).toBeInstanceOf(EventStoreClient);
+      clientWithoutRetries.close();
     });
   });
 
@@ -101,12 +179,12 @@ describe('EventStoreClient', () => {
       const request = {
         stream: {
           name: 'test-stream',
-          expected_version: 0
+          expectedVersion: 0
         },
         events: [
           {
-            event_id: 'test-event-1',
-            event_type: 'TestEvent',
+            eventId: 'test-event-1',
+            eventType: 'TestEvent',
             data: { test: 'data' },
             metadata: { source: 'test' }
           }
@@ -121,7 +199,9 @@ describe('EventStoreClient', () => {
   describe('getEvents', () => {
     it('should retrieve events successfully', async () => {
       const request = {
-        streamId: 'test-stream',
+        stream: {
+          name: 'test-stream'
+        },
         boundary: 'test-boundary'
       };
 
@@ -129,28 +209,26 @@ describe('EventStoreClient', () => {
       
       expect(events).toHaveLength(1);
       expect(events[0]).toEqual({
-        id: 'test-event-1',
-        type: 'TestEvent',
+        eventId: 'test-event-1',
+        eventType: 'TestEvent',
         data: { test: 'data' },
         metadata: { source: 'test' },
         streamId: 'test-stream',
-        streamVersion: 1,
-        position: 1,
-        timestamp: '2024-01-01T00:00:00Z'
+        version: 1,
+        position: { commitPosition: 1, preparePosition: 1 },
+        dateCreated: '2024-01-01T00:00:00Z'
       });
     });
 
     it('should handle version range parameters', async () => {
       const request = {
-        query: {
-          stream: {
-            name: 'test-stream',
-            from_version: 1
-          }
+        stream: {
+          name: 'test-stream',
+          fromVersion: 1
         },
-        from_position: 1,
+        fromPosition: { commitPosition: 1, preparePosition: 1 } as Position,
         count: 5,
-        direction: 0,
+        direction: 'ASC' as 'ASC',
         boundary: 'test-boundary'
       };
 
@@ -162,7 +240,8 @@ describe('EventStoreClient', () => {
   describe('subscribeToEvents', () => {
     it('should create subscription successfully', () => {
       const request = {
-        streamId: 'test-stream',
+        subscriberName: 'test-subscriber',
+        stream: 'test-stream',
         boundary: 'test-boundary'
       };
 
@@ -171,7 +250,7 @@ describe('EventStoreClient', () => {
 
       const subscription = client.subscribeToEvents({
         subscriberName: 'test-subscriber',
-        stream: { name: 'test-stream' },
+        stream: 'test-stream',
         boundary: 'test-boundary'
       }, onEvent, onError);
       
@@ -180,16 +259,16 @@ describe('EventStoreClient', () => {
       expect(subscription.cancel).toBeDefined();
     });
 
-    it('should handle subscription without streamId', () => {
+    it('should handle subscription without stream', () => {
       const request = {
-        fromPosition: 100,
+        afterPosition: { commitPosition: 100, preparePosition: 100 } as Position,
         boundary: 'test-boundary'
       };
 
       const onEvent = jest.fn();
       const subscription = client.subscribeToEvents({
         subscriberName: 'test-subscriber',
-        fromPosition: 100,
+        afterPosition: { commitPosition: 100, preparePosition: 100 } as Position,
         boundary: 'test-boundary'
       }, onEvent);
       

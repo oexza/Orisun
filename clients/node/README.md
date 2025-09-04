@@ -11,6 +11,9 @@ A Node.js client library for interacting with the Orisun Event Store, providing 
 - **TypeScript Support**: Full TypeScript definitions included
 - **gRPC Communication**: High-performance gRPC protocol
 - **Authentication**: Built-in support for basic authentication
+- **Load Balancing**: Support for multiple hosts and DNS-based load balancing
+- **Resilience**: Configurable retry policies for handling transient failures
+- **Logging**: Configurable logging for debugging and monitoring
 
 ## Installation
 
@@ -25,10 +28,48 @@ import { EventStoreClient } from 'orisun-eventstore-client';
 
 // Create a client
 const client = new EventStoreClient({
+  // Connection options (choose one approach)
+  
+  // Option 1: Single server
   host: 'localhost',
   port: 5005,
+  
+  // Option 2: Multiple hosts for load balancing
+  // host: 'eventstore1.example.com,eventstore2.example.com,eventstore3.example.com',
+  // port: 5005,
+  
+  // Option 3: DNS-based load balancing
+  // target: 'dns:///eventstore.example.com:5005',
+  
+  // Authentication
   username: 'admin',
-  password: 'changeit'
+  password: 'changeit',
+  
+  // Load balancing configuration
+  loadBalancingPolicy: 'round_robin', // or 'pick_first'
+  
+  // Retry configuration for resilience
+  enableRetries: true, // Enable automatic retries for failed requests
+  retryPolicy: {
+    maxAttempts: 5, // Maximum number of retry attempts
+    initialBackoff: '0.1s', // Initial backoff time
+    maxBackoff: '10s', // Maximum backoff time
+    backoffMultiplier: 2, // Backoff multiplier for exponential backoff
+    retryableStatusCodes: ['UNAVAILABLE'] // Status codes that trigger retries
+  },
+  
+
+  
+  // Logging configuration
+  enableLogging: true, // Enable or disable logging
+  logger: console, // Custom logger (must implement debug, info, warn, error methods)
+  
+
+  
+  // Keep-alive options for long-lived connections
+  keepaliveTimeMs: 30000, // Send ping every 30 seconds
+  keepaliveTimeoutMs: 10000, // Wait 10 seconds for ping response
+  keepalivePermitWithoutCalls: true // Allow pings when idle
 });
 
 // Save events
@@ -67,11 +108,28 @@ new EventStoreClient(options?: EventStoreClientOptions)
 ```
 
 **Options:**
-- `host` (string): Server hostname (default: 'localhost')
+- `host` (string): Server hostname or comma-separated list of hosts for load balancing (default: 'localhost')
 - `port` (number): Server port (default: 5005)
+- `target` (string): Alternative to host:port. A fully qualified gRPC target string (e.g., 'dns:///eventstore.example.com:5005')
 - `credentials` (grpc.ChannelCredentials): gRPC credentials (default: insecure)
 - `username` (string): Authentication username (default: 'admin')
 - `password` (string): Authentication password (default: 'changeit')
+- `loadBalancingPolicy` (string): Load balancing strategy - 'round_robin' or 'pick_first' (default: 'round_robin')
+- `enableRetries` (boolean): Enable automatic retries for failed requests (default: true)
+- `retryPolicy` (object): Configuration for retry behavior
+  - `maxAttempts` (number): Maximum number of retry attempts (default: 5)
+  - `initialBackoff` (string): Initial backoff time (default: '0.1s')
+  - `maxBackoff` (string): Maximum backoff time (default: '10s')
+  - `backoffMultiplier` (number): Backoff multiplier for exponential backoff (default: 2)
+  - `retryableStatusCodes` (string[]): Status codes that trigger retries (default: ['UNAVAILABLE'])
+
+- `enableLogging` (boolean): Enable or disable logging (default: true)
+- `logger` (object): Custom logger implementation (default: console)
+  - Must implement `debug`, `info`, `warn`, and `error` methods
+
+- `keepaliveTimeMs` (number): Time in milliseconds between keep-alive pings (default: 30000)
+- `keepaliveTimeoutMs` (number): Time in milliseconds to wait for ping response (default: 10000)
+- `keepalivePermitWithoutCalls` (boolean): Allow keep-alive pings when there are no active calls (default: true)
 
 #### Methods
 

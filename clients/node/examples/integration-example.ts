@@ -6,10 +6,47 @@ import { EventStoreClient, EventToSave } from '../src';
  */
 async function integrationExample() {
   const client = new EventStoreClient({
+    // Connection options - choose one of the following approaches:
+    
+    // 1. Single server connection
     host: 'localhost',
     port: 5005,
+    
+    // 2. Multiple hosts for load balancing (uncomment to use)
+    // host: 'eventstore1.example.com,eventstore2.example.com,eventstore3.example.com',
+    // port: 5005,
+    
+    // 3. DNS-based load balancing (uncomment to use)
+    // target: 'dns:///eventstore.example.com:5005',
+    
+    // Authentication
     username: 'admin',
-    password: 'changeit'
+    password: 'changeit',
+    
+    // Load balancing configuration
+    loadBalancingPolicy: 'round_robin', // Distributes requests across all available servers
+    // loadBalancingPolicy: 'pick_first', // Uses the first available server
+    
+    // Retry configuration for resilience
+    enableRetries: true, // Enable automatic retries for failed requests
+    retryPolicy: {
+      maxAttempts: 5, // Maximum number of retry attempts
+      initialBackoff: '0.1s', // Initial backoff time
+      maxBackoff: '10s', // Maximum backoff time
+      backoffMultiplier: 2, // Backoff multiplier for exponential backoff
+      retryableStatusCodes: ['UNAVAILABLE'] // Status codes that trigger retries
+    },
+    
+    // Logging configuration
+    enableLogging: true, // Enable logging (set to false in production if you want to minimize output)
+    logger: console, // Use the default console logger (you can provide a custom logger)
+    
+
+    
+    // Keep-alive configuration for long-running connections
+    keepaliveTimeMs: 30000, // Send keep-alive ping every 30 seconds
+    keepaliveTimeoutMs: 10000, // Wait 10 seconds for ping response
+    keepalivePermitWithoutCalls: true // Allow pings even when idle
   });
 
   try {
