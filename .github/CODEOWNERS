@@ -1,22 +1,22 @@
 # These owners will be the default owners for everything in the repo.
 # Unless a later match takes precedence, they will be requested for
 # review when someone opens a pull request.
-* @yourusername
+* @oexza
 
 # Core components
-/eventstore/ @yourusername
-/postgres/ @yourusername
-/config/ @yourusername
+/eventstore/ @oexza
+/postgres/ @oexza
+/config/ @oexza
 
 # Client libraries
-/clients/node/ @yourusername
-/clients/java/ @yourusername
+/clients/node/ @oexza
+/clients/java/ @oexza
 
 # Admin dashboard
-/admin/ @yourusername
+/admin/ @oexza
 
 # CI/CD and build files
-/.github/ @yourusername
-/Dockerfile @yourusername
-/build.sh @yourusername
-/scripts/ @yourusername
+/.github/ @oexza
+/Dockerfile @oexza
+/build.sh @oexza
+/scripts/ @oexza

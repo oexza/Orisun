@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
 
 -- Insert Function
 --
--- This function inserts a batch of events into the event store while enforcing
+-- This function inserts a batch of events into a stream in the event store while enforcing
 -- stream consistency. It locks the stream or specific criteria keys for the duration
 -- of the transaction to prevent concurrent modifications.
 --

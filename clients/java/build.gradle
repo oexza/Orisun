@@ -88,7 +88,7 @@ publishing {
                 }
                 developers {
                     developer {
-                        id = 'yourusername'
+                        id = 'oexza'
                         name = 'Your Name'
                         email = 'your.email@example.com'
                     }
@@ -100,7 +100,7 @@ publishing {
     repositories {
         maven {
             name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/yourusername/orisun")
+            url = uri("https://maven.pkg.github.com/oexza/orisun")
             credentials {
                 username = System.getenv("GITHUB_ACTOR")
                 password = System.getenv("GITHUB_TOKEN")

@@ -1,8 +1,8 @@
 # Orisun - The batteries included event store.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/yourusername/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/Orisun/actions/workflows/ci.yml)
-[![Release](https://github.com/yourusername/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/yourusername/Orisun/actions/workflows/release.yml)
+[![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
+[![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 
 ## Overview
 
@@ -33,7 +33,7 @@ Orisun follows semantic versioning (SemVer) for all releases.
 - **Minor versions** (0.X.0): Add new features in a backward-compatible manner
 - **Patch versions** (0.0.X): Include backward-compatible bug fixes and performance improvements
 
-Check the [Releases page](https://github.com/yourusername/Orisun/releases) for the latest versions and detailed release notes.
+Check the [Releases page](https://github.com/oexza/Orisun/releases) for the latest versions and detailed release notes.
 
 ### Release Process
 
@@ -54,7 +54,7 @@ Releases are automated through GitHub Actions. To create a new release:
 ### Installation Options
 
 #### Binary Downloads
-Download pre-built binaries from the [Releases page](https://github.com/yourusername/Orisun/releases).
+Download pre-built binaries from the [Releases page](https://github.com/oexza/Orisun/releases).
 
 #### Docker
 ```bash
@@ -656,7 +656,7 @@ For production Kubernetes deployments, consider:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/orisun.git
+git clone https://github.com/oexza/orisun.git
 cd orisun
 ```
 
@@ -882,7 +882,7 @@ go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./benchmark_test.go
 
 ### Development Setup
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/orisun.git`
+2. Clone your fork: `git clone https://github.com/oexza/orisun.git`
 3. Create a feature branch: `git checkout -b feature/amazing-feature`
 4. Install dependencies: `go mod download`
 5. Make your changes
