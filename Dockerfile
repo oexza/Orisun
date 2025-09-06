@@ -20,7 +20,7 @@ ARG GIT_COMMIT=unknown
 
 # Build the application with optimizations and version information
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-    -ldflags="-w -s -X 'orisun/common.Version=${VERSION}' -X 'orisun/common.BuildTime=${BUILD_TIME}' -X 'orisun/common.GitCommit=${GIT_COMMIT}'" \
+    -ldflags="-w -s -X orisun/common.Version=${VERSION} -X orisun/common.BuildTime=${BUILD_TIME} -X orisun/common.GitCommit=${GIT_COMMIT}" \
     -o orisun ./
 
 # Use a minimal scratch image for the final container

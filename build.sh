@@ -11,7 +11,7 @@ OUTPUT_NAME="orisun-$TARGET_OS-$TARGET_ARCH"
 # Build the binary with version information
 echo "Building for $TARGET_OS/$TARGET_ARCH with version $VERSION..."
 GOOS=$TARGET_OS GOARCH=$TARGET_ARCH go build -tags development="false" -a -installsuffix cgo \
-  -ldflags="-w -s -X 'orisun/common.Version=$VERSION' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=$(git rev-parse --short HEAD)'" \
+  -ldflags="-w -s -X orisun/common.Version=$VERSION -X orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ') -X orisun/common.GitCommit=$(git rev-parse --short HEAD)" \
   -gcflags="-m" -o ./build/$OUTPUT_NAME ./main.go
 
 # Check if the build was successful
