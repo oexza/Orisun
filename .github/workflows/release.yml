@@ -26,6 +26,9 @@ jobs:
       - name: Extract version from tag
         id: get_version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        
+      - name: Set version environment variable
+        run: echo "VERSION=v${{ steps.get_version.outputs.version }}" >> $GITHUB_ENV
 
       - name: Run tests
         run: go test -v ./...
@@ -47,6 +50,7 @@ jobs:
             arch: arm64
           - os: windows
             arch: amd64
+            extension: .exe
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -60,85 +64,23 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p build
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -tags development="false" -a -installsuffix cgo -ldflags="-w -s -X 'orisun/common.Version=v${{ needs.validate.outputs.version }}'" -o ./build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }} ./main.go
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build \
+            -ldflags="-w -s -X 'orisun/common.Version=${{ env.VERSION }}' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=${GITHUB_SHA::8}'" \
+            -o build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: orisun-${{ matrix.os }}-${{ matrix.arch }}
-          path: ./build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
-          retention-days: 1
-
-  build-docker:
-    name: Build and Push Docker Image
-    needs: [validate, build-binaries]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-            GIT_COMMIT=${{ github.sha }}
-          tags: |
-            orisun/orisun:latest
-            orisun/orisun:${{ env.VERSION }}
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-            GIT_COMMIT=${{ github.sha }}
-
-  publish-npm-package:
-    name: Publish Node.js Client to npm
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Update package version
-        working-directory: ./clients/node
-        run: npm version ${{ needs.validate.outputs.version }} --no-git-tag-version
-
-      - name: Install dependencies
-        working-directory: ./clients/node
-        run: npm ci
-
-      - name: Build package
-        working-directory: ./clients/node
-        run: npm run build
-
-      - name: Publish to npm
-        working-directory: ./clients/node
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          path: build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
+          if-no-files-found: error
 
   create-release:
     name: Create GitHub Release
-    needs: [validate, build-binaries, build-docker, publish-npm-package]
+    needs: [validate, build-binaries]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -148,70 +90,56 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: ./artifacts
+          path: artifacts
 
       - name: Generate changelog
         id: changelog
-        uses: mikepenz/release-changelog-builder-action@v4
-        with:
-          configuration: |
-            {
-              "categories": [
-                {
-                  "title": "## 🚀 Features",
-                  "labels": ["feature", "enhancement"]
-                },
-                {
-                  "title": "## 🐛 Fixes",
-                  "labels": ["fix", "bug"]
-                },
-                {
-                  "title": "## 📦 Dependencies",
-                  "labels": ["dependencies"]
-                },
-                {
-                  "title": "## 📝 Documentation",
-                  "labels": ["documentation"]
-                }
-              ]
-            }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "changelog=Initial release" >> $GITHUB_OUTPUT
+          else
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Orisun v${{ needs.validate.outputs.version }}
+          name: Release v${{ needs.validate.outputs.version }}
           body: |
             ## Orisun v${{ needs.validate.outputs.version }}
-
+            
             ${{ steps.changelog.outputs.changelog }}
-
+            
             ## Installation
-
-            ### Binary Downloads
-            - [Linux (amd64)](https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-amd64)
-            - [Linux (arm64)](https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-arm64)
-            - [macOS (amd64)](https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-amd64)
-            - [macOS (arm64)](https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-arm64)
-            - [Windows (amd64)](https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate.outputs.version }}/orisun-windows-amd64.exe)
-
-            ### Docker
+            
+            ### Linux
+            ```bash
+            # For amd64
+            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-amd64 -o orisun
+            chmod +x orisun
+            
+            # For arm64
+            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-arm64 -o orisun
+            chmod +x orisun
             ```
-            docker pull orisun/orisun:v${{ needs.validate.outputs.version }}
+            
+            ### macOS
+            ```bash
+            # For amd64
+            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-amd64 -o orisun
+            chmod +x orisun
+            
+            # For arm64 (Apple Silicon)
+            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-arm64 -o orisun
+            chmod +x orisun
             ```
-
-            ### Node.js Client
-            ```
-            npm install @orisun/client@${{ needs.validate.outputs.version }}
-            ```
+            
+            ### Windows
+            Download the appropriate binary from the assets below.
           files: |
-            ./artifacts/orisun-linux-amd64/orisun-linux-amd64
-            ./artifacts/orisun-linux-arm64/orisun-linux-arm64
-            ./artifacts/orisun-darwin-amd64/orisun-darwin-amd64
-            ./artifacts/orisun-darwin-arm64/orisun-darwin-arm64
-            ./artifacts/orisun-windows-amd64/orisun-windows-amd64.exe
+            artifacts/**/*
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
