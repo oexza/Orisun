@@ -87,6 +87,10 @@ func (s *PostgresSaveEvents) Save(
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
+	if len(events) == 0 {
+		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+	}
+
 	schema, err := s.Schema(boundary)
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
