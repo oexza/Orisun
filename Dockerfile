@@ -19,9 +19,7 @@ ARG BUILD_TIME=unknown
 ARG GIT_COMMIT=unknown
 
 # Build the application with optimizations and version information
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-    -ldflags="-w -s -X 'github.com/oexza/orisun/common.Version=${VERSION}' -X 'github.com/oexza/orisun/common.BuildTime=${BUILD_TIME}' -X 'github.com/oexza/orisun/common.GitCommit=${GIT_COMMIT}'" \
-    -o orisun ./
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s -X 'github.com/oexza/orisun/common.Version=${VERSION}' -X 'github.com/oexza/orisun/common.BuildTime=${BUILD_TIME}' -X 'github.com/oexza/orisun/common.GitCommit=${GIT_COMMIT}'" -o orisun ./
 
 # Use a minimal scratch image for the final container
 FROM alpine:3.18
