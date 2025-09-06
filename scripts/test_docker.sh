@@ -17,7 +17,7 @@ docker run -d \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=password@1 \
   -e POSTGRES_DB=orisun \
-  -p 5434:5432 \
+  -p 5435:5432 \
   postgres:17.5-alpine3.22
 
 echo "Waiting for PostgreSQL to start..."
@@ -32,7 +32,7 @@ docker run -d \
   -e ORISUN_PG_NAME=orisun \
   -e ORISUN_PG_PASSWORD=password@1 \
   -e ORISUN_PG_HOST=host.docker.internal \
-  -e ORISUN_PG_PORT=5434 \
+  -e ORISUN_PG_PORT=5435 \
   -e ORISUN_LOGGING_LEVEL=INFO \
   -e ORISUN_ADMIN_USERNAME=admin \
   -e ORISUN_ADMIN_PASSWORD=changeit \
