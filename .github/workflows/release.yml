@@ -171,6 +171,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+        # Note: You must add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets in your GitHub repository settings
 
       - name: Build and push
         uses: docker/build-push-action@v5

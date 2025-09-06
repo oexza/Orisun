@@ -16,6 +16,8 @@ docker pull oexza/orisun:latest
 docker pull ghcr.io/oexza/orisun:latest
 ```
 
+> **Note:** For detailed instructions on setting up Docker Hub credentials for GitHub Actions, see [Docker Setup Guide](docs/docker_setup.md).
+
 ### Running with Docker Compose
 
 The easiest way to run Orisun is using Docker Compose:

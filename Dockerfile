@@ -20,7 +20,7 @@ ARG GIT_COMMIT=unknown
 
 # Build the application with optimizations and version information
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-    -ldflags="-w -s -X 'orisun/common.Version=${VERSION}' -X 'orisun/common.BuildTime=${BUILD_TIME}' -X 'orisun/common.GitCommit=${GIT_COMMIT}'" \
+    -ldflags="-w -s -X 'github.com/oexza/orisun/common.Version=${VERSION}' -X 'github.com/oexza/orisun/common.BuildTime=${BUILD_TIME}' -X 'github.com/oexza/orisun/common.GitCommit=${GIT_COMMIT}'" \
     -o orisun ./
 
 # Use a minimal scratch image for the final container
@@ -46,15 +46,11 @@ RUN mkdir -p /var/lib/orisun/data && \
 # Switch to non-root user
 USER orisun
 
-# Expose necessary ports
-EXPOSE 8991 5005
-
-# Set default command
-CMD ["/app/orisun"]
-EXPOSE 50051
+# Expose necessary ports (admin UI, gRPC, NATS, and additional gRPC port)
+EXPOSE 8991 5005 4222 50051
 
 # Set environment variables
 ENV GO_ENV=production
 
-# Run the application
+# Set default command
 CMD ["/app/orisun"]
