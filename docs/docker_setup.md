@@ -5,20 +5,32 @@
 If you encounter the following error when building the Docker image:
 
 ```
-buildx failed with: ERROR: failed to build: failed to solve: process "/bin/sh -c CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags=\"...\" -o orisun ./" did not complete successfully
+buildx failed with: ERROR: failed to build: failed to solve: process "/bin/sh -c CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags=\"...\" -o orisun ./" did not complete successfully: exit code: 1
 ```
 
 This is typically caused by an incorrect import path in the build command. The module name in the Dockerfile must match the actual import path used in the code.
 
 ### Solution
 
-Ensure that the `-ldflags` in the Dockerfile use the correct import path:
+The issue is that the `-ldflags` in the build command are using an incorrect import path. The module name in `go.mod` is `orisun`, but the build command is trying to use `github.com/oexza/orisun/common` as the import path.
+
+Correct the import path in the Dockerfile:
 
 ```dockerfile
+# Incorrect
 -ldflags="-w -s -X 'github.com/oexza/orisun/common.Version=${VERSION}' -X 'github.com/oexza/orisun/common.BuildTime=${BUILD_TIME}' -X 'github.com/oexza/orisun/common.GitCommit=${GIT_COMMIT}'" \
+
+# Correct
+-ldflags="-w -s -X 'orisun/common.Version=${VERSION}' -X 'orisun/common.BuildTime=${BUILD_TIME}' -X 'orisun/common.GitCommit=${GIT_COMMIT}'" \
 ```
 
-If you're forking or renaming the repository, make sure to update all import paths accordingly.
+Also ensure that the `BuildTime` and `GitCommit` variables are defined in the `common/version.go` file.
+
+If you're forking or renaming the repository, make sure to update all import paths accordingly in:
+1. Dockerfile
+2. build.sh
+3. GitHub Actions workflows
+4. Any other build scripts
 
 ## Setting Up Docker Hub Credentials in GitHub
 
