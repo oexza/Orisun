@@ -1,7 +1,11 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:latest AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git gcc musl-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -23,14 +27,18 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
     -ldflags="-w -s -X orisun/common.Version=${VERSION} -X orisun/common.BuildTime=${BUILD_TIME} -X orisun/common.GitCommit=${GIT_COMMIT}" \
     -o orisun ./
 
-# Use a minimal scratch image for the final container
-FROM alpine:3.18
+# Use a minimal debian slim image for the final container
+FROM debian:bullseye-slim
 
 # Add CA certificates and timezone data
-RUN apk --no-cache add ca-certificates tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
-RUN adduser -D -H -h /app orisun
+RUN mkdir -p /app && \
+    useradd -r -d /app -M orisun
 WORKDIR /app
 
 # Copy the binary from the builder stage
