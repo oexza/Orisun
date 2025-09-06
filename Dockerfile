@@ -23,12 +23,12 @@ ARG BUILD_TIME=unknown
 ARG GIT_COMMIT=unknown
 
 # Build the application with optimizations and version information
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+RUN CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags="-w -s -X orisun/common.Version=${VERSION} -X orisun/common.BuildTime=${BUILD_TIME} -X orisun/common.GitCommit=${GIT_COMMIT}" \
     -o orisun ./
 
 # Use a minimal debian slim image for the final container
-FROM debian:bullseye-slim
+FROM alpine:3.18
 
 # Add CA certificates and timezone data
 RUN apt-get update && apt-get install -y --no-install-recommends \
