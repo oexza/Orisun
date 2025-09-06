@@ -1,6 +1,8 @@
 # Orisun - The batteries included event store.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/yourusername/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/Orisun/actions/workflows/ci.yml)
+[![Release](https://github.com/yourusername/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/yourusername/Orisun/actions/workflows/release.yml)
 
 ## Overview
 
@@ -22,13 +24,56 @@ Orisun is a modern event store designed for building event-driven applications. 
 - **Resilient Projections**: Automatic retry and failover for projection services across nodes
 - **Load Balancing**: Event processing automatically distributed across healthy nodes
 - **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
+```
+## Releases and Versioning
+
+Orisun follows semantic versioning (SemVer) for all releases.
+
+- **Major versions** (X.0.0): Introduce breaking changes to APIs or core functionality
+- **Minor versions** (0.X.0): Add new features in a backward-compatible manner
+- **Patch versions** (0.0.X): Include backward-compatible bug fixes and performance improvements
+
+Check the [Releases page](https://github.com/yourusername/Orisun/releases) for the latest versions and detailed release notes.
+
+### Release Process
+
+Releases are automated through GitHub Actions. To create a new release:
+
+1. Ensure all changes are committed and pushed to the main branch
+2. Run the release script with the new version number (without 'v' prefix):
+   ```bash
+   ./scripts/release.sh 1.2.3
+   ```
+3. The script will create and push a git tag (e.g., v1.2.3)
+4. GitHub Actions will automatically:
+   - Build binaries for multiple platforms (Linux, macOS, Windows)
+   - Create a Docker image and push it to Docker Hub
+   - Publish the Node.js client to npm
+   - Generate release notes and create a GitHub release
+
+### Installation Options
+
+#### Binary Downloads
+Download pre-built binaries from the [Releases page](https://github.com/yourusername/Orisun/releases).
+
+#### Docker
+```bash
+docker pull orisun/orisun:latest
+# or a specific version
+docker pull orisun/orisun:v1.2.3
+```
+
+#### Node.js Client
+```bash
+npm install @orisun/client
+```
 
 ## Getting Started
 
 ### Prerequisites
 
 - PostgreSQL 13+
-- Go 1.20+ (for building from source)
+- Go 1.24+ (for building from source)
 
 ### Quick Start
 

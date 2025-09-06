@@ -1,0 +1,61 @@
+name: Dependency Scanning
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sunday at midnight UTC
+  push:
+    branches: [ main ]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'clients/node/package.json'
+      - 'clients/node/package-lock.json'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'clients/node/package.json'
+      - 'clients/node/package-lock.json'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  go-scan:
+    name: Go Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.24'
+          go-package: './...'
+
+  node-scan:
+    name: Node.js Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'clients/node/package-lock.json'
+
+      - name: Install dependencies
+        run: cd clients/node && npm ci
+
+      - name: Run npm audit
+        run: cd clients/node && npm audit
+        continue-on-error: true  # Don't fail the build, just report

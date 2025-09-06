@@ -1,0 +1,24 @@
+# GitHub Actions workflow configuration
+
+# Docker image settings
+docker:
+  repository: orisun/orisun
+  platforms:
+    - linux/amd64
+    - linux/arm64
+
+# Binary build settings
+binaries:
+  name: orisun
+  platforms:
+    - os: linux
+      arch: [amd64, arm64]
+    - os: darwin
+      arch: [amd64, arm64]
+    - os: windows
+      arch: [amd64]
+
+# Node.js client settings
+node_client:
+  package_name: "@orisun/client"
+  directory: "clients/node"

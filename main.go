@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"time"
 
 	logger "log"
@@ -146,6 +147,9 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 
 func main() {
 	defer logger.Println("Server shutting down")
+
+	// Display version information
+	fmt.Printf("Starting Orisun %s (Go %s)\n", globalCommon.GetVersion(), runtime.Version())
 
 	// Load configuration and initialize logger
 	config := initializeConfig()

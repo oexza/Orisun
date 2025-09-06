@@ -13,8 +13,15 @@ RUN go mod download
 # Copy the source code
 COPY . .
 
-# Build the application with optimizations
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o orisun ./
+# Build arguments for version information
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ARG GIT_COMMIT=unknown
+
+# Build the application with optimizations and version information
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
+    -ldflags="-w -s -X 'orisun/common.Version=${VERSION}' -X 'orisun/common.BuildTime=${BUILD_TIME}' -X 'orisun/common.GitCommit=${GIT_COMMIT}'" \
+    -o orisun ./
 
 # Use a minimal scratch image for the final container
 FROM alpine:3.18
