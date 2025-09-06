@@ -47,7 +47,10 @@ RUN mkdir -p /var/lib/orisun/data && \
 USER orisun
 
 # Expose necessary ports
-EXPOSE 8080
+EXPOSE 8991 5005
+
+# Set default command
+CMD ["/app/orisun"]
 EXPOSE 50051
 
 # Set environment variables

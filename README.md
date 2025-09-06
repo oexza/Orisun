@@ -4,6 +4,74 @@
 [![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 
+## Docker Support
+
+Orisun is available as a Docker image. You can pull the latest image from Docker Hub or GitHub Container Registry:
+
+```bash
+# From Docker Hub
+docker pull oexza/orisun:latest
+
+# From GitHub Container Registry
+docker pull ghcr.io/oexza/orisun:latest
+```
+
+### Running with Docker Compose
+
+The easiest way to run Orisun is using Docker Compose:
+
+```bash
+# Clone the repository
+git clone https://github.com/oexza/Orisun.git
+cd Orisun
+
+# Start Orisun and PostgreSQL
+docker-compose up -d
+```
+
+This will start Orisun and a PostgreSQL database with the default configuration.
+
+### Running with Docker
+
+You can also run Orisun directly with Docker:
+
+```bash
+docker run -d \
+  --name orisun \
+  -p 8991:8991 \
+  -p 5005:5005 \
+  -e ORISUN_PG_USER=postgres \
+  -e ORISUN_PG_NAME=orisun \
+  -e ORISUN_PG_PASSWORD=password@1 \
+  -e ORISUN_PG_HOST=host.docker.internal \
+  -e ORISUN_PG_PORT=5432 \
+  -e ORISUN_LOGGING_LEVEL=INFO \
+  -e ORISUN_ADMIN_USERNAME=admin \
+  -e ORISUN_ADMIN_PASSWORD=changeit \
+  -v orisun-data:/var/lib/orisun/data \
+  oexza/orisun:latest
+```
+
+Make sure to adjust the PostgreSQL connection details to match your environment.
+
+### Building the Docker Image Locally
+
+You can build the Docker image locally using the provided Dockerfile:
+
+```bash
+docker build -t orisun:local .
+```
+
+To build with specific version information:
+
+```bash
+docker build \
+  --build-arg VERSION=1.0.0 \
+  --build-arg BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+  --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+  -t orisun:local .
+```
+
 ## Overview
 
 Orisun is a modern event store designed for building event-driven applications. It combines PostgreSQL's reliability with NATS JetStream's real-time capabilities to provide a complete event sourcing solution.
