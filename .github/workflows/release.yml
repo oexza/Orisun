@@ -99,9 +99,10 @@ jobs:
           if [ -z "$PREVIOUS_TAG" ]; then
             echo "changelog=Initial release" >> $GITHUB_OUTPUT
           else
-            echo "changelog<<CHANGELOG_EOF" >> $GITHUB_OUTPUT
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
             git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
-            echo "CHANGELOG_EOF" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Release
