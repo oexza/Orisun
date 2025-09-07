@@ -176,5 +176,5 @@ jobs:
           tags: |
             ghcr.io/oexza/orisun:latest
             ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }}
-            oexza/orisun:latest
-            oexza/orisun:${{ needs.validate.outputs.version }}
+            orexza/orisun:latest
+            orexza/orisun:${{ needs.validate.outputs.version }}
