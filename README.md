@@ -4,77 +4,7 @@
 [![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 
-## Docker Support
-
-Orisun is available as a Docker image. You can pull the latest image from Docker Hub or GitHub Container Registry:
-
-```bash
-# From Docker Hub
-docker pull oexza/orisun:latest
-
-# From GitHub Container Registry
-docker pull ghcr.io/oexza/orisun:latest
-```
-
-> **Note:** For detailed instructions on setting up Docker Hub credentials for GitHub Actions, see [Docker Setup Guide](docs/docker_setup.md).
-
-### Running with Docker Compose
-
-The easiest way to run Orisun is using Docker Compose:
-
-```bash
-# Clone the repository
-git clone https://github.com/oexza/Orisun.git
-cd Orisun
-
-# Start Orisun and PostgreSQL
-docker-compose up -d
-```
-
-This will start Orisun and a PostgreSQL database with the default configuration.
-
-### Running with Docker
-
-You can also run Orisun directly with Docker:
-
-```bash
-docker run -d \
-  --name orisun \
-  -p 8991:8991 \
-  -p 5005:5005 \
-  -e ORISUN_PG_USER=postgres \
-  -e ORISUN_PG_NAME=orisun \
-  -e ORISUN_PG_PASSWORD=password@1 \
-  -e ORISUN_PG_HOST=host.docker.internal \
-  -e ORISUN_PG_PORT=5432 \
-  -e ORISUN_LOGGING_LEVEL=INFO \
-  -e ORISUN_ADMIN_USERNAME=admin \
-  -e ORISUN_ADMIN_PASSWORD=changeit \
-  -v orisun-data:/var/lib/orisun/data \
-  oexza/orisun:latest
-```
-
-Make sure to adjust the PostgreSQL connection details to match your environment.
-
-### Building the Docker Image Locally
-
-You can build the Docker image locally using the provided Dockerfile:
-
-```bash
-docker build -t orisun:local .
-```
-
-To build with specific version information:
-
-```bash
-docker build \
-  --build-arg VERSION=1.0.0 \
-  --build-arg BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-  --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
-  -t orisun:local .
-```
-
-## Overview
+## Introduction
 
 Orisun is a modern event store designed for building event-driven applications. It combines PostgreSQL's reliability with NATS JetStream's real-time capabilities to provide a complete event sourcing solution.
 
@@ -87,84 +17,128 @@ Orisun is a modern event store designed for building event-driven applications. 
 - **Rich Querying**: Filter events by stream, tags, and global position
 - **Real-time Subscriptions**: Subscribe to event changes as they happen
 - **Admin Dashboard**: Built-in web interface for user management and system monitoring
-- **Event Projections**: Built-in read models and projections for common use cases
 - **User Management**: Create, view, and manage users through the admin interface
 - **Clustered Deployment**: High availability with automatic failover and distributed locking
 - **Horizontal Scaling**: Add nodes dynamically for increased throughput and resilience
-- **Resilient Projections**: Automatic retry and failover for projection services across nodes
-- **Load Balancing**: Event processing automatically distributed across healthy nodes
 - **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
+
+## Quick Start (Run in One Minute)
+
+### Option 1: Docker Compose (Recommended)
+
+The fastest way to get Orisun running with PostgreSQL:
+
+Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:17.5-alpine
+    environment:
+      POSTGRES_DB: orisun
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  orisun:
+    image: orexza/orisun:latest
+    environment:
+      ORISUN_PG_HOST: postgres
+      ORISUN_PG_PORT: 5432
+      ORISUN_PG_USER: postgres
+      ORISUN_PG_PASSWORD: postgres
+      ORISUN_PG_NAME: orisun
+      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_admin:admin"
+      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_USERNAME: admin
+      ORISUN_ADMIN_PASSWORD: changeit
+    ports:
+      - "8992:8992"
+      - "5005:5005"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
 ```
-## Releases and Versioning
 
-Orisun follows semantic versioning (SemVer) for all releases.
-
-- **Major versions** (X.0.0): Introduce breaking changes to APIs or core functionality
-- **Minor versions** (0.X.0): Add new features in a backward-compatible manner
-- **Patch versions** (0.0.X): Include backward-compatible bug fixes and performance improvements
-
-Check the [Releases page](https://github.com/oexza/Orisun/releases) for the latest versions and detailed release notes.
-
-### Release Process
-
-Releases are automated through GitHub Actions. To create a new release:
-
-1. Ensure all changes are committed and pushed to the main branch
-2. Run the release script with the new version number (without 'v' prefix):
-   ```bash
-   ./scripts/release.sh 1.2.3
-   ```
-3. The script will create and push a git tag (e.g., v1.2.3)
-4. GitHub Actions will automatically:
-   - Build binaries for multiple platforms (Linux, macOS, Windows)
-   - Create a Docker image and push it to Docker Hub
-   - Publish the Node.js client to npm
-   - Generate release notes and create a GitHub release
-
-### Installation Options
-
-#### Binary Downloads
-Download pre-built binaries from the [Releases page](https://github.com/oexza/Orisun/releases).
-
-#### Docker
-```bash
-docker pull orisun/orisun:latest
-# or a specific version
-docker pull orisun/orisun:v1.2.3
-```
-
-#### Node.js Client
-```bash
-npm install @orisun/client
-```
-
-## Getting Started
-
-### Prerequisites
-
-- PostgreSQL 13+
-- Go 1.24+ (for building from source)
-
-### Quick Start
-
-1. **Configure environment variables**:
+Then run:
 
 ```bash
+# Start Orisun and PostgreSQL
+docker-compose up -d
+
+# Access the admin dashboard at http://localhost:8992
+# Default credentials: admin/changeit
+```
+
+### Option 2: Download Binary
+
+1. Download the appropriate binary for your platform from the [Releases page](https://github.com/oexza/Orisun/releases)
+2. Run with basic configuration:
+
+```bash
+# Configure PostgreSQL connection
 ORISUN_PG_HOST=localhost \
 ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
 ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"admin boundary"}]' \
+ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
+ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8991 \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
-./orisun-darwin-arm64
+./orisun-[platform]-[arch]
+
+# Access the admin dashboard at http://localhost:8992
+# Default credentials: admin/changeit
 ```
 
-## Key Concepts
+Replace `[platform]-[arch]` with your platform (e.g., `darwin-arm64`, `linux-amd64`)
+
+### Option 3: Docker
+
+Run Orisun directly with Docker:
+
+```bash
+# Make sure you have PostgreSQL running or use host.docker.internal to connect to host machine's PostgreSQL
+docker run -d \
+  --name orisun \
+  -p 8992:8992 \
+  -p 5005:5005 \
+  -e ORISUN_PG_USER=postgres \
+  -e ORISUN_PG_NAME=orisun \
+  -e ORISUN_PG_PASSWORD=password@1 \
+  -e ORISUN_PG_HOST=host.docker.internal \
+  -e ORISUN_PG_PORT=5432 \
+  -e ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
+  -e ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
+  -e ORISUN_ADMIN_BOUNDARY=orisun_admin \
+  -e ORISUN_ADMIN_USERNAME=admin \
+  -e ORISUN_ADMIN_PASSWORD=changeit \
+  orexza/orisun:latest
+
+# Access the admin dashboard at http://localhost:8992
+# Default credentials: admin/changeit
+```
+
+## Clients
+
+### Node.js Client
+
+For Node.js applications, see the [Node.js Client README](clients/node/README.md) for installation and usage instructions.
+
+### Java Client
+
+For Java applications, see the [Java Client README](clients/java/README.md) for installation and usage instructions.
+
+## Advanced Configuration
 
 ### Boundaries and Schemas
 In Orisun, a "boundary" directly corresponds to a PostgreSQL schema. Boundaries must be pre-configured at startup:
@@ -182,10 +156,7 @@ orisun-darwin-arm64
 When Orisun starts:
 1. It validates and creates the specified schemas if they don't exist
 2. Only requests to these pre-configured boundaries will be accepted
-3. Each boundary maintains its own:
-   - Event sequences
-   - Consistency guarantees
-   - Event tables
+3. Each boundary maintains its own event sequences and consistency guarantees
 
 For example:
 - If `ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`, then:
@@ -194,33 +165,22 @@ For example:
   - ✅ `boundary: "orisun_admin"` - Request will succeed
   - ❌ `boundary: "payments"` - Request will fail (schema not configured)
 
-This boundary pre-configuration ensures:
-- Security through explicit schema allow listing
-- Clear separation of domains
-- Controlled resource allocation
-
 ### Admin Dashboard
-Orisun includes a built-in admin dashboard accessible at the configured admin port (default: 8991). The dashboard provides:
+Orisun includes a built-in admin dashboard accessible at the configured admin port (default: 8992):
 
-- **User Management**: Create, view, and delete users
-- **System Monitoring**: View event counts and system statistics
-- **Authentication**: Secure login system with session management
-- **Real-time Updates**: Live updates of system metrics
-
-**Access the Admin Dashboard:**
 ```bash
+# Access URL (default)
+http://localhost:8992
+
 # Default admin credentials
 Username: admin
 Password: changeit
-
-# Access URL (default)
-http://localhost:8991
 ```
 
-**Admin Dashboard Features:**
-- **Dashboard**: Overview of system metrics and user counts
-- **Users**: Manage system users (create, view, delete)
-- **Login/Logout**: Secure authentication system
+The dashboard provides:
+- **User Management**: Create, view, and delete users
+- **System Monitoring**: View event counts and system statistics
+- **Authentication**: Secure login system with session management
 
 ## gRPC API Examples
 
@@ -234,26 +194,19 @@ grpcurl -H "Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=" -d @ localhost:50051 
 Save events to a specific schema/boundary. Here's an example of saving user registration events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
+grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
   "events": [
     {
       "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178",
       "event_type": "UserRegistered",
-      "tags": [
-        {"key": "tenant_id", "value": "tenant-456"},
-        {"key": "source", "value": "web_signup"}
-      ],
       "data": "{\"email\": \"john.doe@example.com\", \"username\": \"johndoe\", \"full_name\": \"John Doe\"}",
       "metadata": "{\"source\": \"web_signup\", \"ip_address\": \"192.168.1.1\"}"
     },
     {
       "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709179",
       "event_type": "UserProfileCompleted",
-      "tags": [
-        {"key": "tenant_id", "value": "tenant-456"}
-      ],
       "data": "{\"phone\": \"+1234567890\", \"address\": \"123 Main St, City, Country\"}",
       "metadata": "{\"completed_at\": \"2024-01-20T15:30:00Z\"}"
     }
@@ -263,13 +216,14 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
     "name": "user-1234"
   }
 }
+EOF
 ```
 
 ### GetEvents
 Query events with various criteria. Here's an example of retrieving order events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/GetEvents <<
+grpcurl -d @ localhost:50051 eventstore.EventStore/GetEvents <<EOF
 {
   "boundary": "orisun_test_2",
   "stream": {
@@ -279,58 +233,64 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/GetEvents <<
     "criteria": [
       {
         "tags": [
-          {"key": "event_type", "value": "OrderCreated"}
+          {"key": "eventType", "value": "OrderCreated"}
         ]
       },
       {
         "tags": [
-          {"key": "event_type", "value": "PaymentProcessed"}
+          {"key": "eventType", "value": "PaymentProcessed"}
         ]
       },
       {
         "tags": [
-          {"key": "event_type", "value": "OrderShipped"}
+          {"key": "eventType", "value": "OrderShipped"}
         ]
       }
     ]
   },
   "count": 100,
   "direction": "ASC",
-  "last_retrieved_position": {
-    "commit_position": "1000",
-    "prepare_position": "999"
+  "from_position": {
+    "commit_position": 1000,
+    "prepare_position": 999
   }
 }
+EOF
 ```
 
-### SubscribeToEvents
+### CatchUpSubscribeToEvents
 Subscribe to events with complex filtering. Here's an example of monitoring payment events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/SubscribeToEvents <<EOF
+grpcurl -d @ localhost:50051 eventstore.EventStore/CatchUpSubscribeToEvents <<EOF
 {
   "subscriber_name": "payment-processor",
   "boundary": "orisun_test_2",
+  "afterPosition": {
+    "commit_position": 0,
+    "prepare_position": 0
+  },
   "query": {
     "criteria": [
       {
         "tags": [
-          {"key": "event_type", "value": "PaymentInitiated"}
+          {"key": "eventType", "value": "PaymentInitiated"}
         ]
       },
       {
         "tags": [
-          {"key": "event_type", "value": "PaymentAuthorized"}
+          {"key": "eventType", "value": "PaymentAuthorized"}
         ]
       },
       {
         "tags": [
-          {"key": "event_type", "value": "PaymentFailed"}
+          {"key": "eventType", "value": "PaymentFailed"}
         ]
       }
     ]
   }
 }
+EOF
 ```
 
 ## Common Use Cases
@@ -338,18 +298,42 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SubscribeToEvents <<EOF
 ### Multiple Bounded Contexts
 ```bash
 # User domain events in orisun_test_1 schema
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
+grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
-  "events": [...]
+  "stream": {
+    "name": "user-123",
+    "expected_version": -1
+  },
+  "events": [
+    {
+      "event_id": "user-event-001",
+      "event_type": "UserCreated",
+      "data": "{\"username\": \"john_doe\", \"email\": \"john@example.com\"}",
+      "metadata": "{\"source\": \"user_service\"}"
+    }
+  ]
 }
+EOF
 
 # Order domain events in orisun_test_2 schema
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents
+grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_2",
-  "events": [...]
+  "stream": {
+    "name": "order-456",
+    "expected_version": -1
+  },
+  "events": [
+    {
+      "event_id": "order-event-001",
+      "event_type": "OrderCreated",
+      "data": "{\"order_id\": \"456\", \"customer_id\": \"123\", \"total\": 99.99}",
+      "metadata": "{\"source\": \"order_service\"}"
+    }
+  ]
 }
+EOF
 ```
 
 ### Schema Management
@@ -379,7 +363,7 @@ Orisun can be configured using environment variables:
 | `ORISUN_PG_SCHEMAS` | Comma-separated list of boundary:schema mappings | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Yes |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions with names and descriptions | `[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]` | Yes |
 | `ORISUN_ADMIN_BOUNDARY` | Name of the boundary used for admin operations | orisun_admin | Yes |
-| `ORISUN_ADMIN_PORT` | Port for the admin dashboard | 8991 | No |
+| `ORISUN_ADMIN_PORT` | Port for the admin dashboard | 8992 | No |
 | `ORISUN_ADMIN_USERNAME` | Admin dashboard username | admin | No |
 | `ORISUN_ADMIN_PASSWORD` | Admin dashboard password | changeit | No |
 | `ORISUN_GRPC_PORT` | gRPC server port | 5005 | No |
@@ -413,7 +397,7 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8991 \
+ORISUN_ADMIN_PORT=8992 \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
@@ -424,12 +408,6 @@ ORISUN_NATS_PORT=4222 \
 #### Clustered Mode
 For high availability and horizontal scaling, Orisun supports clustered deployments with automatic failover and distributed locking. 
 
-**Key Features:**
-- **Distributed Locking**: JetStream-based locks prevent duplicate processing across nodes
-- **Resilient Projections**: Automatic retry and failover for projection services
-- **Load Balancing**: Event processing distributed across available nodes
-- **High Availability**: Automatic failover when nodes go down
-- **Consistent Event Processing**: Each boundary processed by exactly one node at a time
 
 **Cluster Requirements:**
 - Minimum 3 nodes for NATS JetStream quorum
@@ -447,7 +425,7 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8991 \
+ORISUN_ADMIN_PORT=8992 \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
@@ -539,132 +517,11 @@ ORISUN_NATS_STORE_DIR=./data/node3/nats \
 - Configure appropriate timeouts for your network latency
 - Monitor NATS cluster status and JetStream health
 
-#### Docker Deployment
-Orisun can be deployed using Docker for easier container orchestration:
-
-**Dockerfile Example:**
-```dockerfile
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY orisun-linux-amd64 .
-CMD ["./orisun-linux-amd64"]
-```
-
-**Docker Compose for Clustered Deployment:**
-```yaml
-version: '3.8'
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: orisun
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  orisun-node-1:
-    image: orisun:latest
-    environment:
-      ORISUN_PG_HOST: postgres
-      ORISUN_PG_PORT: 5432
-      ORISUN_PG_USER: postgres
-      ORISUN_PG_PASSWORD: postgres
-      ORISUN_PG_NAME: orisun
-      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
-      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
-      ORISUN_ADMIN_BOUNDARY: orisun_admin
-      ORISUN_ADMIN_PORT: 8991
-      ORISUN_GRPC_PORT: 5005
-      ORISUN_NATS_PORT: 4222
-      ORISUN_NATS_CLUSTER_ENABLED: "true"
-      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
-      ORISUN_NATS_CLUSTER_HOST: orisun-node-1
-      ORISUN_NATS_CLUSTER_PORT: 6222
-      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-2:6222,nats://orisun-node-3:6222"
-      ORISUN_NATS_SERVER_NAME: orisun-node-1
-    ports:
-      - "5005:5005"
-      - "8991:8991"
-      - "4222:4222"
-    depends_on:
-      - postgres
-    volumes:
-      - node1_data:/root/data
-
-  orisun-node-2:
-    image: orisun:latest
-    environment:
-      ORISUN_PG_HOST: postgres
-      ORISUN_PG_PORT: 5432
-      ORISUN_PG_USER: postgres
-      ORISUN_PG_PASSWORD: postgres
-      ORISUN_PG_NAME: orisun
-      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
-      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
-      ORISUN_ADMIN_BOUNDARY: orisun_admin
-      ORISUN_ADMIN_PORT: 8992
-      ORISUN_GRPC_PORT: 5006
-      ORISUN_NATS_PORT: 4223
-      ORISUN_NATS_CLUSTER_ENABLED: "true"
-      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
-      ORISUN_NATS_CLUSTER_HOST: orisun-node-2
-      ORISUN_NATS_CLUSTER_PORT: 6222
-      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-1:6222,nats://orisun-node-3:6222"
-      ORISUN_NATS_SERVER_NAME: orisun-node-2
-    ports:
-      - "5006:5006"
-      - "8992:8992"
-      - "4223:4223"
-    depends_on:
-      - postgres
-    volumes:
-      - node2_data:/root/data
-
-  orisun-node-3:
-    image: orisun:latest
-    environment:
-      ORISUN_PG_HOST: postgres
-      ORISUN_PG_PORT: 5432
-      ORISUN_PG_USER: postgres
-      ORISUN_PG_PASSWORD: postgres
-      ORISUN_PG_NAME: orisun
-      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
-      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]'
-      ORISUN_ADMIN_BOUNDARY: orisun_admin
-      ORISUN_ADMIN_PORT: 8993
-      ORISUN_GRPC_PORT: 5007
-      ORISUN_NATS_PORT: 4224
-      ORISUN_NATS_CLUSTER_ENABLED: "true"
-      ORISUN_NATS_CLUSTER_NAME: orisun-cluster
-      ORISUN_NATS_CLUSTER_HOST: orisun-node-3
-      ORISUN_NATS_CLUSTER_PORT: 6222
-      ORISUN_NATS_CLUSTER_ROUTES: "nats://orisun-node-1:6222,nats://orisun-node-2:6222"
-      ORISUN_NATS_SERVER_NAME: orisun-node-3
-    ports:
-      - "5007:5007"
-      - "8993:8993"
-      - "4224:4224"
-    depends_on:
-      - postgres
-    volumes:
-      - node3_data:/root/data
-
-volumes:
-  postgres_data:
-  node1_data:
-  node2_data:
-  node3_data:
-```
 
 **Kubernetes Deployment:**
 For production Kubernetes deployments, consider:
 - Using StatefulSets for persistent NATS storage
 - ConfigMaps for environment configuration
-- Services for load balancing gRPC endpoints
 - PersistentVolumes for NATS data directories
 - Horizontal Pod Autoscaler for scaling based on load
 - Network policies for security between pods
@@ -721,7 +578,7 @@ For production Kubernetes deployments, consider:
 ## Building from Source
 
 ### Prerequisites
-- Go 1.20+
+- Go 1.24.2+
 - Make
 
 1. Clone the repository:
@@ -752,7 +609,7 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8991 \
+ORISUN_ADMIN_PORT=8992 \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
@@ -760,121 +617,13 @@ ORISUN_NATS_PORT=4222 \
 ./orisun-darwin-arm64
 ```
 
-## Usage
-
-### Starting the Server
-```bash
-cd ./orisun
-go run main.go
-```
-
-### Client Libraries
-
-While official client libraries are coming soon, you can generate clients for your favorite programming language using the Protocol Buffers definition file.
-
-**Generate clients from the proto file:**
-
-The gRPC service definition is available at `eventstore/eventstore.proto`. You can use the Protocol Buffers compiler (`protoc`) to generate client code for any supported language.
-
-**Examples:**
-
-**Go Client:**
-```bash
-# Install protoc-gen-go and protoc-gen-go-grpc
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Generate Go client
-protoc --go_out=. --go_opt=paths=source_relative \
-       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-       eventstore/eventstore.proto
-```
-
-**Python Client:**
-```bash
-# Install grpcio-tools
-pip install grpcio-tools
-
-# Generate Python client
-python -m grpc_tools.protoc -I. \
-       --python_out=. \
-       --grpc_python_out=. \
-       eventstore/eventstore.proto
-```
-
-**Java Client:**
-```bash
-# Using protoc with Java plugin
-protoc --java_out=src/main/java \
-       --grpc-java_out=src/main/java \
-       --plugin=protoc-gen-grpc-java=/path/to/protoc-gen-grpc-java \
-       eventstore/eventstore.proto
-```
-
-**Node.js/TypeScript Client:**
-```bash
-# Install dependencies
-npm install grpc-tools @grpc/grpc-js @grpc/proto-loader
-
-# Generate TypeScript definitions
-protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts \
-       --ts_out=grpc_js:. \
-       --js_out=import_style=commonjs:. \
-       --grpc_out=grpc_js:. \
-       eventstore/eventstore.proto
-```
-
-**C# Client:**
-```bash
-# Install Grpc.Tools package
-dotnet add package Grpc.Tools
-
-# Generate C# client (add to .csproj)
-<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
-```
-
-**Using the Generated Client:**
-
-Once you've generated the client code, you can connect to Orisun and use the EventStore service:
-
-```go
-// Go example
-conn, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
-if err != nil {
-    log.Fatal(err)
-}
-defer conn.Close()
-
-client := eventstore.NewEventStoreClient(conn)
-
-// Add basic auth header
-ctx := metadata.AppendToOutgoingContext(context.Background(), 
-    "authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("username:password")))
-
-// Save events
-response, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
-    Boundary: "orisun_test_1",
-    Events: []*eventstore.Event{
-        {
-            EventId: "unique-event-id",
-            EventType: "UserRegistered",
-            Data: `{"email": "user@example.com"}`,
-        },
-    },
-})
-```
-
-**Authentication:**
-All gRPC calls require basic authentication. Include the authorization header with base64-encoded credentials:
-```
-Authorization: Basic <base64(username:password)>
-```
-
 ## Architecture
+
 Orisun uses:
-- **PostgreSQL**: For durable event storage and consistency guarantees
-- **NATS JetStream**: For real-time event streaming and pub/sub
+- **PostgreSQL 17.5+**: For durable event storage and consistency guarantees
+- **NATS JetStream 2.11.1+**: For real-time event streaming and pub/sub
 - **gRPC**: For client-server communication
+- **Go 1.24.2+**: For high-performance server implementation
 - **Admin Dashboard**: Built-in web interface for system management
 - **Event Projections**: Built-in read models and projections
 - **User Management**: Integrated user administration system
@@ -948,11 +697,134 @@ go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./benchmark_test.go
 
 *Note: Performance results may vary based on hardware, PostgreSQL configuration, and system load.*
 
+## Development
+
+### Versioning
+
+Orisun follows semantic versioning (SemVer) for all releases. Check the [Releases page](https://github.com/oexza/Orisun/releases) for the latest versions and detailed release notes.
+
+### Building the Docker Image Locally
+
+```bash
+docker build -t orisun:local .
+```
+
+With specific version information:
+
+```bash
+docker build \
+  --build-arg VERSION=1.0.0 \
+  --build-arg TARGET_OS=linux \
+  --build-arg TARGET_ARCH=amd64 \
+  -t orisun:local .
+```
+
+### Usage
+
+#### Starting the Server
+```bash
+# Run from source
+go run main.go
+
+# Or run the built binary
+./orisun-[platform]-[arch]
+```
+
+#### Client Libraries
+
+While official client libraries are coming soon, you can generate clients for your favorite programming language using the Protocol Buffers definition file.
+
+**Generate clients from the proto file:**
+
+The gRPC service definition is available at `eventstore/eventstore.proto`. You can use the Protocol Buffers compiler (`protoc`) to generate client code for any supported language.
+
+**Examples:**
+
+**Go Client:**
+```bash
+# Install protoc-gen-go and protoc-gen-go-grpc
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go client
+protoc --go_out=. --go_opt=paths=source_relative \
+       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+       eventstore/eventstore.proto
+```
+
+**Python Client:**
+```bash
+# Install grpcio-tools
+pip install grpcio-tools
+
+# Generate Python client
+python -m grpc_tools.protoc -I. \
+       --python_out=. \
+       --grpc_python_out=. \
+       eventstore/eventstore.proto
+```
+
+**Java Client:**
+For Java applications, see the [Java Client README](clients/java/README.md) for installation and usage instructions.
+
+**Node.js/TypeScript Client:**
+```bash
+# Install dependencies
+npm install grpc-tools @grpc/grpc-js @grpc/proto-loader
+
+# Generate TypeScript definitions
+protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts \
+       --ts_out=grpc_js:. \
+       --js_out=import_style=commonjs:. \
+       --grpc_out=grpc_js:. \
+       eventstore/eventstore.proto
+```
+
+**C# Client:**
+```bash
+# Install Grpc.Tools package
+dotnet add package Grpc.Tools
+
+# Generate C# client (add to .csproj)
+<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
+```
+
+**Using the Generated Client:**
+
+Once you've generated the client code, you can connect to Orisun and use the EventStore service:
+
+```go
+// Go example
+conn, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
+if err != nil {
+    log.Fatal(err)
+}
+defer conn.Close()
+
+client := eventstore.NewEventStoreClient(conn)
+
+// Add basic auth header
+ctx := metadata.AppendToOutgoingContext(context.Background(), 
+    "authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("username:password")))
+
+// Save events
+response, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
+    Boundary: "orisun_test_1",
+    Events: []*eventstore.Event{
+        {
+            EventId: "unique-event-id",
+            EventType: "UserRegistered",
+            Data: `{"email": "user@example.com"}`,
+        },
+    },
+})
+```
+
 ## Contributing
 
 ### Development Setup
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/oexza/orisun.git`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/orisun.git`
 3. Create a feature branch: `git checkout -b feature/amazing-feature`
 4. Install dependencies: `go mod download`
 5. Make your changes
