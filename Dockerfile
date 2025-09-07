@@ -31,10 +31,10 @@ RUN CGO_ENABLED=0 go build -a -installsuffix cgo \
 FROM alpine:3.18
 
 # Add CA certificates and timezone data
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/*
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     ca-certificates \
+#     tzdata \
+#     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
 RUN mkdir -p /app && \
