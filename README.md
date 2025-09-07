@@ -130,13 +130,52 @@ docker run -d \
 
 ## Clients
 
-### Node.js Client
+Orisun provides official client libraries for Node.js and Java, with support for generating clients for other languages using Protocol Buffers.
 
+### Official Client Libraries
+
+**Node.js Client:**
 For Node.js applications, see the [Node.js Client README](clients/node/README.md) for installation and usage instructions.
 
-### Java Client
-
+**Java Client:**
 For Java applications, see the [Java Client README](clients/java/README.md) for installation and usage instructions.
+
+### Generate Custom Clients
+
+For other programming languages, you can generate clients using the Protocol Buffers definition file available at `eventstore/eventstore.proto`.
+
+**Go Client:**
+```bash
+# Install protoc-gen-go and protoc-gen-go-grpc
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go client
+protoc --go_out=. --go_opt=paths=source_relative \
+       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+       eventstore/eventstore.proto
+```
+
+**Python Client:**
+```bash
+# Install grpcio-tools
+pip install grpcio-tools
+
+# Generate Python client
+python -m grpc_tools.protoc -I. \
+       --python_out=. \
+       --grpc_python_out=. \
+       eventstore/eventstore.proto
+```
+
+**C# Client:**
+```bash
+# Install Grpc.Tools package
+dotnet add package Grpc.Tools
+
+# Generate C# client (add to .csproj)
+<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
+```
 
 ## Advanced Configuration
 
@@ -625,7 +664,6 @@ Orisun uses:
 - **gRPC**: For client-server communication
 - **Go 1.24.2+**: For high-performance server implementation
 - **Admin Dashboard**: Built-in web interface for system management
-- **Event Projections**: Built-in read models and projections
 - **User Management**: Integrated user administration system
 - **Modular Design**: Plugin system for extending functionality
 
@@ -699,9 +737,16 @@ go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./benchmark_test.go
 
 ## Development
 
-### Versioning
-
-Orisun follows semantic versioning (SemVer) for all releases. Check the [Releases page](https://github.com/oexza/Orisun/releases) for the latest versions and detailed release notes.
+### Development Setup
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/orisun.git`
+3. Create a feature branch: `git checkout -b feature/amazing-feature`
+4. Install dependencies: `go mod download`
+5. Make your changes
+6. Run tests: `go test ./...`
+7. Commit changes: `git commit -m 'Add some amazing feature'`
+8. Push to your fork: `git push origin feature/amazing-feature`
+9. Open a Pull Request
 
 ### Building the Docker Image Locally
 
@@ -719,6 +764,10 @@ docker build \
   -t orisun:local .
 ```
 
+### Versioning
+
+Orisun follows semantic versioning (SemVer) for all releases. Check the [Releases page](https://github.com/oexza/Orisun/releases) for the latest versions and detailed release notes.
+
 ### Usage
 
 #### Starting the Server
@@ -730,64 +779,7 @@ go run main.go
 ./orisun-[platform]-[arch]
 ```
 
-#### Client Libraries
-
-While official client libraries are coming soon, you can generate clients for your favorite programming language using the Protocol Buffers definition file.
-
-**Generate clients from the proto file:**
-
-The gRPC service definition is available at `eventstore/eventstore.proto`. You can use the Protocol Buffers compiler (`protoc`) to generate client code for any supported language.
-
-**Examples:**
-
-**Go Client:**
-```bash
-# Install protoc-gen-go and protoc-gen-go-grpc
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Generate Go client
-protoc --go_out=. --go_opt=paths=source_relative \
-       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-       eventstore/eventstore.proto
-```
-
-**Python Client:**
-```bash
-# Install grpcio-tools
-pip install grpcio-tools
-
-# Generate Python client
-python -m grpc_tools.protoc -I. \
-       --python_out=. \
-       --grpc_python_out=. \
-       eventstore/eventstore.proto
-```
-
-**Java Client:**
-For Java applications, see the [Java Client README](clients/java/README.md) for installation and usage instructions.
-
-**Node.js/TypeScript Client:**
-```bash
-# Install dependencies
-npm install grpc-tools @grpc/grpc-js @grpc/proto-loader
-
-# Generate TypeScript definitions
-protoc --plugin=protoc-gen-ts=./node_modules/.bin/protoc-gen-ts \
-       --ts_out=grpc_js:. \
-       --js_out=import_style=commonjs:. \
-       --grpc_out=grpc_js:. \
-       eventstore/eventstore.proto
-```
-
-**C# Client:**
-```bash
-# Install Grpc.Tools package
-dotnet add package Grpc.Tools
-
-# Generate C# client (add to .csproj)
-<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
-```
+#### Using Generated Clients
 
 **Using the Generated Client:**
 
@@ -819,19 +811,6 @@ response, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
     },
 })
 ```
-
-## Contributing
-
-### Development Setup
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/orisun.git`
-3. Create a feature branch: `git checkout -b feature/amazing-feature`
-4. Install dependencies: `go mod download`
-5. Make your changes
-6. Run tests: `go test ./...`
-7. Commit changes: `git commit -m 'Add some amazing feature'`
-8. Push to your fork: `git push origin feature/amazing-feature`
-9. Open a Pull Request
 
 ### Code Style
 - Follow Go best practices and style guide
