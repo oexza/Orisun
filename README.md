@@ -177,9 +177,7 @@ dotnet add package Grpc.Tools
 <Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
 ```
 
-## Advanced Configuration
-
-### Boundaries and Schemas
+## Boundaries and Schemas
 In Orisun, a "boundary" directly corresponds to a PostgreSQL schema. Boundaries must be pre-configured at startup:
 
 ```bash
