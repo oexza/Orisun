@@ -27,17 +27,14 @@ RUN CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags="-w -s -X orisun/common.Version=${VERSION} -X orisun/common.BuildTime=${BUILD_TIME} -X orisun/common.GitCommit=${GIT_COMMIT}" \
     -o orisun ./
 
-# Use a minimal debian slim image for the final container
+# Use a minimal Alpine image for the final container
 FROM alpine:3.18
 
 # Add CA certificates and timezone data
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     ca-certificates \
-#     tzdata \
-#     && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates tzdata
 
 # Create a non-root user to run the application
-RUN mkdir -p /app && useradd -r -d /app -M orisun
+RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
 WORKDIR /app
 
 # Copy the binary from the builder stage
