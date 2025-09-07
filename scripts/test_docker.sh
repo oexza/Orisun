@@ -4,11 +4,11 @@
 
 set -e
 
-echo "Building Docker image locally..."
+echo "Building Docker image locally using build.sh..."
 docker build \
   --build-arg VERSION=dev \
-  --build-arg BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-  --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg TARGET_OS=linux \
+  --build-arg TARGET_ARCH=amd64 \
   -t orisun:local .
 
 echo "\nStarting PostgreSQL container..."

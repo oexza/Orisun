@@ -1,12 +1,5 @@
 FROM golang:latest AS builder
 
-# Install build dependencies
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     git \
-#     gcc \
-#     libc6-dev \
-#     && rm -rf /var/lib/apt/lists/*
-
 # Set working directory
 WORKDIR /app
 
@@ -19,13 +12,14 @@ COPY . .
 
 # Build arguments for version information
 ARG VERSION=dev
-ARG BUILD_TIME=unknown
-ARG GIT_COMMIT=unknown
+ARG TARGET_OS=linux
+ARG TARGET_ARCH=amd64
 
-# Build the application with optimizations and version information
-RUN CGO_ENABLED=0 go build -a -installsuffix cgo \
-    -ldflags="-w -s -X orisun/common.Version=${VERSION} -X orisun/common.BuildTime=${BUILD_TIME} -X orisun/common.GitCommit=${GIT_COMMIT}" \
-    -o orisun ./
+# Make build script executable and create build directory
+RUN chmod +x ./build.sh && mkdir -p ./build
+
+# Use build.sh to build the application with cross-compilation
+RUN ./build.sh ${TARGET_OS} ${TARGET_ARCH} ${VERSION}
 
 # Use a minimal Alpine image for the final container
 FROM alpine:3.18
@@ -37,8 +31,8 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
 WORKDIR /app
 
-# Copy the binary from the builder stage
-COPY --from=builder /app/orisun /app/
+# Copy the binary from the builder stage (using the build.sh output path)
+COPY --from=builder /app/build/orisun-linux-amd64 /app/orisun
 
 # Set ownership
 RUN chown -R orisun:orisun /app
