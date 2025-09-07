@@ -37,8 +37,7 @@ FROM alpine:3.18
 #     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
-RUN mkdir -p /app && \
-    useradd -r -d /app -M orisun
+RUN mkdir -p /app && useradd -r -d /app -M orisun
 WORKDIR /app
 
 # Copy the binary from the builder stage
@@ -48,8 +47,7 @@ COPY --from=builder /app/orisun /app/
 RUN chown -R orisun:orisun /app
 
 # Add this before switching to the non-root user
-RUN mkdir -p /var/lib/orisun/data && \
-    chown -R orisun:orisun /var/lib/orisun
+RUN mkdir -p /var/lib/orisun/data && chown -R orisun:orisun /var/lib/orisun
 
 # Switch to non-root user
 USER orisun
