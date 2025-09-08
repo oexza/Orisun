@@ -74,6 +74,7 @@ func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (gl
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "invalid authorization header encoding")
 	}
 
+	// logger.Infof( "authenticate %v %v", "authHeader", authHeader)
 	credentials := strings.SplitN(string(decoded), ":", 2)
 	if len(credentials) != 2 {
 		return globalCommon.User{}, status.Error(codes.Unauthenticated, "invalid authorization header format")

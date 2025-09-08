@@ -10,22 +10,29 @@ run_benchmark() {
     local benchtime=${2:-"3s"}
     
     echo "\nRunning $benchmark_name..."
-    result=$(go test -bench=$benchmark_name -benchtime=$benchtime -count=1 ./benchmark_test.go 2>/dev/null | grep "^$benchmark_name")
+    # Run the benchmark and capture all output, then filter for benchmark results
+    output=$(go test -bench=$benchmark_name -benchtime=$benchtime -count=1 ./benchmark_test.go 2>&1)
     
-    if [ -n "$result" ]; then
-        # Extract iterations and ns/op
-        iterations=$(echo $result | awk '{print $2}')
-        ns_per_op=$(echo $result | awk '{print $3}' | sed 's/ns\/op//')
+    # Extract benchmark result lines (they contain ns/op and events/sec)
+    results=$(echo "$output" | grep -E "^Benchmark.*ns/op.*events/sec")
+    
+    if [ -n "$results" ]; then
+        echo "$results"
+        echo "\nSummary for $benchmark_name:"
+        # Count total benchmark lines
+        count=$(echo "$results" | wc -l | tr -d ' ')
+        echo "  - $count sub-benchmarks completed"
         
-        # Calculate requests per second
-        if [ "$ns_per_op" != "" ] && [ "$ns_per_op" != "0" ]; then
-            rps=$(echo "scale=2; 1000000000 / $ns_per_op" | bc -l)
-            echo "$benchmark_name: $iterations iterations, ${ns_per_op} ns/op, ${rps} req/s"
-        else
-            echo "$benchmark_name: Failed to extract timing data"
+        # Extract and show the best performance (highest events/sec)
+        best_line=$(echo "$results" | awk '{print $NF, $0}' | sort -nr | head -1 | cut -d' ' -f2-)
+        if [ -n "$best_line" ]; then
+            best_events_sec=$(echo "$best_line" | awk '{print $NF}')
+            echo "  - Best performance: $best_events_sec"
         fi
     else
-        echo "$benchmark_name: Failed to run or no results"
+        echo "$benchmark_name: No benchmark results found"
+        echo "Error output:"
+        echo "$output" | tail -10
     fi
 }
 
@@ -36,8 +43,9 @@ if ! command -v bc &> /dev/null; then
 fi
 
 # Run individual benchmarks
-run_benchmark "BenchmarkSaveEvents_Single" "2s"
-run_benchmark "BenchmarkGetEvents" "2s"
-run_benchmark "BenchmarkMemoryUsage" "2s"
+run_benchmark "BenchmarkSaveEvents_Single" "1s"
+run_benchmark "BenchmarkSaveEvents_Batch" "1s"
+run_benchmark "BenchmarkGetEvents" "1s"
+run_benchmark "BenchmarkMemoryUsage" "1s"
 
 echo "\nBenchmark collection complete!"

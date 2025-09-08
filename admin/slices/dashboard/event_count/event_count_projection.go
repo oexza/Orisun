@@ -128,7 +128,7 @@ func (p *EventCountEventHandler) Start(ctx context.Context) error {
 
 func (p *EventCountEventHandler) Project(ctx context.Context, event *eventstore.Event) error {
 	// For any event type, we increment the event count
-	p.logger.Infof("Projecting event: %v", event)
+	// p.logger.Infof("Projecting event: %v", event)
 	// Get current event count
 	currentCount, err := p.getEventsCount(p.boundary)
 	if err != nil {
