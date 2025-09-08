@@ -1,5 +1,5 @@
 {
-  "name": "orisun-eventstore-client",
+  "name": "@orisun/eventstore-client",
   "version": "1.0.0",
   "description": "Node.js client for Orisun Event Store",
   "main": "dist/index.js",
