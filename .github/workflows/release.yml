@@ -178,3 +178,35 @@ jobs:
             ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }}
             orexza/orisun:latest
             orexza/orisun:${{ needs.validate.outputs.version }}
+
+  publish-npm:
+    name: Publish to npm
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: ./clients/node
+        run: npm ci
+
+      - name: Update package version
+        working-directory: ./clients/node
+        run: npm version ${{ needs.validate.outputs.version }} --no-git-tag-version
+
+      - name: Build TypeScript client
+        working-directory: ./clients/node
+        run: npm run build
+
+      - name: Publish to npm
+        working-directory: ./clients/node
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
