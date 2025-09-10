@@ -17,14 +17,34 @@ A Node.js client library for interacting with the Orisun Event Store, providing 
 
 ## Installation
 
+Install directly from GitHub:
+
 ```bash
-npm install orisun-eventstore-client
+npm install github:oexza/orisun
 ```
+
+Or add it to your `package.json`:
+
+```json
+{
+  "dependencies": {
+    "@orisun/eventstore-client": "github:oexza/orisun"
+  }
+}
+```
+
+Then import directly:
+
+```typescript
+import { OrisunClient } from '@orisun/eventstore-client';
+```
+
+> **Note**: When installing from GitHub, you'll get the pre-built JavaScript files from the `dist/` folder, so no additional build step is required.
 
 ## Quick Start
 
 ```typescript
-import { EventStoreClient } from 'orisun-eventstore-client';
+import { EventStoreClient } from '@orisun/eventstore-client/clients/node';
 
 // Create a client
 const client = new EventStoreClient({
@@ -280,7 +300,7 @@ interface SubscribeRequest {
 ### Basic Event Sourcing
 
 ```typescript
-import { EventStoreClient } from 'orisun-eventstore-client';
+import { EventStoreClient } from '@orisun/eventstore-client/clients/node';
 
 class UserAggregate {
   private client: EventStoreClient;
@@ -348,7 +368,7 @@ class UserAggregate {
 ### Event Processing with Subscriptions
 
 ```typescript
-import { EventStoreClient, Event } from 'orisun-eventstore-client';
+import { EventStoreClient, Event } from '@orisun/eventstore-client/clients/node';
 
 class EventProcessor {
   private client: EventStoreClient;
