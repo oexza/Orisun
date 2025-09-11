@@ -39,8 +39,6 @@ Then import directly:
 import { OrisunClient } from '@orisun/eventstore-client';
 ```
 
-> **Note**: When installing from GitHub, you'll get the pre-built JavaScript files from the `dist/` folder, so no additional build step is required.
-
 ## Quick Start
 
 ```typescript
