@@ -75,42 +75,11 @@ jobs:
           path: build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
           if-no-files-found: error
 
-  build-typescript-client:
-    name: Build TypeScript Client
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: clients/node/package-lock.json
-
-      - name: Install dependencies
-        run: |
-          cd clients/node
-          npm ci
-
-      - name: Build TypeScript client
-        run: |
-          cd clients/node
-          npm run build
-
-      - name: Commit built files
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add clients/node/dist/ package.json
-          git diff --staged --quiet || git commit -m "Build TypeScript client for release v${{ needs.validate.outputs.version }}"
-          git push
 
   create-release:
     name: Create GitHub Release
-    needs: [validate, build-binaries, build-typescript-client]
+    needs: [validate, build-binaries]
     runs-on: ubuntu-latest
     permissions:
       contents: write
