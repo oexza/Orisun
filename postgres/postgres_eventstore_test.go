@@ -159,7 +159,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	}
 
 	// Save events
-	tranID, globalID, err := saveEvents.Save(
+	tranID, globalID, streamVersion, err := saveEvents.Save(
 		t.Context(),
 		events,
 		"test_boundary",
@@ -171,6 +171,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, tranID)
 	assert.NotEmpty(t, globalID, uint64(0))
+	assert.Equal(t, streamVersion, int64(0))
 
 	// Get events
 	resp, err := getEvents.Get(
@@ -190,11 +191,11 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Len(t, resp.Events, 1)
 	assert.Equal(t, eventId.String(), resp.Events[0].EventId)
 	assert.Equal(t, "TestEvent", resp.Events[0].EventType)
-	
+
 	// Check that the data contains the expected values
 	assert.Contains(t, resp.Events[0].Data, "key")
 	assert.Contains(t, resp.Events[0].Data, "value")
-	
+
 	// Check that the metadata contains the expected values
 	assert.Contains(t, resp.Events[0].Metadata, "meta")
 	assert.Contains(t, resp.Events[0].Metadata, "data")
@@ -238,7 +239,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		t.Context(),
 		events,
 		"test_boundary",
@@ -258,7 +259,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
 		"test_boundary",
@@ -308,7 +309,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		t.Context(),
 		events1,
 		"test_boundary",
@@ -327,7 +328,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
 		"test_boundary",
@@ -352,8 +353,8 @@ func TestGetEventsWithCriteria(t *testing.T) {
 				Criteria: []*eventstore.Criterion{
 					{
 						Tags: []*eventstore.Tag{
-						{Key: "key", Value: "value2"},
-					},
+							{Key: "key", Value: "value2"},
+						},
 					},
 				},
 			},
@@ -408,7 +409,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 			},
 		}
 
-		_, globalPos, err := saveEvents.Save(
+		_, globalPos, _, err := saveEvents.Save(
 			ctx,
 			events,
 			// nil,
@@ -480,7 +481,7 @@ func TestPagination(t *testing.T) {
 			},
 		}
 
-		_, _, err = saveEvents.Save(
+		_, _, _, err = saveEvents.Save(
 			ctx,
 			events,
 			// nil,
@@ -566,7 +567,7 @@ func TestDirectionOrdering(t *testing.T) {
 			},
 		}
 
-		_, _, err = saveEvents.Save(
+		_, _, _, err = saveEvents.Save(
 			ctx,
 			events,
 			// nil,
@@ -653,7 +654,7 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event1\", \"category\": \"A\", \"priority\": \"high\", \"region\": \"east\"}",
 		},
 	}
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		events1,
 		// nil,
@@ -675,7 +676,7 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event2\", \"category\": \"A\", \"priority\": \"low\", \"region\": \"west\"}",
 		},
 	}
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		events2,
 		// nil,
@@ -697,12 +698,12 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event3\", \"category\": \"B\", \"priority\": \"high\", \"region\": \"east\"}",
 		},
 	}
-	_, _, err = saveEvents.Save(
-		ctx, 
-		events3, 
-		"test_boundary", 
-		"complex-query-stream", 
-		1, 
+	_, _, _, err = saveEvents.Save(
+		ctx,
+		events3,
+		"test_boundary",
+		"complex-query-stream",
+		1,
 		nil,
 	)
 	require.NoError(t, err)
@@ -718,7 +719,7 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event4\", \"category\": \"B\", \"priority\": \"low\", \"region\": \"west\"}",
 		},
 	}
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		events4,
 		"test_boundary",
@@ -851,7 +852,7 @@ func TestErrorConditions(t *testing.T) {
 		},
 	}
 
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		events,
 		"non_existent_boundary",
@@ -862,7 +863,7 @@ func TestErrorConditions(t *testing.T) {
 	assert.Error(t, err)
 
 	// Test 2: Invalid expected version (too high)
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		events,
 		"test_boundary",
@@ -873,7 +874,7 @@ func TestErrorConditions(t *testing.T) {
 	assert.Error(t, err)
 
 	// Test 3: Empty event list
-	_, _, err = saveEvents.Save(
+	_, _, _, err = saveEvents.Save(
 		ctx,
 		[]eventstore.EventWithMapTags{},
 		"test_boundary",

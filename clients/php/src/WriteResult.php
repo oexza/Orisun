@@ -12,10 +12,12 @@ use Eventstore\WriteResult as ProtoWriteResult;
 class WriteResult
 {
     private ?Position $logPosition;
+    private int $newStreamVersion;
     
-    public function __construct(?Position $logPosition = null)
+    public function __construct(?Position $logPosition = null, int $newStreamVersion = 0)
     {
         $this->logPosition = $logPosition;
+        $this->newStreamVersion = $newStreamVersion;
     }
     
     /**
@@ -28,12 +30,19 @@ class WriteResult
             $logPosition = Position::fromProto($protoWriteResult->getLogPosition());
         }
         
-        return new self($logPosition);
+        $newStreamVersion = $protoWriteResult->getNewStreamVersion();
+        
+        return new self($logPosition, $newStreamVersion);
     }
     
     public function getLogPosition(): ?Position
     {
         return $this->logPosition;
+    }
+    
+    public function getNewStreamVersion(): int
+    {
+        return $this->newStreamVersion;
     }
     
     /**
@@ -43,6 +52,7 @@ class WriteResult
     {
         return [
             'log_position' => $this->logPosition?->toArray(),
+            'new_stream_version' => $this->newStreamVersion,
         ];
     }
     
@@ -52,7 +62,7 @@ class WriteResult
     public function __toString(): string
     {
         return $this->logPosition 
-            ? "WriteResult(position: {$this->logPosition})"
-            : "WriteResult(no position)";
+            ? "WriteResult(position: {$this->logPosition}, newStreamVersion: {$this->newStreamVersion})"
+            : "WriteResult(no position, newStreamVersion: {$this->newStreamVersion})";
     }
 }

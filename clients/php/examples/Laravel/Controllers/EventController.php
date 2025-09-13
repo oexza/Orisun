@@ -57,6 +57,7 @@ class EventController extends Controller
                 'success' => true,
                 'event_id' => $event->getEventId(),
                 'log_position' => $result->getLogPosition(),
+                'new_stream_version' => $result->getNewStreamVersion(),
                 'message' => 'Event saved successfully'
             ], 201);
 
@@ -131,6 +132,7 @@ class EventController extends Controller
                 'events_saved' => count($events),
                 'event_ids' => array_map(fn($e) => $e->getEventId(), $events),
                 'log_position' => $result->getLogPosition(),
+                'new_stream_version' => $result->getNewStreamVersion(),
                 'message' => 'Events saved successfully'
             ], 201);
 

@@ -51,6 +51,7 @@ class OrisunClientTest extends TestCase
         $mockWriteResult = $this->createMock(WriteResult::class);
         $mockPosition = $this->createMock(\Eventstore\Position::class);
         $mockWriteResult->method('getLogPosition')->willReturn($mockPosition);
+        $mockWriteResult->method('getNewStreamVersion')->willReturn(1);
         $mockStatus = (object)['code' => \Grpc\STATUS_OK];
         
         $mockCall->expects($this->once())

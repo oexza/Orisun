@@ -27,7 +27,7 @@ type EventstoreSaveEvents interface {
 		streamName string,
 		streamVersion int64,
 		streamSubSet *Query,
-	) (transactionID string, globalID int64, err error)
+	) (transactionID string, globalID int64, newStreamPosition int64, err error)
 }
 
 type EventstoreGetEvents interface {
@@ -183,9 +183,10 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 
 	var transactionID string
 	var globalID int64
+	var newStreamVersion int64
 
 	// Execute the query
-	transactionID, globalID, err = s.saveEventsFn.Save(
+	transactionID, globalID, newStreamVersion, err = s.saveEventsFn.Save(
 		ctx,
 		eventsForMarshaling,
 		req.Boundary,
@@ -206,6 +207,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			CommitPosition:  parseInt64(transactionID),
 			PreparePosition: globalID,
 		},
+		NewStreamVersion: newStreamVersion,
 	}, nil
 }
 

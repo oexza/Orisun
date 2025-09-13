@@ -84,41 +84,41 @@ func (s *PostgresSaveEvents) Save(
 	boundary string,
 	streamName string,
 	expectedVersion int64,
-	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
+	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, newStreamPosition int64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
 	if len(events) == 0 {
-		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+		return "", 0, 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
 	}
 
 	schema, err := s.Schema(boundary)
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
 
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(streamName, expectedVersion, streamConsistencyCondition))
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
 	s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
 	}
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		s.logger.Errorf("Error beginning transaction: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
 
 	// _, errr := tx.Exec("SET log_statement = 'all';")
 	// if errr != nil {
 	// 	s.logger.Errorf("Error setting log_statement: %v", err)
-	// 	return "", 0, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+	// 	return "", 0, -1, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
 	row := tx.QueryRowContext(
@@ -131,33 +131,33 @@ func (s *PostgresSaveEvents) Save(
 
 	if row.Err() != nil {
 		s.logger.Errorf("Error inserting events: %v", row.Err())
-		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
 	}
 
 	// Scan the result
-	noop := false
 	err = error(nil)
 
 	var tranID string
 	var globID int64
-	err = row.Scan(&tranID, &globID, &noop)
+	var newStreamVersion int64
+	err = row.Scan(&newStreamVersion, &tranID, &globID)
 	err = tx.Commit()
 
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+		return "", 0, -1, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
 	}
 
-	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
+	s.logger.Infof("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
-			return "", 0, status.Error(codes.AlreadyExists, err.Error())
+			return "", 0, -1, status.Error(codes.AlreadyExists, err.Error())
 		}
 		s.logger.Errorf("Error saving events to database: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "Error saving events to database")
+		return "", 0, -1, status.Errorf(codes.Internal, "Error saving events to database")
 	}
 
-	return tranID, globID, nil
+	return tranID, globID, newStreamVersion, nil
 }
 
 func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {

@@ -45,6 +45,7 @@ message Event {
 
 message WriteResult {
   Position log_position = 1;
+  int64 new_stream_version = 2;
 }
 
 enum Direction {
