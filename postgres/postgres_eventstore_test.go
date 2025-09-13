@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -397,6 +398,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 
 	// Save multiple events to get different global positions
 	var globalPositions []int64
+	var transactionIDs []string
 	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
@@ -409,7 +411,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 			},
 		}
 
-		_, globalPos, _, err := saveEvents.Save(
+		transactionID, globalPos, _, err := saveEvents.Save(
 			ctx,
 			events,
 			// nil,
@@ -420,15 +422,19 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		)
 		require.NoError(t, err)
 		globalPositions = append(globalPositions, globalPos)
+		transactionIDs = append(transactionIDs, transactionID)
 	}
 
 	// Get events after the second event's global position
+	// Position requires actual transaction_id and global_id from the saved events
+	transactionIDInt, _ := strconv.ParseInt(transactionIDs[1], 10, 64)
 	resp, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		FromPosition: &eventstore.Position{
-			CommitPosition: globalPositions[1],
+			CommitPosition:  transactionIDInt,   // actual transaction_id
+			PreparePosition: globalPositions[1], // actual global_id
 		},
 	})
 
@@ -436,8 +442,10 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	assert.GreaterOrEqual(t, len(resp.Events), 3) // Should get at least events 2, 3, and 4
 
 	// Verify the events are in the correct order
+	// Since we're querying from globalPositions[1] (position 2), we should get events starting from index 1
 	for i, event := range resp.Events {
-		assert.Contains(t, event.Data, fmt.Sprintf("index\\\": %d", i+1))
+		expectedIndex := i + 1 // Events should start from index 1 (after position 2)
+		assert.Contains(t, event.Data, fmt.Sprintf("index\\\": %d", expectedIndex))
 	}
 }
 
