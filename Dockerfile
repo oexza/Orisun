@@ -31,8 +31,11 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
 WORKDIR /app
 
-# Copy the binary from the builder stage (using the build.sh output path)
-COPY --from=builder /app/build/orisun-linux-amd64 /app/orisun
+# Copy the binary from the builder stage with proper permissions
+COPY --from=builder --chmod=755 /app/build/orisun-linux-amd64 /app/orisun
+
+# Verify the binary exists and is executable
+RUN ls -la /app/orisun && file /app/orisun
 
 # Set ownership
 RUN chown -R orisun:orisun /app

@@ -147,7 +147,7 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, -1, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
 	}
 
-	s.logger.Infof("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
+	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
