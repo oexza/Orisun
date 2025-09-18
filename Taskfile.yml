@@ -5,6 +5,7 @@ env:
   STATIC_DIR: "web/static"
   ORISUN_LOGGING_LEVEL: INFO
   ORISUN_PG_PASSWORD: "password@1"
+  ORISUN_PG_SSLMODE: "disable"
 
 tasks:
   tools:

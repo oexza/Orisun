@@ -55,6 +55,7 @@ type DBConfig struct {
 	Host     string
 	Port     string
 	Schemas  string
+	SSLMode  string
 	// Write pool configuration (optimized for write operations)
 	WriteMaxOpenConns  int
 	WriteMaxIdleConns  int

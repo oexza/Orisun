@@ -5,6 +5,7 @@ postgres:
   host: ${ORISUN_PG_HOST:localhost}
   port: ${ORISUN_PG_PORT:5434}
   schemas: ${ORISUN_PG_SCHEMAS:`orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`}
+  sslmode: ${ORISUN_PG_SSLMODE:require}
   # Write pool configuration (optimized for write operations)
   writeMaxOpenConns: ${ORISUN_PG_WRITE_MAX_OPEN_CONNS:15}
   writeMaxIdleConns: ${ORISUN_PG_WRITE_MAX_IDLE_CONNS:3}

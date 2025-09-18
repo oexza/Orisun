@@ -528,12 +528,13 @@ func initializeDatabase(
 ) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
 	// Create database connection string
 	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		config.Postgres.Host,
 		config.Postgres.Port,
 		config.Postgres.User,
 		config.Postgres.Password,
 		config.Postgres.Name,
+		config.Postgres.SSLMode,
 	)
 
 	// Create write database pool (optimized for write operations)
