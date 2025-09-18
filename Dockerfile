@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM golang:latest AS builder
 
 # Set working directory
-WORKDIR /var/lib/orisun
+WORKDIR /app
 
 # Copy go.mod and go.sum files first for better layer caching
 COPY go.mod go.sum ./
@@ -49,23 +49,23 @@ FROM alpine:3.18
 RUN apk add --no-cache ca-certificates tzdata
 
 # Create a non-root user to run the application
-RUN mkdir -p /var/lib/orisun && adduser -D -h /var/lib/orisun -s /sbin/nologin orisun
-WORKDIR /var/lib/orisun
+RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
+WORKDIR /app
 
 # Copy the binary from the builder stage with dynamic architecture detection
 # First try the specific architecture, then fallback to any available binary
-COPY --from=builder /var/lib/orisun/build/ /tmp/build/
+COPY --from=builder /app/build/ /tmp/build/
 RUN ls -la /tmp/build/ && \
     if [ -f "/tmp/build/orisun-linux-amd64" ]; then \
-        cp /tmp/build/orisun-linux-amd64 /var/lib/orisun/orisun; \
+        cp /tmp/build/orisun-linux-amd64 /app/orisun; \
     elif [ -f "/tmp/build/orisun-linux-arm64" ]; then \
-        cp /tmp/build/orisun-linux-arm64 /var/lib/orisun/orisun; \
+        cp /tmp/build/orisun-linux-arm64 /app/orisun; \
     else \
         echo "No suitable binary found!" && ls -la /tmp/build/ && exit 1; \
     fi && \
-    chmod +x /var/lib/orisun/orisun && \
-    ls -la /var/lib/orisun/orisun && \
-    echo "Binary /var/lib/orisun/orisun is ready"
+    chmod +x /app/orisun && \
+    ls -la /app/orisun && \
+    echo "Binary /app/orisun is ready"
 
 # Set ownership and ensure data directory exists
 RUN mkdir -p /var/lib/orisun/data && chown -R orisun:orisun /var/lib/orisun
@@ -80,4 +80,4 @@ EXPOSE 8991 5005 4222 50051
 ENV GO_ENV=production
 
 # Set default command
-CMD ["/var/lib/orisun/orisun"]
+CMD ["/app/orisun"]
