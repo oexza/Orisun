@@ -10,5 +10,5 @@
           docker run --rm --platform linux/arm64 ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }} --version
           
           # Verify binary exists and is executable
-          docker run --rm --platform linux/amd64 ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }} ls -la /app/orisun
-          docker run --rm --platform linux/arm64 ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }} ls -la /app/orisun
+          docker run --rm --platform linux/amd64 ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }} ls -la /var/lib/orisun/orisun
+          docker run --rm --platform linux/arm64 ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }} ls -la /var/lib/orisun/orisun
