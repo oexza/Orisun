@@ -667,7 +667,7 @@ func createNATSOptions(config c.AppConfig, logger l.Logger) server.Options {
 		Port:       config.Nats.Port,
 		MaxPayload: config.Nats.MaxPayload,
 		JetStream:  true,
-		StoreDir:   config.Nats.StoreDir,
+		StoreDir:   "/var/lib/orisun/nats",
 	}
 
 	if config.Nats.Cluster.Enabled {

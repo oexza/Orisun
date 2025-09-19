@@ -68,7 +68,7 @@ RUN ls -la /tmp/build/ && \
     echo "Binary /app/orisun is ready"
 
 # Set ownership and ensure data directory exists
-RUN mkdir -p /var/lib/orisun/data && chown -R orisun:orisun /var/lib/orisun
+RUN mkdir -p /var/lib/orisun/nats && chown -R orisun:orisun /var/lib/orisun
 
 # Switch to non-root user
 USER orisun
@@ -78,6 +78,9 @@ EXPOSE 8991 5005 4222 50051
 
 # Set environment variables
 ENV GO_ENV=production
+
+# Declare volume for persistent data
+VOLUME ["/var/lib/orisun/nats"]
 
 # Set default command
 CMD ["/app/orisun"]
