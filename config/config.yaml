@@ -31,7 +31,7 @@ nats:
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}
   maxPayload: ${ORISUN_NATS_MAX_PAYLOAD:1048576}
-  storeDir: ${ORISUN_NATS_STORE_DIR:/var/lib/orisun/nats}
+  storeDir: ${ORISUN_NATS_STORE_DIR:./data/orisun/nats} # storeDir is the directory where NATS server will store its data, will default to /var/lib/orisun/nats in docker
   cluster:
     name: ${ORISUN_NATS_CLUSTER_NAME:orisun-nats-cluster}
     host: ${ORISUN_NATS_CLUSTER_HOST:0.0.0.0}
