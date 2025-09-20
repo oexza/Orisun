@@ -45,8 +45,8 @@ RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
 # Use a minimal Alpine image for the final container
 FROM alpine:3.18
 
-# Add CA certificates and timezone data
-RUN apk add --no-cache ca-certificates tzdata
+# Add CA certificates, timezone data, and su-exec for user switching
+RUN apk add --no-cache ca-certificates tzdata su-exec
 
 # Create a non-root user to run the application
 RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
@@ -67,11 +67,12 @@ RUN ls -la /tmp/build/ && \
     ls -la /app/orisun && \
     echo "Binary /app/orisun is ready"
 
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Set ownership and ensure data directory exists
 RUN mkdir -p /var/lib/orisun/nats && chown -R orisun:orisun /var/lib/orisun
-
-# Switch to non-root user
-USER orisun
 
 # Expose necessary ports (admin UI, gRPC, NATS, and additional gRPC port)
 EXPOSE 8991 5005 4222 50051
@@ -82,5 +83,6 @@ ENV GO_ENV=production
 # Declare volume for persistent data
 VOLUME ["/var/lib/orisun/nats"]
 
-# Set default command
+# Set entrypoint and default command
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/app/orisun"]
