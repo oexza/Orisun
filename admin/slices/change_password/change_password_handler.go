@@ -8,13 +8,14 @@ import (
 	"orisun/admin/templates"
 	"orisun/eventstore"
 	l "orisun/logging"
-	"sync"
+	// "sync"
 
 	admin_events "orisun/admin/events"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/starfederation/datastar-go/datastar"
+	"golang.org/x/sync/errgroup"
 )
 
 type ChangePasswordHandler struct {
@@ -147,10 +148,8 @@ func changePassword(
 	logger l.Logger,
 	currentUserId string,
 ) error {
-	// Use goroutines to fetch events concurrently
-	var wg sync.WaitGroup
+	// Use goroutines to fetch events concurrently with errgroup for cancellation
 	var userCreated, userDeleted, passwordChanged *eventstore.GetEventsResponse
-	var userCreatedErr, userDeletedErr, passwordChangedErr error
 
 	// Create a common request template
 	baseRequest := eventstore.GetEventsRequest{
@@ -164,31 +163,31 @@ func changePassword(
 	}
 
 	// Fetch UserCreated event
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Create a true copy of the base request, then take its address for getEvents
-		reqCopy := baseRequest 
-		reqCopy.Query = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
-				{
-					Tags: []*eventstore.Tag{
-						{Key: "user_id", Value: currentUserId},
-						{Key: "eventType", Value: admin_events.EventTypeUserCreated},
-					},
+	// Create a true copy of the base request, then take its address for getEvents
+	reqCopy := baseRequest
+	reqCopy.Query = &eventstore.Query{
+		Criteria: []*eventstore.Criterion{
+			{
+				Tags: []*eventstore.Tag{
+					{Key: "user_id", Value: currentUserId},
+					{Key: "eventType", Value: admin_events.EventTypeUserCreated},
 				},
 			},
-		}
-		userCreated, userCreatedErr = getEvents(ctx, &reqCopy)
-	}()
+		},
+	}
+	var err error
+	userCreated, err = getEvents(ctx, &reqCopy)
+	if err != nil {
+		return err
+	}
 
-	// Fetch UserDeleted event
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Create a true copy of the base request, then take its address for getEvents
-		reqCopy := baseRequest 
-		reqCopy.Query = &eventstore.Query{
+	// Concurrently fetch UserDeleted and PasswordChanged using errgroup
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		// UserDeleted
+		req := baseRequest
+		req.Query = &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
 				{
 					Tags: []*eventstore.Tag{
@@ -198,16 +197,18 @@ func changePassword(
 				},
 			},
 		}
-		userDeleted, userDeletedErr = getEvents(ctx, &reqCopy)
-	}()
+		resp, err := getEvents(gctx, &req)
+		if err != nil {
+			return err
+		}
+		userDeleted = resp
+		return nil
+	})
 
-	// Fetch PasswordChanged event
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Create a true copy of the base request, then take its address for getEvents
-		reqCopy := baseRequest 
-		reqCopy.Query = &eventstore.Query{
+	g.Go(func() error {
+		// PasswordChanged
+		req := baseRequest
+		req.Query = &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
 				{
 					Tags: []*eventstore.Tag{
@@ -217,50 +218,37 @@ func changePassword(
 				},
 			},
 		}
-		passwordChanged, passwordChangedErr = getEvents(ctx, &reqCopy)
-		logger.Infof("PasswordChanged event: %v", passwordChanged)
-	}()
+		resp, err := getEvents(gctx, &req)
+		if err != nil {
+			return err
+		}
+		passwordChanged = resp
+		return nil
+	})
 
-	// Wait for all goroutines to complete
-	wg.Wait()
-
-	// Check for errors
-	if userCreatedErr != nil {
-		return userCreatedErr
-	}
-	if userDeletedErr != nil {
-		return userDeletedErr
-	}
-	if passwordChangedErr != nil {
-		return passwordChangedErr
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	// Check if user exists
-	if len(userCreated.Events) == 0 {
+	// Validate user existence and not deleted
+	if userCreated == nil || len(userCreated.Events) == 0 {
+		return errors.New("user not found")
+	}
+	if userDeleted != nil && len(userDeleted.Events) > 0 {
 		return errors.New("user not found")
 	}
 
-	// Check if user is deleted
-	if len(userDeleted.Events) > 0 {
-		return errors.New("cannot change password for a deleted user")
-	}
-
-	// Determine which password hash to use for verification
+	// Determine current password hash
 	var currentPasswordHash string
-
-	// If there's a password changed event, use the most recent password hash
-	if len(passwordChanged.Events) > 0 {
+	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
 		var passwordChangedEventData admin_events.UserPasswordChanged
-		err := json.Unmarshal([]byte(passwordChanged.Events[0].Data), &passwordChangedEventData)
-		if err != nil {
+		if err := json.Unmarshal([]byte(passwordChanged.Events[0].Data), &passwordChangedEventData); err != nil {
 			return err
 		}
 		currentPasswordHash = passwordChangedEventData.PasswordHash
 	} else {
-		// Otherwise use the original password from user creation
 		var userCreatedEventData admin_events.UserCreated
-		err := json.Unmarshal([]byte(userCreated.Events[0].Data), &userCreatedEventData)
-		if err != nil {
+		if err := json.Unmarshal([]byte(userCreated.Events[0].Data), &userCreatedEventData); err != nil {
 			return err
 		}
 		currentPasswordHash = userCreatedEventData.PasswordHash
@@ -268,78 +256,43 @@ func changePassword(
 
 	// Verify current password
 	if err := admin_common.ComparePassword(currentPasswordHash, currentPassword); err != nil {
-		return errors.New("current password is incorrect")
+		return errors.New("invalid current password")
 	}
 
-	// Hash the new password
-	newPasswordHash, err := admin_common.HashPassword(newPassword)
+	// Save password change event
+	hash, err := admin_common.HashPassword(newPassword)
 	if err != nil {
 		return err
 	}
-
-	// Create password changed event
 	passwordChangedEvent := admin_events.UserPasswordChanged{
 		UserId:       currentUserId,
-		PasswordHash: newPasswordHash,
+		PasswordHash: hash,
 	}
 
-	passwordChangedEventData, err := json.Marshal(passwordChangedEvent)
+	payload, err := json.Marshal(passwordChangedEvent)
 	if err != nil {
 		return err
 	}
 
-	// We know userCreated events exist since we checked earlier
-	// Initialize with the version from userCreated event
-	lastExpectedVersion := int64(userCreated.Events[len(userCreated.Events)-1].Version)
-
-	// Check if any password changed events have a higher version
-	for _, event := range passwordChanged.Events {
-		if int64(event.Version) > lastExpectedVersion {
-			lastExpectedVersion = int64(event.Version)
-		}
+	tags := []*eventstore.Tag{
+		{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
+		{Key: "user_id", Value: currentUserId},
 	}
 
-	_, err = saveEvents(
-		ctx,
-		&eventstore.SaveEventsRequest{
-			Boundary: boundary,
-			Stream: &eventstore.SaveStreamQuery{
-				Name: admin_events.AdminStream,
-				// Set ExpectedVersion to the highest version found
-				ExpectedVersion: lastExpectedVersion,
-				SubsetQuery: &eventstore.Query{
-					Criteria: []*eventstore.Criterion{
-						{
-							Tags: []*eventstore.Tag{
-								{Key: "user_id", Value: currentUserId},
-								{Key: "eventType", Value: admin_events.EventTypeUserCreated},
-							},
-						},
-						{
-							Tags: []*eventstore.Tag{
-								{Key: "user_id", Value: currentUserId},
-								{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
-							},
-						},
-						{
-							Tags: []*eventstore.Tag{
-								{Key: "user_id", Value: currentUserId},
-								{Key: "eventType", Value: admin_events.EventTypeUserDeleted},
-							},
-						},
-					},
-				},
-			},
-			Events: []*eventstore.EventToSave{
-				{
-					EventId:   uuid.New().String(),
-					EventType: admin_events.EventTypeUserPasswordChanged,
-					Data:      string(passwordChangedEventData),
-					Metadata:  "{\"current_user_id\":\"" + currentUserId + "\"}",
-				},
-			},
+	_, err = saveEvents(ctx, &eventstore.SaveEventsRequest{
+		Boundary: boundary,
+		Stream: &eventstore.SaveStreamQuery{
+			Name:            admin_events.AdminStream,
+			ExpectedVersion: 0,
+			SubsetQuery:     &eventstore.Query{Criteria: []*eventstore.Criterion{{Tags: tags}}},
 		},
-	)
+		Events: []*eventstore.EventToSave{{
+			EventId:   uuid.NewString(),
+			EventType: admin_events.EventTypeUserPasswordChanged,
+			Data:      string(payload),
+			Metadata:  "",
+		}},
+	})
 	if err != nil {
 		return err
 	}

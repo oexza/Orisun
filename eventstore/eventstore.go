@@ -348,23 +348,24 @@ func (s *EventStore) SubscribeToAllEvents(
 	}
 
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		// Name:          subscriberName,
-		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
-		AckPolicy:     jetstream.AckNonePolicy,
-		ReplayPolicy:  jetstream.ReplayInstantPolicy,
-		OptStartTime:  &timeToSubscribeFromJetstream,
+	    Name:          subscriberName,
+	    DeliverPolicy: jetstream.DeliverByStartTimePolicy,
+	    AckPolicy:     jetstream.AckNonePolicy,
+	    ReplayPolicy:  jetstream.ReplayInstantPolicy,
+	    OptStartTime:  &timeToSubscribeFromJetstream,
 	})
-
+	
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
+	    return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
 	}
+	// Ensure the consumer is cleaned up using the same name
 	defer subs.DeleteConsumer(ctx, subscriberName)
-
+	
 	// Start consuming messages with a done channel for cleanup
 	msgDone := make(chan struct{})
 	msgCtx, msgCancel := context.WithCancel(ctx)
 	defer msgCancel()
-
+	
 	// Start consuming messages
 	msgs, err := consumer.Messages(jetstream.PullMaxMessages(200))
 	if err != nil {
@@ -387,6 +388,8 @@ func (s *EventStore) SubscribeToAllEvents(
 						return
 					}
 					s.logger.Errorf("Error getting next message: %v", err)
+					// Small backoff to avoid tight loop on repeated errors
+					time.Sleep(100 * time.Millisecond)
 					continue
 				}
 
@@ -621,18 +624,19 @@ func (s *EventStore) SubscribeToStream(
 	}
 
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		// Name:          subscriberName,
-		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
-		AckPolicy:     jetstream.AckNonePolicy,
-		ReplayPolicy:  jetstream.ReplayInstantPolicy,
-		OptStartTime:  &timeToSubscribeFromJetstream,
+	    Name:          subscriberName,
+	    DeliverPolicy: jetstream.DeliverByStartTimePolicy,
+	    AckPolicy:     jetstream.AckNonePolicy,
+	    ReplayPolicy:  jetstream.ReplayInstantPolicy,
+	    OptStartTime:  &timeToSubscribeFromJetstream,
 	})
-
+	
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
+	    return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
 	}
+	// Ensure the consumer is cleaned up using the same name
 	defer subs.DeleteConsumer(ctx, subscriberName)
-
+	
 	// Start consuming messages with a done channel for cleanup
 	msgDone := make(chan struct{})
 	msgCtx, msgCancel := context.WithCancel(ctx)
@@ -660,6 +664,8 @@ func (s *EventStore) SubscribeToStream(
 						return
 					}
 					s.logger.Errorf("Error getting next message: %v", err)
+					// Small backoff to avoid tight loop on repeated errors
+					time.Sleep(100 * time.Millisecond)
 					continue
 				}
 

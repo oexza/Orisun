@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"
+	"golang.org/x/sync/errgroup"
 )
 
 type UsersPageHandler struct {
@@ -45,24 +46,25 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 		sse, tabId := admin_common.GetOrCreateSSEConnection(w, r)
 		userSubscription := globalCommon.NewMessageHandler[eventstore.Event](r.Context())
 
-		go func() {
+		grp, gctx := errgroup.WithContext(r.Context())
+
+		grp.Go(func() error {
 			for {
 				select {
-				case <-r.Context().Done():
+				case <-gctx.Done():
 					s.logger.Debugf("Context done, stopping dashboard event processing")
-					return // Exit the goroutine completely
+					return nil
 				default:
-					// Only try to receive if context is not done
 					event, err := userSubscription.Recv()
 					if err != nil {
-						s.logger.Errorf("Error receiving events: %v", err)
-						if r.Context().Err() != nil {
-							return
+						if gctx.Err() != nil {
+							return nil
 						}
+						s.logger.Errorf("Error receiving events: %v", err)
+						time.Sleep(100 * time.Millisecond)
 						continue
 					}
 					if event.EventType == admin_events.EventTypeUserCreated || event.EventType == admin_events.EventTypeUserDeleted {
-						//delay for 1 second
 						time.Sleep(1 * time.Second)
 						users, err := s.listUsers()
 						if err != nil {
@@ -73,8 +75,9 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 					}
 				}
 			}
-		}()
-		s.subscribeToEventstore(r.Context(), s.boundary, "users-dashboard-"+tabId, nil, nil, *userSubscription)
+		})
+		s.subscribeToEventstore(gctx, s.boundary, "users-dashboard-"+tabId, nil, nil, *userSubscription)
+		_ = grp.Wait()
 		// Wait for connection to close
 		<-sse.Context().Done()
 	} else {

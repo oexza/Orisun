@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"time"
 	l "orisun/logging"
 
 	adminCommon "orisun/admin/slices/common"
@@ -10,6 +11,7 @@ import (
 	globalCommon "orisun/common"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
+	"golang.org/x/sync/errgroup"
 )
 
 type GetCatchupSubscriptionCount = func() uint32
@@ -88,46 +90,56 @@ func (dh *DashboardHandler) handleUserCount(
 	boudaries []string,
 ) {
 	userSubscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](r.Context())
+    grp, gctx := errgroup.WithContext(r.Context())
 
-	go func() {
-		for {
-			select {
-			case <-r.Context().Done():
-				dh.logger.Debugf("Context done, stopping dashboard event processing")
-				return // Exit the goroutine completely
-			default:
-				// Only try to receive if context is not done
-				event, err := userSubscription.Recv()
-				if err != nil {
-					dh.logger.Errorf("Error receiving user count: %v", err)
-					return
-				}
-				sse.PatchElementTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
-			}
-		}
-	}()
-	dh.subscribeToUserCount("tab::::"+tabId, r.Context(), userSubscription)
+    grp.Go(func() error {
+        for {
+            select {
+            case <-gctx.Done():
+                dh.logger.Debugf("Context done, stopping dashboard event processing")
+                return nil
+            default:
+                event, err := userSubscription.Recv()
+                if err != nil {
+                    if gctx.Err() != nil {
+                        return nil
+                    }
+                    dh.logger.Errorf("Error receiving user count: %v", err)
+                    time.Sleep(100 * time.Millisecond)
+                    continue
+                }
+                sse.PatchElementTempl(UserCountFragement(event.Count), datastar.WithSelectorID(UserCountId))
+            }
+        }
+    })
+    dh.subscribeToUserCount("tab::::"+tabId, gctx, userSubscription)
 
-	for _, boundary := range boudaries {
-		eventSubscription := globalCommon.NewMessageHandler[event_count.EventCountReadModel](r.Context())
-		go func() {
-			for {
-				select {
-				case <-r.Context().Done():
-					dh.logger.Debugf("Context done, stopping event count processing")
-					return // Exit the goroutine completely
-				default:
-					// Only try to receive if context is not done
-					event, err := eventSubscription.Recv()
-					if err != nil {
-						dh.logger.Errorf("Error receiving event count: %v", err)
-						return
-					}
-					
-					sse.PatchElementTempl(EventCountFragment(event.Count, boundary), datastar.WithSelectorID(eventCountId+boundary))
-				}
-			}
-		}()
-		dh.subscribeToEventCount("tab::::"+tabId+boundary, boundary, r.Context(), eventSubscription)
-	}
+    for _, boundary := range boudaries {
+        boundary := boundary
+        eventSubscription := globalCommon.NewMessageHandler[event_count.EventCountReadModel](gctx)
+        grp.Go(func() error {
+            for {
+                select {
+                case <-gctx.Done():
+                    dh.logger.Debugf("Context done, stopping event count processing")
+                    return nil
+                default:
+                    event, err := eventSubscription.Recv()
+                    if err != nil {
+                        if gctx.Err() != nil {
+                            return nil
+                        }
+                        dh.logger.Errorf("Error receiving event count: %v", err)
+                        time.Sleep(100 * time.Millisecond)
+                        continue
+                    }
+                    sse.PatchElementTempl(EventCountFragment(event.Count, boundary), datastar.WithSelectorID(eventCountId+boundary))
+                }
+            }
+        })
+        dh.subscribeToEventCount("tab::::"+tabId+boundary, boundary, gctx, eventSubscription)
+    }
+
+    // Wait for all goroutines to finish when context is done
+    _ = grp.Wait()
 }

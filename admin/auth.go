@@ -14,6 +14,7 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type Authenticator struct {
@@ -38,7 +39,9 @@ var cacheMutex sync.RWMutex
 
 func (a *Authenticator) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, error) {
 	// Check if the user is in the cache
+	cacheMutex.RLock()
 	user, ok := userByUsernameCache[username]
+	cacheMutex.RUnlock()
 	if ok && user.Username == username {
 		// Compare the provided password with the stored hash
 		if err := admin_common.ComparePassword(user.HashedPassword, password); err != nil {
@@ -48,8 +51,9 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	}
 
 	// Use goroutines to fetch events concurrently
-	var userCreated, userDeleted, passwordChanged *eventstore.GetEventsResponse
-	var userDeletedErr, passwordChangedErr error
+	var userCreated *eventstore.GetEventsResponse
+	var userDeleted *eventstore.GetEventsResponse
+	var passwordChanged *eventstore.GetEventsResponse
 
 	// Create a common request template
 	baseRequest := eventstore.GetEventsRequest{
@@ -62,7 +66,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 		},
 	}
 
-	// Fetch UserCreated event
+	// Fetch UserCreated event synchronously (required to get user ID)
 	// Create a true copy of the base request, then take its address for getEvents
 	reqCopy := baseRequest
 	reqCopy.Query = &eventstore.Query{
@@ -75,7 +79,8 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 			},
 		},
 	}
-	userCreated, err := a.getEvents(ctx, &reqCopy)
+	var err error
+	userCreated, err = a.getEvents(ctx, &reqCopy)
 	if err != nil {
 		return globalCommon.User{}, err
 	}
@@ -90,15 +95,13 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 		return globalCommon.User{}, err
 	}
 
-	var wg sync.WaitGroup
+	// Concurrently fetch UserDeleted and PasswordChanged using errgroup
+	g, gctx := errgroup.WithContext(ctx)
 
-	// Fetch UserDeleted event
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Create a true copy of the base request, then take its address for getEvents
-		reqCopy := baseRequest
-		reqCopy.Query = &eventstore.Query{
+	g.Go(func() error {
+		// UserDeleted
+		req := baseRequest
+		req.Query = &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
 				{
 					Tags: []*eventstore.Tag{
@@ -108,16 +111,18 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 				},
 			},
 		}
-		userDeleted, userDeletedErr = a.getEvents(ctx, &reqCopy)
-	}()
+		resp, err := a.getEvents(gctx, &req)
+		if err != nil {
+			return err
+		}
+		userDeleted = resp
+		return nil
+	})
 
-	// Fetch PasswordChanged event
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Create a true copy of the base request, then take its address for getEvents
-		reqCopy := baseRequest
-		reqCopy.Query = &eventstore.Query{
+	g.Go(func() error {
+		// PasswordChanged
+		req := baseRequest
+		req.Query = &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
 				{
 					Tags: []*eventstore.Tag{
@@ -127,15 +132,16 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 				},
 			},
 		}
-		passwordChanged, passwordChangedErr = a.getEvents(ctx, &reqCopy)
-	}()
+		resp, err := a.getEvents(gctx, &req)
+		if err != nil {
+			return err
+		}
+		passwordChanged = resp
+		return nil
+	})
 
-	// Wait for all goroutines to complete
-	wg.Wait()
-
-	// Check for errors in goroutines
-	if userDeletedErr != nil || passwordChangedErr != nil {
-		return globalCommon.User{}, fmt.Errorf("error fetching events: %v, %v", userDeletedErr, passwordChangedErr)
+	if err := g.Wait(); err != nil {
+		return globalCommon.User{}, err
 	}
 
 	// Check if user is deleted
@@ -147,7 +153,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	var currentPasswordHash string
 
 	// If there's a password changed event, use the most recent password hash
-	if len(passwordChanged.Events) > 0 {
+	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
 		var passwordChangedEventData admin_events.UserPasswordChanged
 		err := json.Unmarshal([]byte(passwordChanged.Events[0].Data), &passwordChangedEventData)
 		if err != nil {
@@ -174,9 +180,9 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 
 	// Cache the user
 	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
 	userByIdCache[user.Id] = user
 	userByUsernameCache[userCreatedEventData.Username] = user
+	cacheMutex.Unlock()
 
 	return *user, nil
 }
