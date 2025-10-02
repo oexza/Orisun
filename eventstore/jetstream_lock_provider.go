@@ -49,7 +49,6 @@ func NewJetStreamLockProvider(ctx context.Context, js jetstream.JetStream, logge
 func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) error {
 	lockID := fmt.Sprint(lockName)
 	p.logger.Infof("Locking: %s", lockID)
-	
 	// Try to acquire the lock with retries
 	for range maxRetries {
 		// Check if context is cancelled
@@ -59,11 +58,10 @@ func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) error
 
 		// Try to create the key (which will fail if it already exists)
 		revision, err := p.bucket.Create(ctx, lockID, []byte("locked"))
-		
+
 		if err == nil {
 			// Lock acquired successfully
-			p.logger.Debugf("Lock acquired: %s (revision: %d)", lockID, revision)
-			
+			p.logger.Infof("Lock acquired: %s (revision: %d)", lockID, revision)
 			// Start goroutine to automatically unlock when context is done
 			go func() {
 				<-ctx.Done()
@@ -75,17 +73,17 @@ func (p *JetStreamLockProvider) Lock(ctx context.Context, lockName string) error
 					p.logger.Infof("Lock released: %s", lockID)
 				}
 			}()
-			
+
 			return nil
 		}
-
+		p.logger.Errorf("Failed to acquire lock: %v", err)
 		// If the error is not because the key already exists, return it
 		if !errors.Is(err, jetstream.ErrKeyExists) {
 			return fmt.Errorf("failed to acquire lock: %w", err)
 		}
 
 		// Lock is already held, wait and retry
-		p.logger.Debugf("Lock %s already held, retrying in %v", lockID, lockRetryDelay)
+		p.logger.Infof("Lock %s already held, retrying in %v", lockID, lockRetryDelay)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

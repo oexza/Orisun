@@ -48,6 +48,7 @@ import (
 	user_count "orisun/admin/slices/dashboard/user_count"
 
 	"github.com/nats-io/nats-server/v2/server"
+	"golang.org/x/sync/errgroup"
 )
 
 // ensureJetStreamStreamIsProperlySetup ensures that a JetStream stream with the given name exists.
@@ -779,117 +780,60 @@ func startEventPolling(
 	js jetstream.JetStream,
 	eventPublishing common.EventPublishing,
 	logger l.Logger) {
+	g, gctx := errgroup.WithContext(ctx)
 	for _, schema := range config.Postgres.GetSchemaMapping() {
-		// Start a goroutine for each boundary that continuously tries to acquire lock and poll
-		go func(boundary c.BoundaryToPostgresSchemaMapping) {
+		boundaryCopy := schema
+		g.Go(func() error {
 			for {
 				select {
-				case <-ctx.Done():
-					return
+				case <-gctx.Done():
+					return gctx.Err()
 				default:
 					// Try to acquire lock for this boundary
-					err := lockProvider.Lock(ctx, boundary.Boundary)
+					err := lockProvider.Lock(gctx, boundaryCopy.Boundary)
 					if err != nil {
 						// If lock acquisition fails, wait a bit and try again
-						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary.Boundary, err)
+						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
 						time.Sleep(5 * time.Second)
 						continue
 					}
 
-					logger.Infof("Successfully acquired polling lock for boundary %v", boundary.Boundary)
+					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
 
 					// Get last published position
-					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(ctx, boundary.Boundary)
+					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
 					if err != nil {
-						logger.Errorf("Failed to get last published position for boundary %s: %v", boundary.Boundary, err)
+						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
 						time.Sleep(5 * time.Second)
 						continue
 					}
-					logger.Infof("Last published position for boundary %v: %v", boundary.Boundary, &lastPosition)
+					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
 
 					// Start polling - this will block until context is cancelled or error occurs
 					err = PollEventsFromDatabaseToNats(
-						ctx,
+						gctx,
 						js,
 						getEvents,
 						config.PollingPublisher.BatchSize,
 						&lastPosition,
-						boundary.Boundary,
+						boundaryCopy.Boundary,
 						eventPublishing,
-						boundary.Schema,
+						boundaryCopy.Schema,
 						logger,
 					)
 
 					if err != nil {
-						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary.Boundary, err)
+						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
 						time.Sleep(5 * time.Second)
 					}
 					// Loop will continue to try acquiring lock again
 				}
 			}
-		}(schema)
+			// unreachable
+			// return nil
+		})
 	}
-}
-
-func startAdminServer(
-	config c.AppConfig,
-	createUserHandler *create_user.CreateUserHandler,
-	dashboardHandler *dashboard.DashboardHandler,
-	loginHandler *login.LoginHandler,
-	deleteUserHandler *delete_user.DeleteUserHandler,
-	usersHandler *users_page.UsersPageHandler,
-	changePasswordHandler *changepassword.ChangePasswordHandler,
-	logger l.Logger) {
-	go func() {
-		adminServer, err := admin.NewAdminServer(
-			logger,
-			createUserHandler,
-			dashboardHandler,
-			loginHandler,
-			deleteUserHandler,
-			usersHandler,
-			changePasswordHandler,
-		)
-		if err != nil {
-			logger.Fatalf("Could not start admin server %v", err)
-		}
-		httpServer := &http.Server{
-			Addr:    fmt.Sprintf(":%s", config.Admin.Port),
-			Handler: adminServer,
-		}
-
-		logger.Infof("Starting admin server on port %s", config.Admin.Port)
-		if err := httpServer.ListenAndServe(); err != nil {
-			logger.Errorf("Admin server error: %v", err)
-		}
-		logger.Infof("Admin server started on port %s", config.Admin.Port)
-	}()
-}
-
-func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
-	authenticator *admin.Authenticator, logger l.Logger) {
-	grpcServer := grpc.NewServer(
-		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
-		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
-		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
-		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
-		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
-	)
-	pb.RegisterEventStoreServer(grpcServer, eventStore)
-	if config.Grpc.EnableReflection {
-		logger.Infof("Enabling gRPC server reflection")
-		reflection.Register(grpcServer)
-	}
-
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", config.Grpc.Port))
-	if err != nil {
-		logger.Fatalf("Failed to listen: %v", err)
-	}
-
-	logger.Infof("Grpc Server listening on port %s", config.Grpc.Port)
-	if err := grpcServer.Serve(lis); err != nil {
-		logger.Fatalf("Failed to serve: %v", err)
-	}
+	// Not waiting here; goroutines will be governed by ctx lifecycle.
 }
 
 func startUserProjector(
@@ -903,7 +847,8 @@ func startUserProjector(
 	saveEvents common.SaveEventsType,
 	getEvents common.GetEventsType,
 	logger l.Logger) {
-	go func() {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
 		userProjector := up.NewUserProjector(
 			getProjectorLastPosition,
 			updateProjectorPosition,
@@ -917,10 +862,10 @@ func startUserProjector(
 		)
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-groupCtx.Done():
+				return groupCtx.Err()
 			default:
-				err := userProjector.Start(ctx)
+				err := userProjector.Start(groupCtx)
 
 				if err != nil {
 					logger.Debugf("Failed to start user projection (likely due to lock contention): %v - will retry", err)
@@ -929,10 +874,10 @@ func startUserProjector(
 				}
 				logger.Info("User projector started")
 				// Projector will run until context is cancelled or error occurs
-				return
+				return nil
 			}
 		}
-	}()
+	})
 }
 
 func startAuthUserProjector(
@@ -940,7 +885,8 @@ func startAuthUserProjector(
 	adminBoundary string,
 	subscribeToEvents common.SubscribeToEventStoreType,
 	logger l.Logger) {
-	go func() {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
 		userProjector := admin.NewAuthUserProjector(
 			logger,
 			subscribeToEvents,
@@ -948,10 +894,10 @@ func startAuthUserProjector(
 		)
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-groupCtx.Done():
+				return groupCtx.Err()
 			default:
-				err := userProjector.Start(ctx)
+				err := userProjector.Start(groupCtx)
 
 				if err != nil {
 					logger.Debugf("Failed to start auth user projection (likely due to lock contention): %v - will retry", err)
@@ -960,10 +906,10 @@ func startAuthUserProjector(
 				}
 				logger.Info("Auth user projector started")
 				// Projector will run until context is cancelled or error occurs
-				return
+				return nil
 			}
 		}
-	}()
+	})
 }
 
 func startUserCountProjector(
@@ -977,7 +923,8 @@ func startUserCountProjector(
 	saveUserCount user_count.SaveUserCount,
 	logger l.Logger) {
 
-	go func() {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
 		userProjector := user_count.NewUserCountProjection(
 			adminBoundary,
 			getProjectorLastPosition,
@@ -990,10 +937,10 @@ func startUserCountProjector(
 		)
 		for {
 			select {
-			case <-ctx.Done():
-				return
+			case <-groupCtx.Done():
+				return groupCtx.Err()
 			default:
-				err := userProjector.Start(ctx)
+				err := userProjector.Start(groupCtx)
 
 				if err != nil {
 					logger.Debugf("Failed to start user count projection (likely due to lock contention): %v - will retry", err)
@@ -1002,10 +949,10 @@ func startUserCountProjector(
 				}
 				logger.Info("User count projector started")
 				// Projector will run until context is cancelled or error occurs
-				return
+				return nil
 			}
 		}
-	}()
+	})
 
 }
 
@@ -1019,10 +966,12 @@ func startEventCountProjector(
 	publishToPubSub common.PublishToPubSubType,
 	saveEventCount event_count.SaveEventCount,
 	logger l.Logger) {
+	group, groupCtx := errgroup.WithContext(ctx)
 	for _, boundary := range boundaries {
-		go func(boundary string) {
+		b := boundary
+		group.Go(func() error {
 			eventProjector := event_count.NewEventCountProjection(
-				boundary,
+				b,
 				getProjectorLastPosition,
 				publishToPubSub,
 				getEventCount,
@@ -1033,22 +982,22 @@ func startEventCountProjector(
 			)
 			for {
 				select {
-				case <-ctx.Done():
-					return
+				case <-groupCtx.Done():
+					return groupCtx.Err()
 				default:
-					err := eventProjector.Start(ctx)
+					err := eventProjector.Start(groupCtx)
 
 					if err != nil {
-						logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", boundary, err)
+						logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", b, err)
 						time.Sleep(5 * time.Second)
 						continue
 					}
-					logger.Infof("Event count projector started for boundary %s", boundary)
+					logger.Infof("Event count projector started for boundary %s", b)
 					// Projector will run until context is cancelled or error occurs
-					return
+					return nil
 				}
 			}
-		}(boundary)
+		})
 	}
 
 }
@@ -1118,19 +1067,17 @@ func PollEventsFromDatabaseToNats(
 			lastPosition = event.Position
 		}
 		if len(resp.Events) > 0 {
-			go func() {
-				mutex.Lock()
-				defer mutex.Unlock()
-				err = db.InsertLastPublishedEvent(
-					ctx,
-					boundary,
-					lastPosition.CommitPosition,
-					lastPosition.PreparePosition,
-				)
-				if err != nil {
-					panic(err)
-				}
-			}()
+			mutex.Lock()
+			err = db.InsertLastPublishedEvent(
+				ctx,
+				boundary,
+				lastPosition.CommitPosition,
+				lastPosition.PreparePosition,
+			)
+			mutex.Unlock()
+			if err != nil {
+				panic(err)
+			}
 		}
 
 		if len(resp.Events) > 0 {
@@ -1226,4 +1173,65 @@ func getAuthenticatedContext(username, password string) context.Context {
 
 	// Attach metadata to the context
 	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
+func startAdminServer(
+	config c.AppConfig,
+	createUserHandler *create_user.CreateUserHandler,
+	dashboardHandler *dashboard.DashboardHandler,
+	loginHandler *login.LoginHandler,
+	deleteUserHandler *delete_user.DeleteUserHandler,
+	usersHandler *users_page.UsersPageHandler,
+	changePasswordHandler *changepassword.ChangePasswordHandler,
+	logger l.Logger) {
+	go func() {
+		adminServer, err := admin.NewAdminServer(
+			logger,
+			createUserHandler,
+			dashboardHandler,
+			loginHandler,
+			deleteUserHandler,
+			usersHandler,
+			changePasswordHandler,
+		)
+		if err != nil {
+			logger.Fatalf("Could not start admin server %v", err)
+		}
+		httpServer := &http.Server{
+			Addr:    fmt.Sprintf(":%s", config.Admin.Port),
+			Handler: adminServer,
+		}
+
+		logger.Infof("Starting admin server on port %s", config.Admin.Port)
+		if err := httpServer.ListenAndServe(); err != nil {
+			logger.Errorf("Admin server error: %v", err)
+		}
+		logger.Infof("Admin server started on port %s", config.Admin.Port)
+	}()
+}
+
+func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
+	authenticator *admin.Authenticator, logger l.Logger) {
+	grpcServer := grpc.NewServer(
+		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
+		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
+		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
+		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
+		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
+	)
+	pb.RegisterEventStoreServer(grpcServer, eventStore)
+	if config.Grpc.EnableReflection {
+		logger.Infof("Enabling gRPC server reflection")
+		reflection.Register(grpcServer)
+	}
+
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", config.Grpc.Port))
+	if err != nil {
+		logger.Fatalf("Failed to listen: %v", err)
+	}
+
+	logger.Infof("Grpc Server listening on port %s", config.Grpc.Port)
+	if err := grpcServer.Serve(lis); err != nil {
+		logger.Fatalf("Failed to serve: %v", err)
+	}
 }
