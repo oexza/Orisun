@@ -76,7 +76,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 				}
 			}
 		})
-		s.subscribeToEventstore(gctx, s.boundary, "users-dashboard-"+tabId, nil, nil, *userSubscription)
+		s.subscribeToEventstore(gctx, s.boundary, "users-dashboard-"+tabId, nil, nil, userSubscription)
 		_ = grp.Wait()
 		// Wait for connection to close
 		<-sse.Context().Done()

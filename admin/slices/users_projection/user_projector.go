@@ -110,7 +110,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		projectorName,
 		pos,
 		nil,
-		*stream,
+		stream,
 	)
 	if err != nil {
 		return err

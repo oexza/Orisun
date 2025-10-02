@@ -241,7 +241,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler globalCommon.MessageHandler[pb.Event]) error {
+			handler *globalCommon.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -267,7 +267,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler globalCommon.MessageHandler[pb.Event]) error {
+			handler *globalCommon.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -291,7 +291,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler globalCommon.MessageHandler[pb.Event]) error {
+			handler *globalCommon.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -310,7 +310,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler globalCommon.MessageHandler[pb.Event]) error {
+			handler *globalCommon.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -455,7 +455,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler globalCommon.MessageHandler[pb.Event]) error {
+			handler *globalCommon.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -585,11 +585,11 @@ func initializeDatabase(
 	}
 
 	logger.Info("Database connections established with separate read/write/admin pools")
-	logger.Infof("Write pool: %d max open, %d max idle connections", 
+	logger.Infof("Write pool: %d max open, %d max idle connections",
 		config.Postgres.WriteMaxOpenConns, config.Postgres.WriteMaxIdleConns)
-	logger.Infof("Read pool: %d max open, %d max idle connections", 
+	logger.Infof("Read pool: %d max open, %d max idle connections",
 		config.Postgres.ReadMaxOpenConns, config.Postgres.ReadMaxIdleConns)
-	logger.Infof("Admin pool: %d max open, %d max idle connections", 
+	logger.Infof("Admin pool: %d max open, %d max idle connections",
 		config.Postgres.AdminMaxOpenConns, config.Postgres.AdminMaxIdleConns)
 
 	go func() {

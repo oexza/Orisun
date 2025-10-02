@@ -18,6 +18,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"golang.org/x/sync/errgroup"
 )
 
 type EventstoreSaveEvents interface {
@@ -227,7 +228,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	subscriberName string,
 	afterPosition *Position,
 	query *Query,
-	handler globalCommon.MessageHandler[Event],
+	handler *globalCommon.MessageHandler[Event],
 ) error {
 	err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
 
@@ -728,104 +729,121 @@ func (s *EventStore) SubscribeToStream(
 }
 
 func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreRequest, stream EventStore_CatchUpSubscribeToEventsServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
+    ctx, cancel := context.WithCancel(stream.Context())
+    defer cancel()
 
-	messageHandler := globalCommon.NewMessageHandler[Event](ctx)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				s.logger.Info("Message processing stopped")
-				return
+    messageHandler := globalCommon.NewMessageHandler[Event](ctx)
 
-			default:
-				event, err := messageHandler.Recv()
-				if err != nil {
-					if ctx.Err() != nil {
-						// Context is cancelled, exit gracefully
-						s.logger.Info("Context cancelled, stopping event processing")
-						return
-					}
-					s.logger.Errorf("Failed to receive event: %v", err)
-					continue
-				}
+    g, gctx := errgroup.WithContext(ctx)
 
-				// Check context before sending to stream
-				select {
-				case <-ctx.Done():
-					// Context is cancelled, don't try to send
-					s.logger.Info("Context cancelled, not sending event to stream")
-					return
-				default:
-					// Context is still active, proceed with send
-					if err := stream.Send(event); err != nil {
-						s.logger.Errorf("Failed to send event: %v", err)
-						continue
-					}
-				}
-			}
-		}
-	}()
-	return s.SubscribeToAllEvents(
-		ctx,
-		req.Boundary,
-		req.SubscriberName,
-		req.GetAfterPosition(),
-		req.Query,
-		*messageHandler,
-	)
+    // Forwarder worker: reads from handler and writes to gRPC stream
+    g.Go(func() error {
+        for {
+            select {
+            case <-gctx.Done():
+                s.logger.Info("Message processing stopped")
+                return gctx.Err()
+            default:
+                event, err := messageHandler.Recv()
+                if err != nil {
+                    if gctx.Err() != nil {
+                        s.logger.Info("Context cancelled, stopping event processing")
+                        return gctx.Err()
+                    }
+                    s.logger.Errorf("Failed to receive event: %v", err)
+                    // small backoff to avoid tight error loop
+                    time.Sleep(100 * time.Millisecond)
+                    continue
+                }
+
+                // Check context before sending to stream
+                select {
+                case <-gctx.Done():
+                    s.logger.Info("Context cancelled, not sending event to stream")
+                    return gctx.Err()
+                default:
+                    if err := stream.Send(event); err != nil {
+                        s.logger.Errorf("Failed to send event: %v", err)
+                        // backoff to avoid tight loop on send errors
+                        time.Sleep(100 * time.Millisecond)
+                        continue
+                    }
+                }
+            }
+        }
+    })
+
+    // Subscription worker: runs the catch-up subscription and feeds the handler
+    g.Go(func() error {
+        return s.SubscribeToAllEvents(
+            gctx,
+            req.Boundary,
+            req.SubscriberName,
+            req.GetAfterPosition(),
+            req.Query,
+            messageHandler,
+        )
+    })
+
+    return g.Wait()
 }
 
 func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamRequest, stream EventStore_CatchUpSubscribeToStreamServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
+    ctx, cancel := context.WithCancel(stream.Context())
+    defer cancel()
 
-	messageHandler := globalCommon.NewMessageHandler[Event](ctx)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				s.logger.Info("Message processing stopped")
-				return
+    messageHandler := globalCommon.NewMessageHandler[Event](ctx)
 
-			default:
-				event, err := messageHandler.Recv()
-				if err != nil {
-					if ctx.Err() != nil {
-						// Context is cancelled, exit gracefully
-						s.logger.Info("Context cancelled, stopping event processing")
-						return
-					}
-					s.logger.Errorf("Failed to receive event: %v", err)
-					continue
-				}
+    g, gctx := errgroup.WithContext(ctx)
 
-				// Check context before sending to stream
-				select {
-				case <-ctx.Done():
-					// Context is cancelled, don't try to send
-					s.logger.Info("Context cancelled, not sending event to stream")
-					return
-				default:
-					// Context is still active, proceed with send
-					if err := stream.Send(event); err != nil {
-						s.logger.Errorf("Failed to send event: %v", err)
-						continue
-					}
-				}
-			}
-		}
-	}()
-	return s.SubscribeToStream(
-		ctx,
-		req.Boundary,
-		req.SubscriberName,
-		req.Query,
-		req.Stream,
-		&req.AfterVersion,
-		*messageHandler,
-	)
+    // Forwarder worker: reads from handler and writes to gRPC stream
+    g.Go(func() error {
+        for {
+            select {
+            case <-gctx.Done():
+                s.logger.Info("Message processing stopped")
+                return gctx.Err()
+            default:
+                event, err := messageHandler.Recv()
+                if err != nil {
+                    if gctx.Err() != nil {
+                        s.logger.Info("Context cancelled, stopping event processing")
+                        return gctx.Err()
+                    }
+                    s.logger.Errorf("Failed to receive event: %v", err)
+                    time.Sleep(100 * time.Millisecond)
+                    continue
+                }
+
+                select {
+                case <-gctx.Done():
+                    s.logger.Info("Context cancelled, not sending event to stream")
+                    return gctx.Err()
+                default:
+                    if err := stream.Send(event); err != nil {
+                        s.logger.Errorf("Failed to send event: %v", err)
+                        time.Sleep(100 * time.Millisecond)
+                        continue
+                    }
+                }
+            }
+        }
+    })
+
+    // Subscription worker: runs the catch-up subscription and feeds the handler
+    g.Go(func() error {
+        return s.SubscribeToStream(
+            gctx,
+            req.Boundary,
+            req.SubscriberName,
+            req.Query,
+            req.Stream,
+            &req.AfterVersion,
+            *messageHandler,
+        )
+    })
+
+    return g.Wait()
 }
 
 type ComparationResult int

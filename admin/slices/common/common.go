@@ -39,7 +39,7 @@ type SubscribeToEventStoreType = func(
 	subscriberName string,
 	pos *eventstore.Position,
 	query *eventstore.Query,
-	handler globalCommon.MessageHandler[eventstore.Event],
+	handler *globalCommon.MessageHandler[eventstore.Event],
 ) error
 
 type PublishRequest struct {

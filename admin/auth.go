@@ -247,7 +247,7 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 		projectorName,
 		nil,
 		nil,
-		*stream,
+		stream,
 	)
 	if err != nil {
 		return err
