@@ -357,7 +357,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	})
 
 	defer subs.DeleteConsumer(ctx, subscriberName)
-	
+
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
 	}
@@ -535,7 +535,7 @@ func (s *EventStore) SubscribeToStream(
 		// client is subscribing from the beginning of the stream
 		s.logger.Infof("Version is -1")
 
-		//there's a chance for an optimisation here, we fetch the oldest event matching the query criteria
+		// there's a chance for an optimisation here, we fetch the oldest event matching the query criteria
 		// and set the timeToSubscribeFromJetstream to that event's time
 		oldestMatchingEvent, err := s.GetEvents(
 			ctx,
@@ -577,9 +577,11 @@ func (s *EventStore) SubscribeToStream(
 			}
 
 			if len(firstEventInStream.Events) > 0 {
+				s.logger.Infof("First event in stream: %v", firstEventInStream.Events[0])
 				timeToSubscribeFromJetstream = firstEventInStream.Events[0].DateCreated.AsTime()
 			} else {
 				//stream does not exist we can simply start from the latest event in the eventstore
+				s.logger.Infof("Latest event in the eventstore: %v", latestEventInTheEventstore.Events[0])
 				if latestEventInTheEventstore.Events[0].DateCreated.AsTime() != time.Unix(0, 0) {
 					timeToSubscribeFromJetstream = latestEventInTheEventstore.Events[0].DateCreated.AsTime()
 				}
@@ -736,7 +738,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 	defer cancel()
 
 	g, gctx := errgroup.WithContext(ctx)
-		
+
 	messageHandler := globalCommon.NewMessageHandler[Event](gctx)
 
 	// Forwarder worker: reads from handler and writes to gRPC stream
