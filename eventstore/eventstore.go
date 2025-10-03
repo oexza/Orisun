@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/goccy/go-json"
+	"github.com/google/uuid"
 
 	"runtime/debug"
 	"time"
@@ -230,7 +231,8 @@ func (s *EventStore) SubscribeToAllEvents(
 	query *Query,
 	handler *globalCommon.MessageHandler[Event],
 ) error {
-	err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName)
+	subscriptionName := boundary+"__"+subscriberName
+	err := s.lockProvider.Lock(ctx, subscriptionName)
 
 	if err != nil {
 		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
@@ -348,21 +350,21 @@ func (s *EventStore) SubscribeToAllEvents(
 		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
 	}
 
+	natsSubscriptionName := subscriptionName + uuid.New().String()
+
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Name:          subscriberName,
+		Name:          natsSubscriptionName,
 		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
 		ReplayPolicy:  jetstream.ReplayInstantPolicy,
 		OptStartTime:  &timeToSubscribeFromJetstream,
 	})
 
-	defer subs.DeleteConsumer(ctx, subscriberName)
-
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
 	}
 	// Ensure the consumer is cleaned up using the same name
-	defer subs.DeleteConsumer(ctx, subscriberName)
+	defer subs.DeleteConsumer(ctx, natsSubscriptionName)
 
 	// Start consuming messages with a done channel for cleanup
 	msgDone := make(chan struct{})
@@ -459,7 +461,8 @@ func (s *EventStore) SubscribeToStream(
 	afterStreamVersion *int64,
 	handler *globalCommon.MessageHandler[Event],
 ) error {
-	err := s.lockProvider.Lock(ctx, boundary+"__"+subscriberName+"__"+stream)
+	subscriptionName := boundary+"__"+subscriberName+"__"+stream
+	err := s.lockProvider.Lock(ctx, subscriptionName)
 
 	if err != nil {
 		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
@@ -628,8 +631,10 @@ func (s *EventStore) SubscribeToStream(
 		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
 	}
 
+	natsSubscriptionName := subscriberName + uuid.New().String()
+
 	consumer, err := subs.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Name:          subscriberName,
+		Name:          natsSubscriptionName,
 		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
 		ReplayPolicy:  jetstream.ReplayInstantPolicy,
@@ -640,7 +645,7 @@ func (s *EventStore) SubscribeToStream(
 		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
 	}
 	// Ensure the consumer is cleaned up using the same name
-	defer subs.DeleteConsumer(ctx, subscriberName)
+	defer subs.DeleteConsumer(ctx, natsSubscriptionName)
 
 	// Start consuming messages with a done channel for cleanup
 	msgDone := make(chan struct{})

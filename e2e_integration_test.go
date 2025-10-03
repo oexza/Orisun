@@ -492,7 +492,7 @@ func TestE2E_CatchUpSubscribeToStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(createAuthenticatedContext("admin", "changeit"), 30*time.Second)
 	defer cancel()
 	
-	streamName := "stream-subscription-test__" + uuid.New().String()
+	streamName := "stream-subscription-test--" + uuid.New().String()
 
 	// Save some initial events to a specific stream
 	saveReq := &pb.SaveEventsRequest{
