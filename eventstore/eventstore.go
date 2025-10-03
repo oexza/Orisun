@@ -778,13 +778,13 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 		}
 	})
 
-	// Subscription worker: runs the catch-up subscription and feeds the handler
+	// Subscription worker: implements catch-up phase followed by live subscription
 	g.Go(func() error {
 		return s.SubscribeToAllEvents(
 			gctx,
 			req.Boundary,
 			req.SubscriberName,
-			req.GetAfterPosition(),
+			req.AfterPosition,
 			req.Query,
 			messageHandler,
 		)
