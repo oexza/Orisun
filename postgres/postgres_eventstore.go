@@ -109,11 +109,11 @@ func (s *PostgresSaveEvents) Save(
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
 	tx, err := s.db.BeginTx(ctx, nil)
+	defer tx.Rollback()
 	if err != nil {
 		s.logger.Errorf("Error beginning transaction: %v", err)
 		return "", 0, -1, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback()
 
 	// _, errr := tx.Exec("SET log_statement = 'all';")
 	// if errr != nil {

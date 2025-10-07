@@ -298,8 +298,6 @@ func (s *EventStore) SubscribeToAllEvents(
 			}
 
 			if lastProcessedPosition == nil || isEventPositionNewerThanPosition(event.Position, lastProcessedPosition) {
-										s.logger.Infof("Processing event: %+v", &event)
-
 				if err := handler.Send(event); err != nil {
 					return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
 				}
