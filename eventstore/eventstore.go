@@ -55,7 +55,7 @@ const (
 )
 
 func GetEventsNatsJetstreamStreamStreamName(boundary string) string {
-	return eventsStreamPrefix + "__" + boundary
+	return eventsStreamPrefix + "___" + boundary
 }
 
 func GetEventsSubjectName(boundary string) string {
@@ -92,6 +92,8 @@ func NewEventStoreServer(
 				GetEventsSubjectName(boundary),
 			},
 			MaxMsgs: -1,
+			Storage: jetstream.MemoryStorage,
+			MaxAge:  time.Minute * 5,
 		})
 
 		if err != nil {
