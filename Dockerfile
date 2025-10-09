@@ -52,16 +52,27 @@ RUN apk add --no-cache ca-certificates tzdata su-exec
 RUN mkdir -p /app && adduser -D -h /app -s /sbin/nologin orisun
 WORKDIR /app
 
+# Platform arguments for the final stage
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGET_OS=linux
+ARG TARGET_ARCH=amd64
+
 # Copy the binary from the builder stage with dynamic architecture detection
-# First try the specific architecture, then fallback to any available binary
 COPY --from=builder /app/build/ /tmp/build/
-RUN ls -la /tmp/build/ && \
-    if [ -f "/tmp/build/orisun-linux-amd64" ]; then \
-        cp /tmp/build/orisun-linux-amd64 /app/orisun; \
-    elif [ -f "/tmp/build/orisun-linux-arm64" ]; then \
-        cp /tmp/build/orisun-linux-arm64 /app/orisun; \
+RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
+    FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
+    BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" && \
+    echo "Looking for binary: $BINARY_NAME" && \
+    ls -la /tmp/build/ && \
+    if [ -f "/tmp/build/$BINARY_NAME" ]; then \
+        cp "/tmp/build/$BINARY_NAME" /app/orisun; \
+        echo "Successfully copied $BINARY_NAME to /app/orisun"; \
     else \
-        echo "No suitable binary found!" && ls -la /tmp/build/ && exit 1; \
+        echo "Binary $BINARY_NAME not found!" && \
+        echo "Available binaries:" && \
+        ls -la /tmp/build/ && \
+        exit 1; \
     fi && \
     chmod +x /app/orisun && \
     ls -la /app/orisun && \
