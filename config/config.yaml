@@ -27,6 +27,10 @@ boundaries: ${ORISUN_BOUNDARIES:`[{"name":"orisun_test_1","description":"boundar
 grpc:
   port: ${ORISUN_GRPC_PORT:5005}
   enableReflection: ${ORISUN_GRPC_ENABLE_REFLECTION:true}
+  connectionTimeout: ${ORISUN_GRPC_CONNECTION_TIMEOUT:60s}
+  keepAliveTime: ${ORISUN_GRPC_KEEP_ALIVE_TIME:30s}
+  keepAliveTimeout: ${ORISUN_GRPC_KEEP_ALIVE_TIMEOUT:5s}
+  maxConcurrentStreams: ${ORISUN_GRPC_MAX_CONCURRENT_STREAMS:1000}
 nats:
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}

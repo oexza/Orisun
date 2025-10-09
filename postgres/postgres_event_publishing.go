@@ -50,6 +50,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	if err != nil {
 		return eventstore.Position{}, err
 	}
+	defer conn.Close() // Ensure connection is always closed
 
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	defer tx.Rollback()
@@ -94,6 +95,7 @@ func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	defer conn.Close() // Ensure connection is always closed
 
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
 	defer tx.Rollback()

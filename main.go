@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
@@ -539,7 +540,7 @@ func initializeDatabase(
 	)
 
 	// Create write database pool (optimized for write operations)
-	writeDB, err := sql.Open("postgres", connStr)
+	writeDB, err := sql.Open("pgx", connStr)
 	if err != nil {
 		logger.Fatalf("Failed to connect to write database: %v", err)
 	}
@@ -551,7 +552,7 @@ func initializeDatabase(
 	writeDB.SetConnMaxLifetime(config.Postgres.WriteConnMaxLifetime)
 
 	// Create read database pool (optimized for read operations)
-	readDB, err := sql.Open("postgres", connStr)
+	readDB, err := sql.Open("pgx", connStr)
 	if err != nil {
 		logger.Fatalf("Failed to connect to read database: %v", err)
 	}
@@ -563,7 +564,7 @@ func initializeDatabase(
 	readDB.SetConnMaxLifetime(config.Postgres.ReadConnMaxLifetime)
 
 	// Create admin database pool (optimized for admin operations)
-	adminDBPool, err := sql.Open("postgres", connStr)
+	adminDBPool, err := sql.Open("pgx", connStr)
 	if err != nil {
 		logger.Fatalf("Failed to connect to admin database: %v", err)
 	}
@@ -1218,6 +1219,12 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
 		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
 		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
+		grpc.ConnectionTimeout(config.Grpc.ConnectionTimeout),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    config.Grpc.KeepAliveTime,
+			Timeout: config.Grpc.KeepAliveTimeout,
+		}),
+		grpc.MaxConcurrentStreams(config.Grpc.MaxConcurrentStreams),
 	)
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
 	if config.Grpc.EnableReflection {

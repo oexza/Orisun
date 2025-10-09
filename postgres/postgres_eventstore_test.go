@@ -120,6 +120,8 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 	return db, nil
 }
 
+
+
 func TestSaveAndGetEvents(t *testing.T) {
 	container, err := setupTestContainer(t)
 	require.NoError(t, err)
@@ -201,6 +203,96 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Contains(t, resp.Events[0].Metadata, "meta")
 	assert.Contains(t, resp.Events[0].Metadata, "data")
 	assert.Contains(t, resp.Events[0].Metadata, "tags")
+}
+
+func TestSave200EventsOneByOne(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
+
+	streamName := "test-stream-100-events"
+	expectedVersion := int64(-1) // Start with empty stream
+
+	// Save 100 events one by one
+	for i := range 200 {
+		eventId, err := uuid.NewV7()
+		require.NoError(t, err)
+
+		events := []eventstore.EventWithMapTags{
+			{
+				EventId:   eventId.String(),
+				EventType: "SequentialEvent",
+				Data:      fmt.Sprintf("{\"sequence\": %d, \"message\": \"Event number %d\"}", i, i),
+				Metadata:  fmt.Sprintf("{\"event_number\": %d, \"timestamp\": \"%s\"}", i, time.Now().Format(time.RFC3339)),
+			},
+		}
+
+		// Save the event
+		tranID, globalID, streamVersion, err := saveEvents.Save(
+			t.Context(),
+			events,
+			"test_boundary",
+			streamName,
+			expectedVersion,
+			nil,
+		)
+
+		require.NoError(t, err, "Failed to save event %d", i)
+		assert.NotEmpty(t, tranID, "Transaction ID should not be empty for event %d", i)
+		assert.Greater(t, globalID, int64(0), "Global ID should be greater than 0 for event %d", i)
+		assert.Equal(t, int64(i), streamVersion, "Stream version should match sequence for event %d", i)
+
+		// Update expected version for next event
+		expectedVersion = streamVersion
+	}
+
+	// Verify all 100 events were saved correctly
+	resp, err := getEvents.Get(
+		t.Context(),
+		&eventstore.GetEventsRequest{
+			Boundary:  "test_boundary",
+			Direction: eventstore.Direction_ASC,
+			Count:     100,
+			Stream: &eventstore.GetStreamQuery{
+				Name:        streamName,
+				FromVersion: -1,
+			},
+		},
+	)
+
+	require.NoError(t, err)
+	assert.Len(t, resp.Events, 100, "Should have exactly 100 events")
+
+	// // Verify the sequence and content of events
+	// for i, event := range resp.Events {
+	// 	assert.Equal(t, "SequentialEvent", event.EventType, "Event %d should have correct type", i)
+	// 	assert.Contains(t, event.Data, fmt.Sprintf("\"sequence\": %d", i), "Event %d should have correct sequence in data", i)
+	// 	assert.Contains(t, event.Data, fmt.Sprintf("\"message\": \"Event number %d\"", i), "Event %d should have correct message", i)
+	// 	// assert.Equal(t, uint64(i), event.Version, "Event %d should have correct stream version", i)
+	// }
+
+	t.Logf("Successfully saved and verified 100 events in stream '%s'", streamName)
 }
 
 func TestOptimisticConcurrency(t *testing.T) {

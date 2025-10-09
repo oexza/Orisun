@@ -27,7 +27,7 @@ type EventstoreSaveEvents interface {
 		events []EventWithMapTags,
 		boundary string,
 		streamName string,
-		streamVersion int64,
+		expectedStreamVersion int64,
 		streamSubSet *Query,
 	) (transactionID string, globalID int64, newStreamPosition int64, err error)
 }
@@ -148,7 +148,11 @@ func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	s.logger.Debugf("SaveEvents called with req: %v", req)
 
-	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
+	// Add timeout context to prevent long-running operations
+	saveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	err = authorizeRequest(saveCtx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +193,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	var globalID int64
 	var newStreamVersion int64
 
-	// Execute the query
+	// Execute the query with timeout context
 	transactionID, globalID, newStreamVersion, err = s.saveEventsFn.Save(
-		ctx,
+		saveCtx,
 		eventsForMarshaling,
 		req.Boundary,
 		req.Stream.Name,
@@ -400,14 +404,13 @@ func (s *EventStore) SubscribeToAllEvents(
 					}
 					s.logger.Errorf("Error getting next message: %v", err)
 					// Small backoff to avoid tight loop on repeated errors
-					time.Sleep(100 * time.Millisecond)
-					continue
+					return fmt.Errorf("failed to get next message: %w", err)
 				}
 
 				var event Event
 				if err := json.Unmarshal(msg.Data(), &event); err != nil {
 					s.logger.Errorf("Failed to unmarshal event: %v", err)
-					continue
+					return fmt.Errorf("failed to unmarshal event: %w", err)
 				}
 
 				// Only process events newer than our last processed position

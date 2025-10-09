@@ -21,6 +21,10 @@ type AppConfig struct {
 	Grpc       struct {
 		Port             string
 		EnableReflection bool
+		ConnectionTimeout time.Duration
+		KeepAliveTime     time.Duration
+		KeepAliveTimeout  time.Duration
+		MaxConcurrentStreams uint32
 	}
 	PollingPublisher struct {
 		BatchSize uint32

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/lib/pq"
 
 	eventstore "orisun/eventstore"
 
@@ -19,7 +20,7 @@ import (
 	globalCommon "orisun/common"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -108,46 +109,51 @@ func (s *PostgresSaveEvents) Save(
 	}
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	defer func() {
-		if tx != nil {
-			if err := tx.Rollback(); err != nil {
-				s.logger.Errorf("Error rolling back transaction: %v", err)
-			}
-		}
-	}()
-	if err != nil {
-		s.logger.Errorf("Error beginning transaction: %v", err)
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
-	}
-
-	// _, errr := tx.Exec("SET log_statement = 'all';")
-	// if errr != nil {
-	// 	s.logger.Errorf("Error setting log_statement: %v", err)
-	// 	return "", 0, -1, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
-	// }
-
-	row := tx.QueryRowContext(
-		ctx,
-		insertEventsWithConsistency,
-		schema,
-		streamSubsetAsBytes,
-		eventsJSON,
-	)
-
-	if row.Err() != nil {
-		s.logger.Errorf("Error inserting events: %v", row.Err())
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
-	}
-
-	// Scan the result
-	err = error(nil)
-
+	// Use a shorter-lived transaction with immediate execution and commit
 	var tranID string
 	var globID int64
 	var newStreamVersion int64
-	err = row.Scan(&newStreamVersion, &tranID, &globID)
-	err = tx.Commit()
+	
+	// Execute the operation in a single atomic transaction
+	err = func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			s.logger.Errorf("Error beginning transaction: %v", err)
+			return status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+		}
+		defer func() {
+			if err != nil {
+				tx.Rollback()
+			}
+		}()
+
+		row := tx.QueryRowContext(
+			ctx,
+			insertEventsWithConsistency,
+			schema,
+			streamSubsetAsBytes,
+			eventsJSON,
+		)
+
+		if row.Err() != nil {
+			s.logger.Errorf("Error inserting events: %v", row.Err())
+			return status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
+		}
+
+		// Scan the result
+		if err := row.Scan(&newStreamVersion, &tranID, &globID); err != nil {
+			s.logger.Errorf("Error scanning result: %v", err)
+			return status.Errorf(codes.Internal, "failed to scan result: %v", err)
+		}
+
+		// Commit immediately to release the connection
+		if err := tx.Commit(); err != nil {
+			s.logger.Errorf("Error committing transaction: %v", err)
+			return status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+		}
+
+		return nil
+	}()
 
 	if err != nil {
 		return "", 0, -1, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
@@ -631,7 +637,7 @@ func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 	_, err := s.db.Exec(
 		fmt.Sprintf("INSERT INTO %s.users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.adminSchema),
 		userCountId,
-		users_count,
+		strconv.FormatUint(uint64(users_count), 10),
 		time.Now().UTC(),
 		time.Now().UTC(),
 	)
