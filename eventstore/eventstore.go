@@ -148,11 +148,7 @@ func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	s.logger.Debugf("SaveEvents called with req: %v", req)
 
-	// Add timeout context to prevent long-running operations
-	saveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	err = authorizeRequest(saveCtx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
+	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
 	if err != nil {
 		return nil, err
 	}
@@ -193,9 +189,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	var globalID int64
 	var newStreamVersion int64
 
-	// Execute the query with timeout context
+	// Execute the query
 	transactionID, globalID, newStreamVersion, err = s.saveEventsFn.Save(
-		saveCtx,
+		ctx,
 		eventsForMarshaling,
 		req.Boundary,
 		req.Stream.Name,
@@ -319,8 +315,11 @@ func (s *EventStore) SubscribeToAllEvents(
 		}
 	}
 
-	// Capture the time immediately after polling is completed
-	pollingCompletedTime := time.Now()
+	/***
+	Capture the time immediately after polling is completed, and set to 10 seconds before
+	to make sure no event is ever missed.
+	***/
+	pollingCompletedTime := time.Now().Add(-10 * time.Second)
 
 	// Phase 2: Subscribe to NATS for live updates
 	s.logger.Info("Starting live phase: subscribing to NATS for real-time updates")
