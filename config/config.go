@@ -29,6 +29,11 @@ type AppConfig struct {
 	PollingPublisher struct {
 		BatchSize uint32
 	}
+	EventStreaming struct {
+		Method   string // "wal" or "polling" or "both"
+		WAL      WALConfig
+		Polling  PollingConfig
+	}
 	Logging struct {
 		Enabled bool
 		Level   string // e.g., "debug", "info", "warn", "error"
@@ -85,6 +90,18 @@ type BoundaryToPostgresSchemaMapping struct {
 type Boundary struct {
 	Name        string
 	Description string
+}
+
+type WALConfig struct {
+	SlotName        string
+	PublicationName string
+	Enabled         bool
+}
+
+type PollingConfig struct {
+	Enabled      bool
+	BatchSize    uint32
+	PollInterval time.Duration
 }
 
 func (p *DBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchemaMapping {

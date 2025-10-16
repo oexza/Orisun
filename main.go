@@ -171,7 +171,7 @@ func main() {
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config, js, AppLogger)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, _ := initializeDatabase(ctx, config, js, AppLogger)
 
 	// Initialize EventStore
 	eventStore := initializeEventStore(
@@ -184,8 +184,8 @@ func main() {
 		AppLogger,
 	)
 
-	// Start polling events from the event store and publish them to NATS jetstream
-	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
+	// Start configurable event streaming (WAL, polling, or both)
+	startConfigurableEventStreaming(ctx, config, nc, js, lockProvider, getEvents, eventPublishing, AppLogger)
 
 	// Start projectors
 	pubsubStreamName := "ORISUN-ADMIN"
@@ -527,7 +527,7 @@ func initializeDatabase(
 	config c.AppConfig,
 	js jetstream.JetStream,
 	logger l.Logger,
-) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
+) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing, *sql.DB) {
 	// Create database connection string
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -640,7 +640,7 @@ func initializeDatabase(
 		postgesBoundarySchemaMappings,
 	)
 
-	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing
+	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing, readDB
 }
 
 func initializeNATS(ctx context.Context, config c.AppConfig, logger l.Logger) (jetstream.JetStream, *nats.Conn, *server.Server) {
@@ -835,6 +835,37 @@ func startEventPolling(
 		})
 	}
 	// Not waiting here; goroutines will be governed by ctx lifecycle.
+}
+
+func startConfigurableEventStreaming(
+	ctx context.Context,
+	config c.AppConfig,
+	natsConn *nats.Conn,
+	js jetstream.JetStream,
+	lockProvider pb.LockProvider,
+	getEvents pb.EventstoreGetEvents,
+	eventPublishing common.EventPublishing,
+	logger l.Logger) {
+	
+	// Create event streaming manager
+	streamingManager := postgres.NewEventStreamingManager(ctx, config, logger)
+	
+	// Start the appropriate streaming method(s)
+	if err := streamingManager.StartEventStreaming(natsConn, js, lockProvider, getEvents, eventPublishing); err != nil {
+		logger.Fatalf("Failed to start event streaming: %v", err)
+	}
+	
+	// If polling is enabled, also start the polling loop
+	if streamingManager.IsPollingEnabled() {
+		go startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, logger)
+	}
+	
+	// Graceful shutdown
+	go func() {
+		<-ctx.Done()
+		logger.Info("Shutting down event streaming")
+		streamingManager.Stop()
+	}()
 }
 
 func startUserProjector(

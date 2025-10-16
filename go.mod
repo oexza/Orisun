@@ -7,6 +7,7 @@ toolchain go1.24.6
 require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/google/uuid v1.6.0
+	github.com/jackc/pglogrepl v0.0.0-20250509230407-a9884f6bd75a
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/lib/pq v1.10.9
 	github.com/nats-io/nats-server/v2 v2.11.9
@@ -88,6 +89,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/go-tpm v0.9.5 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
+	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

@@ -6,14 +6,13 @@ import (
 	"fmt"
 	logging "orisun/logging"
 	"time"
-
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
 	lockBucketName = "ORISUN_LOCKS"
-	lockRetryDelay = 100 * time.Millisecond
-	maxRetries     = 3
+	lockRetryDelay = 0 * time.Millisecond
+	maxRetries     = 1
 )
 
 // JetStreamLockProvider implements the LockProvider interface using NATS JetStream

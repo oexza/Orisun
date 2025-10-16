@@ -47,6 +47,19 @@ nats:
     routes: ${ORISUN_NATS_CLUSTER_ROUTES:`nats://0.0.0.0:6223,nats://0.0.0.0:6224`}
 pollingPublisher:
   batchSize: ${ORISUN_POLLING_PUBLISHER_BATCH_SIZE:1000}
+
+# Event streaming configuration - choose between WAL, polling, or both
+eventStreaming:
+  method: ${ORISUN_EVENT_STREAMING_METHOD:wal} # "wal", "polling", or "both"
+  wal:
+    enabled: ${ORISUN_WAL_ENABLED:true}
+    slotName: ${ORISUN_WAL_SLOT_NAME:orisun_events_slot}
+    publicationName: ${ORISUN_WAL_PUBLICATION_NAME:orisun_events_pub}
+  polling:
+    enabled: ${ORISUN_POLLING_ENABLED:false}
+    batchSize: ${ORISUN_POLLING_BATCH_SIZE:1000}
+    pollInterval: ${ORISUN_POLLING_INTERVAL:5s}
+
 logging:
   level: ${ORISUN_LOGGING_LEVEL:INFO}
 
