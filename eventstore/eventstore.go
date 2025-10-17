@@ -259,10 +259,10 @@ func (s *EventStore) SubscribeToAllEvents(
 		// Get events from the event store starting from our last processed position
 		var getEventsReq *GetEventsRequest
 		if lastProcessedPosition == nil {
-			// Start from the beginning if no position specified
+			// Start from the end if no position specified
 			getEventsReq = &GetEventsRequest{
 				Count:     batchSize,
-				Direction: Direction_ASC,
+				Direction: Direction_DESC,
 				Boundary:  boundary,
 				Query:     query,
 			}
