@@ -7,31 +7,39 @@ type User struct {
 	Roles    []string
 }
 
-templ Users(users []User, currentPath string, currentUser string) {
+const UserPageId = "users-page"
+
+templ UsersPage(users []User, currentPath string, currentUser string) {
 	@Admin(currentPath, "Users") {
-		<div id="users-page" class="p-6" data-on-load="@get('/users')">
-			<div class="mb-6 flex justify-between items-center">
-				<h1 class="text-2xl font-bold text-gray-900">User Management</h1>
-				<sl-button pill variant="primary" size="medium" data-on-click="@get('/users/add')">
-					<sl-icon slot="prefix" name="person-plus"></sl-icon>
-					Add User
-				</sl-button>
-			</div>
-			<sl-alert id="message" variant="primary" closable>
-				<sl-icon slot="icon" name="info-circle"></sl-icon>
-				<span class="message-content"></span>
-			</sl-alert>
-			<sl-card class="mb-6">
-				<div class="overflow-x-auto">
-					@UserList(users, currentUser)
-				</div>
-			</sl-card>
-			<sl-dialog id="add-user-dialog"></sl-dialog>
-		</div>
+		<div data-on-load="@get('/users')"></div>
+		@PageContainer(users, currentPath, currentUser)
 	}
 }
 
+templ PageContainer(users []User, currentPath string, currentUser string) {
+	<div id={ UserPageId } class="p-6">
+		<div class="mb-6 flex justify-between items-center">
+			<h1 class="text-2xl font-bold text-gray-900">User Management</h1>
+			<sl-button pill variant="primary" size="medium" data-on-click="@get('/users/add')">
+				<sl-icon slot="prefix" name="person-plus"></sl-icon>
+				Add User
+			</sl-button>
+		</div>
+		<sl-alert id="message" variant="primary" closable>
+			<sl-icon slot="icon" name="info-circle"></sl-icon>
+			<span class="message-content"></span>
+		</sl-alert>
+		<sl-card class="mb-6">
+			<div class="overflow-x-auto">
+				@UserList(users, currentUser)
+			</div>
+		</sl-card>
+		<sl-dialog id="add-user-dialog"></sl-dialog>
+	</div>
+}
+
 const UsersTableId = "users-table-container"
+
 templ UserList(users []User, currentUser string) {
 	<div id={ UsersTableId } class="overflow-hidden shadow-lg rounded-lg border border-gray-200">
 		<table id="users-table" class="min-w-full divide-y divide-gray-200">

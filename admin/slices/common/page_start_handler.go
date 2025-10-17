@@ -1,20 +1,28 @@
-package users_page
+package admin_common
 
 import (
+	"context"
+	"fmt"
 	"net/http"
-	admin_events "orisun/admin/events"
-	"orisun/admin/slices/common"
-	"orisun/admin/templates"
-	globalCommon "orisun/common"
+	ev "orisun/admin/events"
+	t "orisun/admin/templates"
 	"orisun/eventstore"
 	l "orisun/logging"
-	"time"
+	"strings"
 
-	"github.com/starfederation/datastar-go/datastar"
-	"golang.org/x/sync/errgroup"
+	"github.com/goccy/go-json"
+
+	pb "orisun/eventstore"
+
+	admin_common "orisun/admin/slices/common"
+
+	globalCommon "orisun/common"
+
+	"github.com/google/uuid"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
-type UsersPageHandler struct {
+type PageStartHandler struct {
 	logger                l.Logger
 	boundary              string
 	ListAdminUsers        func() ([]*globalCommon.User, error)
@@ -23,8 +31,8 @@ type UsersPageHandler struct {
 
 func NewUsersPageHandler(logger l.Logger, boundary string,
 	listAdminUsers func() ([]*globalCommon.User, error),
-	subscribeToEventstore admin_common.SubscribeToEventStoreType) *UsersPageHandler {
-	return &UsersPageHandler{
+	subscribeToEventstore admin_common.SubscribeToEventStoreType) *PageStartHandler {
+	return &PageStartHandler{
 		logger:                logger,
 		boundary:              boundary,
 		ListAdminUsers:        listAdminUsers,
@@ -32,7 +40,7 @@ func NewUsersPageHandler(logger l.Logger, boundary string,
 	}
 }
 
-func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Request) {
+func (s *PageStartHandler) HandleUsersPage(w http.ResponseWriter, r *http.Request) {
 	users, err := s.listUsers()
 	if err != nil {
 		s.logger.Debugf("Failed to list users: %v", err)
@@ -86,29 +94,4 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 
 func isDatastarRequest(r *http.Request) bool {
 	return r.Header.Get("datastar-request") == "true"
-}
-
-func (s *UsersPageHandler) listUsers() ([]templates.User, error) {
-	users, err := s.ListAdminUsers()
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert internal user type to template user type
-	templateUsers := make([]templates.User, len(users))
-	for i, user := range users {
-		// Convert []Role to []string for template compatibility
-		roles := make([]string, len(user.Roles))
-		for j, role := range user.Roles {
-			roles[j] = string(role)
-		}
-
-		templateUsers[i] = templates.User{
-			Name:     user.Name,
-			Id:       user.Id,
-			Username: user.Username,
-			Roles:    roles,
-		}
-	}
-	return templateUsers, nil
 }
