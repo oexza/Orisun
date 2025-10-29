@@ -607,7 +607,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			Count:     10,
 			Stream: &eventstore.GetStreamQuery{
 				Name:        "test-stream",
-				FromVersion: -1,
+				FromVersion: 0,
 			},
 			Query: &eventstore.Query{
 				Criteria: []*eventstore.Criterion{
@@ -622,7 +622,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	)
 
 	assert.NoError(t, err)
-	assert.Len(t, resp.Events, 0, "Expected to find no events since metadata tags are not used in queries")
+	assert.Len(t, resp.Events, 1, "Expected to find one event with tag key=value2")
 	if len(resp.Events) > 0 {
 		assert.Equal(t, eventId.String(), resp.Events[0].EventId)
 	}
