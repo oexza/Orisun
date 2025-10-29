@@ -113,7 +113,7 @@ func (s *PostgresSaveEvents) Save(
 	var tranID string
 	var globID int64
 	var newStreamVersion int64
-	
+
 	// Execute the operation in a single atomic transaction
 	err = func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
@@ -126,6 +126,12 @@ func (s *PostgresSaveEvents) Save(
 				tx.Rollback()
 			}
 		}()
+
+		// intruct postgres to log sql statements
+		// _, errr := tx.Exec("SET log_statement = 'all';")
+		// if errr != nil {
+		// 	return status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
+		// }
 
 		row := tx.QueryRowContext(
 			ctx,

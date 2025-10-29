@@ -157,8 +157,14 @@ BEGIN
                    (e ->> 'event_id')::UUID,
                    nextval('orisun_es_event_global_id_seq'),
                    e ->> 'event_type',
-                   COALESCE(e -> 'data', '{}'),
-                   COALESCE(e -> 'metadata', '{}')
+                   CASE 
+                       WHEN jsonb_typeof(e -> 'data') = 'string' THEN (e ->> 'data')::jsonb
+                       ELSE COALESCE(e -> 'data', '{}')
+                   END,
+                   CASE 
+                       WHEN jsonb_typeof(e -> 'metadata') = 'string' THEN (e ->> 'metadata')::jsonb
+                       ELSE COALESCE(e -> 'metadata', '{}')
+                   END
             FROM jsonb_array_elements(events) AS e
             RETURNING jsonb_array_length(events), global_id)
     SELECT current_stream_version + jsonb_array_length(events), current_tx_id, MAX(global_id)

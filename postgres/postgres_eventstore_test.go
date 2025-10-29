@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -337,7 +339,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		events,
 		"test_boundary",
 		"test-stream",
-		-1, // Expected version 0
+		-1,
 		nil,
 	)
 	require.NoError(t, err)
@@ -362,6 +364,173 @@ func TestOptimisticConcurrency(t *testing.T) {
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "OptimisticConcurrencyException")
+}
+
+func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	// Create separate database connections for each operation to ensure true concurrency
+	db2, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db2.Close()
+
+	saveEvents1 := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+	saveEvents2 := NewPostgresSaveEvents(t.Context(), db2, logger, mapping)
+
+	// Create a unique stream name for this test
+	streamName := "concurrent-test-stream-" + uuid.New().String()
+	
+	// Create a shared stream consistency condition (Query) for both operations
+	sharedStreamCondition := &eventstore.Query{
+		Criteria: []*eventstore.Criterion{
+			{
+				Tags: []*eventstore.Tag{
+					{
+						Key:   "test_type",
+						Value: "concurrent_save",
+					},
+				},
+			},
+		},
+	}
+	
+
+	// Pre-generate event IDs to avoid any timing issues
+	eventId1, err := uuid.NewV7()
+	require.NoError(t, err)
+	eventId2, err := uuid.NewV7()
+	require.NoError(t, err)
+
+	events1 := []eventstore.EventWithMapTags{
+		{
+			EventId:   eventId1.String(),
+			EventType: "ConcurrentTestEvent1",
+			Data:      "{\"operation\": \"first\", \"test_type\": \"concurrent_save\"}",
+			Metadata:  "{\"test\": \"concurrent_save_1\"}",
+		},
+	}
+
+	events2 := []eventstore.EventWithMapTags{
+		{
+			EventId:   eventId2.String(),
+			EventType: "ConcurrentTestEvent2",
+			Data:      "{\"operation\": \"second\", \"test_type\": \"concurrent_save\"}",
+			Metadata:  "{\"test\": \"concurrent_save_2\"}",
+		},
+	}
+
+	// Use WaitGroup and a barrier to ensure both operations start simultaneously
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var results []error
+	var concurrencyError error
+	
+	// Create a barrier to synchronize the start of both operations
+	startBarrier := make(chan struct{})
+
+	wg.Add(2)
+
+	// Start first operation
+	go func() {
+		defer wg.Done()
+		// Wait for the start signal
+		<-startBarrier
+		_, _, _, err := saveEvents1.Save(
+			context.Background(),
+			events1,
+			"test_boundary",
+			streamName,
+			-1,
+			sharedStreamCondition,
+		)
+		t.Logf("Operation 1 result: %v", err)
+		mu.Lock()
+		results = append(results, err)
+		if err != nil && strings.Contains(err.Error(), "OptimisticConcurrencyException") {
+			concurrencyError = err
+		}
+		mu.Unlock()
+	}()
+
+	// Start second operation
+	go func() {
+		defer wg.Done()
+		// Wait for the start signal
+		<-startBarrier
+		_, _, _, err := saveEvents2.Save(
+			context.Background(),
+			events2,
+			"test_boundary",
+			streamName,
+			-1,
+			sharedStreamCondition,
+		)
+		t.Logf("Operation 2 result: %v", err)
+		mu.Lock()
+		results = append(results, err)
+		if err != nil && strings.Contains(err.Error(), "OptimisticConcurrencyException") {
+			concurrencyError = err
+		}
+		mu.Unlock()
+	}()
+
+	// Give both goroutines a moment to reach the barrier
+	time.Sleep(10 * time.Millisecond)
+	
+	// Signal both operations to start simultaneously
+	close(startBarrier)
+
+	// Wait for both operations to complete
+	wg.Wait()
+
+	// Debug logging
+	t.Logf("Operation 1 result: %v", results[0])
+	t.Logf("Operation 2 result: %v", results[1])
+
+	// One operation should succeed, one should fail with OptimisticConcurrencyException
+	var successCount, failureCount int
+
+	for i, err := range results {
+		if err == nil {
+			successCount++
+			t.Logf("Operation %d: SUCCESS", i+1)
+		} else {
+			failureCount++
+			t.Logf("Operation %d: FAILED with error: %v", i+1, err)
+		}
+	}
+
+	t.Logf("Final counts - Success: %d, Failure: %d", successCount, failureCount)
+
+	// Assertions
+	assert.Equal(t, 1, successCount, "Exactly one save operation should succeed")
+	assert.Equal(t, 1, failureCount, "Exactly one save operation should fail")
+	assert.NotNil(t, concurrencyError, "There should be a concurrency error")
+	if concurrencyError != nil {
+		assert.Contains(t, concurrencyError.Error(), "OptimisticConcurrencyException", "The error should be an OptimisticConcurrencyException")
+	}
+	// Give both goroutines a moment to reach the barrier
+	time.Sleep(60 * time.Minute)
 }
 
 func TestGetEventsWithCriteria(t *testing.T) {
@@ -911,6 +1080,160 @@ func TestComplexTagQueries(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Len(t, resp3.Events, 0, "The query should return 0 events as the tags are in metadata, not in data")
+}
+
+func TestAdvisoryLockMechanism(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer container.container.Terminate(context.Background())
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+
+	// Test the advisory lock mechanism using the existing save events functionality
+	// Use different stream names so both operations can reach the advisory lock mechanism
+	streamName1 := "advisory-lock-test-1-" + uuid.New().String()
+	streamName2 := "advisory-lock-test-2-" + uuid.New().String()
+	
+	// Create the same criteria for both operations
+	sharedStreamCondition := &eventstore.Query{
+		Criteria: []*eventstore.Criterion{
+			{
+				Tags: []*eventstore.Tag{
+					{
+						Key:   "test_type",
+						Value: "advisory_lock_test",
+					},
+				},
+			},
+		},
+	}
+
+	events1 := []eventstore.EventWithMapTags{
+		{
+			EventId:   uuid.New().String(),
+			EventType: "AdvisoryLockTestEvent1",
+			Data:      "{\"operation\": \"first\"}",
+			Metadata:  "{\"test\": \"advisory_lock_test_1\"}",
+		},
+	}
+
+	events2 := []eventstore.EventWithMapTags{
+		{
+			EventId:   uuid.New().String(),
+			EventType: "AdvisoryLockTestEvent2",
+			Data:      "{\"operation\": \"second\"}",
+			Metadata:  "{\"test\": \"advisory_lock_test_2\"}",
+		},
+	}
+
+	var wg sync.WaitGroup
+	var results []error
+	var mu sync.Mutex
+	startBarrier := make(chan struct{})
+
+	wg.Add(2)
+
+	// First operation
+	go func() {
+		defer wg.Done()
+		<-startBarrier
+		
+		t.Logf("Advisory lock test 1: Starting with stream: %s", streamName1)
+		start := time.Now()
+		
+		_, _, _, err := saveEvents.Save(
+			context.Background(),
+			events1,
+			"test_boundary",
+			streamName1,
+			-1,
+			sharedStreamCondition,
+		)
+		
+		duration := time.Since(start)
+		if err != nil {
+			t.Logf("Advisory lock test 1: FAILED in %v with error: %v", duration, err)
+		} else {
+			t.Logf("Advisory lock test 1: SUCCESS in %v", duration)
+		}
+		
+		mu.Lock()
+		results = append(results, err)
+		mu.Unlock()
+	}()
+
+	// Second operation
+	go func() {
+		defer wg.Done()
+		<-startBarrier
+		
+		t.Logf("Advisory lock test 2: Starting with stream: %s", streamName2)
+		start := time.Now()
+		
+		_, _, _, err := saveEvents.Save(
+			context.Background(),
+			events2,
+			"test_boundary",
+			streamName2,
+			-1,
+			sharedStreamCondition,
+		)
+		
+		duration := time.Since(start)
+		if err != nil {
+			t.Logf("Advisory lock test 2: FAILED in %v with error: %v", duration, err)
+		} else {
+			t.Logf("Advisory lock test 2: SUCCESS in %v", duration)
+		}
+		
+		mu.Lock()
+		results = append(results, err)
+		mu.Unlock()
+	}()
+
+	// Give both goroutines time to reach the barrier
+	time.Sleep(10 * time.Millisecond)
+
+	// Start both operations simultaneously
+	close(startBarrier)
+
+	// Wait for both to complete
+	wg.Wait()
+
+	// Analyze results
+	successCount := 0
+	failureCount := 0
+	for _, err := range results {
+		if err == nil {
+			successCount++
+		} else {
+			failureCount++
+		}
+	}
+
+	t.Logf("Advisory lock test results: %d successes, %d failures", successCount, failureCount)
+	
+	// With proper advisory locking, exactly one should succeed and one should fail
+	assert.Equal(t, 1, successCount, "Exactly one operation should succeed with advisory locking")
+	assert.Equal(t, 1, failureCount, "Exactly one operation should fail with advisory locking")
+	
+	// Keep container alive for log inspection
+	t.Logf("Keeping container alive for 30 seconds for log inspection...")
+	time.Sleep(30 * time.Second)
 }
 
 func TestErrorConditions(t *testing.T) {

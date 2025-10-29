@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -306,6 +307,127 @@ func BenchmarkSaveEvents_SameStreamWithSubsetQuery(b *testing.B) {
 			// Report custom metric for events per second
 			b.ReportMetric(float64(totalEvents)/b.Elapsed().Seconds(), "events/sec")
 		})
+	}
+}
+
+func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	boundary := "benchmark_test"
+	streamName := "shared-criteria-stream"
+	targetEvents := 10000
+	criteriaCount := 5
+	tagsPerCriteria := 3
+
+	// Use a fixed number of workers for consistent results
+	numWorkers := runtime.GOMAXPROCS(0)
+	eventsPerWorker := targetEvents / numWorkers
+
+	b.ResetTimer()
+	totalEvents := int64(0)
+	startTime := time.Now()
+
+	// Create a channel to coordinate workers
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			workerID := uuid.New().String()
+			localEvents := int64(0)
+
+			// Create a WaitGroup for parallel save operations within this worker
+			saveWg := sync.WaitGroup{}
+
+			for j := 0; j < eventsPerWorker; j++ {
+				select {
+				case <-done:
+					saveWg.Wait() // Wait for any pending saves
+					return
+				default:
+					saveWg.Add(1)
+
+					// FLOOD THE DATABASE - No semaphore, unlimited concurrent saves!
+					go func(iteration int) {
+						defer saveWg.Done()
+
+						// Generate generic criteria based on worker ID and iteration
+						criteriaIndex := iteration % criteriaCount
+						criteria := generateGenericCriteria(workerID, criteriaIndex, tagsPerCriteria)
+
+						// Generate generic event data
+						event := &eventstore.EventToSave{
+							EventId:   uuid.New().String(),
+							EventType: fmt.Sprintf("Event_Type_%d", criteriaIndex),
+							Data:      fmt.Sprintf(`{"worker_id": "%s", "iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`, 
+								workerID, iteration, criteriaIndex, time.Now().Format(time.RFC3339), iteration%1000),
+							Metadata:  fmt.Sprintf(`{"source": "benchmark", "worker_id": "%s", "criteria_index": %d}`, workerID, criteriaIndex),
+						}
+
+						_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+							Boundary: boundary,
+							Stream: &eventstore.SaveStreamQuery{
+								Name:            streamName,
+								ExpectedVersion: -1, // Allow concurrent appends
+								SubsetQuery: &eventstore.Query{
+									Criteria: criteria,
+								},
+							},
+							Events: []*eventstore.EventToSave{event},
+						})
+						if err != nil {
+							b.Logf("Save error: %v", err)
+						} else {
+							atomic.AddInt64(&localEvents, 1)
+						}
+					}(j)
+				}
+			}
+
+			// Wait for all saves in this worker to complete
+			saveWg.Wait()
+			atomic.AddInt64(&totalEvents, localEvents)
+		}()
+	}
+
+	// Wait for all workers to complete
+	wg.Wait()
+	close(done)
+	elapsed := time.Since(startTime)
+
+	// Report metrics
+	eventsPerSec := float64(totalEvents) / elapsed.Seconds()
+	b.ReportMetric(eventsPerSec, "events/sec")
+	b.ReportMetric(float64(totalEvents), "total_events")
+	b.ReportMetric(elapsed.Seconds(), "duration_sec")
+	
+	// Log actual vs expected event count
+	b.Logf("🔥 DATABASE FLOOD TEST: Processed %d events (target: %d) in %.2f seconds at %.1f events/sec", 
+		totalEvents, targetEvents, elapsed.Seconds(), eventsPerSec)
+}
+
+// generateGenericCriteria creates generic criteria based on worker ID and index
+func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*eventstore.Criterion {
+	tags := make([]*eventstore.Tag, tagsCount)
+	
+	// Always include worker_id as first tag
+	tags[0] = &eventstore.Tag{Key: "worker_id", Value: workerID}
+	
+	// Generate additional tags based on criteria index
+	for i := 1; i < tagsCount; i++ {
+		key := fmt.Sprintf("tag_%d", i)
+		value := fmt.Sprintf("value_%d_%d", criteriaIndex, i)
+		tags[i] = &eventstore.Tag{Key: key, Value: value}
+	}
+	
+	return []*eventstore.Criterion{
+		{
+			Tags: tags,
+		},
 	}
 }
 

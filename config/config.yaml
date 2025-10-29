@@ -7,12 +7,12 @@ postgres:
   schemas: ${ORISUN_PG_SCHEMAS:`orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`}
   sslmode: ${ORISUN_PG_SSLMODE:disable}
   # Write pool configuration (optimized for write operations)
-  writeMaxOpenConns: ${ORISUN_PG_WRITE_MAX_OPEN_CONNS:15}
+  writeMaxOpenConns: ${ORISUN_PG_WRITE_MAX_OPEN_CONNS:10}
   writeMaxIdleConns: ${ORISUN_PG_WRITE_MAX_IDLE_CONNS:3}
   writeConnMaxIdleTime: ${ORISUN_PG_WRITE_CONN_MAX_IDLE_TIME:30s}
   writeConnMaxLifetime: ${ORISUN_PG_WRITE_CONN_MAX_LIFETIME:5m}
   # Read pool configuration (optimized for read operations)
-  readMaxOpenConns: ${ORISUN_PG_READ_MAX_OPEN_CONNS:20}
+  readMaxOpenConns: ${ORISUN_PG_READ_MAX_OPEN_CONNS:10}
   readMaxIdleConns: ${ORISUN_PG_READ_MAX_IDLE_CONNS:5}
   readConnMaxIdleTime: ${ORISUN_PG_READ_CONN_MAX_IDLE_TIME:1m}
   readConnMaxLifetime: ${ORISUN_PG_READ_CONN_MAX_LIFETIME:10m}
