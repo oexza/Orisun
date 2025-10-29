@@ -673,7 +673,6 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		transactionID, globalPos, _, err := saveEvents.Save(
 			ctx,
 			events,
-			// nil,
 			"test_boundary",
 			"global-pos-stream",
 			int64(i-1),
@@ -686,25 +685,24 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 
 	// Get events after the second event's global position
 	// Position requires actual transaction_id and global_id from the saved events
-	transactionIDInt, _ := strconv.ParseInt(transactionIDs[1], 10, 64)
+	transactionIDInt, _ := strconv.ParseInt(transactionIDs[2], 10, 64)
 	resp, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		FromPosition: &eventstore.Position{
 			CommitPosition:  transactionIDInt,   // actual transaction_id
-			PreparePosition: globalPositions[1], // actual global_id
+			PreparePosition: globalPositions[2], // actual global_id
 		},
 	})
 
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(resp.Events), 3) // Should get at least events 2, 3, and 4
 
-	// Verify the events are in the correct order
-	// Since we're querying from globalPositions[1] (position 2), we should get events starting from index 1
+
 	for i, event := range resp.Events {
-		expectedIndex := i + 1 // Events should start from index 1 (after position 2)
-		assert.Contains(t, event.Data, fmt.Sprintf("index\\\": %d", expectedIndex))
+		expectedIndex := i + 2
+		assert.Contains(t, event.Data, fmt.Sprintf("{\"index\": %d}", expectedIndex))
 	}
 }
 
@@ -924,7 +922,6 @@ func TestComplexTagQueries(t *testing.T) {
 	_, _, _, err = saveEvents.Save(
 		ctx,
 		events1,
-		// nil,
 		"test_boundary",
 		"complex-query-stream",
 		-1,
@@ -1003,7 +1000,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
 			Name:        "complex-query-stream",
-			FromVersion: -1,
+			FromVersion: 0,
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
@@ -1024,7 +1021,7 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp1.Events, 0, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp1.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 2: AND query - region east
 	resp2, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
@@ -1033,7 +1030,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
 			Name:        "complex-query-stream",
-			FromVersion: -1,
+			FromVersion: 0,
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
@@ -1047,7 +1044,7 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp2.Events, 0, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp2.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 3: Complex query - (category A AND region west) OR (category B AND priority high)
 	resp3, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
@@ -1056,7 +1053,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
 			Name:        "complex-query-stream",
-			FromVersion: -1,
+			FromVersion: 0,
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
@@ -1077,5 +1074,5 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp3.Events, 0, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp3.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
 }

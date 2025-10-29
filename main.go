@@ -32,7 +32,7 @@ import (
 
 	c "orisun/config"
 	l "orisun/logging"
-	postgres "orisun/postgres"
+	pg "orisun/postgres"
 
 	admin "orisun/admin"
 	changepassword "orisun/admin/slices/change_password"
@@ -606,15 +606,15 @@ func initializeDatabase(
 	for _, schema := range postgesBoundarySchemaMappings {
 		isAdminBoundary := schema.Boundary == config.Admin.Boundary
 		// Use write pool for database migrations (schema changes)
-		if err = postgres.RunDbScripts(writeDB, schema.Schema, isAdminBoundary, ctx); err != nil {
+		if err = pg.RunDbScripts(writeDB, schema.Schema, isAdminBoundary, ctx); err != nil {
 			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
 		}
 		logger.Infof("Database migrations for schema %s completed successfully", schema)
 	}
 
 	// Use write pool for save operations and read pool for get operations
-	saveEvents := postgres.NewPostgresSaveEvents(ctx, writeDB, logger, postgesBoundarySchemaMappings)
-	getEvents := postgres.NewPostgresGetEvents(readDB, logger, postgesBoundarySchemaMappings)
+	saveEvents := pg.NewPostgresSaveEvents(ctx, writeDB, logger, postgesBoundarySchemaMappings)
+	getEvents := pg.NewPostgresGetEvents(readDB, logger, postgesBoundarySchemaMappings)
 	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
 		logger.Fatalf("Failed to create lock provider: %v", err)
@@ -626,7 +626,7 @@ func initializeDatabase(
 	}
 
 	// Use admin pool for admin operations (user management)
-	adminDB := postgres.NewPostgresAdminDB(
+	adminDB := pg.NewPostgresAdminDB(
 		adminDBPool,
 		logger,
 		adminSchema.Schema,
@@ -634,7 +634,7 @@ func initializeDatabase(
 	)
 
 	// Use write pool for event publishing operations
-	eventPublishing := postgres.NewPostgresEventPublishing(
+	eventPublishing := pg.NewPostgresEventPublishing(
 		writeDB,
 		logger,
 		postgesBoundarySchemaMappings,
