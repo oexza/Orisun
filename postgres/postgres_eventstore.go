@@ -27,11 +27,11 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM insert_events_with_consistency($1::text, $2::jsonb, $3::jsonb)
+SELECT * FROM insert_events_with_consistency_v2($1::text, $2::jsonb, $3::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM get_matching_events($1::text, $2, $3::BIGINT, $4::jsonb, $5::jsonb, $6, $7::INT)
+SELECT * FROM get_matching_events_v2($1::text, $2, $3::BIGINT, $4::jsonb, $5::jsonb, $6, $7::INT)
 `
 
 const setSearchPath = `
@@ -112,7 +112,7 @@ func (s *PostgresSaveEvents) Save(
 	// Use a shorter-lived transaction with immediate execution and commit
 	var tranID string
 	var globID int64
-	var newStreamVersion int64
+	var newGlobalID int64
 
 	// Execute the operation in a single atomic transaction
 	err = func() error {
@@ -147,7 +147,7 @@ func (s *PostgresSaveEvents) Save(
 		}
 
 		// Scan the result
-		if err := row.Scan(&newStreamVersion, &tranID, &globID); err != nil {
+		if err := row.Scan(&newGlobalID, &tranID, &globID); err != nil {
 			s.logger.Errorf("Error scanning result: %v", err)
 			return status.Errorf(codes.Internal, "failed to scan result: %v", err)
 		}
@@ -175,7 +175,7 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, -1, status.Errorf(codes.Internal, "Error saving events to database")
 	}
 
-	return tranID, globID, newStreamVersion, nil
+	return tranID, globID, newGlobalID, nil
 }
 
 func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
@@ -216,11 +216,11 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	var streamName *string = nil
-	var fromStreamVersion *int64 = nil
+	var fromGlobalID *int64 = nil
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
-		fromStreamVersion = &req.Stream.FromVersion
+		fromGlobalID = &req.Stream.FromVersion
 	}
 
 	// s.logger.Debugf("params: %v", paramsJSON)
@@ -244,7 +244,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		selectMatchingEvents,
 		schema,
 		streamName,
-		fromStreamVersion,
+		fromGlobalID,
 		paramsJSON,
 		fromPositionMarshaled,
 		req.Direction.String(),
@@ -282,7 +282,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		"global_id":      &globalID,
 		"date_created":   &dateCreated,
 		"stream_name":    &event.StreamId,
-		"stream_version": &event.Version,
 	}
 
 	for i, col := range columns {
@@ -318,7 +317,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			Data:        event.Data,
 			Metadata:    event.Metadata,
 			StreamId:    event.StreamId,
-			Version:     event.Version,
+			Version:     uint64(globalID), // Use global_id as the version
 			Position:    event.Position,
 			DateCreated: event.DateCreated,
 		}
@@ -356,64 +355,6 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]any {
 	}
 	return result
 }
-
-// type PGLockProvider struct {
-// 	db     *sql.DB
-// 	logger logging.Logger
-// }
-
-// func NewPGLockProvider(db *sql.DB, logger logging.Logger) *PGLockProvider {
-// 	return &PGLockProvider{
-// 		db:     db,
-// 		logger: logger,
-// 	}
-// }
-
-// func (m *PGLockProvider) Lock(ctx context.Context, lockName string) (eventstore.UnlockFunc, error) {
-// 	m.logger.Debug("Lock called for: %v", lockName)
-// 	conn, err := m.db.Conn(ctx)
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	hash := sha256.Sum256([]byte(lockName))
-// 	lockID := int64(binary.BigEndian.Uint64(hash[:]))
-
-// 	var acquired bool
-
-// 	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, lockName))
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to set search path: %v", err)
-// 	}
-// 	err = tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", int32(lockID)).Scan(&acquired)
-
-// 	if err != nil {
-// 		m.logger.Errorf("Failed to acquire lock: %v, will retry", err)
-// 		return nil, err
-// 	}
-
-// 	if !acquired {
-// 		m.logger.Warnf("Failed to acquire lock within timeout")
-// 		return nil, errors.New("lock acquisition timed out")
-// 	}
-
-// 	unlockFunc := func() error {
-// 		fmt.Printf("Unlock called for: %s", lockName)
-// 		defer conn.Close()
-// 		defer tx.Rollback()
-
-// 		return nil
-// 	}
-
-// 	return unlockFunc, nil
-// }
 
 type PostgresAdminDB struct {
 	db                     *sql.DB

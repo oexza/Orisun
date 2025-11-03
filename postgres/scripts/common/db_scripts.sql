@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
     transaction_id BIGINT                    NOT NULL,
     global_id      BIGINT PRIMARY KEY,
     stream_name    TEXT                      NOT NULL,
-    stream_version BIGINT                    NOT NULL,
     event_id       UUID                      NOT NULL,
     event_type     TEXT                      NOT NULL CHECK (event_type <> ''),
     data           JSONB                     NOT NULL,
@@ -14,15 +13,20 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
     date_created   TIMESTAMPTZ DEFAULT(NOW() AT TIME ZONE 'UTC') NOT NULL
 );
 
+ALTER TABLE orisun_es_event
+    DROP COLUMN IF EXISTS stream_version;
+
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
+    START WITH 0
+    MINVALUE 0
     OWNED BY orisun_es_event.global_id;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_stream ON orisun_es_event (stream_name);
-CREATE INDEX IF NOT EXISTS idx_stream_name_version ON orisun_es_event (stream_name, stream_version);
+CREATE INDEX IF NOT EXISTS idx_stream_global_id ON orisun_es_event (stream_name, global_id);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
-CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
-    USING GIN (stream_name, stream_version, data) WITH (fastupdate = true, gin_pending_list_limit = '128');
+CREATE INDEX IF NOT EXISTS idx_stream_tags ON orisun_es_event
+    USING GIN (data, stream_name) WITH (fastupdate = true, gin_pending_list_limit = '128');
 
 -- Insert Function
 --
@@ -49,14 +53,14 @@ CREATE INDEX IF NOT EXISTS idx_stream_version_tags ON orisun_es_event
 -- Parameters: $1 = 'test2', $2 = '{"criteria": [{"username": "iskaba"}], 
 -- "stream_name": "new", "expected_version": 17}', $3 = '[{"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}, {"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}]'
 
-CREATE OR REPLACE FUNCTION insert_events_with_consistency(
+CREATE OR REPLACE FUNCTION insert_events_with_consistency_v2(
     schema TEXT,
     stream_info JSONB,
     events JSONB
 )
     RETURNS TABLE
             (
-                new_stream_version    BIGINT,
+                new_global_id         BIGINT,
                 latest_transaction_id BIGINT,
                 latest_global_id      BIGINT
             )
@@ -65,12 +69,15 @@ AS
 $$
 DECLARE
     stream                  TEXT   := stream_info ->> 'stream_name';
-    expected_stream_version BIGINT := (stream_info ->> 'expected_version')::BIGINT;
+    expected_global_id      BIGINT := (stream_info ->> 'expected_version')::BIGINT;
     stream_criteria         JSONB  := stream_info -> 'criteria';
     current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
-    current_stream_version  BIGINT := -1;
-    stream_criteria_tags    TEXT[];
+    current_max_global_id   BIGINT := -1;
     key_record              TEXT;
+    new_global_id           BIGINT;
+    stream_criteria_tags    TEXT[];
+    latest_transaction_id   BIGINT;
+    latest_global_id        BIGINT;
 BEGIN
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
@@ -106,44 +113,29 @@ BEGIN
     END IF;
 
     -- Stream version check
-    SELECT MAX(oe.stream_version)
-    INTO current_stream_version
+    SELECT MAX(oe.global_id)
+    INTO current_max_global_id
     FROM orisun_es_event oe
     WHERE oe.stream_name = stream
       AND (stream_criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(stream_criteria)));
 
-    IF current_stream_version IS NULL THEN
-        current_stream_version := -1;
+    IF current_max_global_id IS NULL THEN
+        current_max_global_id := -1;
     END IF;
 
-    IF current_stream_version <> expected_stream_version THEN
+    IF current_max_global_id <> expected_global_id THEN
         RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected %, Actual %',
-            expected_stream_version, current_stream_version;
+            expected_global_id, current_max_global_id;
     END IF;
 
-    -- just before getting the frontier, we need to lock the stream to ensure that no other transaction
-    -- inserts events into the stream while we are getting the frontier. If there is no stream criteria,
-    -- the stream would already be locked before getting here.
-    IF stream_criteria IS NOT NULL THEN
-        PERFORM pg_advisory_xact_lock(('x' || substr(md5(stream), 1, 15))::bit(60)::bigint);
+    IF current_max_global_id IS NULL THEN
+        current_max_global_id := -1;
     END IF;
 
-    -- select the frontier of the stream if a subset criteria was specified to ensure that the events being inserted are properly versioned.
-    IF stream_criteria IS NOT NULL THEN
-        SELECT MAX(oe.stream_version)
-        INTO current_stream_version
-        FROM orisun_es_event oe
-        WHERE oe.stream_name = stream;
-    END IF;
-
-    IF current_stream_version IS NULL THEN
-        current_stream_version := -1;
-    END IF;
-
+    -- CTE-based insert pattern
     WITH inserted_events AS (
         INSERT INTO orisun_es_event (
                                      stream_name,
-                                     stream_version,
                                      transaction_id,
                                      event_id,
                                      global_id,
@@ -152,7 +144,6 @@ BEGIN
                                      metadata
             )
             SELECT stream,
-                   current_stream_version + ROW_NUMBER() OVER (),
                    current_tx_id,
                    (e ->> 'event_id')::UUID,
                    nextval('orisun_es_event_global_id_seq'),
@@ -166,20 +157,25 @@ BEGIN
                        ELSE COALESCE(e -> 'metadata', '{}')
                    END
             FROM jsonb_array_elements(events) AS e
-            RETURNING jsonb_array_length(events), global_id)
-    SELECT current_stream_version + jsonb_array_length(events), current_tx_id, MAX(global_id)
-    INTO new_stream_version, latest_transaction_id, latest_global_id
-    FROM inserted_events;
+            RETURNING global_id
+        ),
+    max_global_id AS (
+        SELECT MAX(global_id) as max_seq_overall, COUNT(*) as inserted_count
+        FROM inserted_events
+    )
+     SELECT max_seq_overall, current_tx_id, max_seq_overall
+     INTO new_global_id, latest_transaction_id, latest_global_id
+     FROM max_global_id;
 
-    RETURN QUERY SELECT new_stream_version, latest_transaction_id, latest_global_id;
+     RETURN QUERY SELECT new_global_id, latest_transaction_id, latest_global_id;
 END;
 $$;
 
 -- Query Function
-CREATE OR REPLACE FUNCTION get_matching_events(
+CREATE OR REPLACE FUNCTION get_matching_events_v2(
     schema TEXT,
     stream_name TEXT DEFAULT NULL,
-    from_stream_version BIGINT DEFAULT NULL,
+    from_global_id BIGINT DEFAULT NULL,
     criteria JSONB DEFAULT NULL,
     after_position JSONB DEFAULT NULL,
     sort_dir TEXT DEFAULT 'ASC',
@@ -201,60 +197,40 @@ BEGIN
     
     schema_prefix := quote_ident(schema) || '.';
 
-    -- Optimize the query based on which parameters are provided
-    IF stream_name IS NOT NULL AND criteria_array IS NULL AND after_position IS NULL THEN
-        -- Optimized path for stream-only queries (common case)
-        RETURN QUERY EXECUTE format(
-            $q$
-            SELECT * FROM %5$sorisun_es_event
-            WHERE stream_name = %1$L
-            AND (%2$L IS NULL OR stream_version %3$s= %2$L)
-            ORDER BY transaction_id %4$s, global_id %4$s
-            LIMIT %6$L
-            $q$,
-            stream_name,
-            from_stream_version,
-            op,
-            sort_dir,
-            schema_prefix,
-            LEAST(GREATEST(max_count, 1), 10000)
-        );
-    ELSE
-        -- General case with all possible filters
-        RETURN QUERY EXECUTE format(
-            $q$
-            SELECT * FROM %11$sorisun_es_event
-            WHERE 
-                (%1$L IS NULL OR stream_name = %1$L) AND
-                (%2$L IS NULL OR stream_version %4$s= %2$L) AND
-                (%8$L::JSONB IS NULL OR data @> ANY (
-                    SELECT jsonb_array_elements(%8$L)
-                )) AND
-                (%3$L IS NULL OR (
-                        (transaction_id, global_id) %4$s= (
-                            %5$L::BIGINT, 
-                            %6$L::BIGINT
-                        )%7$s
-                    )
+    -- General case with all possible filters
+    RETURN QUERY EXECUTE format(
+        $q$
+        SELECT * FROM %11$sorisun_es_event
+        WHERE 
+            (%1$L IS NULL OR stream_name = %1$L) AND
+            (%2$L IS NULL OR global_id %4$s= %2$L) AND
+            (%8$L::JSONB IS NULL OR data @> ANY (
+                SELECT jsonb_array_elements(%8$L)
+            )) AND
+            (%3$L IS NULL OR (
+                    (transaction_id, global_id) %4$s= (
+                        %5$L::BIGINT, 
+                        %6$L::BIGINT
+                    )%7$s
                 )
-            ORDER BY transaction_id %9$s, global_id %9$s
-            LIMIT %10$L
-            $q$,
-            stream_name,
-            from_stream_version,
-            after_position,
-            op,
-            tx_id,
-            global_id,
-            format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', 
-                    tx_id
-            ),
-            criteria_array,
-            sort_dir,
-            LEAST(GREATEST(max_count, 1), 10000),
-            schema_prefix
-        );
-    END IF;
+            )
+        ORDER BY global_id %9$s
+        LIMIT %10$L
+        $q$,
+        stream_name,
+        from_global_id,
+        after_position,
+        op,
+        tx_id,
+        global_id,
+        format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', 
+                tx_id
+        ),
+        criteria_array,
+        sort_dir,
+        LEAST(GREATEST(max_count, 1), 10000),
+        schema_prefix
+    );
 END;
 $$;
 

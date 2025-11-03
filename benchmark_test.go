@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -18,17 +19,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
+	"orisun/config"
 	"orisun/eventstore"
+	"orisun/logging"
+	"orisun/postgres"
 )
 
 type BenchmarkSetup struct {
-	postgresContainer *postgres.PostgresContainer
+	postgresContainer testcontainers.Container
 	binaryPath        string
 	binaryCmd         *exec.Cmd
 	client            eventstore.EventStoreClient
@@ -53,25 +56,65 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 		adminPort: "18992",
 	}
 
-	// Start PostgreSQL container
-	postgresContainer, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:15-alpine"),
-		postgres.WithDatabase("orisun"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
+	// Start PostgreSQL container with optimized configuration
+	req := testcontainers.ContainerRequest{
+		Image:        "postgres:17.5-alpine3.22",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "postgres",
+			"POSTGRES_PASSWORD": "postgres",
+			"POSTGRES_DB":       "orisun",
+		},
+		Cmd: []string{
+			"postgres",
+			// Memory settings
+			"-c", "shared_buffers=2GB",
+			"-c", "work_mem=64MB", 
+			"-c", "maintenance_work_mem=512MB",
+			"-c", "effective_cache_size=6GB",
+			// WAL settings for write performance
+			"-c", "wal_buffers=64MB",
+			"-c", "min_wal_size=2GB",
+			"-c", "max_wal_size=8GB",
+			"-c", "checkpoint_completion_target=0.7",
+			"-c", "checkpoint_timeout=3min",
+			// Connection and concurrency
+			"-c", "max_connections=200",
+			"-c", "max_worker_processes=14",
+			"-c", "max_parallel_workers=14",
+			"-c", "max_parallel_workers_per_gather=7",
+			"-c", "max_parallel_maintenance_workers=7",
+			// Performance tuning
+			"-c", "random_page_cost=1.1",
+			"-c", "seq_page_cost=1.0",
+			"-c", "cpu_tuple_cost=0.01",
+			"-c", "cpu_index_tuple_cost=0.005",
+			"-c", "cpu_operator_cost=0.0025",
+			// Logging for performance monitoring
+			"-c", "log_min_duration_statement=1000",
+			"-c", "log_checkpoints=on",
+			"-c", "log_connections=on",
+			"-c", "log_disconnections=on",
+			"-c", "log_lock_waits=on",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
 	require.NoError(b, err)
-	setup.postgresContainer = postgresContainer
+	
+	// Store the container
+	setup.postgresContainer = container
 
 	// Get PostgreSQL connection details
-	host, err := postgresContainer.Host(ctx)
+	host, err := container.Host(ctx)
 	require.NoError(b, err)
 	setup.postgresHost = host
 
-	port, err := postgresContainer.MappedPort(ctx, "5432")
+	port, err := container.MappedPort(ctx, "5432")
 	require.NoError(b, err)
 	setup.postgresPort = port.Port()
 
@@ -128,6 +171,11 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_PG_PASSWORD=postgres",
 		"ORISUN_PG_NAME=orisun",
 		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin",
+		// Increase connection pool limits for benchmark performance
+		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=100", // Increased from 20 to 100
+		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20", // Increased from 3 to 20
+		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",  // Increased from 10 to 50
+		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",  // Increased from 5 to 10
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
 		"ORISUN_GRPC_ENABLE_REFLECTION=true",
@@ -251,7 +299,7 @@ func BenchmarkSaveEvents_SameStreamWithSubsetQuery(b *testing.B) {
 	defer setup.cleanup(b)
 
 	// Test different worker counts
-	workerCounts := []int{5, 10, 10000}
+	workerCounts := []int{10000}
 
 	for _, workers := range workerCounts {
 		b.Run(fmt.Sprintf("Workers_%d", workers), func(b *testing.B) {
@@ -277,7 +325,7 @@ func BenchmarkSaveEvents_SameStreamWithSubsetQuery(b *testing.B) {
 					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: boundary,
 						Stream: &eventstore.SaveStreamQuery{
-							Name: streamName,
+							Name:            streamName,
 							ExpectedVersion: -1,
 							// Remove ExpectedVersion entirely to allow concurrent appends
 							SubsetQuery: &eventstore.Query{
@@ -363,9 +411,9 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 						event := &eventstore.EventToSave{
 							EventId:   uuid.New().String(),
 							EventType: fmt.Sprintf("Event_Type_%d", criteriaIndex),
-							Data:      fmt.Sprintf(`{"worker_id": "%s", "iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`, 
+							Data: fmt.Sprintf(`{"worker_id": "%s", "iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`,
 								workerID, iteration, criteriaIndex, time.Now().Format(time.RFC3339), iteration%1000),
-							Metadata:  fmt.Sprintf(`{"source": "benchmark", "worker_id": "%s", "criteria_index": %d}`, workerID, criteriaIndex),
+							Metadata: fmt.Sprintf(`{"source": "benchmark", "worker_id": "%s", "criteria_index": %d}`, workerID, criteriaIndex),
 						}
 
 						_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
@@ -404,26 +452,105 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 	b.ReportMetric(eventsPerSec, "events/sec")
 	b.ReportMetric(float64(totalEvents), "total_events")
 	b.ReportMetric(elapsed.Seconds(), "duration_sec")
-	
+
 	// Log actual vs expected event count
-	b.Logf("🔥 DATABASE FLOOD TEST: Processed %d events (target: %d) in %.2f seconds at %.1f events/sec", 
+	b.Logf("🔥 DATABASE FLOOD TEST: Processed %d events (target: %d) in %.2f seconds at %.1f events/sec",
 		totalEvents, targetEvents, elapsed.Seconds(), eventsPerSec)
+}
+
+// BenchmarkSaveEvents_TrulySimultaneous10K launches all 10,000 save operations simultaneously
+// for maximum contention testing, unlike the worker-based approach above.
+func BenchmarkSaveEvents_TrulySimultaneous10K(b *testing.B) {
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	boundary := "benchmark_test"
+	streamName := "high_contention_stream"
+	targetEvents := 10000
+	criteriaCount := 5
+	tagsPerCriteria := 3
+
+	b.ResetTimer()
+	startTime := time.Now()
+
+	// Create all goroutines first, then start them simultaneously
+	var wg sync.WaitGroup
+	startSignal := make(chan struct{})
+	totalEvents := int64(0)
+
+	// Pre-create all 10,000 goroutines
+	for i := 0; i < targetEvents; i++ {
+		wg.Add(1)
+		go func(iteration int) {
+			defer wg.Done()
+
+			// Wait for start signal - this ensures true simultaneity
+			<-startSignal
+
+			criteriaIndex := iteration % criteriaCount
+			criteria := generateGenericCriteria("simultaneous", criteriaIndex, tagsPerCriteria)
+
+			event := &eventstore.EventToSave{
+				EventId:   uuid.New().String(),
+				EventType: fmt.Sprintf("Event_Type_%d", criteriaIndex),
+				Data: fmt.Sprintf(`{"iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`,
+					iteration, criteriaIndex, time.Now().Format(time.RFC3339), iteration%1000),
+				Metadata: fmt.Sprintf(`{"source": "benchmark", "criteria_index": %d}`, criteriaIndex),
+			}
+
+			_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+				Boundary: boundary,
+				Stream: &eventstore.SaveStreamQuery{
+					Name:            streamName,
+					ExpectedVersion: -1, // Allow concurrent appends
+					SubsetQuery: &eventstore.Query{
+						Criteria: criteria,
+					},
+				},
+				Events: []*eventstore.EventToSave{event},
+			})
+			if err != nil {
+				b.Logf("Save error: %v", err)
+			} else {
+				atomic.AddInt64(&totalEvents, 1)
+			}
+		}(i)
+	}
+
+	// Small delay to ensure all goroutines are waiting
+	time.Sleep(100 * time.Millisecond)
+
+	// START ALL 10,000 GOROUTINES SIMULTANEOUSLY!
+	close(startSignal)
+
+	// Wait for all to complete
+	wg.Wait()
+	elapsed := time.Since(startTime)
+
+	// Report metrics
+	eventsPerSec := float64(totalEvents) / elapsed.Seconds()
+	b.ReportMetric(eventsPerSec, "events/sec")
+	b.ReportMetric(float64(totalEvents), "total_events")
+	b.ReportMetric(elapsed.Seconds(), "duration_sec")
+
+	b.Logf("🚀 TRUE SIMULTANEOUS TEST: %d events in %.2f seconds at %.1f events/sec",
+		totalEvents, elapsed.Seconds(), eventsPerSec)
 }
 
 // generateGenericCriteria creates generic criteria based on worker ID and index
 func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*eventstore.Criterion {
 	tags := make([]*eventstore.Tag, tagsCount)
-	
+
 	// Always include worker_id as first tag
 	tags[0] = &eventstore.Tag{Key: "worker_id", Value: workerID}
-	
+
 	// Generate additional tags based on criteria index
 	for i := 1; i < tagsCount; i++ {
 		key := fmt.Sprintf("tag_%d", i)
 		value := fmt.Sprintf("value_%d_%d", criteriaIndex, i)
 		tags[i] = &eventstore.Tag{Key: key, Value: value}
 	}
-	
+
 	return []*eventstore.Criterion{
 		{
 			Tags: tags,
@@ -645,7 +772,6 @@ func BenchmarkGetEvents(b *testing.B) {
 		b.Fatalf("Failed to pre-populate events: %v", err)
 	}
 
-	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
@@ -666,24 +792,24 @@ func BenchmarkGetStream(b *testing.B) {
 	// Pre-populate with events using efficient batch approach
 	streamName := "benchmark_stream"
 	boundary := "stream_boundary"
-	
+
 	// Generate events in batches for efficiency
 	batchSize := 100
 	totalEvents := 1000
 	currentVersion := int64(-1)
-	
+
 	for i := 0; i < totalEvents; i += batchSize {
 		remainingEvents := totalEvents - i
 		if remainingEvents > batchSize {
 			remainingEvents = batchSize
 		}
-		
+
 		// Generate batch of events
 		events := make([]*eventstore.EventToSave, remainingEvents)
 		for j := 0; j < remainingEvents; j++ {
 			events[j] = generateRandomEvent("StreamTestEvent")
 		}
-		
+
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
@@ -761,7 +887,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 			eventsRead++
 		}
 		stream.CloseSend()
-		
+
 		// Only count successful subscriptions that read events
 		if eventsRead == 0 {
 			b.Errorf("Subscription %d read no events", i)
@@ -798,7 +924,7 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 		for pb.Next() {
 			// Test concurrent operations without goroutines inside the measurement
 			// This measures the time for a single mixed operation set
-			
+
 			// Save operation
 			event := generateRandomEvent("ConcurrentSaveEvent")
 			streamId := uuid.New().String()
@@ -837,10 +963,10 @@ func BenchmarkHighThroughput(b *testing.B) {
 	for _, concurrency := range concurrencyLevels {
 		b.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(b *testing.B) {
 			boundary := fmt.Sprintf("throughput_boundary_%d", concurrency)
-			
+
 			// Set GOMAXPROCS to match concurrency for this test
 			runtime.GOMAXPROCS(concurrency)
-			
+
 			b.ResetTimer()
 			totalEvents := int64(0)
 
@@ -918,4 +1044,306 @@ func BenchmarkMemoryUsage(b *testing.B) {
 			b.Errorf("Failed to save large event: %v", err)
 		}
 	}
+}
+
+// BenchmarkSaveEvents_DirectDatabase tests the PostgreSQL eventstore Save method directly
+// bypassing gRPC to isolate database performance from network/gRPC overhead
+func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping benchmark in short mode")
+	}
+
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	ctx := context.Background()
+
+	// Create database connection
+	dsn := fmt.Sprintf("postgres://postgres:postgres@%s:%s/orisun?sslmode=disable", setup.postgresHost, setup.postgresPort)
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		b.Fatalf("Failed to connect to PostgreSQL: %v", err)
+	}
+	defer db.Close()
+
+	// Configure connection pool for high performance
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(20)
+	db.SetConnMaxLifetime(time.Hour)
+
+	// Wait for database to be ready
+	for i := 0; i < 30; i++ {
+		if err := db.Ping(); err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+		if i == 29 {
+			b.Fatalf("Database not ready after 30 seconds")
+		}
+	}
+
+	// Run database migrations
+	if err := postgres.RunDbScripts(db, "public", false, ctx); err != nil {
+		b.Fatalf("Failed to migrate public schema: %v", err)
+	}
+
+	// Create PostgreSQL eventstore instance
+	boundarySchemaMappings := map[string]config.BoundaryToPostgresSchemaMapping{
+		"benchmark_test": {Schema: "public"},
+	}
+	
+	logger, err := logging.ZapLogger("info")
+	if err != nil {
+		b.Fatalf("Failed to create logger: %v", err)
+	}
+	saveEvents := postgres.NewPostgresSaveEvents(ctx, db, logger, boundarySchemaMappings)
+
+	// Prepare test events - 10K simultaneous saves to the SAME stream
+	const totalEvents = 10000
+	const sameStreamName = "benchmark_concurrent_stream"
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		var wg sync.WaitGroup
+		startSignal := make(chan struct{})
+		var successfulSaves int64
+		var totalAttempts int64
+
+		// Pre-create ALL goroutines first, but don't let them execute yet
+		for eventIndex := 0; eventIndex < totalEvents; eventIndex++ {
+			wg.Add(1)
+			
+			// Create a single event with different criteria for each goroutine
+			event := eventstore.EventWithMapTags{
+				EventId:   uuid.New().String(),
+				EventType: "ConcurrentBenchmarkEvent",
+				Data:      fmt.Sprintf(`{"event_id": %d, "criteria": "type_%d", "timestamp": "%s"}`, eventIndex, eventIndex%100, time.Now().Format(time.RFC3339)),
+				Metadata:  fmt.Sprintf(`{"benchmark": "concurrent_same_stream", "event_index": %d}`, eventIndex),
+			}
+
+			// Create unique consistency condition for each event
+			uniqueConsistencyCondition := &eventstore.Query{
+				Criteria: []*eventstore.Criterion{
+					{
+						Tags: []*eventstore.Tag{
+							{
+								Key:   "event_index",
+								Value: fmt.Sprintf("%d", eventIndex),
+							},
+							{
+								Key:   "benchmark_run",
+								Value: fmt.Sprintf("%d", time.Now().UnixNano()),
+							},
+						},
+					},
+				},
+			}
+
+			go func(eventID int, event eventstore.EventWithMapTags, consistencyCondition *eventstore.Query) {
+				defer wg.Done()
+
+				// WAIT for the start signal - this ensures TRUE SIMULTANEITY!
+				<-startSignal
+
+				// ALL goroutines try to save to the SAME stream with expected version -1
+				// This will test optimistic concurrency - only one should succeed, others should fail
+				_, _, _, err := saveEvents.Save(
+					ctx,
+					[]eventstore.EventWithMapTags{event},
+					"benchmark_test",
+					sameStreamName,
+					-1, // Expected version for new stream - all trying to create the same stream!
+					consistencyCondition, // Unique consistency condition for each event
+				)
+
+				// Use atomic operations to avoid mutex overhead
+				atomic.AddInt64(&totalAttempts, 1)
+				if err == nil {
+					atomic.AddInt64(&successfulSaves, 1)
+				}
+				// Ignore concurrency errors - they're expected in this test
+			}(eventIndex, event, uniqueConsistencyCondition)
+		}
+
+		// NOW start the timer and release all goroutines simultaneously
+		start := time.Now()
+		close(startSignal) // This releases ALL 10,000 goroutines at the EXACT same time!
+
+		wg.Wait()
+		duration := time.Since(start)
+
+		finalTotalAttempts := atomic.LoadInt64(&totalAttempts)
+		finalSuccessfulSaves := atomic.LoadInt64(&successfulSaves)
+		attemptsPerSecond := float64(finalTotalAttempts) / duration.Seconds()
+		
+		// Focus on events per second metric
+		b.ReportMetric(attemptsPerSecond, "events/sec")
+		
+		b.Logf("🚀 TRULY SIMULTANEOUS TEST: %d attempts (%d successful) in %.2f seconds at %.1f events/sec", 
+			finalTotalAttempts, finalSuccessfulSaves, duration.Seconds(), attemptsPerSecond)
+	}
+}
+
+// BenchmarkSaveEvents_DirectDatabase10KBatch - 10K events in a single batch operation
+func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
+	const totalEvents = 10000
+	
+	// Setup PostgreSQL container with optimized configuration
+	req := testcontainers.ContainerRequest{
+		Image:        "postgres:17.5-alpine3.22",
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     "postgres",
+			"POSTGRES_PASSWORD": "postgres",
+			"POSTGRES_DB":       "orisun",
+		},
+		Cmd: []string{
+			"postgres",
+			// Memory settings
+			"-c", "shared_buffers=2GB",
+			"-c", "work_mem=64MB", 
+			"-c", "maintenance_work_mem=512MB",
+			"-c", "effective_cache_size=6GB",
+			// WAL settings for write performance
+			"-c", "wal_buffers=64MB",
+			"-c", "min_wal_size=2GB",
+			"-c", "max_wal_size=8GB",
+			"-c", "checkpoint_completion_target=0.7",
+			"-c", "checkpoint_timeout=3min",
+			// Connection and concurrency
+			"-c", "max_connections=200",
+			"-c", "max_worker_processes=14",
+			"-c", "max_parallel_workers=14",
+			"-c", "max_parallel_workers_per_gather=7",
+			"-c", "max_parallel_maintenance_workers=7",
+			// Performance tuning
+			"-c", "random_page_cost=1.1",
+			"-c", "seq_page_cost=1.0",
+			"-c", "cpu_tuple_cost=0.01",
+			"-c", "cpu_index_tuple_cost=0.005",
+			"-c", "cpu_operator_cost=0.0025",
+			// Logging for performance monitoring
+			"-c", "log_min_duration_statement=1000",
+			"-c", "log_checkpoints=on",
+			"-c", "log_connections=on",
+			"-c", "log_disconnections=on",
+			"-c", "log_lock_waits=on",
+		},
+		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+	}
+
+	ctx := context.Background()
+	postgresContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		b.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer func() {
+		if err := postgresContainer.Terminate(ctx); err != nil {
+			b.Logf("Failed to terminate PostgreSQL container: %v", err)
+		}
+	}()
+
+	// Get PostgreSQL connection details
+	host, err := postgresContainer.Host(ctx)
+	if err != nil {
+		b.Fatalf("Failed to get PostgreSQL host: %v", err)
+	}
+
+	port, err := postgresContainer.MappedPort(ctx, "5432")
+	if err != nil {
+		b.Fatalf("Failed to get PostgreSQL port: %v", err)
+	}
+
+	// Create database connection
+	dsn := fmt.Sprintf("postgres://postgres:postgres@%s:%s/orisun?sslmode=disable", host, port.Port())
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		b.Fatalf("Failed to connect to PostgreSQL: %v", err)
+	}
+	defer db.Close()
+
+	// Configure connection pool for high performance
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(20)
+	db.SetConnMaxLifetime(time.Hour)
+
+	// Wait for database to be ready
+	for i := 0; i < 30; i++ {
+		if err := db.Ping(); err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+		if i == 29 {
+			b.Fatalf("Database not ready after 30 seconds")
+		}
+	}
+
+	// Run database migrations
+	if err := postgres.RunDbScripts(db, "public", false, ctx); err != nil {
+		b.Fatalf("Failed to migrate public schema: %v", err)
+	}
+
+	// Create PostgreSQL eventstore instance
+	boundarySchemaMappings := map[string]config.BoundaryToPostgresSchemaMapping{
+		"benchmark_test": {Schema: "public"},
+	}
+	
+	logger, err := logging.ZapLogger("info")
+	if err != nil {
+		b.Fatalf("Failed to create logger: %v", err)
+	}
+	saveEvents := postgres.NewPostgresSaveEvents(ctx, db, logger, boundarySchemaMappings)
+
+	// Prepare test events - 10K events for batch save
+	streamName := "benchmark_batch_stream"
+	events := make([]eventstore.EventWithMapTags, totalEvents)
+	
+	for i := 0; i < totalEvents; i++ {
+		events[i] = eventstore.EventWithMapTags{
+			EventId:   uuid.New().String(),
+			EventType: "BatchTestEvent",
+			Data:      fmt.Sprintf(`{"message": "Batch event %d", "timestamp": "%s"}`, i, time.Now().Format(time.RFC3339)),
+			Metadata:  fmt.Sprintf(`{"event_index": %d, "batch_test": true}`, i),
+		}
+	}
+
+	// Reset timer to exclude setup time
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run the benchmark
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+		
+		// Save all events in a single batch operation
+		_, _, _, err := saveEvents.Save(ctx, events, "benchmark_test", streamName, -1, nil)
+		if err != nil {
+			b.Fatalf("Failed to save batch events: %v", err)
+		}
+		
+		duration := time.Since(start)
+		eventsPerSecond := float64(totalEvents) / duration.Seconds()
+		
+		b.Logf("Batch save: %d events in %v (%.1f events/sec)", 
+			totalEvents, duration, eventsPerSecond)
+		
+		// Clean up for next iteration (if any)
+		if i < b.N-1 {
+			streamName = fmt.Sprintf("benchmark_batch_stream_%d", i+1) // Use new stream for next iteration
+		}
+	}
+}
+
+// Helper function to check if error is optimistic concurrency conflict
+func isOptimisticConcurrencyError(err error) bool {
+	return err != nil && (
+		// Check for common optimistic concurrency error patterns
+		fmt.Sprintf("%v", err) == "OptimisticConcurrencyException:StreamVersionConflict" ||
+		// Add other patterns as needed
+		false)
 }

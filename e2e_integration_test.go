@@ -268,8 +268,8 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 	saveResp, err := suite.eventStoreClient.SaveEvents(ctx, saveReq)
 	require.NoError(t, err)
 	require.NotNil(t, saveResp)
-	assert.Greater(t, saveResp.LogPosition.PreparePosition, int64(0))
-	assert.Greater(t, saveResp.LogPosition.CommitPosition, int64(0))
+	assert.GreaterOrEqual(t, saveResp.LogPosition.PreparePosition, int64(0))
+	assert.GreaterOrEqual(t, saveResp.LogPosition.CommitPosition, int64(0))
 
 	// Test GetEvents
 	getReq := &pb.GetEventsRequest{
@@ -344,8 +344,8 @@ func TestE2E_Save200EventsOneByOne(t *testing.T) {
 		require.NotNil(t, saveResp, "Save response should not be nil for event %d", i)
 		
 		// Verify response
-		assert.Greater(t, saveResp.LogPosition.PreparePosition, int64(0), "Prepare position should be greater than 0 for event %d", i)
-		assert.Greater(t, saveResp.LogPosition.CommitPosition, int64(0), "Commit position should be greater than 0 for event %d", i)
+		assert.GreaterOrEqual(t, saveResp.LogPosition.PreparePosition, int64(0), "Prepare position should be greater than or equal to 0 for event %d", i)
+		assert.GreaterOrEqual(t, saveResp.LogPosition.CommitPosition, int64(0), "Commit position should be greater than or equal to 0 for event %d", i)
 		assert.Equal(t, int64(i), saveResp.NewStreamVersion, "Stream version should match sequence for event %d", i)
 
 		// Update expected version for next event
