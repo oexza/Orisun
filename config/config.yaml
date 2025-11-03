@@ -30,7 +30,16 @@ grpc:
   connectionTimeout: ${ORISUN_GRPC_CONNECTION_TIMEOUT:60s}
   keepAliveTime: ${ORISUN_GRPC_KEEP_ALIVE_TIME:30s}
   keepAliveTimeout: ${ORISUN_GRPC_KEEP_ALIVE_TIMEOUT:5s}
-  maxConcurrentStreams: ${ORISUN_GRPC_MAX_CONCURRENT_STREAMS:1000}
+  maxConcurrentStreams: ${ORISUN_GRPC_MAX_CONCURRENT_STREAMS:10000}
+  # High-performance optimization settings
+  maxReceiveMessageSize: ${ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE:67108864}  # 64MB
+  maxSendMessageSize: ${ORISUN_GRPC_MAX_SEND_MESSAGE_SIZE:67108864}        # 64MB
+  initialWindowSize: ${ORISUN_GRPC_INITIAL_WINDOW_SIZE:1048576}            # 1MB
+  initialConnWindowSize: ${ORISUN_GRPC_INITIAL_CONN_WINDOW_SIZE:1048576}   # 1MB
+  writeBufferSize: ${ORISUN_GRPC_WRITE_BUFFER_SIZE:65536}                  # 64KB
+  readBufferSize: ${ORISUN_GRPC_READ_BUFFER_SIZE:65536}                    # 64KB
+  keepaliveMinTime: ${ORISUN_GRPC_KEEPALIVE_MIN_TIME:5s}
+  keepalivePermitWithoutStream: ${ORISUN_GRPC_KEEPALIVE_PERMIT_WITHOUT_STREAM:true}
 nats:
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}

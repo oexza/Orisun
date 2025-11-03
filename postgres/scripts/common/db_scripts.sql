@@ -87,7 +87,7 @@ BEGIN
 
     -- If stream_criteria is present then we acquire granular locks for each key value pair.
     -- This is to ensure that we don't block other insert operations targeting the same stream, 
-    -- but different criteria.
+    -- with non-overlapping criteria.
     IF stream_criteria IS NOT NULL THEN
         -- Extract all unique criteria key-value pairs
         SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
@@ -99,7 +99,7 @@ BEGIN
         IF stream_criteria_tags IS NOT NULL THEN
             stream_criteria_tags := ARRAY(
                     SELECT DISTINCT unnest(stream_criteria_tags)
-                    ORDER BY 1 -- Alphabetical sort
+                    ORDER BY 1 -- Alphabetical sort to ensure consistent lock order and deadlock prevention.
             );
 
             FOREACH key_record IN ARRAY stream_criteria_tags
