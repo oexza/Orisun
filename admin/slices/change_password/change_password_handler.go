@@ -8,6 +8,7 @@ import (
 	"orisun/admin/templates"
 	"orisun/eventstore"
 	l "orisun/logging"
+
 	// "sync"
 
 	admin_events "orisun/admin/events"
@@ -157,8 +158,7 @@ func changePassword(
 		Count:     1,
 		Direction: eventstore.Direction_DESC,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        admin_events.AdminStream,
-			FromVersion: 999999999999999999,
+			Name: admin_events.AdminStream,
 		},
 	}
 
@@ -279,12 +279,20 @@ func changePassword(
 		{Key: "user_id", Value: currentUserId},
 	}
 
+	var expectedPosition *eventstore.Position = nil
+	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
+		expectedPosition = passwordChanged.Events[0].Position
+	}
+	
+	if expectedPosition == nil {
+		expectedPosition = userCreated.Events[0].Position
+	}
 	_, err = saveEvents(ctx, &eventstore.SaveEventsRequest{
 		Boundary: boundary,
 		Stream: &eventstore.SaveStreamQuery{
-			Name:            admin_events.AdminStream,
-			ExpectedVersion: 0,
-			SubsetQuery:     &eventstore.Query{Criteria: []*eventstore.Criterion{{Tags: tags}}},
+			Name:             admin_events.AdminStream,
+			ExpectedPosition: expectedPosition,
+			SubsetQuery:      &eventstore.Query{Criteria: []*eventstore.Criterion{{Tags: tags}}},
 		},
 		Events: []*eventstore.EventToSave{{
 			EventId:   uuid.NewString(),

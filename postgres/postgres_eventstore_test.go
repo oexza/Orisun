@@ -161,13 +161,14 @@ func TestSaveAndGetEvents(t *testing.T) {
 		},
 	}
 
+	position := eventstore.NotExistsPosition()
 	// Save events
-	tranID, globalID, _, err := saveEvents.Save(
+	tranID, globalID, err := saveEvents.Save(
 		t.Context(),
 		events,
 		"test_boundary",
 		"test-stream",
-		-1,
+		&position,
 		nil,
 	)
 
@@ -183,8 +184,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 			Direction: eventstore.Direction_ASC,
 			Count:     10,
 			Stream: &eventstore.GetStreamQuery{
-				Name:        "test-stream",
-				FromVersion: -1,
+				Name: "test-stream",
 			},
 		},
 	)
@@ -231,7 +231,7 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	streamName := "test-stream-100-events"
-	expectedVersion := int64(-1) // Start with empty stream
+	expectedPosition := eventstore.NotExistsPosition()
 
 	// Save 100 events one by one
 	for i := range 200 {
@@ -248,22 +248,25 @@ func TestSave200EventsOneByOne(t *testing.T) {
 		}
 
 		// Save the event
-		tranID, globalID, streamVersion, err := saveEvents.Save(
+		tranID, globalID, err := saveEvents.Save(
 			t.Context(),
 			events,
 			"test_boundary",
 			streamName,
-			expectedVersion,
+			&expectedPosition,
 			nil,
 		)
 
 		require.NoError(t, err, "Failed to save event %d", i)
 		assert.NotEmpty(t, tranID, "Transaction ID should not be empty for event %d", i)
 		assert.GreaterOrEqual(t, globalID, int64(0), "Global ID should be greater than or equal to 0 for event %d", i)
-		assert.Equal(t, globalID, streamVersion, "Stream version should match sequence for event %d", i)
 
-		// Update expected version for next event
-		expectedVersion = streamVersion
+		transactionIDInt, err := strconv.ParseInt(tranID, 10, 64)
+		require.NoError(t, err)
+		expectedPosition = eventstore.Position{
+			PreparePosition: globalID,
+			CommitPosition:  transactionIDInt,
+		}
 	}
 
 	// Verify all 100 events were saved correctly
@@ -274,8 +277,7 @@ func TestSave200EventsOneByOne(t *testing.T) {
 			Direction: eventstore.Direction_ASC,
 			Count:     100,
 			Stream: &eventstore.GetStreamQuery{
-				Name:        streamName,
-				FromVersion: -1,
+				Name: streamName,
 			},
 		},
 	)
@@ -331,12 +333,13 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = saveEvents.Save(
+	position1 := eventstore.NotExistsPosition()
+	_, _, err = saveEvents.Save(
 		t.Context(),
 		events,
 		"test_boundary",
 		"test-stream",
-		-1,
+		&position1,
 		nil,
 	)
 	require.NoError(t, err)
@@ -351,12 +354,13 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = saveEvents.Save(
+	position2 := eventstore.NotExistsPosition()
+	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
 		"test_boundary",
 		"test-stream",
-		-1, // Expected version -1 again, but should be 0 now
+		&position2, // Expected version -1 again, but should be 0 now
 		nil,
 	)
 	assert.Error(t, err)
@@ -451,12 +455,12 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 		defer wg.Done()
 		// Wait for the start signal
 		<-startBarrier
-		_, _, _, err := saveEvents1.Save(
+		_, _, err := saveEvents1.Save(
 			context.Background(),
 			events1,
 			"test_boundary",
 			streamName,
-			-1,
+			nil,
 			sharedStreamCondition,
 		)
 		t.Logf("Operation 1 result: %v", err)
@@ -473,12 +477,12 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 		defer wg.Done()
 		// Wait for the start signal
 		<-startBarrier
-		_, _, _, err := saveEvents2.Save(
+		_, _, err := saveEvents2.Save(
 			context.Background(),
 			events2,
 			"test_boundary",
 			streamName,
-			-1,
+			nil,
 			sharedStreamCondition,
 		)
 		t.Logf("Operation 2 result: %v", err)
@@ -565,12 +569,13 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = saveEvents.Save(
+	expectedPosition := eventstore.NotExistsPosition()
+	tranId, globalId, err := saveEvents.Save(
 		t.Context(),
 		events1,
 		"test_boundary",
 		"test-stream",
-		-1,
+		&expectedPosition,
 		nil,
 	)
 	require.NoError(t, err)
@@ -584,12 +589,21 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = saveEvents.Save(
+	tranIdConv, err := strconv.ParseInt(tranId, 10, 64)
+
+	if err != nil {
+		fmt.Printf("Error converting string to int64: %v\n", err)
+		return
+	}
+	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
 		"test_boundary",
 		"test-stream",
-		0,
+		&eventstore.Position{
+			PreparePosition: globalId,
+			CommitPosition:  tranIdConv,
+		},
 		nil,
 	)
 	require.NoError(t, err)
@@ -602,8 +616,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			Direction: eventstore.Direction_ASC,
 			Count:     10,
 			Stream: &eventstore.GetStreamQuery{
-				Name:        "test-stream",
-				FromVersion: 0,
+				Name: "test-stream",
 			},
 			Query: &eventstore.Query{
 				Criteria: []*eventstore.Criterion{
@@ -654,6 +667,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	// Save multiple events to get different global positions
 	var globalPositions []int64
 	var transactionIDs []string
+	var lastPosition *eventstore.Position
 	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
@@ -666,17 +680,23 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 			},
 		}
 
-		transactionID, globalPos, _, err := saveEvents.Save(
+		transactionID, globalPos, err := saveEvents.Save(
 			ctx,
 			events,
 			"test_boundary",
 			"global-pos-stream",
-			int64(i-1),
+			lastPosition,
 			nil,
 		)
 		require.NoError(t, err)
 		globalPositions = append(globalPositions, globalPos)
 		transactionIDs = append(transactionIDs, transactionID)
+		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
+		require.NoError(t, err)
+		lastPosition = &eventstore.Position{
+			CommitPosition:  transactionIDInt,
+			PreparePosition: globalPos,
+		}
 	}
 
 	// Get events after the second event's global position
@@ -729,6 +749,7 @@ func TestPagination(t *testing.T) {
 	ctx := t.Context()
 
 	// Save 10 events
+	var lastPosition *eventstore.Position
 	for i := 0; i < 10; i++ {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
@@ -741,16 +762,21 @@ func TestPagination(t *testing.T) {
 			},
 		}
 
-		_, _, _, err = saveEvents.Save(
+		transactionID, globalPos, err := saveEvents.Save(
 			ctx,
 			events,
-			// nil,
 			"test_boundary",
 			"pagination-stream",
-			int64(i-1),
+			lastPosition,
 			nil,
 		)
 		require.NoError(t, err)
+		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
+		require.NoError(t, err)
+		lastPosition = &eventstore.Position{
+			CommitPosition:  transactionIDInt,
+			PreparePosition: globalPos,
+		}
 	}
 
 	// Get first page (3 events)
@@ -759,22 +785,25 @@ func TestPagination(t *testing.T) {
 		Direction: eventstore.Direction_ASC,
 		Count:     3,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "pagination-stream",
-			FromVersion: -1,
+			Name: "pagination-stream",
 		},
 	})
 
 	assert.NoError(t, err)
 	assert.Len(t, resp1.Events, 3)
 
-	// Get second page (3 events)
+	// Get second page (3 events) using composite position of last from page 1
+	lastPos := resp1.Events[len(resp1.Events)-1].Position
 	resp2, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: eventstore.Direction_ASC,
 		Count:     3,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "pagination-stream",
-			FromVersion: 2, // Start from version 2 (third event)
+			Name: "pagination-stream",
+		},
+		FromPosition: &eventstore.Position{
+			CommitPosition:  lastPos.CommitPosition,
+			PreparePosition: lastPos.PreparePosition,
 		},
 	})
 
@@ -815,6 +844,7 @@ func TestDirectionOrdering(t *testing.T) {
 	ctx := t.Context()
 
 	// Save 5 events
+	var lastPosition *eventstore.Position
 	for i := 0; i < 5; i++ {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
@@ -827,16 +857,21 @@ func TestDirectionOrdering(t *testing.T) {
 			},
 		}
 
-		_, _, _, err = saveEvents.Save(
+		transactionID, globalPos, err := saveEvents.Save(
 			ctx,
 			events,
-			// nil,
 			"test_boundary",
 			"direction-stream",
-			int64(i-1),
+			lastPosition,
 			nil,
 		)
 		require.NoError(t, err)
+		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
+		require.NoError(t, err)
+		lastPosition = &eventstore.Position{
+			CommitPosition:  transactionIDInt,
+			PreparePosition: globalPos,
+		}
 	}
 
 	// Get events in ascending order
@@ -845,8 +880,7 @@ func TestDirectionOrdering(t *testing.T) {
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "direction-stream",
-			FromVersion: -1,
+			Name: "direction-stream",
 		},
 	})
 
@@ -859,8 +893,7 @@ func TestDirectionOrdering(t *testing.T) {
 		Direction: eventstore.Direction_DESC,
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "direction-stream",
-			FromVersion: 999999999,
+			Name: "direction-stream",
 		},
 	})
 
@@ -903,6 +936,8 @@ func TestComplexTagQueries(t *testing.T) {
 	// Save events with different tag combinations
 	eventIds := make([]string, 4)
 
+	var lastPosition *eventstore.Position
+
 	// Event 1: category=A, priority=high, region=east
 	eventId1, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -914,15 +949,21 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event1\", \"category\": \"A\", \"priority\": \"high\", \"region\": \"east\"}",
 		},
 	}
-	_, _, _, err = saveEvents.Save(
+	transactionID, globalPos, err := saveEvents.Save(
 		ctx,
 		events1,
 		"test_boundary",
 		"complex-query-stream",
-		-1,
+		lastPosition,
 		nil,
 	)
 	require.NoError(t, err)
+	transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
+	require.NoError(t, err)
+	lastPosition = &eventstore.Position{
+		CommitPosition:  transactionIDInt,
+		PreparePosition: globalPos,
+	}
 
 	// Event 2: category=A, priority=low, region=west
 	eventId2, err := uuid.NewV7()
@@ -935,16 +976,21 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event2\", \"category\": \"A\", \"priority\": \"low\", \"region\": \"west\"}",
 		},
 	}
-	_, _, _, err = saveEvents.Save(
+	transactionID, globalPos, err = saveEvents.Save(
 		ctx,
 		events2,
-		// nil,
 		"test_boundary",
 		"complex-query-stream",
-		0,
+		lastPosition,
 		nil,
 	)
 	require.NoError(t, err)
+	transactionIDInt, err = strconv.ParseInt(transactionID, 10, 64)
+	require.NoError(t, err)
+	lastPosition = &eventstore.Position{
+		CommitPosition:  transactionIDInt,
+		PreparePosition: globalPos,
+	}
 
 	// Event 3: category=B, priority=high, region=east
 	eventId3, err := uuid.NewV7()
@@ -957,15 +1003,21 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event3\", \"category\": \"B\", \"priority\": \"high\", \"region\": \"east\"}",
 		},
 	}
-	_, _, _, err = saveEvents.Save(
+	transactionID, globalPos, err = saveEvents.Save(
 		ctx,
 		events3,
 		"test_boundary",
 		"complex-query-stream",
-		1,
+		lastPosition,
 		nil,
 	)
 	require.NoError(t, err)
+	transactionIDInt, err = strconv.ParseInt(transactionID, 10, 64)
+	require.NoError(t, err)
+	lastPosition = &eventstore.Position{
+		CommitPosition:  transactionIDInt,
+		PreparePosition: globalPos,
+	}
 
 	// Event 4: category=B, priority=low, region=west
 	eventId4, err := uuid.NewV7()
@@ -978,12 +1030,12 @@ func TestComplexTagQueries(t *testing.T) {
 			Data:      "{\"data\": \"event4\", \"category\": \"B\", \"priority\": \"low\", \"region\": \"west\"}",
 		},
 	}
-	_, _, _, err = saveEvents.Save(
+	_, _, err = saveEvents.Save(
 		ctx,
 		events4,
 		"test_boundary",
 		"complex-query-stream",
-		2,
+		lastPosition,
 		nil,
 	)
 	require.NoError(t, err)
@@ -994,8 +1046,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "complex-query-stream",
-			FromVersion: 0,
+			Name: "complex-query-stream",
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
@@ -1024,8 +1075,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "complex-query-stream",
-			FromVersion: 0,
+			Name: "complex-query-stream",
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{
@@ -1047,8 +1097,7 @@ func TestComplexTagQueries(t *testing.T) {
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        "complex-query-stream",
-			FromVersion: 0,
+			Name: "complex-query-stream",
 		},
 		Query: &eventstore.Query{
 			Criteria: []*eventstore.Criterion{

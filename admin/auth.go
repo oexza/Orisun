@@ -61,8 +61,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 		Count:     1,
 		Direction: eventstore.Direction_DESC,
 		Stream: &eventstore.GetStreamQuery{
-			Name:        admin_events.AdminStream,
-			FromVersion: 999999999999999999,
+			Name: admin_events.AdminStream,
 		},
 	}
 

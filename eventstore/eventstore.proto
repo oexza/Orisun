@@ -40,12 +40,10 @@ message Event {
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
   string stream_id = 8;
-  uint64 version = 9;
 }
 
 message WriteResult {
   Position log_position = 1;
-  int64 new_stream_version = 2;
 }
 
 enum Direction {
@@ -55,7 +53,7 @@ enum Direction {
 
 message SaveStreamQuery{
   string name = 1;
-  int64 expected_version = 2;
+  Position expected_position = 2;
   Query subsetQuery = 3;
 }
 
@@ -67,7 +65,7 @@ message SaveEventsRequest {
 
 message GetStreamQuery{
   string name = 1;
-  int64 from_version = 2;
+  Position from_position = 2;
 }
 
 message GetEventsRequest {
@@ -95,7 +93,7 @@ message CatchUpSubscribeToStreamRequest {
   string subscriber_name = 3;
   string boundary = 4;
   string stream = 5;
-  int64 afterVersion = 6;
+  Position after_position = 6;
 }
 
 service EventStore {

@@ -275,6 +275,7 @@ func testBasicClusterFunctionality(t *testing.T, suite *ClusterTestSuite) {
 		}
 	}
 
+	expectedPosition := pb.NotExistsPosition()
 	// Test that both nodes are operational
 	for i, node := range suite.nodes {
 		// Save an event to each node
@@ -287,7 +288,7 @@ func testBasicClusterFunctionality(t *testing.T, suite *ClusterTestSuite) {
 
 		req := &pb.SaveEventsRequest{
 			Boundary: fmt.Sprintf("orisun_test_%d", i+1),
-			Stream:   &pb.SaveStreamQuery{Name: fmt.Sprintf("cluster-test-stream-%d", i), ExpectedVersion: -1},
+			Stream:   &pb.SaveStreamQuery{Name: fmt.Sprintf("cluster-test-stream-%d", i), ExpectedPosition: &expectedPosition},
 			Events:   []*pb.EventToSave{event},
 		}
 
@@ -337,9 +338,10 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 
 	// Save all events in a single request to avoid version conflicts
 	// Use node 0's boundary since only node 0 can poll orisun_test_1
+	expectedPosition := pb.NotExistsPosition()
 	req := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream:   &pb.SaveStreamQuery{Name: sharedStreamName, ExpectedVersion: -1}, // Any version
+		Stream:   &pb.SaveStreamQuery{Name: sharedStreamName, ExpectedPosition: &expectedPosition}, // Any version
 		Events:   eventsToSave,
 	}
 

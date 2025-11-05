@@ -27,9 +27,9 @@ type EventstoreSaveEvents interface {
 		events []EventWithMapTags,
 		boundary string,
 		streamName string,
-		expectedStreamVersion int64,
+		expectedPosition *Position,
 		streamSubSet *Query,
-	) (transactionID string, globalID int64, newStreamPosition int64, err error)
+	) (transactionID string, globalID int64, err error)
 }
 
 type EventstoreGetEvents interface {
@@ -47,6 +47,18 @@ type EventStore struct {
 	getEventsFn  EventstoreGetEvents
 	lockProvider LockProvider
 	logger       logging.Logger
+}
+
+func NotExistsPosition() Position {
+	return Position{
+		CommitPosition:  -1,
+		PreparePosition: -1,
+	}
+}
+
+var FirstPosition = Position{
+	CommitPosition:  0,
+	PreparePosition: 0,
 }
 
 const (
@@ -187,15 +199,14 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 
 	var transactionID string
 	var globalID int64
-	var newStreamVersion int64
 
 	// Execute the query
-	transactionID, globalID, newStreamVersion, err = s.saveEventsFn.Save(
+	transactionID, globalID, err = s.saveEventsFn.Save(
 		ctx,
 		eventsForMarshaling,
 		req.Boundary,
 		req.Stream.Name,
-		req.Stream.ExpectedVersion,
+		req.Stream.ExpectedPosition,
 		req.Stream.SubsetQuery,
 	)
 
@@ -211,7 +222,6 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 			CommitPosition:  parseInt64(transactionID),
 			PreparePosition: globalID,
 		},
-		NewStreamVersion: newStreamVersion,
 	}, nil
 }
 
@@ -458,7 +468,7 @@ func (s *EventStore) SubscribeToStream(
 	subscriberName string,
 	query *Query,
 	stream string,
-	afterStreamVersion *int64,
+	afterPosition *Position,
 	handler *globalCommon.MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName + "__" + stream
@@ -470,8 +480,8 @@ func (s *EventStore) SubscribeToStream(
 		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
 	}
 
-	// Initialize stream version tracking
-	var lastProcessedStreamVersion *int64 = afterStreamVersion
+	// Initialize position tracking
+	lastProcessedPosition := afterPosition
 
 	// Phase 1: Catch-up by polling the event store until we're up to date
 	s.logger.Info("Starting catch-up phase: polling event store for stream")
@@ -484,9 +494,9 @@ func (s *EventStore) SubscribeToStream(
 		default:
 		}
 
-		// Get events from the stream starting from our last processed version
+		// Get events from the stream starting from our last processed position
 		var getEventsReq *GetEventsRequest
-		if lastProcessedStreamVersion == nil {
+		if lastProcessedPosition == nil {
 			// Start from the latest version if no version specified
 			getEventsReq = &GetEventsRequest{
 				Count:     batchSize,
@@ -494,32 +504,19 @@ func (s *EventStore) SubscribeToStream(
 				Boundary:  boundary,
 				Query:     query,
 				Stream: &GetStreamQuery{
-					Name:        stream,
-					FromVersion: 999999999999999999, // Start from latest
-				},
-			}
-		} else if *lastProcessedStreamVersion == -1 {
-			// Start from the beginning of the stream
-			getEventsReq = &GetEventsRequest{
-				Count:     batchSize,
-				Direction: Direction_ASC,
-				Boundary:  boundary,
-				Query:     query,
-				Stream: &GetStreamQuery{
-					Name:        stream,
-					FromVersion: 0,
+					Name: stream,
 				},
 			}
 		} else {
 			// Continue from the last processed stream version
 			getEventsReq = &GetEventsRequest{
-				Count:     batchSize,
-				Direction: Direction_ASC,
-				Boundary:  boundary,
-				Query:     query,
+				Count:        batchSize,
+				Direction:    Direction_ASC,
+				Boundary:     boundary,
+				Query:        query,
+				FromPosition: lastProcessedPosition,
 				Stream: &GetStreamQuery{
-					Name:        stream,
-					FromVersion: *lastProcessedStreamVersion + 1, // Start from next version
+					Name: stream,
 				},
 			}
 		}
@@ -535,17 +532,6 @@ func (s *EventStore) SubscribeToStream(
 			break
 		}
 
-		// For "latest" subscription (nil version), we only want to establish the starting point
-		if afterStreamVersion == nil {
-			// Just establish the last processed version and break
-			if len(resp.Events) > 0 {
-				version := int64(resp.Events[0].Version)
-				lastProcessedStreamVersion = &version
-			}
-			s.logger.Info("Catch-up phase completed: established latest stream version")
-			break
-		}
-
 		// Send all events in this batch
 		for _, event := range resp.Events {
 			select {
@@ -557,8 +543,7 @@ func (s *EventStore) SubscribeToStream(
 			if err := handler.Send(event); err != nil {
 				return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
 			}
-			version := int64(event.Version)
-			lastProcessedStreamVersion = &version
+			lastProcessedPosition = event.Position
 		}
 
 		// If we got fewer events than requested, we're caught up
@@ -576,23 +561,23 @@ func (s *EventStore) SubscribeToStream(
 
 	// Determine the time to start NATS subscription from
 	var timeToSubscribeFromJetstream time.Time
-	if lastProcessedStreamVersion != nil {
+	if lastProcessedPosition != nil {
 		// Start NATS subscription from the time of the last processed event
 		// We need to get the event to find its timestamp
 		lastEventResp, err := s.getEventsFn.Get(gCtx, &GetEventsRequest{
-			Count:     1,
-			Direction: Direction_DESC,
-			Boundary:  boundary,
+			Count:        1,
+			Direction:    Direction_DESC,
+			Boundary:     boundary,
+			FromPosition: lastProcessedPosition,
 			Stream: &GetStreamQuery{
-				Name:        stream,
-				FromVersion: *lastProcessedStreamVersion,
+				Name: stream,
 			},
 		})
 		if err != nil {
 			s.logger.Errorf("Failed to get last processed event for stream %s timestamp: %v", stream, err)
 			return fmt.Errorf("cannot determine NATS subscription start time for stream %s: failed to retrieve last processed event: %w", stream, err)
 		} else if len(lastEventResp.Events) == 0 {
-			s.logger.Warnf("No events found at last processed stream version %d for stream %s, using polling completion time for NATS subscription", *lastProcessedStreamVersion, stream)
+			s.logger.Warnf("No events found at last processed position for stream %s, using polling completion time for NATS subscription", stream)
 			timeToSubscribeFromJetstream = pollingCompletedTime
 		} else {
 			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()
@@ -658,13 +643,13 @@ func (s *EventStore) SubscribeToStream(
 					continue
 				}
 
-				// Only process events from the target stream and newer than our last processed version
+				// Only process events from the target stream and newer than our last processed position
 				isTargetStream := event.StreamId == stream
 				isNewer := false
-				if lastProcessedStreamVersion != nil {
-					isNewer = int64(event.Version) > *lastProcessedStreamVersion
+				if lastProcessedPosition != nil {
+					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
 				} else {
-					isNewer = true // If no version, all events are considered new
+					isNewer = true // If no position, all events are considered new
 				}
 
 				if isTargetStream && isNewer && s.eventMatchesQueryCriteria(&event, query, &stream) {
@@ -684,8 +669,7 @@ func (s *EventStore) SubscribeToStream(
 						}
 					}
 
-					version := int64(event.Version)
-					lastProcessedStreamVersion = &version
+					lastProcessedPosition = event.Position
 
 					if err := msg.Ack(); err != nil {
 						s.logger.Errorf("Failed to acknowledge message: %v", err)
@@ -808,7 +792,7 @@ func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamReque
 			req.SubscriberName,
 			req.Query,
 			req.Stream,
-			&req.AfterVersion,
+			req.AfterPosition,
 			messageHandler,
 		)
 	})

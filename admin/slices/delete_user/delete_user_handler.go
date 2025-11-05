@@ -90,7 +90,6 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 			},
 			Stream: &eventstore.GetStreamQuery{
 				Name:        events.AdminStream,
-				FromVersion: 999999999999999999,
 			},
 		},
 	)
@@ -119,15 +118,13 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 		if err != nil {
 			return err
 		}
-		lastExpectedVersion := -1
-
-		lastExpectedVersion = int(evts.Events[len(evts.Events)-1].Version)
+		lastExpectedVersion := evts.Events[len(evts.Events)-1].Position
 
 		_, err = dUH.saveEvents(ctx, &eventstore.SaveEventsRequest{
 			Boundary: dUH.boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            events.AdminStream,
-				ExpectedVersion: int64(lastExpectedVersion),
+				Name:             events.AdminStream,
+				ExpectedPosition: lastExpectedVersion,
 				SubsetQuery: &eventstore.Query{
 					Criteria: []*eventstore.Criterion{
 						{

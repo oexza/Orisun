@@ -69,7 +69,7 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 			"postgres",
 			// Memory settings
 			"-c", "shared_buffers=2GB",
-			"-c", "work_mem=64MB", 
+			"-c", "work_mem=64MB",
 			"-c", "maintenance_work_mem=512MB",
 			"-c", "effective_cache_size=6GB",
 			// WAL settings for write performance
@@ -97,7 +97,7 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 			"-c", "log_disconnections=on",
 			"-c", "log_lock_waits=on",
 		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60 * time.Second),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -105,7 +105,7 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 		Started:          true,
 	})
 	require.NoError(b, err)
-	
+
 	// Store the container
 	setup.postgresContainer = container
 
@@ -173,9 +173,9 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin",
 		// Increase connection pool limits for benchmark performance
 		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=100", // Increased from 20 to 100
-		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20", // Increased from 3 to 20
-		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",  // Increased from 10 to 50
-		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",  // Increased from 5 to 10
+		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",  // Increased from 3 to 20
+		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",   // Increased from 10 to 50
+		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",    // Increased from 5 to 10
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
 		"ORISUN_GRPC_ENABLE_REFLECTION=true",
@@ -322,17 +322,18 @@ func BenchmarkSaveEvents_SameStreamWithSubsetQuery(b *testing.B) {
 						Metadata:  fmt.Sprintf(`{"source": "benchmark", "user_id": "%s"}`, userID),
 					}
 
+					position := eventstore.NotExistsPosition()
 					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: boundary,
 						Stream: &eventstore.SaveStreamQuery{
-							Name:            streamName,
-							ExpectedVersion: -1,
+							Name:             streamName,
+							ExpectedPosition: &position,
 							// Remove ExpectedVersion entirely to allow concurrent appends
 							SubsetQuery: &eventstore.Query{
 								Criteria: []*eventstore.Criterion{
 									{
 										Tags: []*eventstore.Tag{
-											{Key: "user_id", Value: userID + uuid.New().String()},
+											{Key: "user_id", Value: userID},
 											{Key: "eventType", Value: "UserAction"},
 										},
 									},
@@ -416,11 +417,12 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 							Metadata: fmt.Sprintf(`{"source": "benchmark", "worker_id": "%s", "criteria_index": %d}`, workerID, criteriaIndex),
 						}
 
+						position := eventstore.NotExistsPosition()
 						_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 							Boundary: boundary,
 							Stream: &eventstore.SaveStreamQuery{
-								Name:            streamName,
-								ExpectedVersion: -1, // Allow concurrent appends
+								Name:             streamName,
+								ExpectedPosition: &position, // Allow concurrent appends
 								SubsetQuery: &eventstore.Query{
 									Criteria: criteria,
 								},
@@ -498,11 +500,12 @@ func BenchmarkSaveEvents_TrulySimultaneous10K(b *testing.B) {
 				Metadata: fmt.Sprintf(`{"source": "benchmark", "criteria_index": %d}`, criteriaIndex),
 			}
 
+			position := eventstore.NotExistsPosition()
 			_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 				Boundary: boundary,
 				Stream: &eventstore.SaveStreamQuery{
-					Name:            streamName,
-					ExpectedVersion: -1, // Allow concurrent appends
+					Name:             streamName,
+					ExpectedPosition: &position, // Allow concurrent appends
 					SubsetQuery: &eventstore.Query{
 						Criteria: criteria,
 					},
@@ -587,11 +590,12 @@ func BenchmarkSaveEvents_Single(b *testing.B) {
 	b.ResetTimer()
 	totalEvents := 0
 	for i := 0; i < b.N; i++ {
+		position := eventstore.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: "benchmark_test",
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            streamIds[i],
-				ExpectedVersion: eventstore.StreamDoesNotExist,
+				Name:             streamIds[i],
+				ExpectedPosition: &position,
 			},
 			Events: []*eventstore.EventToSave{events[i]},
 		})
@@ -635,11 +639,12 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 					}
 				}
 
+				position := eventstore.NotExistsPosition()
 				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 					Boundary: "benchmark_test",
 					Stream: &eventstore.SaveStreamQuery{
-						Name:            streamId,
-						ExpectedVersion: -1,
+						Name:             streamId,
+						ExpectedPosition: &position,
 					},
 					Events: batch,
 				})
@@ -668,7 +673,7 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 
 			// Pre-generate all events and expected versions before timing
 			batches := make([][]*eventstore.EventToSave, b.N)
-			expectedVersions := make([]int64, b.N)
+			expectedPositions := make([]*eventstore.Position, b.N)
 
 			for i := 0; i < b.N; i++ {
 				batches[i] = make([]*eventstore.EventToSave, batchSize)
@@ -676,9 +681,13 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 					batches[i][j] = generateRandomEvent("SingleStreamEvent")
 				}
 				if i == 0 {
-					expectedVersions[i] = int64(eventstore.StreamDoesNotExist)
+					p := eventstore.NotExistsPosition()
+					expectedPositions[i] = &p
 				} else {
-					expectedVersions[i] = expectedVersions[i-1] + int64(batchSize)
+					expectedPositions[i] = &eventstore.Position{
+						CommitPosition:  expectedPositions[i-1].CommitPosition + int64(batchSize),
+						PreparePosition: expectedPositions[i-1].PreparePosition + int64(batchSize),
+					}
 				}
 			}
 
@@ -688,8 +697,8 @@ func BenchmarkSaveEvents_SingleStream(b *testing.B) {
 				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 					Boundary: "benchmark_test",
 					Stream: &eventstore.SaveStreamQuery{
-						Name:            streamId,
-						ExpectedVersion: expectedVersions[i],
+						Name:             streamId,
+						ExpectedPosition: expectedPositions[i],
 					},
 					Events: batches[i],
 				})
@@ -720,24 +729,24 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				// Each goroutine gets its own unique stream
 				userStreamId := uuid.New().String()
-				currentVersion := int64(eventstore.StreamDoesNotExist)
+				currentPosition := eventstore.NotExistsPosition()
 				localEvents := 0
 
 				for pb.Next() {
 					event := generateRandomEvent("ConcurrentUserEvent")
 
-					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+					result, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: "benchmark_test",
 						Stream: &eventstore.SaveStreamQuery{
-							Name:            userStreamId,
-							ExpectedVersion: currentVersion,
+							Name:             userStreamId,
+							ExpectedPosition: &currentPosition,
 						},
 						Events: []*eventstore.EventToSave{event},
 					})
 					if err != nil {
 						b.Errorf("Failed to save event to user stream: %v", err)
 					}
-					currentVersion++
+					currentPosition = *result.LogPosition
 					localEvents++
 				}
 
@@ -760,11 +769,12 @@ func BenchmarkGetEvents(b *testing.B) {
 	boundary := "benchmark_test"
 	streamId := uuid.New().String()
 	events := generateEvents(1000, streamId)
+	p := eventstore.NotExistsPosition()
 	_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 		Boundary: boundary,
 		Stream: &eventstore.SaveStreamQuery{
-			Name:            streamId,
-			ExpectedVersion: -1,
+			Name:             streamId,
+			ExpectedPosition: &p,
 		},
 		Events: events,
 	})
@@ -796,7 +806,7 @@ func BenchmarkGetStream(b *testing.B) {
 	// Generate events in batches for efficiency
 	batchSize := 100
 	totalEvents := 1000
-	currentVersion := int64(-1)
+	currentPosition := eventstore.NotExistsPosition()
 
 	for i := 0; i < totalEvents; i += batchSize {
 		remainingEvents := totalEvents - i
@@ -810,18 +820,18 @@ func BenchmarkGetStream(b *testing.B) {
 			events[j] = generateRandomEvent("StreamTestEvent")
 		}
 
-		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+		result, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            streamName,
-				ExpectedVersion: currentVersion,
+				Name:             streamName,
+				ExpectedPosition: &currentPosition,
 			},
 			Events: events,
 		})
 		if err != nil {
 			b.Fatalf("Failed to pre-populate stream events: %v", err)
 		}
-		currentVersion += int64(remainingEvents)
+		currentPosition = *result.LogPosition
 	}
 
 	b.ResetTimer()
@@ -830,8 +840,8 @@ func BenchmarkGetStream(b *testing.B) {
 			_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
 				Boundary: boundary,
 				Stream: &eventstore.GetStreamQuery{
-					Name:        streamName,
-					FromVersion: 0,
+					Name:         streamName,
+					FromPosition: &eventstore.Position{CommitPosition: 0, PreparePosition: 0},
 				},
 				Count: 100,
 			})
@@ -853,11 +863,12 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		event := generateRandomEvent("PrePopulateEvent")
 		streamId := uuid.New().String()
+		p := eventstore.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            streamId,
-				ExpectedVersion: -1,
+				Name:             streamId,
+				ExpectedPosition: &p,
 			},
 			Events: []*eventstore.EventToSave{event},
 		})
@@ -906,11 +917,12 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		event := generateRandomEvent("ConcurrentTestEvent")
 		streamId := uuid.New().String()
+		p := eventstore.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            streamId,
-				ExpectedVersion: -1,
+				Name:             streamId,
+				ExpectedPosition: &p,
 			},
 			Events: []*eventstore.EventToSave{event},
 		})
@@ -928,11 +940,12 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 			// Save operation
 			event := generateRandomEvent("ConcurrentSaveEvent")
 			streamId := uuid.New().String()
+			p := eventstore.NotExistsPosition()
 			_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 				Boundary: boundary,
 				Stream: &eventstore.SaveStreamQuery{
-					Name:            streamId,
-					ExpectedVersion: -1,
+					Name:             streamId,
+					ExpectedPosition: &p,
 				},
 				Events: []*eventstore.EventToSave{event},
 			})
@@ -976,11 +989,12 @@ func BenchmarkHighThroughput(b *testing.B) {
 				for pb.Next() {
 					event := generateRandomEvent("ThroughputEvent")
 					streamId := uuid.New().String()
+					p := eventstore.NotExistsPosition()
 					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 						Boundary: boundary,
 						Stream: &eventstore.SaveStreamQuery{
-							Name:            streamId,
-							ExpectedVersion: -1,
+							Name:             streamId,
+							ExpectedPosition: &p,
 						},
 						Events: []*eventstore.EventToSave{event},
 					})
@@ -1032,11 +1046,12 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		p := eventstore.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &eventstore.SaveStreamQuery{
-				Name:            streamIds[i],
-				ExpectedVersion: -1,
+				Name:             streamIds[i],
+				ExpectedPosition: &p,
 			},
 			Events: []*eventstore.EventToSave{events[i]},
 		})
@@ -1091,7 +1106,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	boundarySchemaMappings := map[string]config.BoundaryToPostgresSchemaMapping{
 		"benchmark_test": {Schema: "public"},
 	}
-	
+
 	logger, err := logging.ZapLogger("info")
 	if err != nil {
 		b.Fatalf("Failed to create logger: %v", err)
@@ -1114,7 +1129,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 		// Pre-create ALL goroutines first, but don't let them execute yet
 		for eventIndex := 0; eventIndex < totalEvents; eventIndex++ {
 			wg.Add(1)
-			
+
 			// Create a single event with different criteria for each goroutine
 			event := eventstore.EventWithMapTags{
 				EventId:   uuid.New().String(),
@@ -1149,12 +1164,13 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 
 				// ALL goroutines try to save to the SAME stream with expected version -1
 				// This will test optimistic concurrency - only one should succeed, others should fail
-				_, _, _, err := saveEvents.Save(
+				p := eventstore.NotExistsPosition()
+				_, _, err := saveEvents.Save(
 					ctx,
 					[]eventstore.EventWithMapTags{event},
 					"benchmark_test",
 					sameStreamName,
-					-1, // Expected version for new stream - all trying to create the same stream!
+					&p,                   // Expected position for a new stream.
 					consistencyCondition, // Unique consistency condition for each event
 				)
 
@@ -1177,11 +1193,11 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 		finalTotalAttempts := atomic.LoadInt64(&totalAttempts)
 		finalSuccessfulSaves := atomic.LoadInt64(&successfulSaves)
 		attemptsPerSecond := float64(finalTotalAttempts) / duration.Seconds()
-		
+
 		// Focus on events per second metric
 		b.ReportMetric(attemptsPerSecond, "events/sec")
-		
-		b.Logf("🚀 TRULY SIMULTANEOUS TEST: %d attempts (%d successful) in %.2f seconds at %.1f events/sec", 
+
+		b.Logf("🚀 TRULY SIMULTANEOUS TEST: %d attempts (%d successful) in %.2f seconds at %.1f events/sec",
 			finalTotalAttempts, finalSuccessfulSaves, duration.Seconds(), attemptsPerSecond)
 	}
 }
@@ -1189,7 +1205,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 // BenchmarkSaveEvents_DirectDatabase10KBatch - 10K events in a single batch operation
 func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	const totalEvents = 10000
-	
+
 	// Setup PostgreSQL container with optimized configuration
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:17.5-alpine3.22",
@@ -1203,7 +1219,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 			"postgres",
 			// Memory settings
 			"-c", "shared_buffers=2GB",
-			"-c", "work_mem=64MB", 
+			"-c", "work_mem=64MB",
 			"-c", "maintenance_work_mem=512MB",
 			"-c", "effective_cache_size=6GB",
 			// WAL settings for write performance
@@ -1231,7 +1247,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 			"-c", "log_disconnections=on",
 			"-c", "log_lock_waits=on",
 		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60 * time.Second),
 	}
 
 	ctx := context.Background()
@@ -1292,7 +1308,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	boundarySchemaMappings := map[string]config.BoundaryToPostgresSchemaMapping{
 		"benchmark_test": {Schema: "public"},
 	}
-	
+
 	logger, err := logging.ZapLogger("info")
 	if err != nil {
 		b.Fatalf("Failed to create logger: %v", err)
@@ -1302,7 +1318,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	// Prepare test events - 10K events for batch save
 	streamName := "benchmark_batch_stream"
 	events := make([]eventstore.EventWithMapTags, totalEvents)
-	
+
 	for i := 0; i < totalEvents; i++ {
 		events[i] = eventstore.EventWithMapTags{
 			EventId:   uuid.New().String(),
@@ -1319,19 +1335,20 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	// Run the benchmark
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
-		
+
 		// Save all events in a single batch operation
-		_, _, _, err := saveEvents.Save(ctx, events, "benchmark_test", streamName, -1, nil)
+		p := eventstore.NotExistsPosition()
+		_, _, err := saveEvents.Save(ctx, events, "benchmark_test", streamName, &p, nil)
 		if err != nil {
 			b.Fatalf("Failed to save batch events: %v", err)
 		}
-		
+
 		duration := time.Since(start)
 		eventsPerSecond := float64(totalEvents) / duration.Seconds()
-		
-		b.Logf("Batch save: %d events in %v (%.1f events/sec)", 
+
+		b.Logf("Batch save: %d events in %v (%.1f events/sec)",
 			totalEvents, duration, eventsPerSecond)
-		
+
 		// Clean up for next iteration (if any)
 		if i < b.N-1 {
 			streamName = fmt.Sprintf("benchmark_batch_stream_%d", i+1) // Use new stream for next iteration
@@ -1342,8 +1359,8 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 // Helper function to check if error is optimistic concurrency conflict
 func isOptimisticConcurrencyError(err error) bool {
 	return err != nil && (
-		// Check for common optimistic concurrency error patterns
-		fmt.Sprintf("%v", err) == "OptimisticConcurrencyException:StreamVersionConflict" ||
+	// Check for common optimistic concurrency error patterns
+	fmt.Sprintf("%v", err) == "OptimisticConcurrencyException:StreamVersionConflict" ||
 		// Add other patterns as needed
 		false)
 }

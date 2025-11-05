@@ -31,7 +31,7 @@ SELECT * FROM insert_events_with_consistency_v2($1::text, $2::jsonb, $3::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM get_matching_events_v2($1::text, $2, $3::BIGINT, $4::jsonb, $5::jsonb, $6, $7::INT)
+SELECT * FROM get_matching_events_v2($1::text, $2, $3::jsonb, $4::jsonb, $5, $6::INT)
 `
 
 const setSearchPath = `
@@ -84,28 +84,28 @@ func (s *PostgresSaveEvents) Save(
 	events []eventstore.EventWithMapTags,
 	boundary string,
 	streamName string,
-	expectedVersion int64,
-	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, newStreamPosition int64, err error) {
+	expectedPosition *eventstore.Position,
+	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
 
 	if len(events) == 0 {
-		return "", 0, 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
 	}
 
 	schema, err := s.Schema(boundary)
 	if err != nil {
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to get schema: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
 
-	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(streamName, expectedVersion, streamConsistencyCondition))
+	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(streamName, expectedPosition, streamConsistencyCondition))
 	if err != nil {
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
 	s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
 	}
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
@@ -162,20 +162,20 @@ func (s *PostgresSaveEvents) Save(
 	}()
 
 	if err != nil {
-		return "", 0, -1, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
 	}
 
 	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
-			return "", 0, -1, status.Error(codes.AlreadyExists, err.Error())
+			return "", 0, status.Error(codes.AlreadyExists, err.Error())
 		}
 		s.logger.Errorf("Error saving events to database: %v", err)
-		return "", 0, -1, status.Errorf(codes.Internal, "Error saving events to database")
+		return "", 0, status.Errorf(codes.Internal, "Error saving events to database")
 	}
 
-	return tranID, globID, newGlobalID, nil
+	return tranID, globID, nil
 }
 
 func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
@@ -204,7 +204,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	if req.Query != nil && len(req.Query.Criteria) > 0 {
 		criteriaList := getCriteriaAsList(req.Query)
 		if len(criteriaList) > 0 {
-			globalQuery := map[string]interface{}{
+			globalQuery := map[string]any{
 				"criteria": criteriaList,
 			}
 			paramsBytes, err := json.Marshal(globalQuery)
@@ -216,11 +216,9 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	var streamName *string = nil
-	var fromGlobalID *int64 = nil
 
 	if req.Stream != nil {
 		streamName = &req.Stream.Name
-		fromGlobalID = &req.Stream.FromVersion
 	}
 
 	// s.logger.Debugf("params: %v", paramsJSON)
@@ -244,7 +242,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		selectMatchingEvents,
 		schema,
 		streamName,
-		fromGlobalID,
 		paramsJSON,
 		fromPositionMarshaled,
 		req.Direction.String(),
@@ -255,7 +252,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 	defer rows.Close()
 
-	// Pre-allocate events slice with exact capacity
+	// Pre-allocate events slice with expected capacity
 	events := make([]*eventstore.Event, 0, req.Count)
 
 	columns, err := rows.Columns()
@@ -317,7 +314,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			Data:        event.Data,
 			Metadata:    event.Metadata,
 			StreamId:    event.StreamId,
-			Version:     uint64(globalID), // Use global_id as the version
 			Position:    event.Position,
 			DateCreated: event.DateCreated,
 		}
@@ -332,10 +328,16 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	return &eventstore.GetEventsResponse{Events: events}, nil
 }
 
-func getStreamSectionAsMap(streamName string, expectedVersion int64, consistencyCondition *eventstore.Query) map[string]interface{} {
-	lastRetrievedPositions := make(map[string]interface{})
+func getStreamSectionAsMap(streamName string, expectedPosition *eventstore.Position, consistencyCondition *eventstore.Query) map[string]any {
+	lastRetrievedPositions := make(map[string]any)
 	lastRetrievedPositions["stream_name"] = streamName
-	lastRetrievedPositions["expected_version"] = expectedVersion
+
+	if expectedPosition != nil {
+		lastRetrievedPositions["expected_position"] = map[string]int64{
+			"transaction_id": expectedPosition.CommitPosition,
+			"global_id":      expectedPosition.PreparePosition,
+		}
+	}
 
 	if conditions := consistencyCondition; conditions != nil {
 		lastRetrievedPositions["criteria"] = getCriteriaAsList(consistencyCondition)

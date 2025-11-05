@@ -337,7 +337,6 @@ type Event struct {
 	Position      *Position              `protobuf:"bytes,6,opt,name=position,proto3" json:"position,omitempty"`
 	DateCreated   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=date_created,json=dateCreated,proto3" json:"date_created,omitempty"`
 	StreamId      string                 `protobuf:"bytes,8,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	Version       uint64                 `protobuf:"varint,9,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -421,19 +420,11 @@ func (x *Event) GetStreamId() string {
 	return ""
 }
 
-func (x *Event) GetVersion() uint64 {
-	if x != nil {
-		return x.Version
-	}
-	return 0
-}
-
 type WriteResult struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	LogPosition      *Position              `protobuf:"bytes,1,opt,name=log_position,json=logPosition,proto3" json:"log_position,omitempty"`
-	NewStreamVersion int64                  `protobuf:"varint,2,opt,name=new_stream_version,json=newStreamVersion,proto3" json:"new_stream_version,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LogPosition   *Position              `protobuf:"bytes,1,opt,name=log_position,json=logPosition,proto3" json:"log_position,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WriteResult) Reset() {
@@ -473,20 +464,13 @@ func (x *WriteResult) GetLogPosition() *Position {
 	return nil
 }
 
-func (x *WriteResult) GetNewStreamVersion() int64 {
-	if x != nil {
-		return x.NewStreamVersion
-	}
-	return 0
-}
-
 type SaveStreamQuery struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	ExpectedVersion int64                  `protobuf:"varint,2,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
-	SubsetQuery     *Query                 `protobuf:"bytes,3,opt,name=subsetQuery,proto3" json:"subsetQuery,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	ExpectedPosition *Position              `protobuf:"bytes,2,opt,name=expected_position,json=expectedPosition,proto3" json:"expected_position,omitempty"`
+	SubsetQuery      *Query                 `protobuf:"bytes,3,opt,name=subsetQuery,proto3" json:"subsetQuery,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SaveStreamQuery) Reset() {
@@ -526,11 +510,11 @@ func (x *SaveStreamQuery) GetName() string {
 	return ""
 }
 
-func (x *SaveStreamQuery) GetExpectedVersion() int64 {
+func (x *SaveStreamQuery) GetExpectedPosition() *Position {
 	if x != nil {
-		return x.ExpectedVersion
+		return x.ExpectedPosition
 	}
-	return 0
+	return nil
 }
 
 func (x *SaveStreamQuery) GetSubsetQuery() *Query {
@@ -603,7 +587,7 @@ func (x *SaveEventsRequest) GetEvents() []*EventToSave {
 type GetStreamQuery struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FromVersion   int64                  `protobuf:"varint,2,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
+	FromPosition  *Position              `protobuf:"bytes,2,opt,name=from_position,json=fromPosition,proto3" json:"from_position,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -645,11 +629,11 @@ func (x *GetStreamQuery) GetName() string {
 	return ""
 }
 
-func (x *GetStreamQuery) GetFromVersion() int64 {
+func (x *GetStreamQuery) GetFromPosition() *Position {
 	if x != nil {
-		return x.FromVersion
+		return x.FromPosition
 	}
-	return 0
+	return nil
 }
 
 type GetEventsRequest struct {
@@ -854,7 +838,7 @@ type CatchUpSubscribeToStreamRequest struct {
 	SubscriberName string                 `protobuf:"bytes,3,opt,name=subscriber_name,json=subscriberName,proto3" json:"subscriber_name,omitempty"`
 	Boundary       string                 `protobuf:"bytes,4,opt,name=boundary,proto3" json:"boundary,omitempty"`
 	Stream         string                 `protobuf:"bytes,5,opt,name=stream,proto3" json:"stream,omitempty"`
-	AfterVersion   int64                  `protobuf:"varint,6,opt,name=afterVersion,proto3" json:"afterVersion,omitempty"`
+	AfterPosition  *Position              `protobuf:"bytes,6,opt,name=after_position,json=afterPosition,proto3" json:"after_position,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -917,11 +901,11 @@ func (x *CatchUpSubscribeToStreamRequest) GetStream() string {
 	return ""
 }
 
-func (x *CatchUpSubscribeToStreamRequest) GetAfterVersion() int64 {
+func (x *CatchUpSubscribeToStreamRequest) GetAfterPosition() *Position {
 	if x != nil {
-		return x.AfterVersion
+		return x.AfterPosition
 	}
-	return 0
+	return nil
 }
 
 var File_eventstore_eventstore_proto protoreflect.FileDescriptor
@@ -945,7 +929,7 @@ const file_eventstore_eventstore_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\x99\x02\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xff\x01\n" +
 	"\x05Event\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
 	"\n" +
@@ -954,22 +938,20 @@ const file_eventstore_eventstore_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x01(\tR\bmetadata\x120\n" +
 	"\bposition\x18\x06 \x01(\v2\x14.eventstore.PositionR\bposition\x12=\n" +
 	"\fdate_created\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vdateCreated\x12\x1b\n" +
-	"\tstream_id\x18\b \x01(\tR\bstreamId\x12\x18\n" +
-	"\aversion\x18\t \x01(\x04R\aversion\"t\n" +
+	"\tstream_id\x18\b \x01(\tR\bstreamId\"F\n" +
 	"\vWriteResult\x127\n" +
-	"\flog_position\x18\x01 \x01(\v2\x14.eventstore.PositionR\vlogPosition\x12,\n" +
-	"\x12new_stream_version\x18\x02 \x01(\x03R\x10newStreamVersion\"\x85\x01\n" +
+	"\flog_position\x18\x01 \x01(\v2\x14.eventstore.PositionR\vlogPosition\"\x9d\x01\n" +
 	"\x0fSaveStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
-	"\x10expected_version\x18\x02 \x01(\x03R\x0fexpectedVersion\x123\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12A\n" +
+	"\x11expected_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\x10expectedPosition\x123\n" +
 	"\vsubsetQuery\x18\x03 \x01(\v2\x11.eventstore.QueryR\vsubsetQuery\"\x95\x01\n" +
 	"\x11SaveEventsRequest\x12\x1a\n" +
 	"\bboundary\x18\x02 \x01(\tR\bboundary\x123\n" +
 	"\x06stream\x18\x03 \x01(\v2\x1b.eventstore.SaveStreamQueryR\x06stream\x12/\n" +
-	"\x06events\x18\x04 \x03(\v2\x17.eventstore.EventToSaveR\x06events\"G\n" +
+	"\x06events\x18\x04 \x03(\v2\x17.eventstore.EventToSaveR\x06events\"_\n" +
 	"\x0eGetStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
-	"\ffrom_version\x18\x02 \x01(\x03R\vfromVersion\"\x91\x02\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
+	"\rfrom_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\ffromPosition\"\x91\x02\n" +
 	"\x10GetEventsRequest\x12'\n" +
 	"\x05query\x18\x01 \x01(\v2\x11.eventstore.QueryR\x05query\x129\n" +
 	"\rfrom_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\ffromPosition\x12\x14\n" +
@@ -983,13 +965,13 @@ const file_eventstore_eventstore_proto_rawDesc = "" +
 	"\rafterPosition\x18\x01 \x01(\v2\x14.eventstore.PositionR\rafterPosition\x12'\n" +
 	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
-	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xcb\x01\n" +
+	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xe4\x01\n" +
 	"\x1fCatchUpSubscribeToStreamRequest\x12'\n" +
 	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
 	"\bboundary\x18\x04 \x01(\tR\bboundary\x12\x16\n" +
-	"\x06stream\x18\x05 \x01(\tR\x06stream\x12\"\n" +
-	"\fafterVersion\x18\x06 \x01(\x03R\fafterVersion*\x1e\n" +
+	"\x06stream\x18\x05 \x01(\tR\x06stream\x12;\n" +
+	"\x0eafter_position\x18\x06 \x01(\v2\x14.eventstore.PositionR\rafterPosition*\x1e\n" +
 	"\tDirection\x12\a\n" +
 	"\x03ASC\x10\x00\x12\b\n" +
 	"\x04DESC\x10\x012\xe4\x02\n" +
@@ -1040,30 +1022,33 @@ var file_eventstore_eventstore_proto_depIdxs = []int32{
 	1,  // 2: eventstore.Event.position:type_name -> eventstore.Position
 	15, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
 	1,  // 4: eventstore.WriteResult.log_position:type_name -> eventstore.Position
-	4,  // 5: eventstore.SaveStreamQuery.subsetQuery:type_name -> eventstore.Query
-	8,  // 6: eventstore.SaveEventsRequest.stream:type_name -> eventstore.SaveStreamQuery
-	5,  // 7: eventstore.SaveEventsRequest.events:type_name -> eventstore.EventToSave
-	4,  // 8: eventstore.GetEventsRequest.query:type_name -> eventstore.Query
-	1,  // 9: eventstore.GetEventsRequest.from_position:type_name -> eventstore.Position
-	0,  // 10: eventstore.GetEventsRequest.direction:type_name -> eventstore.Direction
-	10, // 11: eventstore.GetEventsRequest.stream:type_name -> eventstore.GetStreamQuery
-	6,  // 12: eventstore.GetEventsResponse.events:type_name -> eventstore.Event
-	1,  // 13: eventstore.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> eventstore.Position
-	4,  // 14: eventstore.CatchUpSubscribeToEventStoreRequest.query:type_name -> eventstore.Query
-	4,  // 15: eventstore.CatchUpSubscribeToStreamRequest.query:type_name -> eventstore.Query
-	9,  // 16: eventstore.EventStore.SaveEvents:input_type -> eventstore.SaveEventsRequest
-	11, // 17: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
-	13, // 18: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
-	14, // 19: eventstore.EventStore.CatchUpSubscribeToStream:input_type -> eventstore.CatchUpSubscribeToStreamRequest
-	7,  // 20: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
-	12, // 21: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
-	6,  // 22: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
-	6,  // 23: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
-	20, // [20:24] is the sub-list for method output_type
-	16, // [16:20] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	1,  // 5: eventstore.SaveStreamQuery.expected_position:type_name -> eventstore.Position
+	4,  // 6: eventstore.SaveStreamQuery.subsetQuery:type_name -> eventstore.Query
+	8,  // 7: eventstore.SaveEventsRequest.stream:type_name -> eventstore.SaveStreamQuery
+	5,  // 8: eventstore.SaveEventsRequest.events:type_name -> eventstore.EventToSave
+	1,  // 9: eventstore.GetStreamQuery.from_position:type_name -> eventstore.Position
+	4,  // 10: eventstore.GetEventsRequest.query:type_name -> eventstore.Query
+	1,  // 11: eventstore.GetEventsRequest.from_position:type_name -> eventstore.Position
+	0,  // 12: eventstore.GetEventsRequest.direction:type_name -> eventstore.Direction
+	10, // 13: eventstore.GetEventsRequest.stream:type_name -> eventstore.GetStreamQuery
+	6,  // 14: eventstore.GetEventsResponse.events:type_name -> eventstore.Event
+	1,  // 15: eventstore.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> eventstore.Position
+	4,  // 16: eventstore.CatchUpSubscribeToEventStoreRequest.query:type_name -> eventstore.Query
+	4,  // 17: eventstore.CatchUpSubscribeToStreamRequest.query:type_name -> eventstore.Query
+	1,  // 18: eventstore.CatchUpSubscribeToStreamRequest.after_position:type_name -> eventstore.Position
+	9,  // 19: eventstore.EventStore.SaveEvents:input_type -> eventstore.SaveEventsRequest
+	11, // 20: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
+	13, // 21: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
+	14, // 22: eventstore.EventStore.CatchUpSubscribeToStream:input_type -> eventstore.CatchUpSubscribeToStreamRequest
+	7,  // 23: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
+	12, // 24: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
+	6,  // 25: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
+	6,  // 26: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
+	23, // [23:27] is the sub-list for method output_type
+	19, // [19:23] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_eventstore_eventstore_proto_init() }

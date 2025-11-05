@@ -1129,12 +1129,13 @@ func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
 			logger.Errorf("Error in streaming RPC %s: %v", info.FullMethod, err)
 			return status.Errorf(codes.Internal, "Error: %v", err)
 		}
+		
 		return nil
 	}
 }
 
 func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				logger.Errorf("Panic in %s: %v\nStack Trace:\n%s", info.FullMethod, r, debug.Stack())

@@ -214,8 +214,7 @@ func CreateUser(
 				},
 			},
 			Stream: &pb.GetStreamQuery{
-				Name:        ev.AdminStream,
-				FromVersion: 999999999999999999,
+				Name: ev.AdminStream,
 			},
 		},
 	)
@@ -258,8 +257,7 @@ func CreateUser(
 					},
 				},
 				Stream: &pb.GetStreamQuery{
-					Name:        ev.AdminStream,
-					FromVersion: 999999999999999999,
+					Name: ev.AdminStream,
 				},
 			},
 		)
@@ -315,12 +313,13 @@ func CreateUser(
 		})
 	}
 
+	position := eventstore.NotExistsPosition()
 	_, err = saveEvents(ctx, &pb.SaveEventsRequest{
 		Boundary: boundary,
 		Events:   eventsToSave,
 		Stream: &pb.SaveStreamQuery{
-			Name:            ev.AdminStream,
-			ExpectedVersion: eventstore.StreamDoesNotExist,
+			Name:             ev.AdminStream,
+			ExpectedPosition: &position,
 			SubsetQuery: &pb.Query{
 				Criteria: []*pb.Criterion{
 					{

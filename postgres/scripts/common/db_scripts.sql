@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
 
 ALTER TABLE orisun_es_event
     DROP COLUMN IF EXISTS stream_version;
+    DROP INDEX IF EXISTS idx_stream_global_id;
 
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
     START WITH 0
@@ -23,7 +24,7 @@ CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_stream ON orisun_es_event (stream_name);
-CREATE INDEX IF NOT EXISTS idx_stream_global_id ON orisun_es_event (stream_name, global_id);
+CREATE INDEX IF NOT EXISTS idx_stream_tran_idglobal_id ON orisun_es_event (stream_name, transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_tags ON orisun_es_event
     USING GIN (data, stream_name) WITH (fastupdate = true, gin_pending_list_limit = '128');
@@ -68,17 +69,25 @@ CREATE OR REPLACE FUNCTION insert_events_with_consistency_v2(
 AS
 $$
 DECLARE
-    stream                  TEXT   := stream_info ->> 'stream_name';
-    expected_global_id      BIGINT := (stream_info ->> 'expected_version')::BIGINT;
-    stream_criteria         JSONB  := stream_info -> 'criteria';
-    current_tx_id           BIGINT := pg_current_xact_id()::TEXT::BIGINT;
-    current_max_global_id   BIGINT := -1;
+    stream                  TEXT;
+    stream_criteria         JSONB;
+    expected_tx_id          BIGINT;
+    expected_gid            BIGINT;
+    current_tx_id           BIGINT;
+    latest_tx_id            BIGINT;
+    latest_gid              BIGINT;
     key_record              TEXT;
-    new_global_id           BIGINT;
     stream_criteria_tags    TEXT[];
+    new_global_id           BIGINT;
     latest_transaction_id   BIGINT;
     latest_global_id        BIGINT;
 BEGIN
+    stream := stream_info ->> 'stream_name';
+    stream_criteria := stream_info -> 'criteria';
+    expected_tx_id := (stream_info -> 'expected_position' ->> 'transaction_id')::BIGINT;
+    expected_gid := (stream_info -> 'expected_position' ->> 'global_id')::BIGINT;
+    current_tx_id := pg_current_xact_id()::TEXT::BIGINT;
+
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
@@ -86,7 +95,7 @@ BEGIN
     EXECUTE format('SET search_path TO %I', schema);
 
     -- If stream_criteria is present then we acquire granular locks for each key value pair.
-    -- This is to ensure that we don't block other insert operations targeting the same stream, 
+    -- This is to ensure that we don't block other insert operations targeting the same stream,
     -- with non-overlapping criteria.
     IF stream_criteria IS NOT NULL THEN
         -- Extract all unique criteria key-value pairs
@@ -113,23 +122,28 @@ BEGIN
     END IF;
 
     -- Stream version check
-    SELECT MAX(oe.global_id)
-    INTO current_max_global_id
+    SELECT oe.transaction_id, oe.global_id
+    INTO latest_tx_id, latest_gid
     FROM orisun_es_event oe
     WHERE oe.stream_name = stream
-      AND (stream_criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(stream_criteria)));
+      AND (stream_criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(stream_criteria)))
+    ORDER BY oe.transaction_id DESC, oe.global_id DESC
+    LIMIT 1;
 
-    IF current_max_global_id IS NULL THEN
-        current_max_global_id := -1;
+    IF latest_tx_id IS NULL THEN
+        latest_tx_id := -1;
+        latest_gid := -1;
     END IF;
 
-    IF current_max_global_id <> expected_global_id THEN
-        RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected %, Actual %',
-            expected_global_id, current_max_global_id;
+    -- If expected_position is not provided, we assume it's a new stream.
+    IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
+        expected_tx_id := -1;
+        expected_gid := -1;
     END IF;
 
-    IF current_max_global_id IS NULL THEN
-        current_max_global_id := -1;
+    IF latest_tx_id <> expected_tx_id OR latest_gid <> expected_gid THEN
+        RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected (%, %), Actual (%, %)',
+            expected_tx_id, expected_gid, latest_tx_id, latest_gid;
     END IF;
 
     -- CTE-based insert pattern
@@ -175,7 +189,6 @@ $$;
 CREATE OR REPLACE FUNCTION get_matching_events_v2(
     schema TEXT,
     stream_name TEXT DEFAULT NULL,
-    from_global_id BIGINT DEFAULT NULL,
     criteria JSONB DEFAULT NULL,
     after_position JSONB DEFAULT NULL,
     sort_dir TEXT DEFAULT 'ASC',
@@ -200,12 +213,11 @@ BEGIN
     -- General case with all possible filters
     RETURN QUERY EXECUTE format(
         $q$
-        SELECT * FROM %11$sorisun_es_event
+        SELECT * FROM %10$sorisun_es_event
         WHERE 
             (%1$L IS NULL OR stream_name = %1$L) AND
-            (%2$L IS NULL OR global_id %4$s= %2$L) AND
-            (%8$L::JSONB IS NULL OR data @> ANY (
-                SELECT jsonb_array_elements(%8$L)
+            (%2$L::JSONB IS NULL OR data @> ANY (
+                SELECT jsonb_array_elements(%2$L)
             )) AND
             (%3$L IS NULL OR (
                     (transaction_id, global_id) %4$s= (
@@ -214,11 +226,11 @@ BEGIN
                     )%7$s
                 )
             )
-        ORDER BY global_id %9$s
-        LIMIT %10$L
+        ORDER BY transaction_id %8$s, global_id %8$s
+        LIMIT %9$L
         $q$,
         stream_name,
-        from_global_id,
+        criteria_array,
         after_position,
         op,
         tx_id,
@@ -226,7 +238,6 @@ BEGIN
         format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', 
                 tx_id
         ),
-        criteria_array,
         sort_dir,
         LEAST(GREATEST(max_count, 1), 10000),
         schema_prefix
