@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"sync"
 
@@ -26,7 +25,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
