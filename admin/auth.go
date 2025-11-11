@@ -77,7 +77,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 
 	// generate a session token for the user
 	generatredToken := uuid.New().String()
-	a.logger.Infof("Generated session token %s for user %s", generatredToken, userr.Username)
+	a.logger.Debugf("Generated session token %s for user %s", generatredToken, userr.Username)
 
 	// Cache the user
 	// go func() {
