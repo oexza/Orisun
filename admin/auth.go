@@ -41,7 +41,7 @@ var cacheMutex sync.RWMutex
 func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*globalCommon.User, error) {
 	// Check if the user is in the cache
 	user, ok := userTokenCache[token]
-	
+
 	if ok && user != nil {
 		a.logger.Debugf("Fetched user from cache by token")
 		return user, nil
@@ -54,7 +54,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	// cacheMutex.Lock()
 	// defer cacheMutex.Unlock()
 	// user, ok := userByUsernameCache[username]
-	
+
 	// if ok && user.Username == username {
 	// 	// Compare the provided password with the stored hash
 	// 	if err := admin_common.ComparePassword(user.HashedPassword, password); err != nil {
@@ -81,9 +81,9 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 
 	// Cache the user
 	// go func() {
-		// userByIdCache[userr.Id] = &userr
-		// userByUsernameCache[userr.Username] = &userr
-		userTokenCache[generatredToken] = &userr
+	// userByIdCache[userr.Id] = &userr
+	// userByUsernameCache[userr.Username] = &userr
+	userTokenCache[generatredToken] = &userr
 	// }()
 
 	return userr, generatredToken, nil

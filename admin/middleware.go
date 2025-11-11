@@ -83,6 +83,7 @@ func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (gl
 		if err == nil {
 			return *user, token[len(token)-1], nil
 		}
+		
 		logger.Errorf("invalid token: %v", err)
 	}
 
