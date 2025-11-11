@@ -14,185 +14,79 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 )
 
 type Authenticator struct {
-	boundary  string
-	getEvents admin_common.GetEventsType
-	logger    logger.Logger
-	// getUserByUsername func(username string) (globalCommon.User, error)
+	boundary          string
+	getEvents         admin_common.GetEventsType
+	logger            logger.Logger
+	getUserByUsername func(username string) (globalCommon.User, error)
 }
 
-func NewAuthenticator(getEvents admin_common.GetEventsType, logger logger.Logger, boundary string) *Authenticator {
+func NewAuthenticator(getEvents admin_common.GetEventsType, logger logger.Logger,
+	boundary string, getUserByUsername func(username string) (globalCommon.User, error)) *Authenticator {
 	return &Authenticator{
-		boundary:  boundary,
-		getEvents: getEvents,
-		logger:    logger,
-		// getUserByUsername: getUserByUsername,
+		boundary:          boundary,
+		getEvents:         getEvents,
+		logger:            logger,
+		getUserByUsername: getUserByUsername,
 	}
 }
 
 var userByIdCache = map[string]*globalCommon.User{}
 var userByUsernameCache = map[string]*globalCommon.User{}
+var userTokenCache = map[string]*globalCommon.User{}
 var cacheMutex sync.RWMutex
 
-func (a *Authenticator) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, error) {
+func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*globalCommon.User, error) {
 	// Check if the user is in the cache
-	cacheMutex.RLock()
-	user, ok := userByUsernameCache[username]
-	cacheMutex.RUnlock()
-	if ok && user.Username == username {
-		// Compare the provided password with the stored hash
-		if err := admin_common.ComparePassword(user.HashedPassword, password); err != nil {
-			return globalCommon.User{}, fmt.Errorf("invalid credentials")
-		}
-		return *user, nil
+	user, ok := userTokenCache[token]
+	
+	if ok && user != nil {
+		a.logger.Debugf("Fetched user from cache by token")
+		return user, nil
 	}
+	return nil, fmt.Errorf("invalid credentials")
+}
 
-	// Use goroutines to fetch events concurrently
-	var userCreated *eventstore.GetEventsResponse
-	var userDeleted *eventstore.GetEventsResponse
-	var passwordChanged *eventstore.GetEventsResponse
+func (a *Authenticator) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, string, error) {
+	// Check if the user is in the cache
+	// cacheMutex.Lock()
+	// defer cacheMutex.Unlock()
+	// user, ok := userByUsernameCache[username]
+	
+	// if ok && user.Username == username {
+	// 	// Compare the provided password with the stored hash
+	// 	if err := admin_common.ComparePassword(user.HashedPassword, password); err != nil {
+	// 		return globalCommon.User{}, "", fmt.Errorf("invalid credentials")
+	// 	}
+	// 	a.logger.Debugf("Fetched user from cache")
+	// 	return *user, userByIdCache[], nil
+	// }
 
-	// Create a common request template
-	baseRequest := eventstore.GetEventsRequest{
-		Boundary:  a.boundary,
-		Count:     1,
-		Direction: eventstore.Direction_DESC,
-		Stream: &eventstore.GetStreamQuery{
-			Name: admin_events.AdminStream,
-		},
-	}
-
-	// Fetch UserCreated event synchronously (required to get user ID)
-	// Create a true copy of the base request, then take its address for getEvents
-	reqCopy := baseRequest
-	reqCopy.Query = &eventstore.Query{
-		Criteria: []*eventstore.Criterion{
-			{
-				Tags: []*eventstore.Tag{
-					{Key: "username", Value: username},
-					{Key: "eventType", Value: admin_events.EventTypeUserCreated},
-				},
-			},
-		},
-	}
-	var err error
-	userCreated, err = a.getEvents(ctx, &reqCopy)
-	if err != nil {
-		return globalCommon.User{}, err
-	}
-
-	if userCreated == nil || len(userCreated.Events) == 0 {
-		return globalCommon.User{}, fmt.Errorf("User Not found, Please contact the administrator")
-	}
-
-	var userCreatedEventData admin_events.UserCreated
-	err = json.Unmarshal([]byte(userCreated.Events[0].Data), &userCreatedEventData)
-	if err != nil {
-		return globalCommon.User{}, err
-	}
-
-	// Concurrently fetch UserDeleted and PasswordChanged using errgroup
-	g, gctx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		// UserDeleted
-		req := baseRequest
-		req.Query = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
-				{
-					Tags: []*eventstore.Tag{
-						{Key: "user_id", Value: userCreatedEventData.UserId},
-						{Key: "eventType", Value: admin_events.EventTypeUserDeleted},
-					},
-				},
-			},
-		}
-		resp, err := a.getEvents(gctx, &req)
-		if err != nil {
-			return err
-		}
-		userDeleted = resp
-		return nil
-	})
-
-	g.Go(func() error {
-		// PasswordChanged
-		req := baseRequest
-		req.Query = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
-				{
-					Tags: []*eventstore.Tag{
-						{Key: "user_id", Value: userCreatedEventData.UserId},
-						{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
-					},
-				},
-			},
-		}
-		resp, err := a.getEvents(gctx, &req)
-		if err != nil {
-			return err
-		}
-		passwordChanged = resp
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return globalCommon.User{}, err
-	}
-
-	// Check if user is deleted
-	if userDeleted != nil && len(userDeleted.Events) > 0 {
-		return globalCommon.User{}, fmt.Errorf("user Not found, Please contact the administrator")
-	}
-
-	// Determine which password hash to use for verification
-	var currentPasswordHash string
-
-	// If there's a password changed event, use the most recent password hash
-	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
-		var passwordChangedEventData admin_events.UserPasswordChanged
-		err := json.Unmarshal([]byte(passwordChanged.Events[0].Data), &passwordChangedEventData)
-		if err != nil {
-			return globalCommon.User{}, err
-		}
-		currentPasswordHash = passwordChangedEventData.PasswordHash
-	} else {
-		// Otherwise use the original password from user creation
-		currentPasswordHash = userCreatedEventData.PasswordHash
+	userr, errr := a.getUserByUsername(username)
+	if errr != nil {
+		a.logger.Errorf("Could not retrieve user %v", errr)
+		return globalCommon.User{}, "", fmt.Errorf("invalid credentials")
 	}
 
 	// Compare the provided password with the stored hash
-	if err := admin_common.ComparePassword(currentPasswordHash, password); err != nil {
-		return globalCommon.User{}, fmt.Errorf("invalid credentials")
+	if err := admin_common.ComparePassword(userr.HashedPassword, password); err != nil {
+		return globalCommon.User{}, "", fmt.Errorf("invalid password")
 	}
 
-	user = &globalCommon.User{
-		Id:             userCreatedEventData.UserId,
-		Username:       username,
-		Name:           userCreatedEventData.Name,
-		HashedPassword: currentPasswordHash,
-		Roles:          userCreatedEventData.Roles,
-	}
+	// generate a session token for the user
+	generatredToken := uuid.New().String()
+	a.logger.Infof("Generated session token %s for user %s", generatredToken, userr.Username)
 
 	// Cache the user
-	cacheMutex.Lock()
-	userByIdCache[user.Id] = user
-	userByUsernameCache[userCreatedEventData.Username] = user
-	cacheMutex.Unlock()
+	// go func() {
+		// userByIdCache[userr.Id] = &userr
+		// userByUsernameCache[userr.Username] = &userr
+		userTokenCache[generatredToken] = &userr
+	// }()
 
-	return *user, nil
-}
-
-func (a *Authenticator) HasRole(roles []globalCommon.Role, requiredRole globalCommon.Role) bool {
-	for _, role := range roles {
-		if role == requiredRole || role == globalCommon.RoleAdmin {
-			return true
-		}
-	}
-	return false
+	return userr, generatredToken, nil
 }
 
 type AuthUserProjector struct {

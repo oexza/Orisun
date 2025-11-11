@@ -433,37 +433,6 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 	return nil
 }
 
-func (p *PostgresAdminDB) CreateNewUser(id string, username string, password_hash string, name string, roles []globalCommon.Role) error {
-	roleStrings := make([]string, len(roles))
-	for i, role := range roles {
-		roleStrings[i] = string(role)
-	}
-	rolesStr := "{" + strings.Join(roleStrings, ",") + "}"
-
-	_, err := p.db.Exec(
-		fmt.Sprintf("INSERT INTO %s.users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (username) DO UPDATE SET name = $2, password_hash = $4, roles = $5, updated_at = $6", p.adminSchema),
-		id,
-		name,
-		username,
-		password_hash,
-		rolesStr,
-		time.Now().UTC(),
-	)
-
-	if err != nil {
-		p.logger.Error("Error creating user: %v", err)
-		return err
-	}
-
-	userCache[username] = &globalCommon.User{
-		Id:             id,
-		Username:       username,
-		HashedPassword: password_hash,
-		Roles:          roles,
-	}
-	return nil
-}
-
 func (p *PostgresAdminDB) DeleteUser(id string) error {
 	_, err := p.db.Exec(
 		fmt.Sprintf("DELETE FROM %s.users WHERE id = $1", p.adminSchema),
@@ -500,7 +469,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User,
 
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.adminSchema), username)
 	if err != nil {
-		s.logger.Debugf("Userrrrr: %v", err)
+		s.logger.Infof("User: %v", err)
 		return globalCommon.User{}, err
 	}
 	defer rows.Close()
@@ -518,6 +487,55 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User,
 		return userResponse, nil
 	}
 	return globalCommon.User{}, fmt.Errorf("user not found")
+}
+
+func (s *PostgresAdminDB) GetUserById(id string) (globalCommon.User, error) {
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where id = $1", s.adminSchema), id)
+	if err != nil {
+		s.logger.Debugf("User by ID: %v", err)
+		return globalCommon.User{}, err
+	}
+	defer rows.Close()
+
+	var userResponse globalCommon.User
+	if rows.Next() {
+		userResponse, err = s.scanUser(rows)
+		if err != nil {
+			return globalCommon.User{}, err
+		}
+	}
+
+	if userResponse.Id != "" {
+		return userResponse, nil
+	}
+	return globalCommon.User{}, fmt.Errorf("user not found with id: %s", id)
+}
+
+func (s *PostgresAdminDB) UpsertUser(user globalCommon.User) error {
+	roleStrings := make([]string, len(user.Roles))
+	for i, role := range user.Roles {
+		roleStrings[i] = string(role)
+	}
+	rolesStr := "{" + strings.Join(roleStrings, ",") + "}"
+
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO %s.users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = $2, username = $3, password_hash = $4, roles = $5, updated_at = $6", s.adminSchema),
+		user.Id,
+		user.Name,
+		user.Username,
+		user.HashedPassword,
+		rolesStr,
+		time.Now().UTC(),
+	)
+
+	if err != nil {
+		s.logger.Error("Error upserting user: %v", err)
+		return err
+	}
+
+	// Update cache
+	userCache[user.Username] = &user
+	return nil
 }
 
 func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {

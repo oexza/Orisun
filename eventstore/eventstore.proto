@@ -96,9 +96,13 @@ message CatchUpSubscribeToStreamRequest {
   Position after_position = 6;
 }
 
+message PingRequest {}
+message PingResponse {}
+
 service EventStore {
   rpc SaveEvents(SaveEventsRequest) returns (WriteResult) {}
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
   rpc CatchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest) returns (stream Event) {}
   rpc CatchUpSubscribeToStream(CatchUpSubscribeToStreamRequest) returns (stream Event) {}
+  rpc Ping(PingRequest) returns (PingResponse) {}
 }

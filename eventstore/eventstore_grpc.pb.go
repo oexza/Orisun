@@ -23,6 +23,7 @@ const (
 	EventStore_GetEvents_FullMethodName                = "/eventstore.EventStore/GetEvents"
 	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToEvents"
 	EventStore_CatchUpSubscribeToStream_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToStream"
+	EventStore_Ping_FullMethodName                     = "/eventstore.EventStore/Ping"
 )
 
 // EventStoreClient is the client API for EventStore service.
@@ -33,6 +34,7 @@ type EventStoreClient interface {
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	CatchUpSubscribeToEvents(ctx context.Context, in *CatchUpSubscribeToEventStoreRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	CatchUpSubscribeToStream(ctx context.Context, in *CatchUpSubscribeToStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
+	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 }
 
 type eventStoreClient struct {
@@ -101,6 +103,16 @@ func (c *eventStoreClient) CatchUpSubscribeToStream(ctx context.Context, in *Cat
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventStore_CatchUpSubscribeToStreamClient = grpc.ServerStreamingClient[Event]
 
+func (c *eventStoreClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PingResponse)
+	err := c.cc.Invoke(ctx, EventStore_Ping_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EventStoreServer is the server API for EventStore service.
 // All implementations must embed UnimplementedEventStoreServer
 // for forward compatibility.
@@ -109,6 +121,7 @@ type EventStoreServer interface {
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error
 	CatchUpSubscribeToStream(*CatchUpSubscribeToStreamRequest, grpc.ServerStreamingServer[Event]) error
+	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	mustEmbedUnimplementedEventStoreServer()
 }
 
@@ -130,6 +143,9 @@ func (UnimplementedEventStoreServer) CatchUpSubscribeToEvents(*CatchUpSubscribeT
 }
 func (UnimplementedEventStoreServer) CatchUpSubscribeToStream(*CatchUpSubscribeToStreamRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method CatchUpSubscribeToStream not implemented")
+}
+func (UnimplementedEventStoreServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Ping not implemented")
 }
 func (UnimplementedEventStoreServer) mustEmbedUnimplementedEventStoreServer() {}
 func (UnimplementedEventStoreServer) testEmbeddedByValue()                    {}
@@ -210,6 +226,24 @@ func _EventStore_CatchUpSubscribeToStream_Handler(srv interface{}, stream grpc.S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EventStore_CatchUpSubscribeToStreamServer = grpc.ServerStreamingServer[Event]
 
+func _EventStore_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventStoreServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventStore_Ping_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventStoreServer).Ping(ctx, req.(*PingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EventStore_ServiceDesc is the grpc.ServiceDesc for EventStore service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -224,6 +258,10 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEvents",
 			Handler:    _EventStore_GetEvents_Handler,
+		},
+		{
+			MethodName: "Ping",
+			Handler:    _EventStore_Ping_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

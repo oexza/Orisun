@@ -15,9 +15,10 @@ type DB interface {
 	ListAdminUsers() ([]*globalCommon.User, error)
 	GetProjectorLastPosition(projectorName string) (*eventstore.Position, error)
 	UpdateProjectorPosition(name string, position *eventstore.Position) error
-	CreateNewUser(id string, username string, password_hash string, name string, roles []globalCommon.Role) error
+	UpsertUser(globalCommon.User) error
 	DeleteUser(id string) error
 	GetUserByUsername(username string) (globalCommon.User, error)
+	GetUserById(username string) (globalCommon.User, error)
 	GetUsersCount() (uint32, error)
 	SaveUsersCount(uint32) error
 	GetEventsCount(boundary string) (int, error)

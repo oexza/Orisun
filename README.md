@@ -6,30 +6,40 @@
 
 ## Introduction
 
-Orisun is a modern event store designed for building event-driven applications. It combines PostgreSQL's reliability with NATS JetStream's real-time capabilities to provide a complete event sourcing solution.
+Orisun is a batteries-included event store designed for modern event-driven applications. It combines PostgreSQL's rock-solid reliability with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
+
+Built for developers who need enterprise-grade event sourcing without the complexity, Orisun provides:
+- **Zero-Configuration Setup**: Get started in minutes with sensible defaults
+- **Production-Ready**: Built-in clustering, failover, and monitoring
+- **Developer Experience**: Clean APIs, comprehensive documentation, and intuitive tooling
+- **Batteries Included**: Everything you need in a single binary - no external dependencies required
 
 ### Key Features
 
-- **PostgreSQL Backend**: Reliable, transactional event storage with ACID guarantees
-- **Embedded NATS**: Real-time event streaming without external dependencies
-- **Multi-tenant Architecture**: Isolated boundaries with separate schemas
-- **Optimistic Concurrency**: Stream-based versioning with expected version checks
-- **Rich Querying**: Filter events by stream, tags, and global position
-- **Real-time Subscriptions**: Subscribe to event changes as they happen
-- **Admin Dashboard**: Built-in web interface for user management and system monitoring
-- **User Management**: Create, view, and manage users through the admin interface
+#### Core Event Sourcing
+- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
+- **Optimistic Concurrency**: Stream-based versioning with expected position checks
+- **Rich Event Querying**: Filter by stream, tags, event types, and global position
+- **Real-time Subscriptions**: Subscribe to event changes as they happen with catch-up subscriptions
+
+#### Built-in Infrastructure
+- **Embedded NATS JetStream**: Real-time event streaming without external dependencies
+- **Multi-tenant Architecture**: Isolated boundaries with separate PostgreSQL schemas
+- **Admin Dashboard**: Web-based interface for monitoring, user management, and system administration
+- **User Management**: Create and manage users with role-based access control
+
+#### Production Ready
 - **Clustered Deployment**: High availability with automatic failover and distributed locking
 - **Horizontal Scaling**: Add nodes dynamically for increased throughput and resilience
 - **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
+- **Comprehensive Monitoring**: Built-in metrics, health checks, and performance tracking
 
-## Quick Start (Run in One Minute)
+## Quick Start
 
-### Option 1: Docker Compose (Recommended)
+### Option 1: Docker Compose (Recommended - 60 Seconds)
+The fastest way to get started with Orisun:
 
-The fastest way to get Orisun running with PostgreSQL:
-
-Create a `docker-compose.yml` file:
-
+1. **Create `docker-compose.yml`:**
 ```yaml
 version: '3.8'
 services:
@@ -39,8 +49,6 @@ services:
       POSTGRES_DB: orisun
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
 
@@ -48,85 +56,114 @@ services:
     image: orexza/orisun:latest
     environment:
       ORISUN_PG_HOST: postgres
-      ORISUN_PG_PORT: 5432
       ORISUN_PG_USER: postgres
       ORISUN_PG_PASSWORD: postgres
       ORISUN_PG_NAME: orisun
       ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_admin:admin"
       ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]'
       ORISUN_ADMIN_BOUNDARY: orisun_admin
-      ORISUN_ADMIN_USERNAME: admin
-      ORISUN_ADMIN_PASSWORD: changeit
     ports:
-      - "8992:8992"
-      - "5005:5005"
+      - "8992:8992"  # Admin Dashboard
+      - "5005:5005"  # gRPC API
     depends_on:
       - postgres
-
-volumes:
-  postgres_data:
 ```
 
-Then run:
-
+2. **Start everything:**
 ```bash
-# Start Orisun and PostgreSQL
 docker-compose up -d
-
-# Access the admin dashboard at http://localhost:8992
-# Default credentials: admin/changeit
 ```
+
+3. **Access the Admin Dashboard:**
+- **URL**: http://localhost:8992
+- **Username**: `admin`
+- **Password**: `changeit`
+
+You're ready to start storing and querying events!
 
 ### Option 2: Download Binary
 
-1. Download the appropriate binary for your platform from the [Releases page](https://github.com/oexza/Orisun/releases)
-2. Run with basic configuration:
+1. **Download** from [Releases](https://github.com/oexza/Orisun/releases)
+2. **Run with PostgreSQL** (replace placeholders):
 
 ```bash
-# Configure PostgreSQL connection
+# Start Orisun with PostgreSQL
 ORISUN_PG_HOST=localhost \
-ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
 ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
-ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
-./orisun-[platform]-[arch]
+./orisun-darwin-arm64
 
-# Access the admin dashboard at http://localhost:8992
-# Default credentials: admin/changeit
+# Access: http://localhost:8992 (admin/changeit)
+# gRPC API: localhost:5005
 ```
 
-Replace `[platform]-[arch]` with your platform (e.g., `darwin-arm64`, `linux-amd64`)
+Platforms available: `darwin-arm64`, `linux-amd64`, `linux-arm64`
 
-### Option 3: Docker
+### Option 3: Docker Standalone
 
-Run Orisun directly with Docker:
+Run Orisun with Docker (requires external PostgreSQL):
 
 ```bash
-# Make sure you have PostgreSQL running or use host.docker.internal to connect to host machine's PostgreSQL
+# Run Orisun container
 docker run -d \
   --name orisun \
   -p 8992:8992 \
   -p 5005:5005 \
-  -e ORISUN_PG_USER=postgres \
-  -e ORISUN_PG_NAME=orisun \
-  -e ORISUN_PG_PASSWORD=password@1 \
   -e ORISUN_PG_HOST=host.docker.internal \
-  -e ORISUN_PG_PORT=5432 \
+  -e ORISUN_PG_USER=postgres \
+  -e ORISUN_PG_PASSWORD=your_password \
+  -e ORISUN_PG_NAME=your_database \
   -e ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
-  -e ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
-  -e ORISUN_ADMIN_BOUNDARY=orisun_admin \
-  -e ORISUN_ADMIN_USERNAME=admin \
-  -e ORISUN_ADMIN_PASSWORD=changeit \
   orexza/orisun:latest
 
-# Access the admin dashboard at http://localhost:8992
-# Default credentials: admin/changeit
+# Access: http://localhost:8992 (admin/changeit)
+# gRPC API: localhost:5005
 ```
+
+## Architecture Overview
+
+Orisun combines the reliability of PostgreSQL with the real-time capabilities of NATS JetStream to deliver a complete event sourcing solution:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Orisun Event Store                       │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│   PostgreSQL    │   NATS JetStream│      Admin Dashboard    │
+│   (Storage)     │   (Streaming)   │      (Monitoring)       │
+├─────────────────┼─────────────────┼─────────────────────────┤
+│ • ACID Compliant│ • Real-time Pub/Sub│ • User Management     │
+│ • Event Storage │ • Catch-up Subs  │ • System Monitoring    │
+│ • Multi-tenant  │ • Durable Streams│ • Performance Metrics   │
+│ • Rich Querying │ • Clustering     │ • Event Browser        │
+└─────────────────┴─────────────────┴─────────────────────────┘
+```
+
+### How It Works
+
+1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support
+2. **Real-time Streaming**: NATS JetStream provides immediate event delivery to subscribers
+3. **Multi-tenancy**: Each boundary operates in its own PostgreSQL schema for isolation
+4. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
+
+### Data Flow
+
+1. **Write Path**:
+   - Client sends events via gRPC
+   - Events are stored transactionally in PostgreSQL
+   - Events are published to NATS JetStream
+   - Subscribers receive events in real-time
+
+2. **Read Path**:
+   - Clients can query events by stream, tags, or global position
+   - Real-time subscriptions receive new events as they occur
+   - Catch-up subscriptions can replay historical events
+
+3. **Clustering**:
+   - Multiple nodes coordinate via distributed locks
+   - Automatic failover ensures continuous operation
+   - Each node can handle read/write operations independently
 
 ## Clients
 
@@ -249,7 +286,10 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
     }
   ],
   "stream": {
-    "expected_version": -1,
+    "expected_position": {
+      "commit_position": -1,
+      "prepare_position": -1
+    },
     "name": "user-1234"
   }
 }
@@ -303,7 +343,7 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/CatchUpSubscribeToEvents <<EO
 {
   "subscriber_name": "payment-processor",
   "boundary": "orisun_test_2",
-  "afterPosition": {
+  "after_position": {
     "commit_position": 0,
     "prepare_position": 0
   },
@@ -340,7 +380,10 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
   "boundary": "orisun_test_1",
   "stream": {
     "name": "user-123",
-    "expected_version": -1
+    "expected_position": {
+      "commit_position": -1,
+      "prepare_position": -1
+    }
   },
   "events": [
     {
@@ -359,7 +402,10 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
   "boundary": "orisun_test_2",
   "stream": {
     "name": "order-456",
-    "expected_version": -1
+    "expected_position": {
+      "commit_position": -1,
+      "prepare_position": -1
+    }
   },
   "events": [
     {

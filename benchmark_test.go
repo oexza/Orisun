@@ -176,6 +176,9 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",  // Increased from 3 to 20
 		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",   // Increased from 10 to 50
 		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",    // Increased from 5 to 10
+		// Enable pprof for profiling during benchmarks
+		"ORISUN_PPROF_ENABLED=true",
+		"ORISUN_PPROF_PORT=6060",
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
 		"ORISUN_GRPC_ENABLE_REFLECTION=true",
@@ -228,10 +231,43 @@ func (s *BenchmarkSetup) waitForGRPCServer(b *testing.B) {
 }
 
 func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
-	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var token *string = nil
+
+	// Create an interceptor to extract token from response metadata
+	unaryInterceptor := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {	
+		//if token is not nil, add it to the outgoing context
+		if token != nil {
+			ctx = metadata.AppendToOutgoingContext(ctx, "x-auth-token", *token)
+		}
+
+		// Create variables to capture response metadata
+		var responseMD metadata.MD
+		var responseTrailer metadata.MD
+		
+		// Add options to capture response headers and trailers
+		opts = append(opts, grpc.Header(&responseMD), grpc.Trailer(&responseTrailer))
+
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		if err == nil {
+			// Extract token from response headers if present
+			if tokens := responseMD.Get("x-auth-token"); len(tokens) > 0 {
+				// b.Logf("Extracted token from response headers: %s", tokens[0])
+				token = &tokens[0]
+			}
+		}
+		return err
+	}
+
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(unaryInterceptor),
+	)
 	require.NoError(b, err)
 	s.conn = conn
 	s.client = eventstore.NewEventStoreClient(conn)
+	// Perform initial ping to get token
+	pingResp, err := s.client.Ping(s.authContext(), &eventstore.PingRequest{})
+	b.Logf("Ping response: %v, %v", pingResp, err)
 }
 
 func (s *BenchmarkSetup) cleanup(b *testing.B) {
@@ -289,73 +325,6 @@ func generateRandomEvent(eventType string) *eventstore.EventToSave {
 		EventType: eventType,
 		Data:      fmt.Sprintf(`{"timestamp": "%s", "message": "random event"}`, time.Now().Format(time.RFC3339)),
 		Metadata:  `{"source": "benchmark"}`,
-	}
-}
-
-// BenchmarkSaveEvents_SameStreamWithSubsetQuery tests multiple parallel workers
-// saving events to the same stream using SaveStreamQuery with SubsetQuery criteria
-func BenchmarkSaveEvents_SameStreamWithSubsetQuery(b *testing.B) {
-	setup := setupBenchmark(b)
-	defer setup.cleanup(b)
-
-	// Test different worker counts
-	workerCounts := []int{10000}
-
-	for _, workers := range workerCounts {
-		b.Run(fmt.Sprintf("Workers_%d", workers), func(b *testing.B) {
-			boundary := "benchmark_test" // Use same boundary as other benchmarks
-			streamName := "shared-subset-stream"
-
-			b.ResetTimer()
-			totalEvents := int64(0)
-
-			b.RunParallel(func(pb *testing.PB) {
-				// Each worker gets a unique user ID for subset filtering
-				userID := uuid.New().String()
-				localEvents := int64(0)
-
-				for pb.Next() {
-					event := &eventstore.EventToSave{
-						EventId:   uuid.New().String(),
-						EventType: "UserAction",
-						Data:      fmt.Sprintf(`{"user_id": "%s", "action": "test_action", "timestamp": "%s"}`, userID, time.Now().Format(time.RFC3339)),
-						Metadata:  fmt.Sprintf(`{"source": "benchmark", "user_id": "%s"}`, userID),
-					}
-
-					position := eventstore.NotExistsPosition()
-					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-						Boundary: boundary,
-						Stream: &eventstore.SaveStreamQuery{
-							Name:             streamName,
-							ExpectedPosition: &position,
-							// Remove ExpectedVersion entirely to allow concurrent appends
-							SubsetQuery: &eventstore.Query{
-								Criteria: []*eventstore.Criterion{
-									{
-										Tags: []*eventstore.Tag{
-											{Key: "user_id", Value: userID},
-											{Key: "eventType", Value: "UserAction"},
-										},
-									},
-								},
-							},
-						},
-						Events: []*eventstore.EventToSave{event},
-					})
-					if err != nil {
-						b.Logf("Save error: %v", err)
-					} else {
-						localEvents++
-					}
-				}
-
-				// Add local events to total atomically
-				atomic.AddInt64(&totalEvents, localEvents)
-			})
-
-			// Report custom metric for events per second
-			b.ReportMetric(float64(totalEvents)/b.Elapsed().Seconds(), "events/sec")
-		})
 	}
 }
 
@@ -458,86 +427,6 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 	// Log actual vs expected event count
 	b.Logf("🔥 DATABASE FLOOD TEST: Processed %d events (target: %d) in %.2f seconds at %.1f events/sec",
 		totalEvents, targetEvents, elapsed.Seconds(), eventsPerSec)
-}
-
-// BenchmarkSaveEvents_TrulySimultaneous10K launches all 10,000 save operations simultaneously
-// for maximum contention testing, unlike the worker-based approach above.
-func BenchmarkSaveEvents_TrulySimultaneous10K(b *testing.B) {
-	setup := setupBenchmark(b)
-	defer setup.cleanup(b)
-
-	boundary := "benchmark_test"
-	streamName := "high_contention_stream"
-	targetEvents := 10000
-	criteriaCount := 5
-	tagsPerCriteria := 3
-
-	b.ResetTimer()
-	startTime := time.Now()
-
-	// Create all goroutines first, then start them simultaneously
-	var wg sync.WaitGroup
-	startSignal := make(chan struct{})
-	totalEvents := int64(0)
-
-	// Pre-create all 10,000 goroutines
-	for i := 0; i < targetEvents; i++ {
-		wg.Add(1)
-		go func(iteration int) {
-			defer wg.Done()
-
-			// Wait for start signal - this ensures true simultaneity
-			<-startSignal
-
-			criteriaIndex := iteration % criteriaCount
-			criteria := generateGenericCriteria("simultaneous", criteriaIndex, tagsPerCriteria)
-
-			event := &eventstore.EventToSave{
-				EventId:   uuid.New().String(),
-				EventType: fmt.Sprintf("Event_Type_%d", criteriaIndex),
-				Data: fmt.Sprintf(`{"iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`,
-					iteration, criteriaIndex, time.Now().Format(time.RFC3339), iteration%1000),
-				Metadata: fmt.Sprintf(`{"source": "benchmark", "criteria_index": %d}`, criteriaIndex),
-			}
-
-			position := eventstore.NotExistsPosition()
-			_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-				Boundary: boundary,
-				Stream: &eventstore.SaveStreamQuery{
-					Name:             streamName,
-					ExpectedPosition: &position, // Allow concurrent appends
-					SubsetQuery: &eventstore.Query{
-						Criteria: criteria,
-					},
-				},
-				Events: []*eventstore.EventToSave{event},
-			})
-			if err != nil {
-				b.Logf("Save error: %v", err)
-			} else {
-				atomic.AddInt64(&totalEvents, 1)
-			}
-		}(i)
-	}
-
-	// Small delay to ensure all goroutines are waiting
-	time.Sleep(100 * time.Millisecond)
-
-	// START ALL 10,000 GOROUTINES SIMULTANEOUSLY!
-	close(startSignal)
-
-	// Wait for all to complete
-	wg.Wait()
-	elapsed := time.Since(startTime)
-
-	// Report metrics
-	eventsPerSec := float64(totalEvents) / elapsed.Seconds()
-	b.ReportMetric(eventsPerSec, "events/sec")
-	b.ReportMetric(float64(totalEvents), "total_events")
-	b.ReportMetric(elapsed.Seconds(), "duration_sec")
-
-	b.Logf("🚀 TRUE SIMULTANEOUS TEST: %d events in %.2f seconds at %.1f events/sec",
-		totalEvents, elapsed.Seconds(), eventsPerSec)
 }
 
 // generateGenericCriteria creates generic criteria based on worker ID and index
@@ -650,60 +539,6 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 				})
 				if err != nil {
 					b.Errorf("Failed to save batch: %v", err)
-				}
-				totalEvents += batchSize
-			}
-			// Report custom metric for events per second
-			b.ReportMetric(float64(totalEvents)/b.Elapsed().Seconds(), "events/sec")
-		})
-	}
-}
-
-// BenchmarkSaveEvents_SingleStream tests saving large batches to the same stream
-func BenchmarkSaveEvents_SingleStream(b *testing.B) {
-	setup := setupBenchmark(b)
-	defer setup.cleanup(b)
-
-	batchSizes := []int{100, 1000, 5000}
-
-	for _, batchSize := range batchSizes {
-		b.Run(fmt.Sprintf("BatchSize_%d", batchSize), func(b *testing.B) {
-			// Create unique stream ID for this sub-benchmark to avoid conflicts
-			streamId := uuid.New().String()
-
-			// Pre-generate all events and expected versions before timing
-			batches := make([][]*eventstore.EventToSave, b.N)
-			expectedPositions := make([]*eventstore.Position, b.N)
-
-			for i := 0; i < b.N; i++ {
-				batches[i] = make([]*eventstore.EventToSave, batchSize)
-				for j := 0; j < batchSize; j++ {
-					batches[i][j] = generateRandomEvent("SingleStreamEvent")
-				}
-				if i == 0 {
-					p := eventstore.NotExistsPosition()
-					expectedPositions[i] = &p
-				} else {
-					expectedPositions[i] = &eventstore.Position{
-						CommitPosition:  expectedPositions[i-1].CommitPosition + int64(batchSize),
-						PreparePosition: expectedPositions[i-1].PreparePosition + int64(batchSize),
-					}
-				}
-			}
-
-			b.ResetTimer()
-			totalEvents := 0
-			for i := 0; i < b.N; i++ {
-				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-					Boundary: "benchmark_test",
-					Stream: &eventstore.SaveStreamQuery{
-						Name:             streamId,
-						ExpectedPosition: expectedPositions[i],
-					},
-					Events: batches[i],
-				})
-				if err != nil {
-					b.Errorf("Failed to save batch to single stream: %v", err)
 				}
 				totalEvents += batchSize
 			}
@@ -906,117 +741,240 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	}
 }
 
-// BenchmarkConcurrentOperations tests mixed concurrent operations
-func BenchmarkConcurrentOperations(b *testing.B) {
+// BenchmarkSaveEvents_Burst10000 dispatches 10,000 SaveEvents concurrently at the same moment
+func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	setup := setupBenchmark(b)
 	defer setup.cleanup(b)
 
-	boundary := "concurrent_boundary"
+	boundary := "benchmark_test"
+	concurrency := 10000
 
-	// Pre-populate with events outside of timing
-	for i := 0; i < 100; i++ {
-		event := generateRandomEvent("ConcurrentTestEvent")
-		streamId := uuid.New().String()
-		p := eventstore.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-			Boundary: boundary,
-			Stream: &eventstore.SaveStreamQuery{
-				Name:             streamId,
-				ExpectedPosition: &p,
+	var totalEvents int64
+	var totalErrors int64
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	// Pre-create all events to reduce allocation during timing
+	events := make([]*eventstore.EventToSave, concurrency)
+	streamIds := make([]string, concurrency)
+	for i := 0; i < concurrency; i++ {
+		events[i] = generateRandomEvent("BurstEvent")
+		streamIds[i] = uuid.New().String()
+	}
+
+	// Use a worker pool pattern to reduce goroutine overhead
+	numWorkers := runtime.GOMAXPROCS(0) * 20 // Use 10x CPU cores for workers
+	jobs := make(chan int, concurrency)
+	var workerWg sync.WaitGroup
+
+	// Start worker goroutines
+	for w := 0; w < numWorkers; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for jobIndex := range jobs {
+				p := eventstore.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+					Boundary: boundary,
+					Stream: &eventstore.SaveStreamQuery{
+						Name:             streamIds[jobIndex],
+						ExpectedPosition: &p,
+					},
+					Events: []*eventstore.EventToSave{events[jobIndex]},
+				})
+				if err == nil {
+					atomic.AddInt64(&totalEvents, 1)
+				} else {
+					atomic.AddInt64(&totalErrors, 1)
+				}
+			}
+		}()
+	}
+
+	// Measure the burst window only
+	b.ResetTimer()
+	startTime := time.Now()
+	close(start) // Signal all workers to start
+
+	// Distribute jobs to workers
+	for i := 0; i < concurrency; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	workerWg.Wait()
+	b.StopTimer()
+	elapsed := time.Since(startTime)
+
+	b.ReportMetric(float64(totalEvents)/elapsed.Seconds(), "events/sec")
+	if totalErrors > 0 {
+		b.Logf("Encountered %d errors during burst", totalErrors)
+	}
+}
+
+// BenchmarkSaveEvents_Burst10000Optimized uses optimizations to reduce overhead
+func BenchmarkSaveEvents_Burst10000Optimized(b *testing.B) {
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	boundary := "benchmark_test"
+	concurrency := 10000
+
+	var totalEvents int64
+	var totalErrors int64
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	// Pre-create all events to reduce allocation during timing
+	events := make([]*eventstore.EventToSave, concurrency)
+	streamIds := make([]string, concurrency)
+	for i := 0; i < concurrency; i++ {
+		events[i] = generateRandomEvent("BurstEvent")
+		streamIds[i] = uuid.New().String()
+	}
+
+	// Use a worker pool pattern to reduce goroutine overhead
+	numWorkers := runtime.GOMAXPROCS(0) * 20 // Use 4x CPU cores for workers
+	jobs := make(chan int, concurrency)
+	var workerWg sync.WaitGroup
+
+	// Start worker goroutines
+	for w := 0; w < numWorkers; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for jobIndex := range jobs {
+				p := eventstore.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+					Boundary: boundary,
+					Stream: &eventstore.SaveStreamQuery{
+						Name:             streamIds[jobIndex],
+						ExpectedPosition: &p,
+					},
+					Events: []*eventstore.EventToSave{events[jobIndex]},
+				})
+				if err == nil {
+					atomic.AddInt64(&totalEvents, 1)
+				} else {
+					atomic.AddInt64(&totalErrors, 1)
+				}
+			}
+		}()
+	}
+
+	// Measure the burst window only
+	b.ResetTimer()
+	startTime := time.Now()
+	close(start) // Signal all workers to start
+
+	// Distribute jobs to workers
+	for i := 0; i < concurrency; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	workerWg.Wait()
+	b.StopTimer()
+	elapsed := time.Since(startTime)
+
+	b.ReportMetric(float64(totalEvents)/elapsed.Seconds(), "events/sec")
+	if totalErrors > 0 {
+		b.Logf("Encountered %d errors during burst", totalErrors)
+	}
+}
+
+// BenchmarkSaveEvents_Burst10000SameStream uses same stream strategy as DirectDatabase
+func BenchmarkSaveEvents_Burst10000SameStream(b *testing.B) {
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	boundary := "benchmark_test"
+	concurrency := 10000
+	sameStreamName := "benchmark_concurrent_stream"
+
+	var totalEvents int64
+	var totalErrors int64
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+
+	// Pre-create all events to reduce allocation during timing
+	events := make([]*eventstore.EventToSave, concurrency)
+	consistencyConditions := make([]*eventstore.Query, concurrency)
+
+	for i := range concurrency {
+		events[i] = generateRandomEvent("BurstEvent")
+		consistencyConditions[i] = &eventstore.Query{
+			Criteria: []*eventstore.Criterion{
+				{
+					Tags: []*eventstore.Tag{
+						{
+							Key:   "event_index",
+							Value: fmt.Sprintf("%d", i),
+						},
+						{
+							Key:   "benchmark_run",
+							Value: fmt.Sprintf("%d", time.Now().UnixNano()),
+						},
+					},
+				},
 			},
-			Events: []*eventstore.EventToSave{event},
-		})
-		if err != nil {
-			b.Fatalf("Failed to pre-populate events: %v", err)
 		}
 	}
 
+	// Use a worker pool pattern to reduce goroutine overhead
+	numWorkers := runtime.GOMAXPROCS(0) * 4
+	jobs := make(chan int, concurrency)
+	var workerWg sync.WaitGroup
+
+	// Start worker goroutines
+	for w := 0; w < numWorkers; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for jobIndex := range jobs {
+				p := eventstore.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+					Boundary: boundary,
+					Stream: &eventstore.SaveStreamQuery{
+						Name:             sameStreamName, // Same stream for all events
+						ExpectedPosition: &p,
+						SubsetQuery:      consistencyConditions[jobIndex],
+					},
+					Events: []*eventstore.EventToSave{events[jobIndex]},
+				})
+				if err == nil {
+					atomic.AddInt64(&totalEvents, 1)
+				} else {
+					atomic.AddInt64(&totalErrors, 1)
+				}
+			}
+		}()
+	}
+
+	// Measure the burst window only
 	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			// Test concurrent operations without goroutines inside the measurement
-			// This measures the time for a single mixed operation set
+	startTime := time.Now()
+	close(start)
 
-			// Save operation
-			event := generateRandomEvent("ConcurrentSaveEvent")
-			streamId := uuid.New().String()
-			p := eventstore.NotExistsPosition()
-			_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-				Boundary: boundary,
-				Stream: &eventstore.SaveStreamQuery{
-					Name:             streamId,
-					ExpectedPosition: &p,
-				},
-				Events: []*eventstore.EventToSave{event},
-			})
-			if err != nil {
-				b.Errorf("Failed to save event: %v", err)
-			}
+	// Distribute jobs to workers
+	for i := 0; i < concurrency; i++ {
+		jobs <- i
+	}
+	close(jobs)
 
-			// Get operation
-			_, err = setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
-				Boundary: boundary,
-				Count:    10,
-			})
-			if err != nil {
-				b.Errorf("Failed to get events: %v", err)
-			}
-		}
-	})
-}
+	workerWg.Wait()
+	b.StopTimer()
+	elapsed := time.Since(startTime)
 
-// BenchmarkHighThroughput tests high-throughput scenarios
-func BenchmarkHighThroughput(b *testing.B) {
-	setup := setupBenchmark(b)
-	defer setup.cleanup(b)
-
-	// Test different concurrency levels
-	concurrencyLevels := []int{10, 50, 100}
-
-	for _, concurrency := range concurrencyLevels {
-		b.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(b *testing.B) {
-			boundary := fmt.Sprintf("throughput_boundary_%d", concurrency)
-
-			// Set GOMAXPROCS to match concurrency for this test
-			runtime.GOMAXPROCS(concurrency)
-
-			b.ResetTimer()
-			totalEvents := int64(0)
-
-			b.RunParallel(func(pb *testing.PB) {
-				localEvents := int64(0)
-				localErrors := int64(0)
-				for pb.Next() {
-					event := generateRandomEvent("ThroughputEvent")
-					streamId := uuid.New().String()
-					p := eventstore.NotExistsPosition()
-					_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
-						Boundary: boundary,
-						Stream: &eventstore.SaveStreamQuery{
-							Name:             streamId,
-							ExpectedPosition: &p,
-						},
-						Events: []*eventstore.EventToSave{event},
-					})
-					if err == nil {
-						localEvents++
-					} else {
-						localErrors++
-						// Don't use b.Errorf here as it would affect timing
-						// Errors are tracked and reported separately
-					}
-				}
-				// Add local events to total atomically
-				atomic.AddInt64(&totalEvents, localEvents)
-				// Track errors for reporting but don't fail the benchmark
-				if localErrors > 0 {
-					b.Logf("Worker had %d errors out of %d attempts", localErrors, localEvents+localErrors)
-				}
-			})
-
-			// Report custom metric for events per second
-			b.ReportMetric(float64(totalEvents)/b.Elapsed().Seconds(), "events/sec")
-		})
+	b.ReportMetric(float64(totalEvents)/elapsed.Seconds(), "events/sec")
+	if totalErrors > 0 {
+		b.Logf("Encountered %d errors during burst", totalErrors)
 	}
 }
 
@@ -1082,8 +1040,8 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	defer db.Close()
 
 	// Configure connection pool for high performance
-	db.SetMaxOpenConns(100)
-	db.SetMaxIdleConns(20)
+	db.SetMaxOpenConns(170)
+	db.SetMaxIdleConns(100)
 	db.SetConnMaxLifetime(time.Hour)
 
 	// Wait for database to be ready
@@ -1127,7 +1085,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 		var totalAttempts int64
 
 		// Pre-create ALL goroutines first, but don't let them execute yet
-		for eventIndex := 0; eventIndex < totalEvents; eventIndex++ {
+		for eventIndex := range totalEvents {
 			wg.Add(1)
 
 			// Create a single event with different criteria for each goroutine
@@ -1289,7 +1247,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	db.SetConnMaxLifetime(time.Hour)
 
 	// Wait for database to be ready
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		if err := db.Ping(); err == nil {
 			break
 		}
@@ -1319,7 +1277,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	streamName := "benchmark_batch_stream"
 	events := make([]eventstore.EventWithMapTags, totalEvents)
 
-	for i := 0; i < totalEvents; i++ {
+	for i := range totalEvents {
 		events[i] = eventstore.EventWithMapTags{
 			EventId:   uuid.New().String(),
 			EventType: "BatchTestEvent",

@@ -157,6 +157,11 @@ func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
 	return status.Errorf(codes.PermissionDenied, "user does not have any of the required roles")
 }
 
+func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResponse, err error) {
+	s.logger.Debugf("Ping called")
+	return &PingResponse{}, nil
+}
+
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	s.logger.Debugf("SaveEvents called with req: %v", req)
 

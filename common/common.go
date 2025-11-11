@@ -34,7 +34,7 @@ type User struct {
     Id             string `json:"id"`
     Name           string `json:"name"`
     Username       string `json:"username"`
-    HashedPassword string `json:"-"`
+    HashedPassword string `json:"password_hash"`
     Roles          []Role `json:"roles"`
 }
 

@@ -19,11 +19,11 @@ type AppConfig struct {
 	Boundaries string
 	boundaries []Boundary
 	Grpc       struct {
-		Port             string
-		EnableReflection bool
-		ConnectionTimeout time.Duration
-		KeepAliveTime     time.Duration
-		KeepAliveTimeout  time.Duration
+		Port                 string
+		EnableReflection     bool
+		ConnectionTimeout    time.Duration
+		KeepAliveTime        time.Duration
+		KeepAliveTimeout     time.Duration
 		MaxConcurrentStreams uint32
 	}
 	PollingPublisher struct {
@@ -50,6 +50,10 @@ type AppConfig struct {
 		Port     string
 		Boundary string
 	}
+	Pprof struct {
+		Enabled bool
+		Port    string
+	}
 }
 
 type DBConfig struct {
@@ -61,13 +65,13 @@ type DBConfig struct {
 	Schemas  string
 	SSLMode  string
 	// Write pool configuration (optimized for write operations)
-	WriteMaxOpenConns  int
-	WriteMaxIdleConns  int
+	WriteMaxOpenConns    int
+	WriteMaxIdleConns    int
 	WriteConnMaxIdleTime time.Duration
 	WriteConnMaxLifetime time.Duration
 	// Read pool configuration (optimized for read operations)
-	ReadMaxOpenConns  int
-	ReadMaxIdleConns  int
+	ReadMaxOpenConns    int
+	ReadMaxIdleConns    int
 	ReadConnMaxIdleTime time.Duration
 	ReadConnMaxLifetime time.Duration
 	// Admin pool configuration (optimized for admin operations)

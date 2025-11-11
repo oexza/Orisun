@@ -68,3 +68,8 @@ auth:
 admin:
   port: ${ORISUN_ADMIN_PORT:8991}
   boundary: ${ORISUN_ADMIN_BOUNDARY:orisun_admin}
+
+
+pprof:
+  enabled: ${ORISUN_PPROF_ENABLED:false}
+  port: ${ORISUN_PPROF_PORT:6060}

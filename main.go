@@ -48,9 +48,26 @@ import (
 	event_count "orisun/admin/slices/dashboard/event_count"
 	user_count "orisun/admin/slices/dashboard/user_count"
 
+	_ "net/http/pprof"
+
 	"github.com/nats-io/nats-server/v2/server"
 	"golang.org/x/sync/errgroup"
 )
+
+// LoginAuthenticatorAdapter bridges admin.Authenticator to login.Authenticator
+type LoginAuthenticatorAdapter struct {
+	authenticator *admin.Authenticator
+	logger        l.Logger
+}
+
+// ValidateCredentials implements the login.Authenticator interface
+func (adapter *LoginAuthenticatorAdapter) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, error) {
+	user, _, err := adapter.authenticator.ValidateCredentials(ctx, username, password)
+	if err != nil {
+		return globalCommon.User{}, err
+	}
+	return user, nil
+}
 
 // ensureJetStreamStreamIsProperlySetup ensures that a JetStream stream with the given name exists.
 // If the stream doesn't exist, it creates a new one with default configuration.
@@ -147,6 +164,15 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 	return nil
 }
 
+// getUserByIdWrapper implements the up.GetUserById interface using adminDB
+type getUserByIdWrapper struct {
+	adminDB common.DB
+}
+
+func (w getUserByIdWrapper) Get(userId string) (globalCommon.User, error) {
+	return w.adminDB.GetUserById(userId)
+}
+
 func main() {
 	defer logger.Println("Server shutting down")
 
@@ -159,6 +185,16 @@ func main() {
 	// Initialize logger
 	AppLogger := initializeLogger(config)
 	AppLogger.Debugf("config: %v", config)
+	// Start pprof server if enabled
+	if config.Pprof.Enabled {
+		addr := fmt.Sprintf(":%s", config.Pprof.Port)
+		go func() {
+			AppLogger.Infof("pprof listening on %s", addr)
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				AppLogger.Errorf("pprof server error: %v", err)
+			}
+		}()
+	}
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -285,8 +321,9 @@ func main() {
 		config.Admin.Boundary,
 		adminDB.GetProjectorLastPosition,
 		adminDB.UpdateProjectorPosition,
-		adminDB.CreateNewUser,
+		adminDB.UpsertUser,
 		adminDB.DeleteUser,
+		getUserByIdWrapper{adminDB: adminDB},
 		func(
 			ctx context.Context,
 			boundary string,
@@ -432,12 +469,19 @@ func main() {
 		eventStore.GetEvents,
 		AppLogger,
 		config.Admin.Boundary,
+		adminDB.GetUserByUsername,
 	)
+
+	// Create an adapter to bridge admin.Authenticator to login.Authenticator
+	loginAuthenticator := &LoginAuthenticatorAdapter{
+		authenticator: authenticator,
+		logger:        AppLogger,
+	}
 
 	loginHandler := login.NewLoginHandler(
 		AppLogger,
 		config.Admin.Boundary,
-		authenticator,
+		loginAuthenticator,
 	)
 
 	deleteUserHandler := delete_user.NewDeleteUserHandler(
@@ -844,6 +888,7 @@ func startUserProjector(
 	updateProjectorPosition common.UpdateProjectorPositionType,
 	createNewUser up.CreateNewUserType,
 	deleteUser up.DeleteUserType,
+	getUserById up.GetUserById,
 	subscribeToEvents common.SubscribeToEventStoreType,
 	saveEvents common.SaveEventsType,
 	getEvents common.GetEventsType,
@@ -855,6 +900,7 @@ func startUserProjector(
 			updateProjectorPosition,
 			createNewUser,
 			deleteUser,
+			getUserById,
 			saveEvents,
 			getEvents,
 			logger,
@@ -1129,7 +1175,7 @@ func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
 			logger.Errorf("Error in streaming RPC %s: %v", info.FullMethod, err)
 			return status.Errorf(codes.Internal, "Error: %v", err)
 		}
-		
+
 		return nil
 	}
 }
@@ -1157,24 +1203,6 @@ func convertToURLSlice(routes []string, logger l.Logger) []*url.URL {
 		urls = append(urls, u)
 	}
 	return urls
-}
-
-func createBasicAuthHeader(username, password string) string {
-	auth := username + ":" + password
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-}
-
-func getAuthenticatedContext(username, password string) context.Context {
-	// Create Basic Auth header
-	authHeader := createBasicAuthHeader(username, password)
-
-	// Create metadata with the Authorization header
-	md := metadata.New(map[string]string{
-		"Authorization": authHeader,
-	})
-
-	// Attach metadata to the context
-	return metadata.NewOutgoingContext(context.Background(), md)
 }
 
 func startAdminServer(

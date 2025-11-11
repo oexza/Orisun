@@ -12,15 +12,19 @@ import (
 	"github.com/goccy/go-json"
 )
 
-type CreateNewUserType = func(id string, username string, password_hash string, name string, roles []globalCommon.Role) error
+type CreateNewUserType = func(globalCommon.User) error
 type DeleteUserType = func(id string) error
 type CountUsersType = func() error
+type GetUserById interface {
+	Get(userId string) (globalCommon.User, error)
+}
 
 type UserProjector struct {
 	getProjectorLastPosition common.GetProjectorLastPositionType
 	updateProjectorPosition  common.UpdateProjectorPositionType
 	createNewUser            CreateNewUserType
 	deleteUser               DeleteUserType
+	getUserById              GetUserById
 	logger                   l.Logger
 	boundary                 string
 	saveEvents               common.SaveEventsType
@@ -34,6 +38,7 @@ func NewUserProjector(
 	updateProjectorPosition common.UpdateProjectorPositionType,
 	createNewUser CreateNewUserType,
 	deleteUser DeleteUserType,
+	getUserById GetUserById,
 	saveEvents common.SaveEventsType,
 	getEvents common.GetEventsType,
 	logger l.Logger,
@@ -51,6 +56,7 @@ func NewUserProjector(
 		saveEvents:               saveEvents,
 		getEvents:                getEvents,
 		subscribeToEvents:        subscribeToEvents,
+		getUserById:              getUserById,
 	}
 }
 
@@ -129,11 +135,13 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		}
 
 		err := p.createNewUser(
-			userEvent.UserId,
-			userEvent.Username,
-			userEvent.PasswordHash,
-			userEvent.Name,
-			userEvent.Roles,
+			globalCommon.User{
+				Id:             userEvent.UserId,
+				Username:       userEvent.Username,
+				HashedPassword: userEvent.PasswordHash,
+				Name:           userEvent.Name,
+				Roles:          userEvent.Roles,
+			},
 		)
 
 		if err != nil {
@@ -156,7 +164,13 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
 			return err
 		}
+		user, err := p.getUserById.Get(userEvent.UserId)
 
+		if err != nil {
+			return err
+		}
+		user.HashedPassword = userEvent.PasswordHash
+		p.createNewUser(user)
 	}
 	return nil
 }

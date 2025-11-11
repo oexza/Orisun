@@ -332,7 +332,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	wrongVersionReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
-			Name:            streamName,
+			Name:             streamName,
 			ExpectedPosition: &expectedPosition, // Wrong version, should be 0
 		},
 		Events: []*pb.EventToSave{
@@ -352,7 +352,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	correctVersionReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
-			Name:            streamName,
+			Name:             streamName,
 			ExpectedPosition: firstSaveResp.LogPosition, // Correct version
 		},
 		Events: []*pb.EventToSave{
@@ -386,7 +386,7 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 		saveReq := &pb.SaveEventsRequest{
 			Boundary: boundary,
 			Stream: &pb.SaveStreamQuery{
-				Name:            streamName,
+				Name:             streamName,
 				ExpectedPosition: &expectedPosition,
 			},
 			Events: []*pb.EventToSave{
@@ -438,7 +438,7 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
-			Name:            streamName,
+			Name:             streamName,
 			ExpectedPosition: &expectedPosition,
 		},
 		Events: []*pb.EventToSave{
@@ -501,7 +501,7 @@ func TestE2E_CatchUpSubscribeToStream(t *testing.T) {
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
-			Name:            streamName,
+			Name:             streamName,
 			ExpectedPosition: &expectedPosition,
 		},
 		Events: []*pb.EventToSave{
@@ -534,8 +534,8 @@ func TestE2E_CatchUpSubscribeToStream(t *testing.T) {
 		Boundary:       "orisun_test_1",
 		SubscriberName: "test-stream-subscriber",
 		Stream:         streamName,
-		AfterPosition:   &expectedPosition,  // Start from beginning
-		Query:          nil, // Remove query to get all events from the stream
+		AfterPosition:  &expectedPosition, // Start from beginning
+		Query:          nil,               // Remove query to get all events from the stream
 	}
 
 	// Start stream subscription

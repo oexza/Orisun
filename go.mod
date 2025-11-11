@@ -10,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/lib/pq v1.10.9
 	github.com/nats-io/nats-server/v2 v2.11.9
-	github.com/nats-io/nats.go v1.45.0
+	github.com/nats-io/nats.go v1.47.0
 	github.com/spf13/viper v1.21.0
 	github.com/starfederation/datastar-go v1.0.2
 	github.com/stretchr/testify v1.11.1

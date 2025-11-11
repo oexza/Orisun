@@ -908,6 +908,78 @@ func (x *CatchUpSubscribeToStreamRequest) GetAfterPosition() *Position {
 	return nil
 }
 
+type PingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingRequest) Reset() {
+	*x = PingRequest{}
+	mi := &file_eventstore_eventstore_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingRequest) ProtoMessage() {}
+
+func (x *PingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_eventstore_eventstore_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
+func (*PingRequest) Descriptor() ([]byte, []int) {
+	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{14}
+}
+
+type PingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingResponse) Reset() {
+	*x = PingResponse{}
+	mi := &file_eventstore_eventstore_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingResponse) ProtoMessage() {}
+
+func (x *PingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_eventstore_eventstore_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
+func (*PingResponse) Descriptor() ([]byte, []int) {
+	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{15}
+}
+
 var File_eventstore_eventstore_proto protoreflect.FileDescriptor
 
 const file_eventstore_eventstore_proto_rawDesc = "" +
@@ -971,17 +1043,20 @@ const file_eventstore_eventstore_proto_rawDesc = "" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
 	"\bboundary\x18\x04 \x01(\tR\bboundary\x12\x16\n" +
 	"\x06stream\x18\x05 \x01(\tR\x06stream\x12;\n" +
-	"\x0eafter_position\x18\x06 \x01(\v2\x14.eventstore.PositionR\rafterPosition*\x1e\n" +
+	"\x0eafter_position\x18\x06 \x01(\v2\x14.eventstore.PositionR\rafterPosition\"\r\n" +
+	"\vPingRequest\"\x0e\n" +
+	"\fPingResponse*\x1e\n" +
 	"\tDirection\x12\a\n" +
 	"\x03ASC\x10\x00\x12\b\n" +
-	"\x04DESC\x10\x012\xe4\x02\n" +
+	"\x04DESC\x10\x012\xa1\x03\n" +
 	"\n" +
 	"EventStore\x12F\n" +
 	"\n" +
 	"SaveEvents\x12\x1d.eventstore.SaveEventsRequest\x1a\x17.eventstore.WriteResult\"\x00\x12J\n" +
 	"\tGetEvents\x12\x1c.eventstore.GetEventsRequest\x1a\x1d.eventstore.GetEventsResponse\"\x00\x12b\n" +
 	"\x18CatchUpSubscribeToEvents\x12/.eventstore.CatchUpSubscribeToEventStoreRequest\x1a\x11.eventstore.Event\"\x000\x01\x12^\n" +
-	"\x18CatchUpSubscribeToStream\x12+.eventstore.CatchUpSubscribeToStreamRequest\x1a\x11.eventstore.Event\"\x000\x01B*\n" +
+	"\x18CatchUpSubscribeToStream\x12+.eventstore.CatchUpSubscribeToStreamRequest\x1a\x11.eventstore.Event\"\x000\x01\x12;\n" +
+	"\x04Ping\x12\x17.eventstore.PingRequest\x1a\x18.eventstore.PingResponse\"\x00B*\n" +
 	"\x15com.orisun.eventstoreZ\x11orisun/eventstoreb\x06proto3"
 
 var (
@@ -997,7 +1072,7 @@ func file_eventstore_eventstore_proto_rawDescGZIP() []byte {
 }
 
 var file_eventstore_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_eventstore_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_eventstore_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_eventstore_eventstore_proto_goTypes = []any{
 	(Direction)(0),                              // 0: eventstore.Direction
 	(*Position)(nil),                            // 1: eventstore.Position
@@ -1014,13 +1089,15 @@ var file_eventstore_eventstore_proto_goTypes = []any{
 	(*GetEventsResponse)(nil),                   // 12: eventstore.GetEventsResponse
 	(*CatchUpSubscribeToEventStoreRequest)(nil), // 13: eventstore.CatchUpSubscribeToEventStoreRequest
 	(*CatchUpSubscribeToStreamRequest)(nil),     // 14: eventstore.CatchUpSubscribeToStreamRequest
-	(*timestamppb.Timestamp)(nil),               // 15: google.protobuf.Timestamp
+	(*PingRequest)(nil),                         // 15: eventstore.PingRequest
+	(*PingResponse)(nil),                        // 16: eventstore.PingResponse
+	(*timestamppb.Timestamp)(nil),               // 17: google.protobuf.Timestamp
 }
 var file_eventstore_eventstore_proto_depIdxs = []int32{
 	2,  // 0: eventstore.Criterion.tags:type_name -> eventstore.Tag
 	3,  // 1: eventstore.Query.criteria:type_name -> eventstore.Criterion
 	1,  // 2: eventstore.Event.position:type_name -> eventstore.Position
-	15, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
+	17, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
 	1,  // 4: eventstore.WriteResult.log_position:type_name -> eventstore.Position
 	1,  // 5: eventstore.SaveStreamQuery.expected_position:type_name -> eventstore.Position
 	4,  // 6: eventstore.SaveStreamQuery.subsetQuery:type_name -> eventstore.Query
@@ -1040,12 +1117,14 @@ var file_eventstore_eventstore_proto_depIdxs = []int32{
 	11, // 20: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
 	13, // 21: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
 	14, // 22: eventstore.EventStore.CatchUpSubscribeToStream:input_type -> eventstore.CatchUpSubscribeToStreamRequest
-	7,  // 23: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
-	12, // 24: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
-	6,  // 25: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
-	6,  // 26: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
-	23, // [23:27] is the sub-list for method output_type
-	19, // [19:23] is the sub-list for method input_type
+	15, // 23: eventstore.EventStore.Ping:input_type -> eventstore.PingRequest
+	7,  // 24: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
+	12, // 25: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
+	6,  // 26: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
+	6,  // 27: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
+	16, // 28: eventstore.EventStore.Ping:output_type -> eventstore.PingResponse
+	24, // [24:29] is the sub-list for method output_type
+	19, // [19:24] is the sub-list for method input_type
 	19, // [19:19] is the sub-list for extension type_name
 	19, // [19:19] is the sub-list for extension extendee
 	0,  // [0:19] is the sub-list for field type_name
@@ -1062,7 +1141,7 @@ func file_eventstore_eventstore_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_eventstore_eventstore_proto_rawDesc), len(file_eventstore_eventstore_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
