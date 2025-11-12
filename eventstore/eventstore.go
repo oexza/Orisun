@@ -3,7 +3,6 @@ package eventstore
 import (
 	"context"
 	"fmt"
-	reflect "reflect"
 	"slices"
 	"strings"
 
@@ -869,10 +868,13 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query, st
 			tagFound := false
 
 			for key, eventTag := range unmarshaledData {
-				// More robust comparison
-				if key == criteriaTag.Key && reflect.DeepEqual(eventTag, criteriaTag.Value) {
-					tagFound = true
-					break
+				// Convert both to string for comparison
+				if key == criteriaTag.Key {
+					eventTagStr := fmt.Sprintf("%v", eventTag)
+					if eventTagStr == criteriaTag.Value {
+						tagFound = true
+						break
+					}
 				}
 			}
 			if !tagFound {

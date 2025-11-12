@@ -28,6 +28,8 @@ CREATE INDEX IF NOT EXISTS idx_stream_tran_idglobal_id ON orisun_es_event (strea
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
 CREATE INDEX IF NOT EXISTS idx_stream_tags ON orisun_es_event
     USING GIN (data, stream_name) WITH (fastupdate = true, gin_pending_list_limit = '128');
+CREATE INDEX IF NOT EXISTS idx_stream_data_gin ON orisun_es_event
+    USING GIN (stream_name, data);
 
 -- Insert Function
 --
