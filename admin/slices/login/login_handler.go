@@ -97,7 +97,6 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *LoginHandler) login(ctx context.Context, username, password string) (globalCommon.User, error) {
-
 	// Validate credentials
 	user, err := s.authenticator.ValidateCredentials(ctx, username, password)
 	if err != nil {

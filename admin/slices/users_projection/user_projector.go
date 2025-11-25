@@ -15,9 +15,7 @@ import (
 type CreateNewUserType = func(globalCommon.User) error
 type DeleteUserType = func(id string) error
 type CountUsersType = func() error
-type GetUserById interface {
-	Get(userId string) (globalCommon.User, error)
-}
+type GetUserById = func(userId string) (globalCommon.User, error)
 
 type UserProjector struct {
 	getProjectorLastPosition common.GetProjectorLastPositionType
@@ -30,7 +28,6 @@ type UserProjector struct {
 	saveEvents               common.SaveEventsType
 	getEvents                common.GetEventsType
 	subscribeToEvents        common.SubscribeToEventStoreType
-	countUsers               CountUsersType
 }
 
 func NewUserProjector(
@@ -164,7 +161,7 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		if err := json.Unmarshal([]byte(event.Data), &userEvent); err != nil {
 			return err
 		}
-		user, err := p.getUserById.Get(userEvent.UserId)
+		user, err := p.getUserById(userEvent.UserId)
 
 		if err != nil {
 			return err

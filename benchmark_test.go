@@ -1075,10 +1075,10 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	const totalEvents = 10000
 	const sameStreamName = "benchmark_concurrent_stream"
 
-	b.ResetTimer()
+	
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var wg sync.WaitGroup
 		startSignal := make(chan struct{})
 		var successfulSaves int64

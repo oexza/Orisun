@@ -45,14 +45,12 @@ func (dUH *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Re
 		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
 			datastar.WithModePrepend(),
 		)
-		// time.Sleep(1000 * time.Millisecond)
 		sse.ExecuteScript("document.querySelector('#alert').toast()")
 		return
 	}
 	sse.PatchElementTempl(templates.Alert("User Deleted", templates.AlertSuccess), datastar.WithSelector("body"),
 		datastar.WithModePrepend(),
 	)
-	// time.Sleep(1000 * time.Millisecond)
 	sse.ExecuteScript("document.querySelector('#alert').toast()")
 	sse.RemoveElement("#user_" + userId)
 }

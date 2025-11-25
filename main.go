@@ -321,7 +321,7 @@ func main() {
 		adminDB.UpdateProjectorPosition,
 		adminDB.UpsertUser,
 		adminDB.DeleteUser,
-		getUserByIdWrapper{adminDB: adminDB},
+		adminDB.GetUserById,
 		func(
 			ctx context.Context,
 			boundary string,
@@ -872,8 +872,6 @@ func startEventPolling(
 					// Loop will continue to try acquiring lock again
 				}
 			}
-			// unreachable
-			// return nil
 		})
 	}
 	// Not waiting here; goroutines will be governed by ctx lifecycle.
