@@ -4,16 +4,20 @@ import io.grpc.*;
 import io.grpc.stub.StreamObserver;
 import com.orisun.eventstore.*;
 
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
-import java.util.List;
-import java.util.ArrayList;
 
 public class OrisunClient implements AutoCloseable {
     private final ManagedChannel channel;
     private final EventStoreGrpc.EventStoreBlockingStub blockingStub;
     private final EventStoreGrpc.EventStoreStub asyncStub;
     private final int defaultTimeoutSeconds;
+    private final Logger logger;
+    private final TokenCache tokenCache;
+    private final boolean disposed = false;
+    private final String username;
+    private final String password;
 
     public static class Builder {
         private List<ServerAddress> servers = new ArrayList<>();
@@ -21,8 +25,21 @@ public class OrisunClient implements AutoCloseable {
         private boolean useTls = false;
         private ManagedChannel channel;
         private String loadBalancingPolicy = "round_robin";
-        private String username; // Add this field
-        private String password; // Add this field
+        private String username;
+        private String password;
+        private Logger logger;
+        private boolean enableLogging = false;
+        private DefaultLogger.LogLevel logLevel = DefaultLogger.LogLevel.INFO;
+        private boolean useDnsResolver = true;
+
+        // Keep-alive settings
+        private long keepAliveTimeMs = 30000;
+        private long keepAliveTimeoutMs = 10000;
+        private boolean keepAlivePermitWithoutCalls = true;
+
+        // DNS and static target settings
+        private String dnsTarget;
+        private String staticTarget;
 
         // Keep the original methods for backward compatibility
         public Builder withHost(String host) {
@@ -56,7 +73,16 @@ public class OrisunClient implements AutoCloseable {
             return this;
         }
 
-        private boolean useDnsResolver = true;
+        // DNS-based load balancing
+        public Builder withDnsTarget(String dnsTarget) {
+            this.dnsTarget = dnsTarget;
+            return this;
+        }
+
+        public Builder withStaticTarget(String staticTarget) {
+            this.staticTarget = staticTarget;
+            return this;
+        }
 
         public Builder withDnsResolver(boolean useDns) {
             this.useDnsResolver = useDns;
@@ -85,40 +111,143 @@ public class OrisunClient implements AutoCloseable {
             return this;
         }
 
-        public OrisunClient build() {
-            if (channel == null) {
-                if (servers.isEmpty()) {
-                    // Default to localhost if no servers specified
-                    servers.add(new ServerAddress("localhost", 5005));
-                }
+        // Add logging methods
+        public Builder withLogger(Logger logger) {
+            this.logger = logger;
+            return this;
+        }
 
-                // Create channel with load balancing
+        public Builder withLogging(boolean enableLogging) {
+            this.enableLogging = enableLogging;
+            return this;
+        }
+
+        public Builder withLogLevel(DefaultLogger.LogLevel level) {
+            this.logLevel = level;
+            return this;
+        }
+
+        // Add keep-alive methods
+        public Builder withKeepAliveTime(long keepAliveTimeMs) {
+            this.keepAliveTimeMs = keepAliveTimeMs;
+            return this;
+        }
+
+        public Builder withKeepAliveTimeout(long keepAliveTimeoutMs) {
+            this.keepAliveTimeoutMs = keepAliveTimeoutMs;
+            return this;
+        }
+
+        public Builder withKeepAlivePermitWithoutCalls(boolean permitWithoutCalls) {
+            this.keepAlivePermitWithoutCalls = permitWithoutCalls;
+            return this;
+        }
+
+        public OrisunClient build() {
+            // Initialize logger
+            Logger clientLogger;
+            // Minimal logging by default
+            if (enableLogging && logger == null) {
+                clientLogger = new DefaultLogger(logLevel);
+            } else
+                clientLogger = Objects.requireNonNullElseGet(logger,
+                        () -> new DefaultLogger(DefaultLogger.LogLevel.WARN));
+
+            // Initialize token cache
+            TokenCache clientTokenCache = new TokenCache(clientLogger);
+
+            if (this.channel == null) {
                 ManagedChannelBuilder<?> channelBuilder;
 
-                if (servers.size() == 1) {
-                    // Single server case
-                    ServerAddress server = servers.getFirst();
-                    channelBuilder = ManagedChannelBuilder.forAddress(server.host, server.port);
-                } else {
-                    // Multiple servers case - use name resolver and load balancing
-                    String target = createTargetString(servers);
+                // Check for DNS or static targets first
+                if (dnsTarget != null && !dnsTarget.trim().isEmpty()) {
+                    // DNS-based load balancing
+                    String target = dnsTarget.startsWith("dns:///") ? dnsTarget : "dns:///" + dnsTarget;
                     channelBuilder = ManagedChannelBuilder.forTarget(target)
-                            .defaultLoadBalancingPolicy(loadBalancingPolicy);
-                }
+                            .defaultLoadBalancingPolicy(loadBalancingPolicy)
+                            .keepAliveTime(keepAliveTimeMs, TimeUnit.MILLISECONDS)
+                            .keepAliveTimeout(keepAliveTimeoutMs, TimeUnit.MILLISECONDS)
+                            .keepAliveWithoutCalls(keepAlivePermitWithoutCalls);
 
-                if (!useTls) {
-                    channelBuilder.usePlaintext();
-                }
+                    if (!useTls) {
+                        channelBuilder.usePlaintext();
+                    }
 
-                // Apply authentication if credentials are provided
-                if (username != null && password != null) {
-                    channelBuilder.intercept(new BasicAuthInterceptor(username, password));
-                }
+                    this.channel = channelBuilder.build();
+                } else if (staticTarget != null && !staticTarget.trim().isEmpty()) {
+                    // Static-based load balancing
+                    String target = staticTarget.startsWith("static:///") ? staticTarget : "static:///" + staticTarget;
+                    channelBuilder = ManagedChannelBuilder.forTarget(target)
+                            .defaultLoadBalancingPolicy(loadBalancingPolicy)
+                            .keepAliveTime(keepAliveTimeMs, TimeUnit.MILLISECONDS)
+                            .keepAliveTimeout(keepAliveTimeoutMs, TimeUnit.MILLISECONDS)
+                            .keepAliveWithoutCalls(keepAlivePermitWithoutCalls);
 
-                channel = channelBuilder.build();
+                    if (!useTls) {
+                        channelBuilder.usePlaintext();
+                    }
+
+                    this.channel = channelBuilder.build();
+                } else {
+                    // Traditional server-based load balancing
+                    if (servers.isEmpty()) {
+                        // Default to localhost if no servers specified
+                        servers.add(new ServerAddress("localhost", 5005));
+                    }
+
+                    // Create channel with load balancing
+                    if (servers.size() == 1) {
+                        // Single server case
+                        ServerAddress server = servers.getFirst();
+                        channelBuilder = ManagedChannelBuilder.forAddress(server.host, server.port);
+                    } else {
+                        // Multiple servers case - use name resolver and load balancing
+                        String target = createTargetString(servers);
+                        channelBuilder = ManagedChannelBuilder.forTarget(target)
+                                .defaultLoadBalancingPolicy(loadBalancingPolicy);
+                    }
+
+                    if (!useTls) {
+                        channelBuilder.usePlaintext();
+                    }
+
+                    // Apply keep-alive settings
+                    channelBuilder.keepAliveTime(keepAliveTimeMs, TimeUnit.MILLISECONDS)
+                            .keepAliveTimeout(keepAliveTimeoutMs, TimeUnit.MILLISECONDS)
+                            .keepAliveWithoutCalls(keepAlivePermitWithoutCalls);
+
+                    final var metadata = clientTokenCache.createAuthMetadata(
+                            username != null && password != null ? "Basic " + java.util.Base64.getEncoder()
+                                    .encodeToString((username + ":" + password).getBytes()) : null);
+
+                    channelBuilder.intercept(new ClientInterceptor() {
+                        @Override
+                        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+
+                            return new ForwardingClientCall.SimpleForwardingClientCall<>(
+                                    next.newCall(method, callOptions)) {
+
+                                @Override
+                                public void start(Listener<RespT> responseListener, Metadata headers) {
+                                    // Copy metadata from our prepared metadata
+                                    metadata.keys().forEach(key -> {
+                                        for (String value : Objects.requireNonNull(metadata
+                                                .getAll(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER)))) {
+                                            headers.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value);
+                                        }
+                                    });
+                                    super.start(responseListener, headers);
+                                }
+                            };
+                        }
+                    });
+
+                    this.channel = channelBuilder.build();
+                }
             }
 
-            return new OrisunClient(channel, timeoutSeconds);
+            return new OrisunClient(this.channel, timeoutSeconds, clientLogger, clientTokenCache, username, password);
         }
 
         private String createTargetString(List<ServerAddress> servers) {
@@ -158,41 +287,92 @@ public class OrisunClient implements AutoCloseable {
         return new Builder();
     }
 
-    private OrisunClient(ManagedChannel channel, int timeoutSeconds) {
+    private OrisunClient(ManagedChannel channel, int timeoutSeconds, Logger logger, TokenCache tokenCache,
+            String username, String password) {
         this.channel = channel;
         this.defaultTimeoutSeconds = timeoutSeconds;
+        this.logger = logger;
+        this.tokenCache = tokenCache;
+        this.username = username;
+        this.password = password;
         this.blockingStub = EventStoreGrpc.newBlockingStub(channel);
         this.asyncStub = EventStoreGrpc.newStub(channel);
+
+        this.logger.info("OrisunClient initialized with timeout: {} seconds", timeoutSeconds);
     }
 
     // Synchronous methods
     public Eventstore.WriteResult saveEvents(final Eventstore.SaveEventsRequest request) throws Exception {
+        // Validate request
+        RequestValidator.validateSaveEventsRequest(request);
+
+        logger.debug("Saving {} events to stream '{}' in boundary '{}'",
+                request.getEventsCount(), request.getStream().getName(), request.getBoundary());
+
         try {
-            return blockingStub
+            // Create metadata with authentication
+            Metadata metadata = tokenCache.createAuthMetadata(
+                    username != null && password != null
+                            ? "Basic " + java.util.Base64.getEncoder()
+                                    .encodeToString((username + ":" + password).getBytes())
+                            : null);
+
+            Eventstore.WriteResult result = blockingStub
                     .saveEvents(request);
+
+            // Extract and cache token from response headers
+            // Note: This would need to be implemented with proper response header handling
+
+            logger.info("Successfully saved {} events to stream '{}'",
+                    request.getEventsCount(), request.getStream().getName());
+            return result;
+
         } catch (StatusRuntimeException e) {
             throw handleSaveException(e);
         }
     }
 
     private Exception handleSaveException(StatusRuntimeException e) {
+        Map<String, Object> context = new HashMap<>();
+        context.put("operation", "saveEvents");
+        context.put("statusCode", e.getStatus().getCode().name());
+        context.put("statusDescription", e.getStatus().getDescription());
+
         if (e.getStatus().getCode() == Status.Code.ALREADY_EXISTS) {
             final var versions = Utils.extractVersionNumbers(e.getStatus().getDescription());
+            context.put("expectedVersion", versions[0]);
+            context.put("actualVersion", versions[1]);
             return new OptimisticConcurrencyException(
-                    e.getStatus().getDescription(), versions[0], versions[1]
-            );
+                    e.getStatus().getDescription(), versions[0], versions[1]);
         }
 
-        return new OrisunException("Failed to save events", e);
+        return new OrisunException("Failed to save events", e, context);
     }
 
     public Eventstore.GetEventsResponse getEvents(Eventstore.GetEventsRequest request) throws OrisunException {
+        // Validate request
+        RequestValidator.validateGetEventsRequest(request);
+
+        logger.debug("Getting events from boundary: {}", request.getBoundary());
+
         try {
-            return blockingStub
+            final var response = blockingStub
                     .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
                     .getEvents(request);
+
+            // Extract and cache token from response headers
+            // Note: This would need to be implemented with proper response header handling
+
+            logger.debug("Successfully retrieved {} events", response.getEventsCount());
+            return response;
+
         } catch (StatusRuntimeException e) {
-            throw new OrisunException("Failed to get events", e);
+            Map<String, Object> context = new HashMap<>();
+            context.put("operation", "getEvents");
+            context.put("boundary", request.getBoundary());
+            context.put("statusCode", e.getStatus().getCode().name());
+
+            throw new OrisunException("Failed to get events", e, context);
         }
     }
 
@@ -227,17 +407,98 @@ public class OrisunClient implements AutoCloseable {
 
     // Streaming methods
     public EventSubscription subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-                                               EventSubscription.EventHandler handler) {
-        return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds);
+            EventSubscription.EventHandler handler) {
+        // Validate request
+        RequestValidator.validateSubscribeRequest(request);
+
+        logger.debug("Subscribing to events in boundary '{}' with subscriber '{}'",
+                request.getBoundary(), request.getSubscriberName());
+
+        return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds, logger, tokenCache, username,
+                password);
+    }
+
+    /**
+     * Subscribe to events from a specific stream
+     *
+     * @param request The subscription request
+     * @param handler The event handler
+     * @return The subscription
+     */
+    public EventSubscription subscribeToStream(Eventstore.CatchUpSubscribeToStreamRequest request,
+            EventSubscription.EventHandler handler) {
+        // Validate request
+        RequestValidator.validateSubscribeToStreamRequest(request);
+
+        logger.debug("Subscribing to stream '{}' in boundary '{}' with subscriber '{}'",
+                request.getStream(), request.getBoundary(), request.getSubscriberName());
+
+        return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds, logger, tokenCache, username,
+                password);
+    }
+
+    /**
+     * Ping the server to check connectivity
+     *
+     * @throws OrisunException if the ping fails
+     */
+    public void ping() throws OrisunException {
+        logger.debug("Pinging server");
+
+        try {
+            final var request = Eventstore.PingRequest.newBuilder().build();
+
+            blockingStub.ping(request);
+
+            logger.debug("Ping successful");
+
+        } catch (StatusRuntimeException e) {
+            Map<String, Object> context = new HashMap<>();
+            context.put("operation", "ping");
+            context.put("statusCode", e.getStatus().getCode().name());
+
+            throw new OrisunException("Ping failed", e, context);
+        }
+    }
+
+    /**
+     * Check if the client is connected to the server
+     *
+     * @return true if connected, false otherwise
+     */
+    public boolean healthCheck(final String boundary) throws OrisunException {
+        logger.debug("Performing health check");
+
+        // Try to ping the server
+        ping();
+
+        // Try to make a simple call to test connectivity
+        getEvents(Eventstore.GetEventsRequest.newBuilder()
+                .setBoundary(boundary)
+                .setStream(Eventstore.GetStreamQuery.newBuilder().setName("health-check"))
+                .setCount(1)
+                .build());
+
+        logger.debug("Health check successful");
+        return true;
     }
 
     @Override
     public void close() {
+        if (disposed) {
+            logger.debug("OrisunClient already disposed");
+            return;
+        }
+
+        logger.debug("Closing OrisunClient connection");
+
         if (channel != null && !channel.isShutdown()) {
             try {
                 channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+                logger.info("OrisunClient connection closed successfully");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                logger.error("Interrupted while closing OrisunClient connection", e);
             }
         }
     }
