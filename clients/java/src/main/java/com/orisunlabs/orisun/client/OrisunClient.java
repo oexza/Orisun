@@ -237,7 +237,32 @@ public class OrisunClient implements AutoCloseable {
                                             headers.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value);
                                         }
                                     });
-                                    super.start(responseListener, headers);
+                                    super.start(new Listener<RespT>() {
+                                                    @Override
+                                                    public void onHeaders(Metadata headers) {
+                                                        // Extract and cache token from response headers
+                                                        clientTokenCache.extractAndCacheToken(headers);
+
+                                                        responseListener.onHeaders(headers);
+                                                    }
+
+                                                    @Override
+                                                    public void onMessage(RespT message) {
+                                                        responseListener.onMessage(message);
+                                                    }
+
+                                                    @Override
+                                                    public void onClose(Status status, Metadata trailers) {
+                                                        responseListener.onClose(status, trailers);
+                                                    }
+
+                                                    @Override
+                                                    public void onReady() {
+                                                        responseListener.onReady();
+                                                    }
+                                                },
+                                            headers
+                                    );
                                 }
                             };
                         }
@@ -288,7 +313,7 @@ public class OrisunClient implements AutoCloseable {
     }
 
     private OrisunClient(ManagedChannel channel, int timeoutSeconds, Logger logger, TokenCache tokenCache,
-            String username, String password) {
+                         String username, String password) {
         this.channel = channel;
         this.defaultTimeoutSeconds = timeoutSeconds;
         this.logger = logger;
@@ -310,18 +335,8 @@ public class OrisunClient implements AutoCloseable {
                 request.getEventsCount(), request.getStream().getName(), request.getBoundary());
 
         try {
-            // Create metadata with authentication
-            Metadata metadata = tokenCache.createAuthMetadata(
-                    username != null && password != null
-                            ? "Basic " + java.util.Base64.getEncoder()
-                                    .encodeToString((username + ":" + password).getBytes())
-                            : null);
-
             Eventstore.WriteResult result = blockingStub
                     .saveEvents(request);
-
-            // Extract and cache token from response headers
-            // Note: This would need to be implemented with proper response header handling
 
             logger.info("Successfully saved {} events to stream '{}'",
                     request.getEventsCount(), request.getStream().getName());
@@ -359,9 +374,6 @@ public class OrisunClient implements AutoCloseable {
             final var response = blockingStub
                     .withDeadlineAfter(defaultTimeoutSeconds, TimeUnit.SECONDS)
                     .getEvents(request);
-
-            // Extract and cache token from response headers
-            // Note: This would need to be implemented with proper response header handling
 
             logger.debug("Successfully retrieved {} events", response.getEventsCount());
             return response;
@@ -407,7 +419,7 @@ public class OrisunClient implements AutoCloseable {
 
     // Streaming methods
     public EventSubscription subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest request,
-            EventSubscription.EventHandler handler) {
+                                               EventSubscription.EventHandler handler) {
         // Validate request
         RequestValidator.validateSubscribeRequest(request);
 
@@ -426,7 +438,7 @@ public class OrisunClient implements AutoCloseable {
      * @return The subscription
      */
     public EventSubscription subscribeToStream(Eventstore.CatchUpSubscribeToStreamRequest request,
-            EventSubscription.EventHandler handler) {
+                                               EventSubscription.EventHandler handler) {
         // Validate request
         RequestValidator.validateSubscribeToStreamRequest(request);
 
