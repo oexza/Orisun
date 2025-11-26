@@ -201,8 +201,33 @@ public class OrisunClient implements AutoCloseable {
                         ServerAddress server = servers.getFirst();
                         channelBuilder = ManagedChannelBuilder.forAddress(server.host, server.port);
                     } else {
-                        // Multiple servers case - use name resolver and load balancing
-                        String target = createTargetString(servers);
+                        // Multiple servers case - check for comma-separated hosts and use name resolver and load balancing
+                        String target;
+                        
+                        // Check if any host contains commas for manual load balancing
+                        boolean hasCommaSeparatedHosts = false;
+                        for (ServerAddress server : servers) {
+                            if (server.host.contains(",")) {
+                                hasCommaSeparatedHosts = true;
+                                break;
+                            }
+                        }
+                        
+                        if (hasCommaSeparatedHosts) {
+                            // Handle comma-separated list of hosts for manual load balancing
+                            StringBuilder hostsBuilder = new StringBuilder();
+                            for (ServerAddress server : servers) {
+                                if (!hostsBuilder.isEmpty()) {
+                                    hostsBuilder.append(",");
+                                }
+                                hostsBuilder.append(server.host).append(":").append(server.port);
+                            }
+                            target = hostsBuilder.toString();
+                        } else {
+                            // Use DNS or static resolver
+                            target = createTargetString(servers);
+                        }
+                        
                         channelBuilder = ManagedChannelBuilder.forTarget(target)
                                 .defaultLoadBalancingPolicy(loadBalancingPolicy);
                     }
