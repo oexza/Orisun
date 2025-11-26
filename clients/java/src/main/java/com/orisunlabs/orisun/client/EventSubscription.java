@@ -11,6 +11,7 @@ import io.grpc.CallOptions;
 import io.grpc.ClientCall;
 import io.grpc.Channel;
 
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 public class EventSubscription implements AutoCloseable {
@@ -25,7 +26,7 @@ public class EventSubscription implements AutoCloseable {
 
         void onCompleted();
     }
-    
+
     EventSubscription(EventStoreGrpc.EventStoreStub stub,
                       Eventstore.CatchUpSubscribeToEventStoreRequest request,
                       EventHandler handler,
@@ -35,13 +36,13 @@ public class EventSubscription implements AutoCloseable {
                       String username,
                       String password) {
         this.logger = logger != null ? logger : new DefaultLogger(DefaultLogger.LogLevel.WARN);
-        
+
         // Create metadata with authentication
         Metadata metadata = tokenCache != null ? tokenCache.createAuthMetadata(
-            username != null && password != null ?
-                "Basic " + java.util.Base64.getEncoder().encodeToString((username + ":" + password).getBytes()) : null
+                username != null && password != null ?
+                        () -> "Basic " + java.util.Base64.getEncoder().encodeToString((username + ":" + password).getBytes()) : null
         ) : new Metadata();
-        
+
         this.observer = new StreamObserver<>() {
             @Override
             public void onNext(Eventstore.Event event) {
@@ -67,20 +68,20 @@ public class EventSubscription implements AutoCloseable {
                 }
             }
         };
-        
+
         EventStoreGrpc.EventStoreStub enhancedStub = stub.withInterceptors(new ClientInterceptor() {
             @Override
             public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
-                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
-                
+                    MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+
                 return new ForwardingClientCall.SimpleForwardingClientCall<>(
-                    next.newCall(method, callOptions)) {
+                        next.newCall(method, callOptions)) {
 
                     @Override
                     public void start(Listener<RespT> responseListener, Metadata headers) {
                         // Copy metadata from our prepared metadata
                         metadata.keys().forEach(key -> {
-                            for (String value : metadata.getAll(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER))) {
+                            for (String value : Objects.requireNonNull(metadata.getAll(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER)))) {
                                 headers.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value);
                             }
                         });
@@ -89,12 +90,12 @@ public class EventSubscription implements AutoCloseable {
                 };
             }
         });
-        
+
         enhancedStub
                 .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
                 .catchUpSubscribeToEvents(request, observer);
     }
-    
+
     // Constructor for stream subscription
     EventSubscription(EventStoreGrpc.EventStoreStub stub,
                       Eventstore.CatchUpSubscribeToStreamRequest request,
@@ -105,13 +106,13 @@ public class EventSubscription implements AutoCloseable {
                       String username,
                       String password) {
         this.logger = logger != null ? logger : new DefaultLogger(DefaultLogger.LogLevel.WARN);
-        
+
         // Create metadata with authentication
         Metadata metadata = tokenCache != null ? tokenCache.createAuthMetadata(
-            username != null && password != null ?
-                "Basic " + java.util.Base64.getEncoder().encodeToString((username + ":" + password).getBytes()) : null
+                username != null && password != null ?
+                        () -> "Basic " + java.util.Base64.getEncoder().encodeToString((username + ":" + password).getBytes()) : null
         ) : new Metadata();
-        
+
         this.observer = new StreamObserver<>() {
             @Override
             public void onNext(Eventstore.Event event) {
@@ -137,20 +138,20 @@ public class EventSubscription implements AutoCloseable {
                 }
             }
         };
-        
+
         EventStoreGrpc.EventStoreStub enhancedStub = stub.withInterceptors(new ClientInterceptor() {
             @Override
             public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
-                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
-                
+                    MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+
                 return new ForwardingClientCall.SimpleForwardingClientCall<>(
-                    next.newCall(method, callOptions)) {
+                        next.newCall(method, callOptions)) {
 
                     @Override
                     public void start(Listener<RespT> responseListener, Metadata headers) {
                         // Copy metadata from our prepared metadata
                         metadata.keys().forEach(key -> {
-                            for (String value : metadata.getAll(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER))) {
+                            for (String value : Objects.requireNonNull(metadata.getAll(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER)))) {
                                 headers.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value);
                             }
                         });
@@ -159,7 +160,7 @@ public class EventSubscription implements AutoCloseable {
                 };
             }
         });
-        
+
         enhancedStub
                 .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
                 .catchUpSubscribeToStream(request, observer);

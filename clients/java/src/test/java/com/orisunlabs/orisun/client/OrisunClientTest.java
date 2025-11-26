@@ -23,7 +23,6 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 class OrisunClientTest {
-
     private MockEventStoreService mockService;
     private OrisunClient client;
     private Server server;

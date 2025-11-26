@@ -203,7 +203,7 @@ public class OrisunClient implements AutoCloseable {
                     } else {
                         // Multiple servers case - check for comma-separated hosts and use name resolver and load balancing
                         String target;
-                        
+
                         // Check if any host contains commas for manual load balancing
                         boolean hasCommaSeparatedHosts = false;
                         for (ServerAddress server : servers) {
@@ -212,7 +212,7 @@ public class OrisunClient implements AutoCloseable {
                                 break;
                             }
                         }
-                        
+
                         if (hasCommaSeparatedHosts) {
                             // Handle comma-separated list of hosts for manual load balancing
                             StringBuilder hostsBuilder = new StringBuilder();
@@ -227,7 +227,7 @@ public class OrisunClient implements AutoCloseable {
                             // Use DNS or static resolver
                             target = createTargetString(servers);
                         }
-                        
+
                         channelBuilder = ManagedChannelBuilder.forTarget(target)
                                 .defaultLoadBalancingPolicy(loadBalancingPolicy);
                     }
@@ -241,10 +241,6 @@ public class OrisunClient implements AutoCloseable {
                             .keepAliveTimeout(keepAliveTimeoutMs, TimeUnit.MILLISECONDS)
                             .keepAliveWithoutCalls(keepAlivePermitWithoutCalls);
 
-                    final var metadata = clientTokenCache.createAuthMetadata(
-                            username != null && password != null ? "Basic " + java.util.Base64.getEncoder()
-                                    .encodeToString((username + ":" + password).getBytes()) : null);
-
                     channelBuilder.intercept(new ClientInterceptor() {
                         @Override
                         public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
@@ -255,6 +251,9 @@ public class OrisunClient implements AutoCloseable {
 
                                 @Override
                                 public void start(Listener<RespT> responseListener, Metadata headers) {
+                                    final var metadata = clientTokenCache.createAuthMetadata(() ->
+                                            username != null && password != null ? "Basic " + java.util.Base64.getEncoder()
+                                                    .encodeToString((username + ":" + password).getBytes()) : null);
                                     // Copy metadata from our prepared metadata
                                     metadata.keys().forEach(key -> {
                                         for (String value : Objects.requireNonNull(metadata
@@ -262,7 +261,7 @@ public class OrisunClient implements AutoCloseable {
                                             headers.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value);
                                         }
                                     });
-                                    super.start(new Listener<RespT>() {
+                                    super.start(new Listener<>() {
                                                     @Override
                                                     public void onHeaders(Metadata headers) {
                                                         // Extract and cache token from response headers
