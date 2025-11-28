@@ -8,17 +8,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	eventstore "orisun/eventstore"
+	"github.com/orisunlabs/orisun-go-client"
+	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 )
 
 func main() {
 	// Create a new client builder
-	client, err := NewClientBuilder().
+	client, err := orisun.NewClientBuilder().
 		WithHost("localhost").
 		WithPort(5005).
 		WithTimeout(30).
 		WithLogging(true).
-		WithLogLevel(DEBUG).
 		WithBasicAuth("admin", "changeit").
 		Build()
 
@@ -31,7 +31,7 @@ func main() {
 
 	// Example 1: Ping
 	fmt.Println("Example 1: Pinging server...")
-	ctx, cancel := WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := orisun.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := client.Ping(ctx); err != nil {
@@ -42,7 +42,7 @@ func main() {
 
 	// Example 2: Health check
 	fmt.Println("\nExample 2: Performing health check...")
-	ctx, cancel = WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = orisun.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	healthy, err := client.HealthCheck(ctx, "orisun_admin")
@@ -54,13 +54,13 @@ func main() {
 
 	// Example 3: Save events
 	fmt.Println("\nExample 3: Saving events...")
-	ctx, cancel = WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = orisun.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create sample events
 	eventData := map[string]interface{}{
-		"userId": "12345",
-		"action": "login",
+		"userId":    "12345",
+		"action":    "login",
 		"timestamp": time.Now().Unix(),
 	}
 	eventJson, _ := json.Marshal(eventData)
@@ -97,7 +97,7 @@ func main() {
 
 	// Example 4: Get events
 	fmt.Println("\nExample 4: Getting events...")
-	ctx, cancel = WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = orisun.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	getRequest := &eventstore.GetEventsRequest{
@@ -121,16 +121,16 @@ func main() {
 
 	// Example 5: Subscribe to events
 	fmt.Println("\nExample 5: Subscribing to events...")
-	ctx, cancel = WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel = orisun.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Create event handler
-	eventHandler := NewSimpleEventHandler().
+	eventHandler := orisun.NewSimpleEventHandler().
 		WithOnEvent(func(event *eventstore.Event) error {
 			fmt.Printf("Received event: %s - %s\n", event.EventId, event.EventType)
 			return nil
 		}).
-		WithError(func(err error) {
+		WithOnError(func(err error) {
 			fmt.Printf("Subscription error: %v\n", err)
 		}).
 		WithOnCompleted(func() {
@@ -138,7 +138,7 @@ func main() {
 		})
 
 	subscribeRequest := &eventstore.CatchUpSubscribeToEventStoreRequest{
-		Boundary:      "orisun_admin",
+		Boundary:       "orisun_admin",
 		SubscriberName: "example-subscriber",
 	}
 
@@ -158,12 +158,12 @@ func main() {
 
 	// Example 6: Using retry helper
 	fmt.Println("\nExample 6: Using retry helper...")
-	retryConfig := DefaultRetryConfig()
+	retryConfig := orisun.DefaultRetryConfig()
 	retryConfig.MaxRetries = 5
 	retryConfig.InitialDelay = 100 * time.Millisecond
 	retryConfig.MaxDelay = 2 * time.Second
 
-	retryHelper := NewRetryHelper(retryConfig)
+	retryHelper := orisun.NewRetryHelper(retryConfig)
 
 	err = retryHelper.Do(func() error {
 		// Simulate a function that might fail
@@ -180,7 +180,7 @@ func main() {
 
 	// Example 7: Using string helper
 	fmt.Println("\nExample 7: Using string helper...")
-	stringHelper := NewStringHelper()
+	stringHelper := orisun.NewStringHelper()
 	
 	message := stringHelper.FormatMessage("Hello {}, you have {} new messages", "Alice", 5)
 	fmt.Printf("Formatted message: %s\n", message)

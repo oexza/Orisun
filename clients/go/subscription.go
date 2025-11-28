@@ -3,9 +3,10 @@ package orisun
 import (
 	"context"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
-	eventstore "orisun/eventstore"
+	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 )
 
 // EventHandler defines the interface for handling events from a subscription
@@ -115,8 +116,14 @@ func (es *EventSubscription) Close() error {
 	// Call the completion handler
 	es.handler.OnCompleted()
 	
-	// Wait for the processing goroutine to finish
-	<-es.done
+	// Wait for the processing goroutine to finish with timeout
+	select {
+	case <-es.done:
+		// Processing goroutine finished normally
+	case <-time.After(5 * time.Second):
+		// Timeout reached, log and continue
+		es.logger.Warn("Timeout waiting for subscription processing goroutine to finish")
+	}
 	
 	return nil
 }

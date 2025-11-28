@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	eventstore "orisun/eventstore"
+	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 )
 
 // RequestValidator provides validation methods for various request types

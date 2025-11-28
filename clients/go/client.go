@@ -405,14 +405,26 @@ func (c *OrisunClient) IsClosed() bool {
 	return c.closed
 }
 
+// GetDefaultTimeout returns the default timeout for the client
+func (c *OrisunClient) GetDefaultTimeout() time.Duration {
+	return c.defaultTimeout
+}
+
+// GetLogger returns the logger used by the client
+func (c *OrisunClient) GetLogger() Logger {
+	return c.logger
+}
+
 // Ping pings the server to check connectivity
 func (c *OrisunClient) Ping(ctx context.Context) error {
 	c.logger.Debug("Pinging server")
 
-	// Placeholder implementation - will be replaced with actual gRPC call
-	// request := &eventstore.PingRequest{}
-	// _, err := c.blockingStub.Ping(ctx, request)
-	// return err
+	request := &eventstore.PingRequest{}
+	_, err := c.client.Ping(ctx, request)
+
+	if err != nil {
+		return err
+	}
 
 	c.logger.Debug("Ping successful")
 	return nil
@@ -429,7 +441,6 @@ func (c *OrisunClient) HealthCheck(ctx context.Context, boundary string) (bool, 
 	}
 
 	// Try to make a simple call to test connectivity
-	// Placeholder implementation - will be replaced with actual gRPC call
 	request := &eventstore.GetEventsRequest{
 		Boundary: boundary,
 		Stream:   &eventstore.GetStreamQuery{Name: "health-check"},
@@ -457,13 +468,6 @@ func (c *OrisunClient) SaveEvents(ctx context.Context, request *eventstore.SaveE
 	c.logger.Debug("Saving {} events to stream '{}' in boundary '{}'",
 		len(request.Events), request.Stream.Name, request.Boundary)
 
-	// Create context with timeout if not provided
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), c.defaultTimeout)
-		defer cancel()
-	}
-
 	// Make the gRPC call
 	response, err := c.client.SaveEvents(ctx, request)
 	if err != nil {
@@ -486,13 +490,6 @@ func (c *OrisunClient) GetEvents(ctx context.Context, request *eventstore.GetEve
 
 	c.logger.Debug("Getting events from boundary: {}", request.Boundary)
 
-	// Create context with timeout if not provided
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), c.defaultTimeout)
-		defer cancel()
-	}
-
 	// Make the gRPC call
 	response, err := c.client.GetEvents(ctx, request)
 	if err != nil {
@@ -513,11 +510,6 @@ func (c *OrisunClient) SubscribeToEvents(ctx context.Context, request *eventstor
 
 	c.logger.Debug("Subscribing to events in boundary '{}' with subscriber '{}'",
 		request.Boundary, request.SubscriberName)
-
-	// Create context with timeout if not provided
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
 	// Create cancel function for the subscription
 	ctx, cancel := context.WithCancel(ctx)
