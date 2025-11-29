@@ -18,7 +18,6 @@ func standaloneExample() {
 		WithHost("localhost").
 		WithPort(5005).
 		WithTimeout(30).
-		WithLogging(true).
 		WithBasicAuth("admin", "changeit").
 		Build()
 	if err != nil {
@@ -55,7 +54,7 @@ func standaloneExample() {
 	defer cancel()
 
 	// Create sample events
-	eventData := map[string]interface{}{
+	eventData := map[string]any{
 		"userId":    "12345",
 		"action":    "login",
 		"timestamp": time.Now().Unix(),

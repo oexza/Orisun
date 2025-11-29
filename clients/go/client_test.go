@@ -90,7 +90,6 @@ func TestClientBuilder_WithLogging(t *testing.T) {
 	client, err := builder.
 		WithHost("localhost").
 		WithLogger(logger).
-		WithLogging(true).
 		Build()
 
 	require.NoError(t, err)

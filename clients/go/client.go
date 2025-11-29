@@ -39,7 +39,6 @@ type ClientBuilder struct {
 	username                    string
 	password                    string
 	logger                      Logger
-	enableLogging               bool
 	logLevel                    LogLevel
 	useDnsResolver              bool
 	keepAliveTimeMs             time.Duration
@@ -56,7 +55,6 @@ func NewClientBuilder() *ClientBuilder {
 		timeoutSeconds:              30,
 		useTLS:                      false,
 		loadBalancingPolicy:         "round_robin",
-		enableLogging:               false,
 		logLevel:                    INFO,
 		useDnsResolver:              true,
 		keepAliveTimeMs:             30 * time.Second,
@@ -149,12 +147,6 @@ func (b *ClientBuilder) WithLogger(logger Logger) *ClientBuilder {
 	return b
 }
 
-// WithLogging enables or disables logging
-func (b *ClientBuilder) WithLogging(enableLogging bool) *ClientBuilder {
-	b.enableLogging = enableLogging
-	return b
-}
-
 // WithLogLevel sets the log level
 func (b *ClientBuilder) WithLogLevel(level LogLevel) *ClientBuilder {
 	b.logLevel = level
@@ -183,10 +175,9 @@ func (b *ClientBuilder) WithKeepAlivePermitWithoutCalls(permitWithoutCalls bool)
 func (b *ClientBuilder) Build() (*OrisunClient, error) {
 	// Initialize logger
 	var clientLogger Logger
-	if b.enableLogging && b.logger == nil {
+	if b.logger == nil {
 		clientLogger = NewDefaultLogger(b.logLevel)
-	} else if b.logger == nil {
-		clientLogger = NewDefaultLogger(WARN)
+		b.logger = clientLogger
 	} else {
 		clientLogger = b.logger
 	}
@@ -316,15 +307,17 @@ func (b *ClientBuilder) createAuthInterceptor(basicAuth string) grpc.UnaryClient
 		ctx = metadata.NewOutgoingContext(ctx, md)
 
 		// Create a trailer-only context to extract response headers
-		var trailerMD metadata.MD
-		trailerCtx := context.WithValue(ctx, "trailerKey", &trailerMD)
+		var responseMD metadata.MD
 
+		// Add options to capture response headers and trailers
+		opts = append(opts, grpc.Header(&responseMD))
 		// Call the invoker with a custom option to capture trailers
-		err := invoker(trailerCtx, method, req, reply, cc, opts...)
+		err := invoker(ctx, method, req, reply, cc, opts...)
 
-		// Extract and cache token from response trailers
-		if trailerMD != nil {
-			tokenCache.ExtractAndCacheToken(trailerMD)
+		// Extract and cache token from response metadata
+		if responseMD != nil {
+			b.logger.Debug("Extracting token from response metadata")
+			tokenCache.ExtractAndCacheToken(responseMD)
 		}
 
 		return err
@@ -600,7 +593,7 @@ func (c *OrisunClient) handleGetException(err error, request *eventstore.GetEven
 }
 
 // handleSubscribeException handles exceptions from subscription operations
-func (c *OrisunClient) handleSubscribeException(err error, request interface{}) error {
+func (c *OrisunClient) handleSubscribeException(err error, request any) error {
 	st, ok := status.FromError(err)
 	if !ok {
 		return NewOrisunExceptionWithCause("Failed to create subscription", err).
