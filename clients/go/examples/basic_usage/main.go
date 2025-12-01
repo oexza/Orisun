@@ -18,7 +18,6 @@ func main() {
 		WithHost("localhost").
 		WithPort(5005).
 		WithTimeout(30).
-		WithLogging(true).
 		WithBasicAuth("admin", "changeit").
 		Build()
 
