@@ -54,7 +54,7 @@ tasks:
 
   build:
     cmds:
-      - go build -o bin/main .
+      - go build -o bin/cmd/main .
     deps:
       - build:lit-html
       - build:templ
@@ -64,7 +64,7 @@ tasks:
   # Use this task to debug with the delve debugger
   debug:
     cmds:
-      - dlv exec ./bin/main
+      - dlv exec ./bin/cmd/main
     deps:
       - build
 
@@ -89,7 +89,7 @@ tasks:
     cmds:
       - |
         air  \
-         -build.cmd "go build -tags dev -o tmp/bin/main" \
+         -build.cmd "go build -tags dev -o tmp/bin/main ./cmd" \
          -build.bin "tmp/bin/main" \
          -build.delay "100" \
          -build.exclude_dir "data,node_modules,web/libs/datastar/node_modules,web/libs/lit-html/node_modules" \
@@ -123,6 +123,6 @@ tasks:
 
   run:
     cmds:
-      - ./bin/main
+      - ./bin/cmd/main
     deps:
       - build

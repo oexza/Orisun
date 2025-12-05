@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -129,7 +129,7 @@ func (s *ClusterTestSuite) buildBinary(t *testing.T, nodeIndex int) {
 
 func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 	node := s.nodes[nodeIndex]
-	
+
 	// Create NATS cluster routes for this node
 	// Include all cluster ports (NATS will handle connections as nodes become available)
 	routes := ""
@@ -194,7 +194,7 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 func (s *ClusterTestSuite) waitForGRPCServer(t *testing.T, nodeIndex int) {
 	node := s.nodes[nodeIndex]
 	address := fmt.Sprintf("127.0.0.1:%s", node.grpcPort)
-	
+
 	// Wait for the gRPC server to be ready
 	for i := 0; i < 30; i++ {
 		conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -211,14 +211,12 @@ func (s *ClusterTestSuite) waitForGRPCServer(t *testing.T, nodeIndex int) {
 func (s *ClusterTestSuite) createGRPCClient(t *testing.T, nodeIndex int) {
 	node := s.nodes[nodeIndex]
 	address := fmt.Sprintf("127.0.0.1:%s", node.grpcPort)
-	
+
 	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	node.conn = conn
 	node.client = pb.NewEventStoreClient(conn)
 }
-
-
 
 func (s *ClusterTestSuite) teardown(t *testing.T) {
 	// Stop all nodes

@@ -234,7 +234,7 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	var token *string = nil
 
 	// Create an interceptor to extract token from response metadata
-	unaryInterceptor := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {	
+	unaryInterceptor := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		//if token is not nil, add it to the outgoing context
 		if token != nil {
 			ctx = metadata.AppendToOutgoingContext(ctx, "x-auth-token", *token)
@@ -243,7 +243,7 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 		// Create variables to capture response metadata
 		var responseMD metadata.MD
 		var responseTrailer metadata.MD
-		
+
 		// Add options to capture response headers and trailers
 		opts = append(opts, grpc.Header(&responseMD), grpc.Trailer(&responseTrailer))
 
@@ -1075,7 +1075,6 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	const totalEvents = 10000
 	const sameStreamName = "benchmark_concurrent_stream"
 
-	
 	b.ReportAllocs()
 
 	for b.Loop() {
