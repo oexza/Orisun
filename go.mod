@@ -21,7 +21,7 @@ require (
 )
 
 require (
-	github.com/a-h/templ v0.3.943
+	github.com/a-h/templ v0.3.960
 	github.com/goccy/go-json v0.10.5
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 )
