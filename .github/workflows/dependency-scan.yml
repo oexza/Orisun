@@ -10,6 +10,8 @@ on:
       - 'go.sum'
       - 'clients/node/package.json'
       - 'clients/node/package-lock.json'
+      - 'clients/go/go.mod'
+      - 'clients/go/go.sum'
   pull_request:
     branches: [ main ]
     paths:
@@ -17,6 +19,8 @@ on:
       - 'go.sum'
       - 'clients/node/package.json'
       - 'clients/node/package-lock.json'
+      - 'clients/go/go.mod'
+      - 'clients/go/go.sum'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
