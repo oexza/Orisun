@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.0
-// source: eventstore/eventstore.proto
+// source: orisun/eventstore.proto
 
-package eventstore
+package orisun
 
 import (
 	context "context"
@@ -19,11 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EventStore_SaveEvents_FullMethodName               = "/eventstore.EventStore/SaveEvents"
-	EventStore_GetEvents_FullMethodName                = "/eventstore.EventStore/GetEvents"
-	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToEvents"
-	EventStore_CatchUpSubscribeToStream_FullMethodName = "/eventstore.EventStore/CatchUpSubscribeToStream"
-	EventStore_Ping_FullMethodName                     = "/eventstore.EventStore/Ping"
+	EventStore_SaveEvents_FullMethodName               = "/orisun.EventStore/SaveEvents"
+	EventStore_GetEvents_FullMethodName                = "/orisun.EventStore/GetEvents"
+	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/orisun.EventStore/CatchUpSubscribeToEvents"
+	EventStore_CatchUpSubscribeToStream_FullMethodName = "/orisun.EventStore/CatchUpSubscribeToStream"
+	EventStore_Ping_FullMethodName                     = "/orisun.EventStore/Ping"
 )
 
 // EventStoreClient is the client API for EventStore service.
@@ -248,7 +248,7 @@ func _EventStore_Ping_Handler(srv interface{}, ctx context.Context, dec func(int
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var EventStore_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "eventstore.EventStore",
+	ServiceName: "orisun.EventStore",
 	HandlerType: (*EventStoreServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -276,5 +276,5 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "eventstore/eventstore.proto",
+	Metadata: "orisun/eventstore.proto",
 }

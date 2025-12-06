@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.7
 // 	protoc        v6.32.0
-// source: eventstore/eventstore.proto
+// source: orisun/eventstore.proto
 
-package eventstore
+package orisun
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -52,11 +52,11 @@ func (x Direction) String() string {
 }
 
 func (Direction) Descriptor() protoreflect.EnumDescriptor {
-	return file_eventstore_eventstore_proto_enumTypes[0].Descriptor()
+	return file_orisun_eventstore_proto_enumTypes[0].Descriptor()
 }
 
 func (Direction) Type() protoreflect.EnumType {
-	return &file_eventstore_eventstore_proto_enumTypes[0]
+	return &file_orisun_eventstore_proto_enumTypes[0]
 }
 
 func (x Direction) Number() protoreflect.EnumNumber {
@@ -65,7 +65,7 @@ func (x Direction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Direction.Descriptor instead.
 func (Direction) EnumDescriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{0}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{0}
 }
 
 type Position struct {
@@ -78,7 +78,7 @@ type Position struct {
 
 func (x *Position) Reset() {
 	*x = Position{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[0]
+	mi := &file_orisun_eventstore_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -90,7 +90,7 @@ func (x *Position) String() string {
 func (*Position) ProtoMessage() {}
 
 func (x *Position) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[0]
+	mi := &file_orisun_eventstore_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -103,7 +103,7 @@ func (x *Position) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Position.ProtoReflect.Descriptor instead.
 func (*Position) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{0}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Position) GetCommitPosition() int64 {
@@ -130,7 +130,7 @@ type Tag struct {
 
 func (x *Tag) Reset() {
 	*x = Tag{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[1]
+	mi := &file_orisun_eventstore_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -142,7 +142,7 @@ func (x *Tag) String() string {
 func (*Tag) ProtoMessage() {}
 
 func (x *Tag) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[1]
+	mi := &file_orisun_eventstore_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -155,7 +155,7 @@ func (x *Tag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Tag.ProtoReflect.Descriptor instead.
 func (*Tag) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{1}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Tag) GetKey() string {
@@ -181,7 +181,7 @@ type Criterion struct {
 
 func (x *Criterion) Reset() {
 	*x = Criterion{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[2]
+	mi := &file_orisun_eventstore_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -193,7 +193,7 @@ func (x *Criterion) String() string {
 func (*Criterion) ProtoMessage() {}
 
 func (x *Criterion) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[2]
+	mi := &file_orisun_eventstore_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -206,7 +206,7 @@ func (x *Criterion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Criterion.ProtoReflect.Descriptor instead.
 func (*Criterion) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{2}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Criterion) GetTags() []*Tag {
@@ -225,7 +225,7 @@ type Query struct {
 
 func (x *Query) Reset() {
 	*x = Query{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[3]
+	mi := &file_orisun_eventstore_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -237,7 +237,7 @@ func (x *Query) String() string {
 func (*Query) ProtoMessage() {}
 
 func (x *Query) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[3]
+	mi := &file_orisun_eventstore_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -250,7 +250,7 @@ func (x *Query) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Query.ProtoReflect.Descriptor instead.
 func (*Query) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{3}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Query) GetCriteria() []*Criterion {
@@ -272,7 +272,7 @@ type EventToSave struct {
 
 func (x *EventToSave) Reset() {
 	*x = EventToSave{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[4]
+	mi := &file_orisun_eventstore_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +284,7 @@ func (x *EventToSave) String() string {
 func (*EventToSave) ProtoMessage() {}
 
 func (x *EventToSave) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[4]
+	mi := &file_orisun_eventstore_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +297,7 @@ func (x *EventToSave) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventToSave.ProtoReflect.Descriptor instead.
 func (*EventToSave) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{4}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *EventToSave) GetEventId() string {
@@ -343,7 +343,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[5]
+	mi := &file_orisun_eventstore_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +355,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[5]
+	mi := &file_orisun_eventstore_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +368,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{5}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Event) GetEventId() string {
@@ -429,7 +429,7 @@ type WriteResult struct {
 
 func (x *WriteResult) Reset() {
 	*x = WriteResult{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[6]
+	mi := &file_orisun_eventstore_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -441,7 +441,7 @@ func (x *WriteResult) String() string {
 func (*WriteResult) ProtoMessage() {}
 
 func (x *WriteResult) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[6]
+	mi := &file_orisun_eventstore_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -454,7 +454,7 @@ func (x *WriteResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteResult.ProtoReflect.Descriptor instead.
 func (*WriteResult) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{6}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WriteResult) GetLogPosition() *Position {
@@ -475,7 +475,7 @@ type SaveStreamQuery struct {
 
 func (x *SaveStreamQuery) Reset() {
 	*x = SaveStreamQuery{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[7]
+	mi := &file_orisun_eventstore_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -487,7 +487,7 @@ func (x *SaveStreamQuery) String() string {
 func (*SaveStreamQuery) ProtoMessage() {}
 
 func (x *SaveStreamQuery) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[7]
+	mi := &file_orisun_eventstore_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -500,7 +500,7 @@ func (x *SaveStreamQuery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveStreamQuery.ProtoReflect.Descriptor instead.
 func (*SaveStreamQuery) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{7}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SaveStreamQuery) GetName() string {
@@ -535,7 +535,7 @@ type SaveEventsRequest struct {
 
 func (x *SaveEventsRequest) Reset() {
 	*x = SaveEventsRequest{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[8]
+	mi := &file_orisun_eventstore_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -547,7 +547,7 @@ func (x *SaveEventsRequest) String() string {
 func (*SaveEventsRequest) ProtoMessage() {}
 
 func (x *SaveEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[8]
+	mi := &file_orisun_eventstore_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -560,7 +560,7 @@ func (x *SaveEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveEventsRequest.ProtoReflect.Descriptor instead.
 func (*SaveEventsRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{8}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SaveEventsRequest) GetBoundary() string {
@@ -594,7 +594,7 @@ type GetStreamQuery struct {
 
 func (x *GetStreamQuery) Reset() {
 	*x = GetStreamQuery{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[9]
+	mi := &file_orisun_eventstore_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +606,7 @@ func (x *GetStreamQuery) String() string {
 func (*GetStreamQuery) ProtoMessage() {}
 
 func (x *GetStreamQuery) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[9]
+	mi := &file_orisun_eventstore_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +619,7 @@ func (x *GetStreamQuery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStreamQuery.ProtoReflect.Descriptor instead.
 func (*GetStreamQuery) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{9}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetStreamQuery) GetName() string {
@@ -641,7 +641,7 @@ type GetEventsRequest struct {
 	Query         *Query                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 	FromPosition  *Position              `protobuf:"bytes,2,opt,name=from_position,json=fromPosition,proto3" json:"from_position,omitempty"`
 	Count         uint32                 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
-	Direction     Direction              `protobuf:"varint,4,opt,name=direction,proto3,enum=eventstore.Direction" json:"direction,omitempty"`
+	Direction     Direction              `protobuf:"varint,4,opt,name=direction,proto3,enum=orisun.Direction" json:"direction,omitempty"`
 	Boundary      string                 `protobuf:"bytes,5,opt,name=boundary,proto3" json:"boundary,omitempty"`
 	Stream        *GetStreamQuery        `protobuf:"bytes,6,opt,name=stream,proto3" json:"stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -650,7 +650,7 @@ type GetEventsRequest struct {
 
 func (x *GetEventsRequest) Reset() {
 	*x = GetEventsRequest{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[10]
+	mi := &file_orisun_eventstore_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -662,7 +662,7 @@ func (x *GetEventsRequest) String() string {
 func (*GetEventsRequest) ProtoMessage() {}
 
 func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[10]
+	mi := &file_orisun_eventstore_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -675,7 +675,7 @@ func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetEventsRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{10}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetEventsRequest) GetQuery() *Query {
@@ -729,7 +729,7 @@ type GetEventsResponse struct {
 
 func (x *GetEventsResponse) Reset() {
 	*x = GetEventsResponse{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[11]
+	mi := &file_orisun_eventstore_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -741,7 +741,7 @@ func (x *GetEventsResponse) String() string {
 func (*GetEventsResponse) ProtoMessage() {}
 
 func (x *GetEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[11]
+	mi := &file_orisun_eventstore_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -754,7 +754,7 @@ func (x *GetEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetEventsResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{11}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetEventsResponse) GetEvents() []*Event {
@@ -776,7 +776,7 @@ type CatchUpSubscribeToEventStoreRequest struct {
 
 func (x *CatchUpSubscribeToEventStoreRequest) Reset() {
 	*x = CatchUpSubscribeToEventStoreRequest{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[12]
+	mi := &file_orisun_eventstore_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -788,7 +788,7 @@ func (x *CatchUpSubscribeToEventStoreRequest) String() string {
 func (*CatchUpSubscribeToEventStoreRequest) ProtoMessage() {}
 
 func (x *CatchUpSubscribeToEventStoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[12]
+	mi := &file_orisun_eventstore_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -801,7 +801,7 @@ func (x *CatchUpSubscribeToEventStoreRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use CatchUpSubscribeToEventStoreRequest.ProtoReflect.Descriptor instead.
 func (*CatchUpSubscribeToEventStoreRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{12}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CatchUpSubscribeToEventStoreRequest) GetAfterPosition() *Position {
@@ -845,7 +845,7 @@ type CatchUpSubscribeToStreamRequest struct {
 
 func (x *CatchUpSubscribeToStreamRequest) Reset() {
 	*x = CatchUpSubscribeToStreamRequest{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[13]
+	mi := &file_orisun_eventstore_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -857,7 +857,7 @@ func (x *CatchUpSubscribeToStreamRequest) String() string {
 func (*CatchUpSubscribeToStreamRequest) ProtoMessage() {}
 
 func (x *CatchUpSubscribeToStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[13]
+	mi := &file_orisun_eventstore_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -870,7 +870,7 @@ func (x *CatchUpSubscribeToStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatchUpSubscribeToStreamRequest.ProtoReflect.Descriptor instead.
 func (*CatchUpSubscribeToStreamRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{13}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CatchUpSubscribeToStreamRequest) GetQuery() *Query {
@@ -916,7 +916,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[14]
+	mi := &file_orisun_eventstore_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -928,7 +928,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[14]
+	mi := &file_orisun_eventstore_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -941,7 +941,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{14}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{14}
 }
 
 type PingResponse struct {
@@ -952,7 +952,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_eventstore_eventstore_proto_msgTypes[15]
+	mi := &file_orisun_eventstore_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -964,7 +964,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_eventstore_eventstore_proto_msgTypes[15]
+	mi := &file_orisun_eventstore_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -977,152 +977,151 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_eventstore_eventstore_proto_rawDescGZIP(), []int{15}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{15}
 }
 
-var File_eventstore_eventstore_proto protoreflect.FileDescriptor
+var File_orisun_eventstore_proto protoreflect.FileDescriptor
 
-const file_eventstore_eventstore_proto_rawDesc = "" +
+const file_orisun_eventstore_proto_rawDesc = "" +
 	"\n" +
-	"\x1beventstore/eventstore.proto\x12\n" +
-	"eventstore\x1a\x1fgoogle/protobuf/timestamp.proto\"^\n" +
+	"\x17orisun/eventstore.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\"^\n" +
 	"\bPosition\x12'\n" +
 	"\x0fcommit_position\x18\x01 \x01(\x03R\x0ecommitPosition\x12)\n" +
 	"\x10prepare_position\x18\x02 \x01(\x03R\x0fpreparePosition\"-\n" +
 	"\x03Tag\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"0\n" +
-	"\tCriterion\x12#\n" +
-	"\x04tags\x18\x01 \x03(\v2\x0f.eventstore.TagR\x04tags\":\n" +
-	"\x05Query\x121\n" +
-	"\bcriteria\x18\x01 \x03(\v2\x15.eventstore.CriterionR\bcriteria\"w\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\",\n" +
+	"\tCriterion\x12\x1f\n" +
+	"\x04tags\x18\x01 \x03(\v2\v.orisun.TagR\x04tags\"6\n" +
+	"\x05Query\x12-\n" +
+	"\bcriteria\x18\x01 \x03(\v2\x11.orisun.CriterionR\bcriteria\"w\n" +
 	"\vEventToSave\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xff\x01\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xfb\x01\n" +
 	"\x05Event\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\x120\n" +
-	"\bposition\x18\x06 \x01(\v2\x14.eventstore.PositionR\bposition\x12=\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\x12,\n" +
+	"\bposition\x18\x06 \x01(\v2\x10.orisun.PositionR\bposition\x12=\n" +
 	"\fdate_created\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vdateCreated\x12\x1b\n" +
-	"\tstream_id\x18\b \x01(\tR\bstreamId\"F\n" +
-	"\vWriteResult\x127\n" +
-	"\flog_position\x18\x01 \x01(\v2\x14.eventstore.PositionR\vlogPosition\"\x9d\x01\n" +
+	"\tstream_id\x18\b \x01(\tR\bstreamId\"B\n" +
+	"\vWriteResult\x123\n" +
+	"\flog_position\x18\x01 \x01(\v2\x10.orisun.PositionR\vlogPosition\"\x95\x01\n" +
 	"\x0fSaveStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12A\n" +
-	"\x11expected_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\x10expectedPosition\x123\n" +
-	"\vsubsetQuery\x18\x03 \x01(\v2\x11.eventstore.QueryR\vsubsetQuery\"\x95\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12=\n" +
+	"\x11expected_position\x18\x02 \x01(\v2\x10.orisun.PositionR\x10expectedPosition\x12/\n" +
+	"\vsubsetQuery\x18\x03 \x01(\v2\r.orisun.QueryR\vsubsetQuery\"\x8d\x01\n" +
 	"\x11SaveEventsRequest\x12\x1a\n" +
-	"\bboundary\x18\x02 \x01(\tR\bboundary\x123\n" +
-	"\x06stream\x18\x03 \x01(\v2\x1b.eventstore.SaveStreamQueryR\x06stream\x12/\n" +
-	"\x06events\x18\x04 \x03(\v2\x17.eventstore.EventToSaveR\x06events\"_\n" +
+	"\bboundary\x18\x02 \x01(\tR\bboundary\x12/\n" +
+	"\x06stream\x18\x03 \x01(\v2\x17.orisun.SaveStreamQueryR\x06stream\x12+\n" +
+	"\x06events\x18\x04 \x03(\v2\x13.orisun.EventToSaveR\x06events\"[\n" +
 	"\x0eGetStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
-	"\rfrom_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\ffromPosition\"\x91\x02\n" +
-	"\x10GetEventsRequest\x12'\n" +
-	"\x05query\x18\x01 \x01(\v2\x11.eventstore.QueryR\x05query\x129\n" +
-	"\rfrom_position\x18\x02 \x01(\v2\x14.eventstore.PositionR\ffromPosition\x12\x14\n" +
-	"\x05count\x18\x03 \x01(\rR\x05count\x123\n" +
-	"\tdirection\x18\x04 \x01(\x0e2\x15.eventstore.DirectionR\tdirection\x12\x1a\n" +
-	"\bboundary\x18\x05 \x01(\tR\bboundary\x122\n" +
-	"\x06stream\x18\x06 \x01(\v2\x1a.eventstore.GetStreamQueryR\x06stream\">\n" +
-	"\x11GetEventsResponse\x12)\n" +
-	"\x06events\x18\x01 \x03(\v2\x11.eventstore.EventR\x06events\"\xcf\x01\n" +
-	"#CatchUpSubscribeToEventStoreRequest\x12:\n" +
-	"\rafterPosition\x18\x01 \x01(\v2\x14.eventstore.PositionR\rafterPosition\x12'\n" +
-	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
+	"\rfrom_position\x18\x02 \x01(\v2\x10.orisun.PositionR\ffromPosition\"\x81\x02\n" +
+	"\x10GetEventsRequest\x12#\n" +
+	"\x05query\x18\x01 \x01(\v2\r.orisun.QueryR\x05query\x125\n" +
+	"\rfrom_position\x18\x02 \x01(\v2\x10.orisun.PositionR\ffromPosition\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\rR\x05count\x12/\n" +
+	"\tdirection\x18\x04 \x01(\x0e2\x11.orisun.DirectionR\tdirection\x12\x1a\n" +
+	"\bboundary\x18\x05 \x01(\tR\bboundary\x12.\n" +
+	"\x06stream\x18\x06 \x01(\v2\x16.orisun.GetStreamQueryR\x06stream\":\n" +
+	"\x11GetEventsResponse\x12%\n" +
+	"\x06events\x18\x01 \x03(\v2\r.orisun.EventR\x06events\"\xc7\x01\n" +
+	"#CatchUpSubscribeToEventStoreRequest\x126\n" +
+	"\rafterPosition\x18\x01 \x01(\v2\x10.orisun.PositionR\rafterPosition\x12#\n" +
+	"\x05query\x18\x02 \x01(\v2\r.orisun.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
-	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xe4\x01\n" +
-	"\x1fCatchUpSubscribeToStreamRequest\x12'\n" +
-	"\x05query\x18\x02 \x01(\v2\x11.eventstore.QueryR\x05query\x12'\n" +
+	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xdc\x01\n" +
+	"\x1fCatchUpSubscribeToStreamRequest\x12#\n" +
+	"\x05query\x18\x02 \x01(\v2\r.orisun.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
 	"\bboundary\x18\x04 \x01(\tR\bboundary\x12\x16\n" +
-	"\x06stream\x18\x05 \x01(\tR\x06stream\x12;\n" +
-	"\x0eafter_position\x18\x06 \x01(\v2\x14.eventstore.PositionR\rafterPosition\"\r\n" +
+	"\x06stream\x18\x05 \x01(\tR\x06stream\x127\n" +
+	"\x0eafter_position\x18\x06 \x01(\v2\x10.orisun.PositionR\rafterPosition\"\r\n" +
 	"\vPingRequest\"\x0e\n" +
 	"\fPingResponse*\x1e\n" +
 	"\tDirection\x12\a\n" +
 	"\x03ASC\x10\x00\x12\b\n" +
-	"\x04DESC\x10\x012\xa1\x03\n" +
+	"\x04DESC\x10\x012\xf9\x02\n" +
 	"\n" +
-	"EventStore\x12F\n" +
+	"EventStore\x12>\n" +
 	"\n" +
-	"SaveEvents\x12\x1d.eventstore.SaveEventsRequest\x1a\x17.eventstore.WriteResult\"\x00\x12J\n" +
-	"\tGetEvents\x12\x1c.eventstore.GetEventsRequest\x1a\x1d.eventstore.GetEventsResponse\"\x00\x12b\n" +
-	"\x18CatchUpSubscribeToEvents\x12/.eventstore.CatchUpSubscribeToEventStoreRequest\x1a\x11.eventstore.Event\"\x000\x01\x12^\n" +
-	"\x18CatchUpSubscribeToStream\x12+.eventstore.CatchUpSubscribeToStreamRequest\x1a\x11.eventstore.Event\"\x000\x01\x12;\n" +
-	"\x04Ping\x12\x17.eventstore.PingRequest\x1a\x18.eventstore.PingResponse\"\x00B;\n" +
-	"\x15com.orisun.eventstoreZ\"github.com/oexza/Orisun/eventstoreb\x06proto3"
+	"SaveEvents\x12\x19.orisun.SaveEventsRequest\x1a\x13.orisun.WriteResult\"\x00\x12B\n" +
+	"\tGetEvents\x12\x18.orisun.GetEventsRequest\x1a\x19.orisun.GetEventsResponse\"\x00\x12Z\n" +
+	"\x18CatchUpSubscribeToEvents\x12+.orisun.CatchUpSubscribeToEventStoreRequest\x1a\r.orisun.Event\"\x000\x01\x12V\n" +
+	"\x18CatchUpSubscribeToStream\x12'.orisun.CatchUpSubscribeToStreamRequest\x1a\r.orisun.Event\"\x000\x01\x123\n" +
+	"\x04Ping\x12\x13.orisun.PingRequest\x1a\x14.orisun.PingResponse\"\x00B7\n" +
+	"\x15com.orisun.eventstoreZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
 
 var (
-	file_eventstore_eventstore_proto_rawDescOnce sync.Once
-	file_eventstore_eventstore_proto_rawDescData []byte
+	file_orisun_eventstore_proto_rawDescOnce sync.Once
+	file_orisun_eventstore_proto_rawDescData []byte
 )
 
-func file_eventstore_eventstore_proto_rawDescGZIP() []byte {
-	file_eventstore_eventstore_proto_rawDescOnce.Do(func() {
-		file_eventstore_eventstore_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_eventstore_eventstore_proto_rawDesc), len(file_eventstore_eventstore_proto_rawDesc)))
+func file_orisun_eventstore_proto_rawDescGZIP() []byte {
+	file_orisun_eventstore_proto_rawDescOnce.Do(func() {
+		file_orisun_eventstore_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_orisun_eventstore_proto_rawDesc), len(file_orisun_eventstore_proto_rawDesc)))
 	})
-	return file_eventstore_eventstore_proto_rawDescData
+	return file_orisun_eventstore_proto_rawDescData
 }
 
-var file_eventstore_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_eventstore_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
-var file_eventstore_eventstore_proto_goTypes = []any{
-	(Direction)(0),                              // 0: eventstore.Direction
-	(*Position)(nil),                            // 1: eventstore.Position
-	(*Tag)(nil),                                 // 2: eventstore.Tag
-	(*Criterion)(nil),                           // 3: eventstore.Criterion
-	(*Query)(nil),                               // 4: eventstore.Query
-	(*EventToSave)(nil),                         // 5: eventstore.EventToSave
-	(*Event)(nil),                               // 6: eventstore.Event
-	(*WriteResult)(nil),                         // 7: eventstore.WriteResult
-	(*SaveStreamQuery)(nil),                     // 8: eventstore.SaveStreamQuery
-	(*SaveEventsRequest)(nil),                   // 9: eventstore.SaveEventsRequest
-	(*GetStreamQuery)(nil),                      // 10: eventstore.GetStreamQuery
-	(*GetEventsRequest)(nil),                    // 11: eventstore.GetEventsRequest
-	(*GetEventsResponse)(nil),                   // 12: eventstore.GetEventsResponse
-	(*CatchUpSubscribeToEventStoreRequest)(nil), // 13: eventstore.CatchUpSubscribeToEventStoreRequest
-	(*CatchUpSubscribeToStreamRequest)(nil),     // 14: eventstore.CatchUpSubscribeToStreamRequest
-	(*PingRequest)(nil),                         // 15: eventstore.PingRequest
-	(*PingResponse)(nil),                        // 16: eventstore.PingResponse
+var file_orisun_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_orisun_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_orisun_eventstore_proto_goTypes = []any{
+	(Direction)(0),                              // 0: orisun.Direction
+	(*Position)(nil),                            // 1: orisun.Position
+	(*Tag)(nil),                                 // 2: orisun.Tag
+	(*Criterion)(nil),                           // 3: orisun.Criterion
+	(*Query)(nil),                               // 4: orisun.Query
+	(*EventToSave)(nil),                         // 5: orisun.EventToSave
+	(*Event)(nil),                               // 6: orisun.Event
+	(*WriteResult)(nil),                         // 7: orisun.WriteResult
+	(*SaveStreamQuery)(nil),                     // 8: orisun.SaveStreamQuery
+	(*SaveEventsRequest)(nil),                   // 9: orisun.SaveEventsRequest
+	(*GetStreamQuery)(nil),                      // 10: orisun.GetStreamQuery
+	(*GetEventsRequest)(nil),                    // 11: orisun.GetEventsRequest
+	(*GetEventsResponse)(nil),                   // 12: orisun.GetEventsResponse
+	(*CatchUpSubscribeToEventStoreRequest)(nil), // 13: orisun.CatchUpSubscribeToEventStoreRequest
+	(*CatchUpSubscribeToStreamRequest)(nil),     // 14: orisun.CatchUpSubscribeToStreamRequest
+	(*PingRequest)(nil),                         // 15: orisun.PingRequest
+	(*PingResponse)(nil),                        // 16: orisun.PingResponse
 	(*timestamppb.Timestamp)(nil),               // 17: google.protobuf.Timestamp
 }
-var file_eventstore_eventstore_proto_depIdxs = []int32{
-	2,  // 0: eventstore.Criterion.tags:type_name -> eventstore.Tag
-	3,  // 1: eventstore.Query.criteria:type_name -> eventstore.Criterion
-	1,  // 2: eventstore.Event.position:type_name -> eventstore.Position
-	17, // 3: eventstore.Event.date_created:type_name -> google.protobuf.Timestamp
-	1,  // 4: eventstore.WriteResult.log_position:type_name -> eventstore.Position
-	1,  // 5: eventstore.SaveStreamQuery.expected_position:type_name -> eventstore.Position
-	4,  // 6: eventstore.SaveStreamQuery.subsetQuery:type_name -> eventstore.Query
-	8,  // 7: eventstore.SaveEventsRequest.stream:type_name -> eventstore.SaveStreamQuery
-	5,  // 8: eventstore.SaveEventsRequest.events:type_name -> eventstore.EventToSave
-	1,  // 9: eventstore.GetStreamQuery.from_position:type_name -> eventstore.Position
-	4,  // 10: eventstore.GetEventsRequest.query:type_name -> eventstore.Query
-	1,  // 11: eventstore.GetEventsRequest.from_position:type_name -> eventstore.Position
-	0,  // 12: eventstore.GetEventsRequest.direction:type_name -> eventstore.Direction
-	10, // 13: eventstore.GetEventsRequest.stream:type_name -> eventstore.GetStreamQuery
-	6,  // 14: eventstore.GetEventsResponse.events:type_name -> eventstore.Event
-	1,  // 15: eventstore.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> eventstore.Position
-	4,  // 16: eventstore.CatchUpSubscribeToEventStoreRequest.query:type_name -> eventstore.Query
-	4,  // 17: eventstore.CatchUpSubscribeToStreamRequest.query:type_name -> eventstore.Query
-	1,  // 18: eventstore.CatchUpSubscribeToStreamRequest.after_position:type_name -> eventstore.Position
-	9,  // 19: eventstore.EventStore.SaveEvents:input_type -> eventstore.SaveEventsRequest
-	11, // 20: eventstore.EventStore.GetEvents:input_type -> eventstore.GetEventsRequest
-	13, // 21: eventstore.EventStore.CatchUpSubscribeToEvents:input_type -> eventstore.CatchUpSubscribeToEventStoreRequest
-	14, // 22: eventstore.EventStore.CatchUpSubscribeToStream:input_type -> eventstore.CatchUpSubscribeToStreamRequest
-	15, // 23: eventstore.EventStore.Ping:input_type -> eventstore.PingRequest
-	7,  // 24: eventstore.EventStore.SaveEvents:output_type -> eventstore.WriteResult
-	12, // 25: eventstore.EventStore.GetEvents:output_type -> eventstore.GetEventsResponse
-	6,  // 26: eventstore.EventStore.CatchUpSubscribeToEvents:output_type -> eventstore.Event
-	6,  // 27: eventstore.EventStore.CatchUpSubscribeToStream:output_type -> eventstore.Event
-	16, // 28: eventstore.EventStore.Ping:output_type -> eventstore.PingResponse
+var file_orisun_eventstore_proto_depIdxs = []int32{
+	2,  // 0: orisun.Criterion.tags:type_name -> orisun.Tag
+	3,  // 1: orisun.Query.criteria:type_name -> orisun.Criterion
+	1,  // 2: orisun.Event.position:type_name -> orisun.Position
+	17, // 3: orisun.Event.date_created:type_name -> google.protobuf.Timestamp
+	1,  // 4: orisun.WriteResult.log_position:type_name -> orisun.Position
+	1,  // 5: orisun.SaveStreamQuery.expected_position:type_name -> orisun.Position
+	4,  // 6: orisun.SaveStreamQuery.subsetQuery:type_name -> orisun.Query
+	8,  // 7: orisun.SaveEventsRequest.stream:type_name -> orisun.SaveStreamQuery
+	5,  // 8: orisun.SaveEventsRequest.events:type_name -> orisun.EventToSave
+	1,  // 9: orisun.GetStreamQuery.from_position:type_name -> orisun.Position
+	4,  // 10: orisun.GetEventsRequest.query:type_name -> orisun.Query
+	1,  // 11: orisun.GetEventsRequest.from_position:type_name -> orisun.Position
+	0,  // 12: orisun.GetEventsRequest.direction:type_name -> orisun.Direction
+	10, // 13: orisun.GetEventsRequest.stream:type_name -> orisun.GetStreamQuery
+	6,  // 14: orisun.GetEventsResponse.events:type_name -> orisun.Event
+	1,  // 15: orisun.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> orisun.Position
+	4,  // 16: orisun.CatchUpSubscribeToEventStoreRequest.query:type_name -> orisun.Query
+	4,  // 17: orisun.CatchUpSubscribeToStreamRequest.query:type_name -> orisun.Query
+	1,  // 18: orisun.CatchUpSubscribeToStreamRequest.after_position:type_name -> orisun.Position
+	9,  // 19: orisun.EventStore.SaveEvents:input_type -> orisun.SaveEventsRequest
+	11, // 20: orisun.EventStore.GetEvents:input_type -> orisun.GetEventsRequest
+	13, // 21: orisun.EventStore.CatchUpSubscribeToEvents:input_type -> orisun.CatchUpSubscribeToEventStoreRequest
+	14, // 22: orisun.EventStore.CatchUpSubscribeToStream:input_type -> orisun.CatchUpSubscribeToStreamRequest
+	15, // 23: orisun.EventStore.Ping:input_type -> orisun.PingRequest
+	7,  // 24: orisun.EventStore.SaveEvents:output_type -> orisun.WriteResult
+	12, // 25: orisun.EventStore.GetEvents:output_type -> orisun.GetEventsResponse
+	6,  // 26: orisun.EventStore.CatchUpSubscribeToEvents:output_type -> orisun.Event
+	6,  // 27: orisun.EventStore.CatchUpSubscribeToStream:output_type -> orisun.Event
+	16, // 28: orisun.EventStore.Ping:output_type -> orisun.PingResponse
 	24, // [24:29] is the sub-list for method output_type
 	19, // [19:24] is the sub-list for method input_type
 	19, // [19:19] is the sub-list for extension type_name
@@ -1130,27 +1129,27 @@ var file_eventstore_eventstore_proto_depIdxs = []int32{
 	0,  // [0:19] is the sub-list for field type_name
 }
 
-func init() { file_eventstore_eventstore_proto_init() }
-func file_eventstore_eventstore_proto_init() {
-	if File_eventstore_eventstore_proto != nil {
+func init() { file_orisun_eventstore_proto_init() }
+func file_orisun_eventstore_proto_init() {
+	if File_orisun_eventstore_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_eventstore_eventstore_proto_rawDesc), len(file_eventstore_eventstore_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orisun_eventstore_proto_rawDesc), len(file_orisun_eventstore_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_eventstore_eventstore_proto_goTypes,
-		DependencyIndexes: file_eventstore_eventstore_proto_depIdxs,
-		EnumInfos:         file_eventstore_eventstore_proto_enumTypes,
-		MessageInfos:      file_eventstore_eventstore_proto_msgTypes,
+		GoTypes:           file_orisun_eventstore_proto_goTypes,
+		DependencyIndexes: file_orisun_eventstore_proto_depIdxs,
+		EnumInfos:         file_orisun_eventstore_proto_enumTypes,
+		MessageInfos:      file_orisun_eventstore_proto_msgTypes,
 	}.Build()
-	File_eventstore_eventstore_proto = out.File
-	file_eventstore_eventstore_proto_goTypes = nil
-	file_eventstore_eventstore_proto_depIdxs = nil
+	File_orisun_eventstore_proto = out.File
+	file_orisun_eventstore_proto_goTypes = nil
+	file_orisun_eventstore_proto_depIdxs = nil
 }

@@ -4,18 +4,17 @@ import (
 	"context"
 	ev "github.com/oexza/Orisun/admin/events"
 	common "github.com/oexza/Orisun/admin/slices/common"
-	globalCommon "github.com/oexza/Orisun/common"
-	"github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"time"
 
 	"github.com/goccy/go-json"
 )
 
-type CreateNewUserType = func(globalCommon.User) error
+type CreateNewUserType = func(orisun.User) error
 type DeleteUserType = func(id string) error
 type CountUsersType = func() error
-type GetUserById = func(userId string) (globalCommon.User, error)
+type GetUserById = func(userId string) (orisun.User, error)
 
 type UserProjector struct {
 	getProjectorLastPosition common.GetProjectorLastPositionType
@@ -66,7 +65,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		return err
 	}
 
-	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
+	stream := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	go func() {
 		p.logger.Debugf("Receiving events for: %s", projectorName)
@@ -86,7 +85,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 					continue
 				}
 
-				var pos = eventstore.Position{
+				var pos = orisun.Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,
 				}
@@ -121,7 +120,7 @@ func (p *UserProjector) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *UserProjector) handleEvent(event *eventstore.Event) error {
+func (p *UserProjector) handleEvent(event *orisun.Event) error {
 	p.logger.Debugf("Handling event %v", event)
 
 	switch event.EventType {
@@ -132,7 +131,7 @@ func (p *UserProjector) handleEvent(event *eventstore.Event) error {
 		}
 
 		err := p.createNewUser(
-			globalCommon.User{
+			orisun.User{
 				Id:             userEvent.UserId,
 				Username:       userEvent.Username,
 				HashedPassword: userEvent.PasswordHash,

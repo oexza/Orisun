@@ -5,8 +5,8 @@ import (
 	"errors"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
 	"github.com/oexza/Orisun/admin/templates"
-	"github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"net/http"
 
 	// "sync"
@@ -150,14 +150,14 @@ func changePassword(
 	currentUserId string,
 ) error {
 	// Use goroutines to fetch events concurrently with errgroup for cancellation
-	var userCreated, userDeleted, passwordChanged *eventstore.GetEventsResponse
+	var userCreated, userDeleted, passwordChanged *orisun.GetEventsResponse
 
 	// Create a common request template
-	baseRequest := eventstore.GetEventsRequest{
+	baseRequest := orisun.GetEventsRequest{
 		Boundary:  boundary,
 		Count:     1,
-		Direction: eventstore.Direction_DESC,
-		Stream: &eventstore.GetStreamQuery{
+		Direction: orisun.Direction_DESC,
+		Stream: &orisun.GetStreamQuery{
 			Name: admin_events.AdminStream,
 		},
 	}
@@ -165,10 +165,10 @@ func changePassword(
 	// Fetch UserCreated event
 	// Create a true copy of the base request, then take its address for getEvents
 	reqCopy := baseRequest
-	reqCopy.Query = &eventstore.Query{
-		Criteria: []*eventstore.Criterion{
+	reqCopy.Query = &orisun.Query{
+		Criteria: []*orisun.Criterion{
 			{
-				Tags: []*eventstore.Tag{
+				Tags: []*orisun.Tag{
 					{Key: "user_id", Value: currentUserId},
 					{Key: "eventType", Value: admin_events.EventTypeUserCreated},
 				},
@@ -187,10 +187,10 @@ func changePassword(
 	g.Go(func() error {
 		// UserDeleted
 		req := baseRequest
-		req.Query = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		req.Query = &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "user_id", Value: currentUserId},
 						{Key: "eventType", Value: admin_events.EventTypeUserDeleted},
 					},
@@ -208,10 +208,10 @@ func changePassword(
 	g.Go(func() error {
 		// PasswordChanged
 		req := baseRequest
-		req.Query = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		req.Query = &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "user_id", Value: currentUserId},
 						{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
 					},
@@ -274,12 +274,12 @@ func changePassword(
 		return err
 	}
 
-	tags := []*eventstore.Tag{
+	tags := []*orisun.Tag{
 		{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
 		{Key: "user_id", Value: currentUserId},
 	}
 
-	var expectedPosition *eventstore.Position = nil
+	var expectedPosition *orisun.Position = nil
 	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
 		expectedPosition = passwordChanged.Events[0].Position
 	}
@@ -287,14 +287,14 @@ func changePassword(
 	if expectedPosition == nil {
 		expectedPosition = userCreated.Events[0].Position
 	}
-	_, err = saveEvents(ctx, &eventstore.SaveEventsRequest{
+	_, err = saveEvents(ctx, &orisun.SaveEventsRequest{
 		Boundary: boundary,
-		Stream: &eventstore.SaveStreamQuery{
+		Stream: &orisun.SaveStreamQuery{
 			Name:             admin_events.AdminStream,
 			ExpectedPosition: expectedPosition,
-			SubsetQuery:      &eventstore.Query{Criteria: []*eventstore.Criterion{{Tags: tags}}},
+			SubsetQuery:      &orisun.Query{Criteria: []*orisun.Criterion{{Tags: tags}}},
 		},
-		Events: []*eventstore.EventToSave{{
+		Events: []*orisun.EventToSave{{
 			EventId:   uuid.NewString(),
 			EventType: admin_events.EventTypeUserPasswordChanged,
 			Data:      string(payload),

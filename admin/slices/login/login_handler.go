@@ -5,14 +5,14 @@ import (
 	"encoding/base64"
 	"github.com/goccy/go-json"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	globalCommon "github.com/oexza/Orisun/common"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	datastar "github.com/starfederation/datastar-go/datastar"
 	"net/http"
 )
 
 type Authenticator interface {
-	ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, error)
+	ValidateCredentials(ctx context.Context, username string, password string) (orisun.User, error)
 }
 
 type LoginHandler struct {
@@ -96,11 +96,11 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	sse.Redirect("/dashboard")
 }
 
-func (s *LoginHandler) login(ctx context.Context, username, password string) (globalCommon.User, error) {
+func (s *LoginHandler) login(ctx context.Context, username, password string) (orisun.User, error) {
 	// Validate credentials
 	user, err := s.authenticator.ValidateCredentials(ctx, username, password)
 	if err != nil {
-		return globalCommon.User{}, err
+		return orisun.User{}, err
 	}
 
 	return user, nil

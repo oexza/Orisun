@@ -1,7 +1,7 @@
 package events
 
 import (
-	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/orisun"
 )
 
 const (
@@ -17,11 +17,11 @@ const (
 )
 
 type UserCreated struct {
-	Name         string              `json:"name"`
-	UserId       string              `json:"user_id"`
-	Username     string              `json:"username"`
-	Roles        []globalCommon.Role `json:"roles,omitempty"`
-	PasswordHash string              `json:"password_hash,omitempty"`
+	Name         string        `json:"name"`
+	UserId       string        `json:"user_id"`
+	Username     string        `json:"username"`
+	Roles        []orisun.Role `json:"roles,omitempty"`
+	PasswordHash string        `json:"password_hash,omitempty"`
 }
 
 type UserDeleted struct {

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	config "github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/eventstore"
 	logging "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"time"
 )
 
@@ -45,11 +45,11 @@ func NewPostgresEventPublishing(db *sql.DB, logger logging.Logger, boundarySchem
 	}
 }
 
-func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error) {
+func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Context, boundary string) (orisun.Position, error) {
 	conn, err := s.db.Conn(ctx)
 
 	if err != nil {
-		return eventstore.Position{}, err
+		return orisun.Position{}, err
 	}
 	defer conn.Close() // Ensure connection is always closed
 
@@ -57,17 +57,17 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	defer tx.Rollback()
 
 	if err != nil {
-		return eventstore.Position{}, err
+		return orisun.Position{}, err
 	}
 
 	schema, err := s.Schema(boundary)
 	if err != nil {
-		return eventstore.Position{}, err
+		return orisun.Position{}, err
 	}
 
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
 	if err != nil {
-		return eventstore.Position{}, fmt.Errorf("failed to set search path: %v", err)
+		return orisun.Position{}, fmt.Errorf("failed to set search path: %v", err)
 	}
 	var transactionID int64
 	var globalID int64
@@ -75,15 +75,15 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Return default position (0,0) if no rows found
-			return eventstore.Position{
+			return orisun.Position{
 				CommitPosition:  0,
 				PreparePosition: 0,
 			}, nil
 		}
-		return eventstore.Position{}, err
+		return orisun.Position{}, err
 	}
 
-	return eventstore.Position{
+	return orisun.Position{
 		CommitPosition:  transactionID,
 		PreparePosition: globalID,
 	}, nil

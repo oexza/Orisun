@@ -15,11 +15,11 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/lib/pq"
 
-	eventstore "github.com/oexza/Orisun/eventstore"
+	eventstore "github.com/oexza/Orisun/orisun"
 
 	config "github.com/oexza/Orisun/config"
 
-	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/orisun"
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -376,18 +376,18 @@ func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string, bounda
 	}
 }
 
-var userCache = map[string]*globalCommon.User{}
+var userCache = map[string]*orisun.User{}
 
-func (s *PostgresAdminDB) ListAdminUsers() ([]*globalCommon.User, error) {
+func (s *PostgresAdminDB) ListAdminUsers() ([]*orisun.User, error) {
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users ORDER BY id", s.adminSchema))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []*globalCommon.User
+	var users []*orisun.User
 	for rows.Next() {
-		var user globalCommon.User
+		var user orisun.User
 		user, err = s.scanUser(rows)
 		if err != nil {
 			return nil, err
@@ -448,21 +448,21 @@ func (p *PostgresAdminDB) DeleteUser(id string) error {
 	return nil
 }
 
-func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (globalCommon.User, error) {
-	var user globalCommon.User
+func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (orisun.User, error) {
+	var user orisun.User
 	var roles []string
 	if err := rows.Scan(&user.Id, &user.Name, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
 		s.logger.Error("Failed to scan user row: %v", err)
-		return globalCommon.User{}, err
+		return orisun.User{}, err
 	}
 
 	for _, role := range roles {
-		user.Roles = append(user.Roles, globalCommon.Role(role))
+		user.Roles = append(user.Roles, orisun.Role(role))
 	}
 	return user, nil
 }
 
-func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User, error) {
+func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error) {
 	user := userCache[username]
 	if user != nil {
 		s.logger.Debug("Fetched from cache")
@@ -472,15 +472,15 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User,
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where username = $1", s.adminSchema), username)
 	if err != nil {
 		s.logger.Infof("User: %v", err)
-		return globalCommon.User{}, err
+		return orisun.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse globalCommon.User
+	var userResponse orisun.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return globalCommon.User{}, err
+			return orisun.User{}, err
 		}
 	}
 
@@ -488,32 +488,32 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (globalCommon.User,
 		userCache[username] = &userResponse
 		return userResponse, nil
 	}
-	return globalCommon.User{}, fmt.Errorf("user not found")
+	return orisun.User{}, fmt.Errorf("user not found")
 }
 
-func (s *PostgresAdminDB) GetUserById(id string) (globalCommon.User, error) {
+func (s *PostgresAdminDB) GetUserById(id string) (orisun.User, error) {
 	rows, err := s.db.Query(fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.users where id = $1", s.adminSchema), id)
 	if err != nil {
 		s.logger.Debugf("User by ID: %v", err)
-		return globalCommon.User{}, err
+		return orisun.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse globalCommon.User
+	var userResponse orisun.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return globalCommon.User{}, err
+			return orisun.User{}, err
 		}
 	}
 
 	if userResponse.Id != "" {
 		return userResponse, nil
 	}
-	return globalCommon.User{}, fmt.Errorf("user not found with id: %s", id)
+	return orisun.User{}, fmt.Errorf("user not found with id: %s", id)
 }
 
-func (s *PostgresAdminDB) UpsertUser(user globalCommon.User) error {
+func (s *PostgresAdminDB) UpsertUser(user orisun.User) error {
 	roleStrings := make([]string, len(user.Roles))
 	for i, role := range user.Roles {
 		roleStrings[i] = string(role)

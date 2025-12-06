@@ -1,4 +1,4 @@
-package eventstore
+package orisun
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	globalCommon "github.com/oexza/Orisun/common"
 	logging "github.com/oexza/Orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -147,15 +146,15 @@ type EventWithMapTags struct {
 	Metadata  any    `json:"metadata"`
 }
 
-func authorizeRequest(ctx context.Context, roles []globalCommon.Role) error {
+func authorizeRequest(ctx context.Context, roles []Role) error {
 	// Check if the user has the necessary permissions to perform the query
-	user := ctx.Value(globalCommon.UserContextKey)
+	user := ctx.Value(UserContextKey)
 	if user == nil {
 		return nil
 	}
 
 	// Check if the user has any of the necessary permissions to perform the query
-	userObj := user.(globalCommon.User)
+	userObj := user.(User)
 
 	// If no roles are specified, allow access
 	if len(roles) == 0 {
@@ -182,7 +181,7 @@ func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResp
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
 	s.logger.Debugf("SaveEvents called with req: %v", req)
 
-	err = authorizeRequest(ctx, []globalCommon.Role{globalCommon.RoleAdmin, globalCommon.RoleOperations})
+	err = authorizeRequest(ctx, []Role{RoleAdmin, RoleOperations})
 	if err != nil {
 		return nil, err
 	}
@@ -239,9 +238,14 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
 	}
 
+	tranId, err := parseInt64(transactionID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
+	}
+
 	return &WriteResult{
 		LogPosition: &Position{
-			CommitPosition:  parseInt64(transactionID),
+			CommitPosition:  tranId,
 			PreparePosition: globalID,
 		},
 	}, nil
@@ -263,7 +267,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	subscriberName string,
 	afterPosition *Position,
 	query *Query,
-	handler *globalCommon.MessageHandler[Event],
+	handler *MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName
 	// Use errgroup for coordinated error handling and cancellation
@@ -491,7 +495,7 @@ func (s *EventStore) SubscribeToStream(
 	query *Query,
 	stream string,
 	afterPosition *Position,
-	handler *globalCommon.MessageHandler[Event],
+	handler *MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName + "__" + stream
 	// Use errgroup for coordinated goroutine management
@@ -711,7 +715,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 
 	g, gctx := errgroup.WithContext(stream.Context())
 
-	messageHandler := globalCommon.NewMessageHandler[Event](gctx)
+	messageHandler := NewMessageHandler[Event](gctx)
 
 	// Forwarder worker: reads from handler and writes to gRPC stream
 	g.Go(func() error {
@@ -770,7 +774,7 @@ func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamReque
 	defer cancel()
 	g, gctx := errgroup.WithContext(ctx)
 
-	messageHandler := globalCommon.NewMessageHandler[Event](gctx)
+	messageHandler := NewMessageHandler[Event](gctx)
 
 	// Forwarder worker: reads from handler and writes to gRPC stream
 	g.Go(func() error {
@@ -908,12 +912,6 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query, st
 
 	// No criteria group fully matched
 	return false
-}
-
-func parseInt64(s string) int64 {
-	var i int64
-	fmt.Sscanf(s, "%d", &i)
-	return i
 }
 
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {

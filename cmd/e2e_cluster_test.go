@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/oexza/Orisun/eventstore"
+	pb "github.com/oexza/Orisun/orisun"
 )
 
 type ClusterTestSuite struct {

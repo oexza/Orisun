@@ -19,10 +19,10 @@ import (
 	"github.com/oexza/Orisun/admin/slices/login"
 	"github.com/oexza/Orisun/admin/slices/users_page"
 	up "github.com/oexza/Orisun/admin/slices/users_projection"
-	globalCommon "github.com/oexza/Orisun/common"
 	c "github.com/oexza/Orisun/config"
-	pb "github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
+	pb "github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -46,10 +46,10 @@ type LoginAuthenticatorAdapter struct {
 }
 
 // ValidateCredentials implements the login.Authenticator interface
-func (adapter *LoginAuthenticatorAdapter) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, error) {
+func (adapter *LoginAuthenticatorAdapter) ValidateCredentials(ctx context.Context, username string, password string) (orisun.User, error) {
 	user, _, err := adapter.authenticator.ValidateCredentials(ctx, username, password)
 	if err != nil {
-		return globalCommon.User{}, err
+		return orisun.User{}, err
 	}
 	return user, nil
 }
@@ -83,7 +83,7 @@ func ensureJetStreamStreamIsProperlySetup(ctx context.Context, js jetstream.JetS
 
 // setupJetStreamConsumer sets up a JetStream consumer for the given stream and handles message consumption.
 // It creates or updates the consumer, sets up message handling with retry logic, and cleans up resources when done.
-func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamName string, consumerName string, subject string, handler *globalCommon.MessageHandler[common.PublishRequest], logger l.Logger) error {
+func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamName string, consumerName string, subject string, handler *orisun.MessageHandler[common.PublishRequest], logger l.Logger) error {
 	jetStreamStream, err := ensureJetStreamStreamIsProperlySetup(ctx, js, streamName, logger)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ type getUserByIdWrapper struct {
 	adminDB common.DB
 }
 
-func (w getUserByIdWrapper) Get(userId string) (globalCommon.User, error) {
+func (w getUserByIdWrapper) Get(userId string) (orisun.User, error) {
 	return w.adminDB.GetUserById(userId)
 }
 
@@ -162,7 +162,7 @@ func main() {
 	defer logger.Println("Server shutting down")
 
 	// Display version information
-	fmt.Printf("Starting Orisun %s (Go %s)\n", globalCommon.GetVersion(), runtime.Version())
+	fmt.Printf("Starting Orisun %s (Go %s)\n", orisun.GetVersion(), runtime.Version())
 
 	// Load configuration and initialize logger
 	config := c.InitializeConfig()
@@ -264,7 +264,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler *globalCommon.MessageHandler[pb.Event]) error {
+			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -286,7 +286,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler *globalCommon.MessageHandler[pb.Event]) error {
+			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -311,7 +311,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler *globalCommon.MessageHandler[pb.Event]) error {
+			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -330,7 +330,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler *globalCommon.MessageHandler[pb.Event]) error {
+			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -360,8 +360,8 @@ func main() {
 		AppLogger,
 		config.GetBoundaryNames(),
 		getUserCount,
-		func(consumerName string, ctx context.Context, messageHandler *globalCommon.MessageHandler[user_count.UserCountReadModel]) error {
-			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
+		func(consumerName string, ctx context.Context, messageHandler *orisun.MessageHandler[user_count.UserCountReadModel]) error {
+			handler := orisun.NewMessageHandler[common.PublishRequest](ctx)
 			go func() {
 				for {
 					select {
@@ -397,8 +397,8 @@ func main() {
 			return nil
 		},
 		getEventCount,
-		func(consumerName string, boundary string, ctx context.Context, messageHandler *globalCommon.MessageHandler[event_count.EventCountReadModel]) error {
-			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
+		func(consumerName string, boundary string, ctx context.Context, messageHandler *orisun.MessageHandler[event_count.EventCountReadModel]) error {
+			handler := orisun.NewMessageHandler[common.PublishRequest](ctx)
 			go func(boundary string, logger l.Logger) {
 				for {
 					select {
@@ -482,7 +482,7 @@ func main() {
 			subscriberName string,
 			pos *pb.Position,
 			query *pb.Query,
-			handler *globalCommon.MessageHandler[pb.Event]) error {
+			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
 				ctx, boundary, subscriberName, pos, query, handler,
 			)
@@ -518,7 +518,7 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 		"admin",
 		"admin",
 		"changeit",
-		[]globalCommon.Role{globalCommon.RoleAdmin},
+		[]orisun.Role{orisun.RoleAdmin},
 		adminBoundary,
 		eventstore.SaveEvents,
 		eventstore.GetEvents,

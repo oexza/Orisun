@@ -2,8 +2,7 @@ package admin_common
 
 import (
 	"context"
-	globalCommon "github.com/oexza/Orisun/common"
-	"github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/orisun"
 	"net/http"
 	"sync"
 
@@ -12,30 +11,30 @@ import (
 )
 
 type DB interface {
-	ListAdminUsers() ([]*globalCommon.User, error)
-	GetProjectorLastPosition(projectorName string) (*eventstore.Position, error)
-	UpdateProjectorPosition(name string, position *eventstore.Position) error
-	UpsertUser(globalCommon.User) error
+	ListAdminUsers() ([]*orisun.User, error)
+	GetProjectorLastPosition(projectorName string) (*orisun.Position, error)
+	UpdateProjectorPosition(name string, position *orisun.Position) error
+	UpsertUser(user orisun.User) error
 	DeleteUser(id string) error
-	GetUserByUsername(username string) (globalCommon.User, error)
-	GetUserById(username string) (globalCommon.User, error)
+	GetUserByUsername(username string) (orisun.User, error)
+	GetUserById(username string) (orisun.User, error)
 	GetUsersCount() (uint32, error)
 	SaveUsersCount(uint32) error
 	GetEventsCount(boundary string) (int, error)
 	SaveEventCount(int, string) error
 }
 
-type SaveEventsType = func(ctx context.Context, in *eventstore.SaveEventsRequest) (resp *eventstore.WriteResult, err error)
-type GetEventsType = func(ctx context.Context, in *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error)
-type GetProjectorLastPositionType = func(projectorName string) (*eventstore.Position, error)
-type UpdateProjectorPositionType = func(projectorName string, position *eventstore.Position) error
+type SaveEventsType = func(ctx context.Context, in *orisun.SaveEventsRequest) (resp *orisun.WriteResult, err error)
+type GetEventsType = func(ctx context.Context, in *orisun.GetEventsRequest) (*orisun.GetEventsResponse, error)
+type GetProjectorLastPositionType = func(projectorName string) (*orisun.Position, error)
+type UpdateProjectorPositionType = func(projectorName string, position *orisun.Position) error
 type SubscribeToEventStoreType = func(
 	ctx context.Context,
 	boundary string,
 	subscriberName string,
-	pos *eventstore.Position,
-	query *eventstore.Query,
-	handler *globalCommon.MessageHandler[eventstore.Event],
+	pos *orisun.Position,
+	query *orisun.Query,
+	handler *orisun.MessageHandler[orisun.Event],
 ) error
 
 type PublishRequest struct {
@@ -50,7 +49,7 @@ var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*d
 var sseConnectionsMutex sync.RWMutex
 
 func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
-	tabId := r.Context().Value(globalCommon.DatastarTabCookieKey).(globalCommon.DatastarTabCookieKeyType).String()
+	tabId := r.Context().Value(orisun.DatastarTabCookieKey).(orisun.DatastarTabCookieKeyType).String()
 	sseConnectionsMutex.Lock()
 	defer sseConnectionsMutex.Unlock()
 
@@ -80,8 +79,8 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-func GetCurrentUser(r *http.Request) *globalCommon.User {
-	currentUser := r.Context().Value(globalCommon.UserContextKey).(globalCommon.User)
+func GetCurrentUser(r *http.Request) *orisun.User {
+	currentUser := r.Context().Value(orisun.UserContextKey).(orisun.User)
 	if currentUser.Id != "" {
 		return &currentUser
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/oexza/Orisun/admin/events"
-	eventstore "github.com/oexza/Orisun/eventstore"
+	eventstore "github.com/oexza/Orisun/orisun"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

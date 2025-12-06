@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"github.com/google/uuid"
+
 	"time"
 
-	globalCommon "github.com/oexza/Orisun/common"
 	c "github.com/oexza/Orisun/config"
-	evStore "github.com/oexza/Orisun/eventstore"
 	"github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/nats"
-	"github.com/oexza/Orisun/pkg/orisun"
+	"github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
 )
 
@@ -35,7 +34,7 @@ func main() {
 	saveEvents, getEvents, lockProvider, _, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
 
 	// Initialize EventStore
-	_ = evStore.InitializeEventStore(
+	_ = orisun.InitializeEventStore(
 		ctx,
 		config,
 		saveEvents,
@@ -46,7 +45,7 @@ func main() {
 	)
 
 	// Start polling events from the event store and publish them to NATS jetstream
-	evStore.StartEventPolling(ctx, config, lockProvider, getEvents, jetStream, eventPublishing, logger)
+	orisun.StartEventPolling(ctx, config, lockProvider, getEvents, jetStream, eventPublishing, logger)
 
 	// Create Orisun server instance for our examples
 	orisunServer, err := orisun.NewOrisunServer(
@@ -67,7 +66,7 @@ func main() {
 	logger.Info("=== Saving Events Example ===")
 
 	// Create sample events
-	events := []evStore.EventWithMapTags{
+	events := []orisun.EventWithMapTags{
 		{
 			EventId:   generateUUID(),
 			EventType: "UserCreated",
@@ -99,7 +98,7 @@ func main() {
 	// Save events to the event store
 	boundary := config.GetBoundaryNames()[0]
 	streamName := "user_" + generateUUID()
-	position := evStore.NotExistsPosition()
+	position := orisun.NotExistsPosition()
 	// Save events
 	newPosition, err := orisunServer.SaveEvents(
 		ctx,
@@ -120,11 +119,11 @@ func main() {
 	logger.Info("=== Getting Events Example ===")
 
 	// Get events from the stream
-	getEventsReq := &evStore.GetEventsRequest{
+	getEventsReq := &orisun.GetEventsRequest{
 		Count:     10,
-		Direction: evStore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Boundary:  boundary,
-		Stream: &evStore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: streamName,
 		},
 	}
@@ -145,7 +144,7 @@ func main() {
 	logger.Info("=== Subscribing to Events Example ===")
 
 	// Create a message handler to process received events
-	messageHandler := globalCommon.NewMessageHandler[evStore.Event](ctx)
+	messageHandler := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	// Start a goroutine to process received events
 	go func() {
@@ -204,7 +203,7 @@ func main() {
 	logger.Info("=== Subscribing to Specific Stream Example ===")
 
 	// Create a new message handler for the stream subscription
-	streamMessageHandler := globalCommon.NewMessageHandler[evStore.Event](ctx)
+	streamMessageHandler := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	// Start a goroutine to process received events from the specific stream
 	go func() {
@@ -234,7 +233,7 @@ func main() {
 	streamSubscriberName := "example_stream_subscriber"
 	targetStream := streamName
 
-	fromPosition := evStore.FirstPosition()
+	fromPosition := orisun.FirstPosition()
 	// Start stream subscription in a separate goroutine
 	go func() {
 		logger.Infof("Starting subscription to stream: %s...", targetStream)
@@ -255,7 +254,7 @@ func main() {
 	// Save more events to trigger the subscriptions
 	logger.Info("Saving more events to trigger subscriptions...")
 
-	moreEvents := []evStore.EventWithMapTags{
+	moreEvents := []orisun.EventWithMapTags{
 		{
 			EventId:   generateUUID(),
 			EventType: "UserPasswordChanged",

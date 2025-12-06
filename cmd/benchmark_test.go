@@ -25,8 +25,8 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/eventstore"
 	"github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"github.com/oexza/Orisun/postgres"
 )
 
@@ -34,7 +34,7 @@ type BenchmarkSetup struct {
 	postgresContainer testcontainers.Container
 	binaryPath        string
 	binaryCmd         *exec.Cmd
-	client            eventstore.EventStoreClient
+	client            orisun.EventStoreClient
 	conn              *grpc.ClientConn
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -264,9 +264,9 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	)
 	require.NoError(b, err)
 	s.conn = conn
-	s.client = eventstore.NewEventStoreClient(conn)
+	s.client = orisun.NewEventStoreClient(conn)
 	// Perform initial ping to get token
-	pingResp, err := s.client.Ping(s.authContext(), &eventstore.PingRequest{})
+	pingResp, err := s.client.Ping(s.authContext(), &orisun.PingRequest{})
 	b.Logf("Ping response: %v, %v", pingResp, err)
 }
 
@@ -319,8 +319,8 @@ func (s *BenchmarkSetup) authContext() context.Context {
 	return metadata.AppendToOutgoingContext(s.ctx, "authorization", "Basic "+creds)
 }
 
-func generateRandomEvent(eventType string) *eventstore.EventToSave {
-	return &eventstore.EventToSave{
+func generateRandomEvent(eventType string) *orisun.EventToSave {
+	return &orisun.EventToSave{
 		EventId:   uuid.New().String(),
 		EventType: eventType,
 		Data:      fmt.Sprintf(`{"timestamp": "%s", "message": "random event"}`, time.Now().Format(time.RFC3339)),
@@ -378,7 +378,7 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 						criteria := generateGenericCriteria(workerID, criteriaIndex, tagsPerCriteria)
 
 						// Generate generic event data
-						event := &eventstore.EventToSave{
+						event := &orisun.EventToSave{
 							EventId:   uuid.New().String(),
 							EventType: fmt.Sprintf("Event_Type_%d", criteriaIndex),
 							Data: fmt.Sprintf(`{"worker_id": "%s", "iteration": %d, "criteria_index": %d, "timestamp": "%s", "value": %d}`,
@@ -386,17 +386,17 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 							Metadata: fmt.Sprintf(`{"source": "benchmark", "worker_id": "%s", "criteria_index": %d}`, workerID, criteriaIndex),
 						}
 
-						position := eventstore.NotExistsPosition()
-						_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+						position := orisun.NotExistsPosition()
+						_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 							Boundary: boundary,
-							Stream: &eventstore.SaveStreamQuery{
+							Stream: &orisun.SaveStreamQuery{
 								Name:             streamName,
 								ExpectedPosition: &position, // Allow concurrent appends
-								SubsetQuery: &eventstore.Query{
+								SubsetQuery: &orisun.Query{
 									Criteria: criteria,
 								},
 							},
-							Events: []*eventstore.EventToSave{event},
+							Events: []*orisun.EventToSave{event},
 						})
 						if err != nil {
 							b.Logf("Save error: %v", err)
@@ -430,30 +430,30 @@ func BenchmarkSaveEvents_SameStreamDifferentCriteria(b *testing.B) {
 }
 
 // generateGenericCriteria creates generic criteria based on worker ID and index
-func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*eventstore.Criterion {
-	tags := make([]*eventstore.Tag, tagsCount)
+func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*orisun.Criterion {
+	tags := make([]*orisun.Tag, tagsCount)
 
 	// Always include worker_id as first tag
-	tags[0] = &eventstore.Tag{Key: "worker_id", Value: workerID}
+	tags[0] = &orisun.Tag{Key: "worker_id", Value: workerID}
 
 	// Generate additional tags based on criteria index
 	for i := 1; i < tagsCount; i++ {
 		key := fmt.Sprintf("tag_%d", i)
 		value := fmt.Sprintf("value_%d_%d", criteriaIndex, i)
-		tags[i] = &eventstore.Tag{Key: key, Value: value}
+		tags[i] = &orisun.Tag{Key: key, Value: value}
 	}
 
-	return []*eventstore.Criterion{
+	return []*orisun.Criterion{
 		{
 			Tags: tags,
 		},
 	}
 }
 
-func generateEvents(count int, streamId string) []*eventstore.EventToSave {
-	events := make([]*eventstore.EventToSave, count)
+func generateEvents(count int, streamId string) []*orisun.EventToSave {
+	events := make([]*orisun.EventToSave, count)
 	for i := 0; i < count; i++ {
-		events[i] = &eventstore.EventToSave{
+		events[i] = &orisun.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "TestEvent",
 			Data:      fmt.Sprintf(`{"message": "test event %d", "timestamp": "%s"}`, i, time.Now().Format(time.RFC3339)),
@@ -469,7 +469,7 @@ func BenchmarkSaveEvents_Single(b *testing.B) {
 	defer setup.cleanup(b)
 
 	// Pre-generate all events and stream IDs before timing
-	events := make([]*eventstore.EventToSave, b.N)
+	events := make([]*orisun.EventToSave, b.N)
 	streamIds := make([]string, b.N)
 	for i := 0; i < b.N; i++ {
 		events[i] = generateRandomEvent("SingleEvent")
@@ -479,14 +479,14 @@ func BenchmarkSaveEvents_Single(b *testing.B) {
 	b.ResetTimer()
 	totalEvents := 0
 	for i := 0; i < b.N; i++ {
-		position := eventstore.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+		position := orisun.NotExistsPosition()
+		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 			Boundary: "benchmark_test",
-			Stream: &eventstore.SaveStreamQuery{
+			Stream: &orisun.SaveStreamQuery{
 				Name:             streamIds[i],
 				ExpectedPosition: &position,
 			},
-			Events: []*eventstore.EventToSave{events[i]},
+			Events: []*orisun.EventToSave{events[i]},
 		})
 		if err != nil {
 			b.Errorf("Failed to save single event: %v", err)
@@ -507,7 +507,7 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 	for _, batchSize := range batchSizes {
 		b.Run(fmt.Sprintf("BatchSize_%d", batchSize), func(b *testing.B) {
 			// Pre-generate a single batch template to avoid massive memory usage
-			batchTemplate := make([]*eventstore.EventToSave, batchSize)
+			batchTemplate := make([]*orisun.EventToSave, batchSize)
 			for j := 0; j < batchSize; j++ {
 				batchTemplate[j] = generateRandomEvent("BatchEvent")
 			}
@@ -517,10 +517,10 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Generate fresh stream ID and events for each iteration
 				streamId := uuid.New().String()
-				batch := make([]*eventstore.EventToSave, batchSize)
+				batch := make([]*orisun.EventToSave, batchSize)
 				for j := 0; j < batchSize; j++ {
 					// Create new event with unique ID for each iteration
-					batch[j] = &eventstore.EventToSave{
+					batch[j] = &orisun.EventToSave{
 						EventId:   uuid.New().String(),
 						EventType: batchTemplate[j].EventType,
 						Data:      batchTemplate[j].Data,
@@ -528,10 +528,10 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 					}
 				}
 
-				position := eventstore.NotExistsPosition()
-				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+				position := orisun.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: "benchmark_test",
-					Stream: &eventstore.SaveStreamQuery{
+					Stream: &orisun.SaveStreamQuery{
 						Name:             streamId,
 						ExpectedPosition: &position,
 					},
@@ -564,19 +564,19 @@ func BenchmarkSaveEvents_ConcurrentStreams(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				// Each goroutine gets its own unique stream
 				userStreamId := uuid.New().String()
-				currentPosition := eventstore.NotExistsPosition()
+				currentPosition := orisun.NotExistsPosition()
 				localEvents := 0
 
 				for pb.Next() {
 					event := generateRandomEvent("ConcurrentUserEvent")
 
-					result, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+					result, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 						Boundary: "benchmark_test",
-						Stream: &eventstore.SaveStreamQuery{
+						Stream: &orisun.SaveStreamQuery{
 							Name:             userStreamId,
 							ExpectedPosition: &currentPosition,
 						},
-						Events: []*eventstore.EventToSave{event},
+						Events: []*orisun.EventToSave{event},
 					})
 					if err != nil {
 						b.Errorf("Failed to save event to user stream: %v", err)
@@ -604,10 +604,10 @@ func BenchmarkGetEvents(b *testing.B) {
 	boundary := "benchmark_test"
 	streamId := uuid.New().String()
 	events := generateEvents(1000, streamId)
-	p := eventstore.NotExistsPosition()
-	_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+	p := orisun.NotExistsPosition()
+	_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 		Boundary: boundary,
-		Stream: &eventstore.SaveStreamQuery{
+		Stream: &orisun.SaveStreamQuery{
 			Name:             streamId,
 			ExpectedPosition: &p,
 		},
@@ -619,7 +619,7 @@ func BenchmarkGetEvents(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
+		_, err := setup.client.GetEvents(setup.authContext(), &orisun.GetEventsRequest{
 			Boundary: boundary,
 			Count:    50,
 		})
@@ -641,7 +641,7 @@ func BenchmarkGetStream(b *testing.B) {
 	// Generate events in batches for efficiency
 	batchSize := 100
 	totalEvents := 1000
-	currentPosition := eventstore.NotExistsPosition()
+	currentPosition := orisun.NotExistsPosition()
 
 	for i := 0; i < totalEvents; i += batchSize {
 		remainingEvents := totalEvents - i
@@ -650,14 +650,14 @@ func BenchmarkGetStream(b *testing.B) {
 		}
 
 		// Generate batch of events
-		events := make([]*eventstore.EventToSave, remainingEvents)
+		events := make([]*orisun.EventToSave, remainingEvents)
 		for j := 0; j < remainingEvents; j++ {
 			events[j] = generateRandomEvent("StreamTestEvent")
 		}
 
-		result, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+		result, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 			Boundary: boundary,
-			Stream: &eventstore.SaveStreamQuery{
+			Stream: &orisun.SaveStreamQuery{
 				Name:             streamName,
 				ExpectedPosition: &currentPosition,
 			},
@@ -672,11 +672,11 @@ func BenchmarkGetStream(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, err := setup.client.GetEvents(setup.authContext(), &eventstore.GetEventsRequest{
+			_, err := setup.client.GetEvents(setup.authContext(), &orisun.GetEventsRequest{
 				Boundary: boundary,
-				Stream: &eventstore.GetStreamQuery{
+				Stream: &orisun.GetStreamQuery{
 					Name:         streamName,
-					FromPosition: &eventstore.Position{CommitPosition: 0, PreparePosition: 0},
+					FromPosition: &orisun.Position{CommitPosition: 0, PreparePosition: 0},
 				},
 				Count: 100,
 			})
@@ -698,14 +698,14 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		event := generateRandomEvent("PrePopulateEvent")
 		streamId := uuid.New().String()
-		p := eventstore.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+		p := orisun.NotExistsPosition()
+		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 			Boundary: boundary,
-			Stream: &eventstore.SaveStreamQuery{
+			Stream: &orisun.SaveStreamQuery{
 				Name:             streamId,
 				ExpectedPosition: &p,
 			},
-			Events: []*eventstore.EventToSave{event},
+			Events: []*orisun.EventToSave{event},
 		})
 		if err != nil {
 			b.Fatalf("Failed to pre-populate events: %v", err)
@@ -714,7 +714,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		stream, err := setup.client.CatchUpSubscribeToEvents(setup.authContext(), &eventstore.CatchUpSubscribeToEventStoreRequest{
+		stream, err := setup.client.CatchUpSubscribeToEvents(setup.authContext(), &orisun.CatchUpSubscribeToEventStoreRequest{
 			Boundary:       boundary,
 			SubscriberName: fmt.Sprintf("benchmark_subscriber_%d", i),
 		})
@@ -757,7 +757,7 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	wg.Add(concurrency)
 
 	// Pre-create all events to reduce allocation during timing
-	events := make([]*eventstore.EventToSave, concurrency)
+	events := make([]*orisun.EventToSave, concurrency)
 	streamIds := make([]string, concurrency)
 	for i := 0; i < concurrency; i++ {
 		events[i] = generateRandomEvent("BurstEvent")
@@ -775,14 +775,14 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 		go func() {
 			defer workerWg.Done()
 			for jobIndex := range jobs {
-				p := eventstore.NotExistsPosition()
-				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+				p := orisun.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: boundary,
-					Stream: &eventstore.SaveStreamQuery{
+					Stream: &orisun.SaveStreamQuery{
 						Name:             streamIds[jobIndex],
 						ExpectedPosition: &p,
 					},
-					Events: []*eventstore.EventToSave{events[jobIndex]},
+					Events: []*orisun.EventToSave{events[jobIndex]},
 				})
 				if err == nil {
 					atomic.AddInt64(&totalEvents, 1)
@@ -830,7 +830,7 @@ func BenchmarkSaveEvents_Burst10000Optimized(b *testing.B) {
 	wg.Add(concurrency)
 
 	// Pre-create all events to reduce allocation during timing
-	events := make([]*eventstore.EventToSave, concurrency)
+	events := make([]*orisun.EventToSave, concurrency)
 	streamIds := make([]string, concurrency)
 	for i := 0; i < concurrency; i++ {
 		events[i] = generateRandomEvent("BurstEvent")
@@ -848,14 +848,14 @@ func BenchmarkSaveEvents_Burst10000Optimized(b *testing.B) {
 		go func() {
 			defer workerWg.Done()
 			for jobIndex := range jobs {
-				p := eventstore.NotExistsPosition()
-				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+				p := orisun.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: boundary,
-					Stream: &eventstore.SaveStreamQuery{
+					Stream: &orisun.SaveStreamQuery{
 						Name:             streamIds[jobIndex],
 						ExpectedPosition: &p,
 					},
-					Events: []*eventstore.EventToSave{events[jobIndex]},
+					Events: []*orisun.EventToSave{events[jobIndex]},
 				})
 				if err == nil {
 					atomic.AddInt64(&totalEvents, 1)
@@ -904,15 +904,15 @@ func BenchmarkSaveEvents_Burst10000SameStream(b *testing.B) {
 	wg.Add(concurrency)
 
 	// Pre-create all events to reduce allocation during timing
-	events := make([]*eventstore.EventToSave, concurrency)
-	consistencyConditions := make([]*eventstore.Query, concurrency)
+	events := make([]*orisun.EventToSave, concurrency)
+	consistencyConditions := make([]*orisun.Query, concurrency)
 
 	for i := range concurrency {
 		events[i] = generateRandomEvent("BurstEvent")
-		consistencyConditions[i] = &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		consistencyConditions[i] = &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{
 							Key:   "event_index",
 							Value: fmt.Sprintf("%d", i),
@@ -938,15 +938,15 @@ func BenchmarkSaveEvents_Burst10000SameStream(b *testing.B) {
 		go func() {
 			defer workerWg.Done()
 			for jobIndex := range jobs {
-				p := eventstore.NotExistsPosition()
-				_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+				p := orisun.NotExistsPosition()
+				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: boundary,
-					Stream: &eventstore.SaveStreamQuery{
+					Stream: &orisun.SaveStreamQuery{
 						Name:             sameStreamName, // Same stream for all events
 						ExpectedPosition: &p,
 						SubsetQuery:      consistencyConditions[jobIndex],
 					},
-					Events: []*eventstore.EventToSave{events[jobIndex]},
+					Events: []*orisun.EventToSave{events[jobIndex]},
 				})
 				if err == nil {
 					atomic.AddInt64(&totalEvents, 1)
@@ -986,14 +986,14 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	boundary := "benchmark_test"
 
 	// Pre-generate all events and stream IDs before timing
-	events := make([]*eventstore.EventToSave, b.N)
+	events := make([]*orisun.EventToSave, b.N)
 	streamIds := make([]string, b.N)
 	for i := 0; i < b.N; i++ {
 		// Create large events to test memory handling
 		largeData := make([]byte, 1024) // 1KB per event
 		rand.Read(largeData)
 
-		events[i] = &eventstore.EventToSave{
+		events[i] = &orisun.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "LargeEvent",
 			Data:      fmt.Sprintf(`{"large_field": "%s", "size": %d, "iteration": %d}`, base64.StdEncoding.EncodeToString(largeData), len(largeData), i),
@@ -1004,14 +1004,14 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p := eventstore.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &eventstore.SaveEventsRequest{
+		p := orisun.NotExistsPosition()
+		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 			Boundary: boundary,
-			Stream: &eventstore.SaveStreamQuery{
+			Stream: &orisun.SaveStreamQuery{
 				Name:             streamIds[i],
 				ExpectedPosition: &p,
 			},
-			Events: []*eventstore.EventToSave{events[i]},
+			Events: []*orisun.EventToSave{events[i]},
 		})
 		if err != nil {
 			b.Errorf("Failed to save large event: %v", err)
@@ -1088,7 +1088,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 			wg.Add(1)
 
 			// Create a single event with different criteria for each goroutine
-			event := eventstore.EventWithMapTags{
+			event := orisun.EventWithMapTags{
 				EventId:   uuid.New().String(),
 				EventType: "ConcurrentBenchmarkEvent",
 				Data:      fmt.Sprintf(`{"event_id": %d, "criteria": "type_%d", "timestamp": "%s"}`, eventIndex, eventIndex%100, time.Now().Format(time.RFC3339)),
@@ -1096,10 +1096,10 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 			}
 
 			// Create unique consistency condition for each event
-			uniqueConsistencyCondition := &eventstore.Query{
-				Criteria: []*eventstore.Criterion{
+			uniqueConsistencyCondition := &orisun.Query{
+				Criteria: []*orisun.Criterion{
 					{
-						Tags: []*eventstore.Tag{
+						Tags: []*orisun.Tag{
 							{
 								Key:   "event_index",
 								Value: fmt.Sprintf("%d", eventIndex),
@@ -1113,7 +1113,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 				},
 			}
 
-			go func(eventID int, event eventstore.EventWithMapTags, consistencyCondition *eventstore.Query) {
+			go func(eventID int, event orisun.EventWithMapTags, consistencyCondition *orisun.Query) {
 				defer wg.Done()
 
 				// WAIT for the start signal - this ensures TRUE SIMULTANEITY!
@@ -1121,10 +1121,10 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 
 				// ALL goroutines try to save to the SAME stream with expected version -1
 				// This will test optimistic concurrency - only one should succeed, others should fail
-				p := eventstore.NotExistsPosition()
+				p := orisun.NotExistsPosition()
 				_, _, err := saveEvents.Save(
 					ctx,
-					[]eventstore.EventWithMapTags{event},
+					[]orisun.EventWithMapTags{event},
 					"benchmark_test",
 					sameStreamName,
 					&p,                   // Expected position for a new stream.
@@ -1274,10 +1274,10 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 
 	// Prepare test events - 10K events for batch save
 	streamName := "benchmark_batch_stream"
-	events := make([]eventstore.EventWithMapTags, totalEvents)
+	events := make([]orisun.EventWithMapTags, totalEvents)
 
 	for i := range totalEvents {
-		events[i] = eventstore.EventWithMapTags{
+		events[i] = orisun.EventWithMapTags{
 			EventId:   uuid.New().String(),
 			EventType: "BatchTestEvent",
 			Data:      fmt.Sprintf(`{"message": "Batch event %d", "timestamp": "%s"}`, i, time.Now().Format(time.RFC3339)),
@@ -1294,7 +1294,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 		start := time.Now()
 
 		// Save all events in a single batch operation
-		p := eventstore.NotExistsPosition()
+		p := orisun.NotExistsPosition()
 		_, _, err := saveEvents.Save(ctx, events, "benchmark_test", streamName, &p, nil)
 		if err != nil {
 			b.Fatalf("Failed to save batch events: %v", err)

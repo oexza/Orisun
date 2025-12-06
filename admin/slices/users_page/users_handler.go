@@ -4,9 +4,8 @@ import (
 	admin_events "github.com/oexza/Orisun/admin/events"
 	"github.com/oexza/Orisun/admin/slices/common"
 	"github.com/oexza/Orisun/admin/templates"
-	globalCommon "github.com/oexza/Orisun/common"
-	"github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"net/http"
 	"time"
 
@@ -17,12 +16,12 @@ import (
 type UsersPageHandler struct {
 	logger                l.Logger
 	boundary              string
-	ListAdminUsers        func() ([]*globalCommon.User, error)
+	ListAdminUsers        func() ([]*orisun.User, error)
 	subscribeToEventstore admin_common.SubscribeToEventStoreType
 }
 
 func NewUsersPageHandler(logger l.Logger, boundary string,
-	listAdminUsers func() ([]*globalCommon.User, error),
+	listAdminUsers func() ([]*orisun.User, error),
 	subscribeToEventstore admin_common.SubscribeToEventStoreType) *UsersPageHandler {
 	return &UsersPageHandler{
 		logger:                logger,
@@ -45,7 +44,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 	if isDatastarRequest(r) {
 		sse, tabId := admin_common.GetOrCreateSSEConnection(w, r)
 		grp, gctx := errgroup.WithContext(r.Context())
-		userSubscription := globalCommon.NewMessageHandler[eventstore.Event](gctx)
+		userSubscription := orisun.NewMessageHandler[orisun.Event](gctx)
 
 		grp.Go(func() error {
 			for {

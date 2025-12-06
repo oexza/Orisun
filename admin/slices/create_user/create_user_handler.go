@@ -5,18 +5,14 @@ import (
 	"fmt"
 	ev "github.com/oexza/Orisun/admin/events"
 	t "github.com/oexza/Orisun/admin/templates"
-	"github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 	"net/http"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	pb "github.com/oexza/Orisun/eventstore"
-
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-
-	globalCommon "github.com/oexza/Orisun/common"
 
 	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -46,8 +42,8 @@ func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.
 	sse := datastar.NewSSE(w, r)
 
 	// Convert []Role to []string for template compatibility
-	roleStrings := make([]string, len(globalCommon.Roles))
-	for i, role := range globalCommon.Roles {
+	roleStrings := make([]string, len(orisun.Roles))
+	for i, role := range orisun.Roles {
 		roleStrings[i] = role.String()
 	}
 
@@ -94,7 +90,7 @@ func (r *AddNewUserRequest) validate() error {
 
 	// Check if role is valid
 	validRole := false
-	for _, role := range globalCommon.Roles {
+	for _, role := range orisun.Roles {
 		if strings.EqualFold(string(role), r.Role) {
 			validRole = true
 			break
@@ -151,7 +147,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 		addUserRequest.Name,
 		addUserRequest.Username,
 		addUserRequest.Password,
-		[]globalCommon.Role{globalCommon.Role(strings.ToUpper(addUserRequest.Role))},
+		[]orisun.Role{orisun.Role(strings.ToUpper(addUserRequest.Role))},
 		s.boundary,
 		s.saveEvents,
 		s.getEvents,
@@ -188,7 +184,7 @@ func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Requ
 func CreateUser(
 	ctx context.Context,
 	name, username, password string,
-	roles []globalCommon.Role,
+	roles []orisun.Role,
 	boundary string,
 	saveEvents admin_common.SaveEventsType,
 	getEvents admin_common.GetEventsType,
@@ -199,21 +195,21 @@ func CreateUser(
 
 	userCreatedEvent, err := getEvents(
 		ctx,
-		&pb.GetEventsRequest{
+		&orisun.GetEventsRequest{
 			Boundary:  boundary,
 			Count:     1,
-			Direction: pb.Direction_DESC,
-			Query: &pb.Query{
-				Criteria: []*pb.Criterion{
+			Direction: orisun.Direction_DESC,
+			Query: &orisun.Query{
+				Criteria: []*orisun.Criterion{
 					{
-						Tags: []*pb.Tag{
+						Tags: []*orisun.Tag{
 							{Key: "username", Value: username},
 							{Key: "eventType", Value: ev.EventTypeUserCreated},
 						},
 					},
 				},
 			},
-			Stream: &pb.GetStreamQuery{
+			Stream: &orisun.GetStreamQuery{
 				Name: ev.AdminStream,
 			},
 		},
@@ -242,21 +238,21 @@ func CreateUser(
 		userCreatedEvent := events[0].Data.(ev.UserCreated)
 		UserDeletedEvent, err := getEvents(
 			ctx,
-			&pb.GetEventsRequest{
+			&orisun.GetEventsRequest{
 				Boundary:  boundary,
-				Direction: pb.Direction_DESC,
+				Direction: orisun.Direction_DESC,
 				Count:     1,
-				Query: &pb.Query{
-					Criteria: []*pb.Criterion{
+				Query: &orisun.Query{
+					Criteria: []*orisun.Criterion{
 						{
-							Tags: []*pb.Tag{
+							Tags: []*orisun.Tag{
 								{Key: "eventType", Value: ev.EventTypeUserDeleted},
 								{Key: "userId", Value: userCreatedEvent.UserId},
 							},
 						},
 					},
 				},
-				Stream: &pb.GetStreamQuery{
+				Stream: &orisun.GetStreamQuery{
 					Name: ev.AdminStream,
 				},
 			},
@@ -290,7 +286,7 @@ func CreateUser(
 		return nil, err
 	}
 
-	eventsToSave := []*pb.EventToSave{}
+	eventsToSave := []*orisun.EventToSave{}
 
 	for _, event := range newEvents {
 		eventData, err := json.Marshal(event.Data)
@@ -305,7 +301,7 @@ func CreateUser(
 		if currentUserId != nil {
 			currentUserIdVerified = *currentUserId
 		}
-		eventsToSave = append(eventsToSave, &pb.EventToSave{
+		eventsToSave = append(eventsToSave, &orisun.EventToSave{
 			EventId:   eventId.String(),
 			EventType: event.EventType,
 			Data:      string(eventData),
@@ -313,23 +309,23 @@ func CreateUser(
 		})
 	}
 
-	position := eventstore.NotExistsPosition()
-	_, err = saveEvents(ctx, &pb.SaveEventsRequest{
+	position := orisun.NotExistsPosition()
+	_, err = saveEvents(ctx, &orisun.SaveEventsRequest{
 		Boundary: boundary,
 		Events:   eventsToSave,
-		Stream: &pb.SaveStreamQuery{
+		Stream: &orisun.SaveStreamQuery{
 			Name:             ev.AdminStream,
 			ExpectedPosition: &position,
-			SubsetQuery: &pb.Query{
-				Criteria: []*pb.Criterion{
+			SubsetQuery: &orisun.Query{
+				Criteria: []*orisun.Criterion{
 					{
-						Tags: []*pb.Tag{
+						Tags: []*orisun.Tag{
 							{Key: "username", Value: username},
 							{Key: "eventType", Value: ev.EventTypeUserCreated},
 						},
 					},
 					{
-						Tags: []*pb.Tag{
+						Tags: []*orisun.Tag{
 							{Key: "eventType", Value: ev.EventTypeUserDeleted},
 							{Key: "userId", Value: userId.String()},
 						},
@@ -346,7 +342,7 @@ func CreateUser(
 	return &userCreated, nil
 }
 
-func createUserCommandHandler(userId string, username, password string, name string, roles []globalCommon.Role, events []*ev.Event) ([]*ev.Event, error) {
+func createUserCommandHandler(userId string, username, password string, name string, roles []orisun.Role, events []*ev.Event) ([]*ev.Event, error) {
 	//check if events contains any user created event and not user deleted event
 	if len(events) > 0 {
 		hasUserCreated := false

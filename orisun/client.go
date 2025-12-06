@@ -3,21 +3,19 @@ package orisun
 import (
 	"context"
 	"fmt"
-	"github.com/oexza/Orisun/common"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/oexza/Orisun/eventstore"
 	"github.com/oexza/Orisun/logging"
 )
 
 // OrisunServer provides a high-level interface to interact with the Orisun event store
 type OrisunServer struct {
-	eventStore   *eventstore.EventStore
-	saveEvents   eventstore.EventstoreSaveEvents
-	getEvents    eventstore.EventstoreGetEvents
-	lockProvider eventstore.LockProvider
+	eventStore   *EventStore
+	saveEvents   EventstoreSaveEvents
+	getEvents    EventstoreGetEvents
+	lockProvider LockProvider
 	logger       logging.Logger
 	js           jetstream.JetStream
 }
@@ -25,9 +23,9 @@ type OrisunServer struct {
 // NewOrisunServer creates a new Orisun client with the provided configuration
 func NewOrisunServer(
 	ctx context.Context,
-	saveEvents eventstore.EventstoreSaveEvents,
-	getEvents eventstore.EventstoreGetEvents,
-	lockProvider eventstore.LockProvider,
+	saveEvents EventstoreSaveEvents,
+	getEvents EventstoreGetEvents,
+	lockProvider LockProvider,
 	js jetstream.JetStream,
 	boundaryNames []string,
 	logger logging.Logger,
@@ -35,14 +33,14 @@ func NewOrisunServer(
 
 	if lockProvider == nil {
 		var err error = nil
-		lockProvider, err = eventstore.NewJetStreamLockProvider(ctx, js, logger)
+		lockProvider, err = NewJetStreamLockProvider(ctx, js, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create lock provider: %w", err)
 		}
 	}
 
 	// Initialize event store
-	eventStore := eventstore.NewEventStoreServer(
+	eventStore := NewEventStoreServer(
 		ctx,
 		js,
 		saveEvents,
@@ -63,8 +61,8 @@ func NewOrisunServer(
 }
 
 // SaveEvents saves a batch of events to the event store
-func (c *OrisunServer) SaveEvents(ctx context.Context, events []eventstore.EventWithMapTags, boundary string,
-	streamName string, expectedPosition *eventstore.Position, streamSubSet *eventstore.Query) (*eventstore.Position, error) {
+func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags, boundary string,
+	streamName string, expectedPosition *Position, streamSubSet *Query) (*Position, error) {
 
 	// Save events
 	transactionID, globalID, err := c.saveEvents.Save(
@@ -85,14 +83,14 @@ func (c *OrisunServer) SaveEvents(ctx context.Context, events []eventstore.Event
 		return nil, fmt.Errorf("failed to parse transaction id: %w", err)
 	}
 
-	return &eventstore.Position{
+	return &Position{
 		CommitPosition:  transID,
 		PreparePosition: globalID,
 	}, nil
 }
 
 // GetEvents retrieves events from the event store based on the request
-func (c *OrisunServer) GetEvents(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
 	// Get events
 	internalResp, err := c.getEvents.Get(ctx, req)
 	if err != nil {
@@ -107,9 +105,9 @@ func (c *OrisunServer) SubscribeToEvents(
 	ctx context.Context,
 	boundary string,
 	subscriberName string,
-	afterPosition *eventstore.Position, query *eventstore.Query,
+	afterPosition *Position, query *Query,
 	streamName *string,
-	handler *common.MessageHandler[eventstore.Event],
+	handler *MessageHandler[Event],
 ) error {
 
 	// Subscribe to events

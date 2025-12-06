@@ -8,7 +8,7 @@ import (
 	adminCommon "github.com/oexza/Orisun/admin/slices/common"
 	"github.com/oexza/Orisun/admin/slices/dashboard/event_count"
 	"github.com/oexza/Orisun/admin/slices/dashboard/user_count"
-	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/orisun"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/sync/errgroup"
@@ -91,7 +91,7 @@ func (dh *DashboardHandler) handleUserCount(
 ) {
 	grp, gctx := errgroup.WithContext(r.Context())
 
-	userSubscription := globalCommon.NewMessageHandler[user_count.UserCountReadModel](gctx)
+	userSubscription := orisun.NewMessageHandler[user_count.UserCountReadModel](gctx)
 
 	grp.Go(func() error {
 		for {
@@ -116,7 +116,7 @@ func (dh *DashboardHandler) handleUserCount(
 	dh.subscribeToUserCount("tab::::"+tabId, gctx, userSubscription)
 
 	for _, boundary := range boudaries {
-		eventSubscription := globalCommon.NewMessageHandler[event_count.EventCountReadModel](gctx)
+		eventSubscription := orisun.NewMessageHandler[event_count.EventCountReadModel](gctx)
 		grp.Go(func() error {
 			for {
 				select {

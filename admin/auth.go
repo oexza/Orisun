@@ -5,8 +5,7 @@ import (
 	"fmt"
 	admin_events "github.com/oexza/Orisun/admin/events"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	globalCommon "github.com/oexza/Orisun/common"
-	"github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/orisun"
 	"sync"
 	"time"
 
@@ -20,11 +19,11 @@ type Authenticator struct {
 	boundary          string
 	getEvents         admin_common.GetEventsType
 	logger            logger.Logger
-	getUserByUsername func(username string) (globalCommon.User, error)
+	getUserByUsername func(username string) (orisun.User, error)
 }
 
 func NewAuthenticator(getEvents admin_common.GetEventsType, logger logger.Logger,
-	boundary string, getUserByUsername func(username string) (globalCommon.User, error)) *Authenticator {
+	boundary string, getUserByUsername func(username string) (orisun.User, error)) *Authenticator {
 	return &Authenticator{
 		boundary:          boundary,
 		getEvents:         getEvents,
@@ -33,12 +32,12 @@ func NewAuthenticator(getEvents admin_common.GetEventsType, logger logger.Logger
 	}
 }
 
-var userByIdCache = map[string]*globalCommon.User{}
-var userByUsernameCache = map[string]*globalCommon.User{}
-var userTokenCache = map[string]*globalCommon.User{}
+var userByIdCache = map[string]*orisun.User{}
+var userByUsernameCache = map[string]*orisun.User{}
+var userTokenCache = map[string]*orisun.User{}
 var cacheMutex sync.RWMutex
 
-func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*globalCommon.User, error) {
+func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*orisun.User, error) {
 	// Check if the user is in the cache
 	user, ok := userTokenCache[token]
 
@@ -49,7 +48,7 @@ func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*globa
 	return nil, fmt.Errorf("invalid credentials")
 }
 
-func (a *Authenticator) ValidateCredentials(ctx context.Context, username string, password string) (globalCommon.User, string, error) {
+func (a *Authenticator) ValidateCredentials(ctx context.Context, username string, password string) (orisun.User, string, error) {
 	// Check if the user is in the cache
 	// cacheMutex.Lock()
 	// defer cacheMutex.Unlock()
@@ -58,7 +57,7 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	// if ok && user.Username == username {
 	// 	// Compare the provided password with the stored hash
 	// 	if err := admin_common.ComparePassword(user.HashedPassword, password); err != nil {
-	// 		return globalCommon.User{}, "", fmt.Errorf("invalid credentials")
+	// 		return orisun.User{}, "", fmt.Errorf("invalid credentials")
 	// 	}
 	// 	a.logger.Debugf("Fetched user from cache")
 	// 	return *user, userByIdCache[], nil
@@ -67,12 +66,12 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	userr, errr := a.getUserByUsername(username)
 	if errr != nil {
 		a.logger.Errorf("Could not retrieve user %v", errr)
-		return globalCommon.User{}, "", fmt.Errorf("invalid credentials")
+		return orisun.User{}, "", fmt.Errorf("invalid credentials")
 	}
 
 	// Compare the provided password with the stored hash
 	if err := admin_common.ComparePassword(userr.HashedPassword, password); err != nil {
-		return globalCommon.User{}, "", fmt.Errorf("invalid password")
+		return orisun.User{}, "", fmt.Errorf("invalid password")
 	}
 
 	// generate a session token for the user
@@ -111,7 +110,7 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 	var projectorName = "auth-user-projector-" + uuid.New().String()
 	p.logger.Info("Starting auth user projector %s", projectorName)
 
-	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
+	stream := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	go func() {
 		for {
@@ -148,7 +147,7 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *AuthUserProjector) handleEvent(event *eventstore.Event) error {
+func (p *AuthUserProjector) handleEvent(event *orisun.Event) error {
 	p.logger.Debugf("Handling event %v", event)
 
 	switch event.EventType {

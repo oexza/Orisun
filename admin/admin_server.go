@@ -15,7 +15,7 @@ import (
 
 	"github.com/goccy/go-json"
 
-	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/orisun"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -108,14 +108,14 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		var unmarshled globalCommon.User = globalCommon.User{}
+		var unmarshled orisun.User = orisun.User{}
 		err = json.Unmarshal(userStr, &unmarshled)
 		if err != nil {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), globalCommon.UserContextKey, unmarshled)
+		ctx := context.WithValue(r.Context(), orisun.UserContextKey, unmarshled)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -123,7 +123,7 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tabId := ""
-		tabIDCookie, err := r.Cookie(globalCommon.DatastarTabCookieKey.String())
+		tabIDCookie, err := r.Cookie(orisun.DatastarTabCookieKey.String())
 
 		if err != nil {
 			newTabId, err := uuid.NewUUID()
@@ -138,7 +138,7 @@ func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 		}
 
 		http.SetCookie(w, &http.Cookie{
-			Name:     globalCommon.DatastarTabCookieKey.String(),
+			Name:     orisun.DatastarTabCookieKey.String(),
 			Value:    tabId,
 			HttpOnly: true,
 			Secure:   true,
@@ -146,7 +146,7 @@ func (s *AdminServer) tabIDMiddleware(next http.Handler) http.Handler {
 			Path:     "/",
 		})
 
-		ctx := context.WithValue(r.Context(), globalCommon.DatastarTabCookieKey, globalCommon.DatastarTabCookieKeyType(tabId))
+		ctx := context.WithValue(r.Context(), orisun.DatastarTabCookieKey, orisun.DatastarTabCookieKeyType(tabId))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

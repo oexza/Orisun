@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/oexza/Orisun/eventstore"
-	pb "github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/orisun"
+	pb "github.com/oexza/Orisun/orisun"
 )
 
 type E2ETestSuite struct {
@@ -242,7 +242,7 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 	streamName := "test-stream-" + uuid.New().String()
 
 	// Test SaveEvents
-	position := eventstore.NotExistsPosition()
+	position := orisun.NotExistsPosition()
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
@@ -307,7 +307,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	streamName := "concurrency-test-" + uuid.New().String()
 
 	// Save first event
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 	firstSaveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
@@ -381,7 +381,7 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 	// Save events in different boundaries
 	boundaries := []string{"orisun_test_1", "orisun_test_2"}
 
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 	for i, boundary := range boundaries {
 		saveReq := &pb.SaveEventsRequest{
 			Boundary: boundary,
@@ -434,7 +434,7 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	streamName := "subscription-test-" + uuid.New().String()
 
 	// Save events first
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{
@@ -497,7 +497,7 @@ func TestE2E_CatchUpSubscribeToStream(t *testing.T) {
 	streamName := "stream-subscription-test--" + uuid.New().String()
 
 	// Save some initial events to a specific stream
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Stream: &pb.SaveStreamQuery{

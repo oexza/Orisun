@@ -3,8 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"github.com/oexza/Orisun/eventstore"
 	"github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,16 +30,16 @@ func NewSQLiteGetEvents(db *sql.DB, logger *logging.Logger) *SQLiteGetEvents {
 
 func (s *SQLiteSaveEvents) Save(
 	ctx context.Context,
-	events *[]eventstore.EventWithMapTags,
+	events *[]orisun.EventWithMapTags,
 	boundary string,
 	streamName string,
 	expectedVersion uint32,
-	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID uint64, err error) {
+	streamConsistencyCondition *orisun.Query) (transactionID string, globalID uint64, err error) {
 	// Implementation for SQLite
 	return "", 0, status.Errorf(codes.Unimplemented, "SQLite implementation not yet complete")
 }
 
-func (s *SQLiteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (s *SQLiteGetEvents) Get(ctx context.Context, req *orisun.GetEventsRequest) (*orisun.GetEventsResponse, error) {
 	// Implementation for SQLite
 	return nil, status.Errorf(codes.Unimplemented, "SQLite implementation not yet complete")
 }

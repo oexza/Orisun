@@ -1,15 +1,15 @@
-package common
+package orisun
 
 // Version is the current version of Orisun.
-// This will be overridden during build by the -ldflags="-X 'orisun/common.Version=v1.2.3'" flag.
+// This will be overridden during build by the -ldflags="-X 'orisun/orisun.Version=v1.2.3'" flag.
 var Version = "dev"
 
 // BuildTime is the time when the binary was built.
-// This will be overridden during build by the -ldflags="-X 'orisun/common.BuildTime=<timestamp>'" flag.
+// This will be overridden during build by the -ldflags="-X 'orisun/orisun.BuildTime=<timestamp>'" flag.
 var BuildTime = "unknown"
 
 // GitCommit is the git commit hash from which the binary was built.
-// This will be overridden during build by the -ldflags="-X 'orisun/common.GitCommit=<hash>'" flag.
+// This will be overridden during build by the -ldflags="-X 'orisun/orisun.GitCommit=<hash>'" flag.
 var GitCommit = "unknown"
 
 // GetVersion returns the current version of Orisun.

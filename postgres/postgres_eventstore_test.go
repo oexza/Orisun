@@ -11,8 +11,8 @@ import (
 	"time"
 
 	config "github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/eventstore"
 	logging "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -152,7 +152,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test saving events
-	events := []eventstore.EventWithMapTags{
+	events := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -161,7 +161,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 		},
 	}
 
-	position := eventstore.NotExistsPosition()
+	position := orisun.NotExistsPosition()
 	// Save events
 	tranID, globalID, err := saveEvents.Save(
 		t.Context(),
@@ -179,11 +179,11 @@ func TestSaveAndGetEvents(t *testing.T) {
 	// Get events
 	resp, err := getEvents.Get(
 		t.Context(),
-		&eventstore.GetEventsRequest{
+		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
-			Direction: eventstore.Direction_ASC,
+			Direction: orisun.Direction_ASC,
 			Count:     10,
-			Stream: &eventstore.GetStreamQuery{
+			Stream: &orisun.GetStreamQuery{
 				Name: "test-stream",
 			},
 		},
@@ -231,14 +231,14 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
 	streamName := "test-stream-100-events"
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 
 	// Save 100 events one by one
 	for i := range 200 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []eventstore.EventWithMapTags{
+		events := []orisun.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "SequentialEvent",
@@ -263,7 +263,7 @@ func TestSave200EventsOneByOne(t *testing.T) {
 
 		transactionIDInt, err := strconv.ParseInt(tranID, 10, 64)
 		require.NoError(t, err)
-		expectedPosition = eventstore.Position{
+		expectedPosition = orisun.Position{
 			PreparePosition: globalID,
 			CommitPosition:  transactionIDInt,
 		}
@@ -272,11 +272,11 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	// Verify all 100 events were saved correctly
 	resp, err := getEvents.Get(
 		t.Context(),
-		&eventstore.GetEventsRequest{
+		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
-			Direction: eventstore.Direction_ASC,
+			Direction: orisun.Direction_ASC,
 			Count:     100,
-			Stream: &eventstore.GetStreamQuery{
+			Stream: &orisun.GetStreamQuery{
 				Name: streamName,
 			},
 		},
@@ -325,7 +325,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	// First save succeeds
-	events := []eventstore.EventWithMapTags{
+	events := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -333,7 +333,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	position1 := eventstore.NotExistsPosition()
+	position1 := orisun.NotExistsPosition()
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events,
@@ -345,7 +345,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second save with wrong expected version should fail
-	events2 := []eventstore.EventWithMapTags{
+	events2 := []orisun.EventWithMapTags{
 		{
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
@@ -354,7 +354,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	position2 := eventstore.NotExistsPosition()
+	position2 := orisun.NotExistsPosition()
 	_, _, err = saveEvents.Save(
 		t.Context(),
 		events2,
@@ -402,10 +402,10 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 	streamName := "concurrent-test-stream-" + uuid.New().String()
 
 	// Create a shared stream consistency condition (Query) for both operations
-	sharedStreamCondition := &eventstore.Query{
-		Criteria: []*eventstore.Criterion{
+	sharedStreamCondition := &orisun.Query{
+		Criteria: []*orisun.Criterion{
 			{
-				Tags: []*eventstore.Tag{
+				Tags: []*orisun.Tag{
 					{
 						Key:   "test_type",
 						Value: "concurrent_save",
@@ -421,7 +421,7 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 	eventId2, err := uuid.NewV7()
 	require.NoError(t, err)
 
-	events1 := []eventstore.EventWithMapTags{
+	events1 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId1.String(),
 			EventType: "ConcurrentTestEvent1",
@@ -430,7 +430,7 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 		},
 	}
 
-	events2 := []eventstore.EventWithMapTags{
+	events2 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId2.String(),
 			EventType: "ConcurrentTestEvent2",
@@ -560,7 +560,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	eventId, err := uuid.NewV7()
 	require.NoError(t, err)
 	// Save events with different tags
-	events1 := []eventstore.EventWithMapTags{
+	events1 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -569,7 +569,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		},
 	}
 
-	expectedPosition := eventstore.NotExistsPosition()
+	expectedPosition := orisun.NotExistsPosition()
 	tranId, globalId, err := saveEvents.Save(
 		t.Context(),
 		events1,
@@ -580,7 +580,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	events2 := []eventstore.EventWithMapTags{
+	events2 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId.String(),
 			EventType: "TestEvent",
@@ -600,7 +600,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		events2,
 		"test_boundary",
 		"test-stream",
-		&eventstore.Position{
+		&orisun.Position{
 			PreparePosition: globalId,
 			CommitPosition:  tranIdConv,
 		},
@@ -611,17 +611,17 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	// Test filtering by tag criteria
 	resp, err := getEvents.Get(
 		t.Context(),
-		&eventstore.GetEventsRequest{
+		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
-			Direction: eventstore.Direction_ASC,
+			Direction: orisun.Direction_ASC,
 			Count:     10,
-			Stream: &eventstore.GetStreamQuery{
+			Stream: &orisun.GetStreamQuery{
 				Name: "test-stream",
 			},
-			Query: &eventstore.Query{
-				Criteria: []*eventstore.Criterion{
+			Query: &orisun.Query{
+				Criteria: []*orisun.Criterion{
 					{
-						Tags: []*eventstore.Tag{
+						Tags: []*orisun.Tag{
 							{Key: "key", Value: "value2"},
 						},
 					},
@@ -667,12 +667,12 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	// Save multiple events to get different global positions
 	var globalPositions []int64
 	var transactionIDs []string
-	var lastPosition *eventstore.Position
+	var lastPosition *orisun.Position
 	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []eventstore.EventWithMapTags{
+		events := []orisun.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -693,7 +693,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 		transactionIDs = append(transactionIDs, transactionID)
 		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
 		require.NoError(t, err)
-		lastPosition = &eventstore.Position{
+		lastPosition = &orisun.Position{
 			CommitPosition:  transactionIDInt,
 			PreparePosition: globalPos,
 		}
@@ -702,11 +702,11 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	// Get events after the second event's global position
 	// Position requires actual transaction_id and global_id from the saved events
 	transactionIDInt, _ := strconv.ParseInt(transactionIDs[2], 10, 64)
-	resp, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     10,
-		FromPosition: &eventstore.Position{
+		FromPosition: &orisun.Position{
 			CommitPosition:  transactionIDInt,   // actual transaction_id
 			PreparePosition: globalPositions[2], // actual global_id
 		},
@@ -749,12 +749,12 @@ func TestPagination(t *testing.T) {
 	ctx := t.Context()
 
 	// Save 10 events
-	var lastPosition *eventstore.Position
+	var lastPosition *orisun.Position
 	for i := 0; i < 10; i++ {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []eventstore.EventWithMapTags{
+		events := []orisun.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -773,18 +773,18 @@ func TestPagination(t *testing.T) {
 		require.NoError(t, err)
 		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
 		require.NoError(t, err)
-		lastPosition = &eventstore.Position{
+		lastPosition = &orisun.Position{
 			CommitPosition:  transactionIDInt,
 			PreparePosition: globalPos,
 		}
 	}
 
 	// Get first page (3 events)
-	resp1, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp1, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     3,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "pagination-stream",
 		},
 	})
@@ -794,14 +794,14 @@ func TestPagination(t *testing.T) {
 
 	// Get second page (3 events) using composite position of last from page 1
 	lastPos := resp1.Events[len(resp1.Events)-1].Position
-	resp2, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp2, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     3,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "pagination-stream",
 		},
-		FromPosition: &eventstore.Position{
+		FromPosition: &orisun.Position{
 			CommitPosition:  lastPos.CommitPosition,
 			PreparePosition: lastPos.PreparePosition,
 		},
@@ -844,12 +844,12 @@ func TestDirectionOrdering(t *testing.T) {
 	ctx := t.Context()
 
 	// Save 5 events
-	var lastPosition *eventstore.Position
+	var lastPosition *orisun.Position
 	for i := 0; i < 5; i++ {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
-		events := []eventstore.EventWithMapTags{
+		events := []orisun.EventWithMapTags{
 			{
 				EventId:   eventId.String(),
 				EventType: "TestEvent",
@@ -868,18 +868,18 @@ func TestDirectionOrdering(t *testing.T) {
 		require.NoError(t, err)
 		transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
 		require.NoError(t, err)
-		lastPosition = &eventstore.Position{
+		lastPosition = &orisun.Position{
 			CommitPosition:  transactionIDInt,
 			PreparePosition: globalPos,
 		}
 	}
 
 	// Get events in ascending order
-	respAsc, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	respAsc, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "direction-stream",
 		},
 	})
@@ -888,11 +888,11 @@ func TestDirectionOrdering(t *testing.T) {
 	assert.Len(t, respAsc.Events, 5)
 
 	// Get events in descending order
-	respDesc, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	respDesc, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_DESC,
+		Direction: orisun.Direction_DESC,
 		Count:     10,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "direction-stream",
 		},
 	})
@@ -936,13 +936,13 @@ func TestComplexTagQueries(t *testing.T) {
 	// Save events with different tag combinations
 	eventIds := make([]string, 4)
 
-	var lastPosition *eventstore.Position
+	var lastPosition *orisun.Position
 
 	// Event 1: category=A, priority=high, region=east
 	eventId1, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[0] = eventId1.String()
-	events1 := []eventstore.EventWithMapTags{
+	events1 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId1.String(),
 			EventType: "TestEvent",
@@ -960,7 +960,7 @@ func TestComplexTagQueries(t *testing.T) {
 	require.NoError(t, err)
 	transactionIDInt, err := strconv.ParseInt(transactionID, 10, 64)
 	require.NoError(t, err)
-	lastPosition = &eventstore.Position{
+	lastPosition = &orisun.Position{
 		CommitPosition:  transactionIDInt,
 		PreparePosition: globalPos,
 	}
@@ -969,7 +969,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId2, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[1] = eventId2.String()
-	events2 := []eventstore.EventWithMapTags{
+	events2 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId2.String(),
 			EventType: "TestEvent",
@@ -987,7 +987,7 @@ func TestComplexTagQueries(t *testing.T) {
 	require.NoError(t, err)
 	transactionIDInt, err = strconv.ParseInt(transactionID, 10, 64)
 	require.NoError(t, err)
-	lastPosition = &eventstore.Position{
+	lastPosition = &orisun.Position{
 		CommitPosition:  transactionIDInt,
 		PreparePosition: globalPos,
 	}
@@ -996,7 +996,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId3, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[2] = eventId3.String()
-	events3 := []eventstore.EventWithMapTags{
+	events3 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId3.String(),
 			EventType: "TestEvent",
@@ -1014,7 +1014,7 @@ func TestComplexTagQueries(t *testing.T) {
 	require.NoError(t, err)
 	transactionIDInt, err = strconv.ParseInt(transactionID, 10, 64)
 	require.NoError(t, err)
-	lastPosition = &eventstore.Position{
+	lastPosition = &orisun.Position{
 		CommitPosition:  transactionIDInt,
 		PreparePosition: globalPos,
 	}
@@ -1023,7 +1023,7 @@ func TestComplexTagQueries(t *testing.T) {
 	eventId4, err := uuid.NewV7()
 	require.NoError(t, err)
 	eventIds[3] = eventId4.String()
-	events4 := []eventstore.EventWithMapTags{
+	events4 := []orisun.EventWithMapTags{
 		{
 			EventId:   eventId4.String(),
 			EventType: "TestEvent",
@@ -1041,23 +1041,23 @@ func TestComplexTagQueries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test 1: OR query - category A OR category B with priority high
-	resp1, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp1, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "complex-query-stream",
 		},
-		Query: &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		Query: &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "category", Value: "A"},
 						{Key: "priority", Value: "high"},
 					},
 				},
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "category", Value: "B"},
 						{Key: "priority", Value: "high"},
 					},
@@ -1070,17 +1070,17 @@ func TestComplexTagQueries(t *testing.T) {
 	assert.Len(t, resp1.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 2: AND query - region east
-	resp2, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp2, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "complex-query-stream",
 		},
-		Query: &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		Query: &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "region", Value: "east"},
 					},
 				},
@@ -1092,23 +1092,23 @@ func TestComplexTagQueries(t *testing.T) {
 	assert.Len(t, resp2.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 3: Complex query - (category A AND region west) OR (category B AND priority high)
-	resp3, err := getEvents.Get(ctx, &eventstore.GetEventsRequest{
+	resp3, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
-		Direction: eventstore.Direction_ASC,
+		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &eventstore.GetStreamQuery{
+		Stream: &orisun.GetStreamQuery{
 			Name: "complex-query-stream",
 		},
-		Query: &eventstore.Query{
-			Criteria: []*eventstore.Criterion{
+		Query: &orisun.Query{
+			Criteria: []*orisun.Criterion{
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "category", Value: "A"},
 						{Key: "region", Value: "west"},
 					},
 				},
 				{
-					Tags: []*eventstore.Tag{
+					Tags: []*orisun.Tag{
 						{Key: "category", Value: "B"},
 						{Key: "priority", Value: "high"},
 					},

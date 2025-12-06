@@ -3,9 +3,9 @@ package event_count
 import (
 	"context"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	globalCommon "github.com/oexza/Orisun/common"
-	eventstore "github.com/oexza/Orisun/eventstore"
 	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
+	eventstore "github.com/oexza/Orisun/orisun"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -25,7 +25,7 @@ type EventCountReadModel struct {
 type GetEventCount = func(string) (EventCountReadModel, error)
 type SaveEventCount = func(int, string) error
 
-type SubscribeToEventCount = func(consumerName string, boundary string, ctx context.Context, stream *globalCommon.MessageHandler[EventCountReadModel]) error
+type SubscribeToEventCount = func(consumerName string, boundary string, ctx context.Context, stream *orisun.MessageHandler[EventCountReadModel]) error
 
 type EventCountEventHandler struct {
 	boundary                  string
@@ -61,7 +61,7 @@ func NewEventCountProjection(
 }
 
 func (p *EventCountEventHandler) Start(ctx context.Context) error {
-	stream := globalCommon.NewMessageHandler[eventstore.Event](ctx)
+	stream := orisun.NewMessageHandler[eventstore.Event](ctx)
 
 	// Get last checkpoint
 	pos, err := p.getProjectorLastPosition(projectorName)
