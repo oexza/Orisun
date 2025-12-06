@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	logger "log"
 	"os"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 // AppConfig represents the application configuration
 type AppConfig struct {
-	Postgres DBConfig
+	Postgres PostgresDBConfig
 	// Boundaries []Boundary `mapstructure:"boundaries"`
 	Boundaries string
 	boundaries []Boundary
@@ -26,37 +27,41 @@ type AppConfig struct {
 		KeepAliveTimeout     time.Duration
 		MaxConcurrentStreams uint32
 	}
+
 	PollingPublisher struct {
 		BatchSize uint32
 	}
-	Logging struct {
-		Enabled bool
-		Level   string // e.g., "debug", "info", "warn", "error"
-	}
-	Nats struct {
-		ServerName     string
-		Port           int
-		MaxPayload     int32
-		MaxConnections int
-		StoreDir       string
-		Cluster        NatsClusterConfig
-	}
+
+	Logging LoggingConfig
+
+	Nats NatsConfig
 	// Prod bool
 	Auth struct {
 		AdminUsername string
 		AdminPassword string
 	}
-	Admin struct {
-		Port     string
-		Boundary string
-	}
+
+	Admin AdminConfig
+
 	Pprof struct {
 		Enabled bool
 		Port    string
 	}
 }
 
-type DBConfig struct {
+type LoggingConfig struct {
+	Enabled bool
+	Level   string // e.g., "debug", "info", "warn", "error"
+}
+
+// admin
+type AdminConfig struct {
+	Port     string
+	Boundary string
+}
+
+// postgres
+type PostgresDBConfig struct {
 	User     string
 	Name     string
 	Password string
@@ -74,7 +79,7 @@ type DBConfig struct {
 	ReadMaxIdleConns    int
 	ReadConnMaxIdleTime time.Duration
 	ReadConnMaxLifetime time.Duration
-	// Admin pool configuration (optimized for admin operations)
+	// AdminConfig pool configuration (optimized for admin operations)
 	AdminMaxOpenConns    int
 	AdminMaxIdleConns    int
 	AdminConnMaxIdleTime time.Duration
@@ -91,7 +96,7 @@ type Boundary struct {
 	Description string
 }
 
-func (p *DBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchemaMapping {
+func (p *PostgresDBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchemaMapping {
 	var schmaMaps = strings.Split(p.Schemas, ",")
 	var mappings = make(map[string]BoundaryToPostgresSchemaMapping, len(schmaMaps))
 
@@ -106,6 +111,16 @@ func (p *DBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchemaMapping
 		}
 	}
 	return mappings
+}
+
+// nats
+type NatsConfig struct {
+	ServerName     string
+	Port           int
+	MaxPayload     int32
+	MaxConnections int
+	StoreDir       string
+	Cluster        NatsClusterConfig
 }
 
 type NatsClusterConfig struct {
@@ -170,7 +185,16 @@ func (c *AppConfig) ParseBoundaries() error {
 }
 
 func (c *AppConfig) GetBoundaries() *[]Boundary {
+
 	return &c.boundaries
+}
+
+func (c *AppConfig) GetBoundaryNames() []string {
+	var boundariesArray []string
+	for _, boundary := range *c.GetBoundaries() {
+		boundariesArray = append(boundariesArray, boundary.Name)
+	}
+	return boundariesArray
 }
 
 func validateConfig(config AppConfig) error {
@@ -218,4 +242,12 @@ func substituteEnvVars(value string) string {
 		return defaultValue
 	}
 	return value
+}
+
+func InitializeConfig() AppConfig {
+	config, err := LoadConfig()
+	if err != nil {
+		logger.Fatalf("Failed to load config: %v", err)
+	}
+	return config
 }

@@ -1,8 +1,11 @@
 package logging
 
 import (
+	"fmt"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	c "orisun/config"
+	"os"
 )
 
 // This will be set at build time
@@ -54,6 +57,16 @@ func ZapLogger(level string) (Logger, error) {
 
 	appLogger = logger.Sugar()
 	return appLogger, nil
+}
+
+func InitializeDefaultLogger(config c.LoggingConfig) Logger {
+	// Initialize logger
+	logr, err := ZapLogger(config.Level)
+	if err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	return logr
 }
 
 const (

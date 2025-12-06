@@ -3,8 +3,10 @@ package eventstore
 import (
 	"context"
 	"fmt"
+	c "orisun/config"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -38,6 +40,20 @@ type EventstoreGetEvents interface {
 type LockProvider interface {
 	Lock(ctx context.Context, lockName string) error
 }
+
+//type EventstoreDependencies interface {
+//	Save(ctx context.Context,
+//		events []EventWithMapTags,
+//		boundary string,
+//		streamName string,
+//		expectedPosition *Position,
+//		streamSubSet *Query,
+//	) (transactionID string, globalID int64, err error)
+//
+//	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
+//
+//	Lock(ctx context.Context, lockName string) error
+//}
 
 type EventStore struct {
 	UnimplementedEventStoreServer
@@ -900,4 +916,211 @@ func parseInt64(s string) int64 {
 
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {
 	return fmt.Sprintf("%d%d", preparePosition, commitPosition)
+}
+
+func InitializeEventStore(
+	ctx context.Context,
+	config c.AppConfig,
+	saveEvents EventstoreSaveEvents,
+	getEvents EventstoreGetEvents,
+	lockProvider LockProvider,
+	js jetstream.JetStream,
+	logger logging.Logger) *EventStore {
+
+	logger.Info("Initializing EventStore")
+	eventStore := NewEventStoreServer(
+		ctx,
+		js,
+		saveEvents,
+		getEvents,
+		lockProvider,
+		getBoundaryNames(config.GetBoundaries()),
+		logger,
+	)
+	logger.Info("EventStore initialized")
+
+	return eventStore
+}
+
+func getBoundaryNames(boundary *[]c.Boundary) *[]string {
+	var names []string
+	for _, boundary := range *boundary {
+		names = append(names, boundary.Name)
+	}
+	return &names
+}
+
+type EventPublishing interface {
+	GetLastPublishedEventPosition(ctx context.Context, boundary string) (Position, error)
+	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
+}
+
+func StartEventPolling(
+	ctx context.Context,
+	config c.AppConfig,
+	lockProvider LockProvider,
+	getEvents EventstoreGetEvents,
+	js jetstream.JetStream,
+	eventPublishing EventPublishing,
+	logger logging.Logger) {
+	g, gctx := errgroup.WithContext(ctx)
+	for _, schema := range config.Postgres.GetSchemaMapping() {
+		boundaryCopy := schema
+		g.Go(func() error {
+			for {
+				select {
+				case <-gctx.Done():
+					return gctx.Err()
+				default:
+					// Try to acquire lock for this boundary
+					err := lockProvider.Lock(gctx, boundaryCopy.Boundary)
+					if err != nil {
+						// If lock acquisition fails, wait a bit and try again
+						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+
+					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
+
+					// Get last published position
+					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
+					if err != nil {
+						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
+
+					// Start polling - this will block until context is cancelled or error occurs
+					err = PollEventsFromDatabaseToNats(
+						gctx,
+						js,
+						getEvents,
+						config.PollingPublisher.BatchSize,
+						&lastPosition,
+						boundaryCopy.Boundary,
+						eventPublishing,
+						boundaryCopy.Schema,
+						logger,
+					)
+
+					if err != nil {
+						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
+						time.Sleep(5 * time.Second)
+					}
+					// Loop will continue to try acquiring lock again
+				}
+			}
+		})
+	}
+	// Not waiting here; goroutines will be governed by ctx lifecycle.
+}
+
+var mutex sync.RWMutex
+
+func PollEventsFromDatabaseToNats(
+	ctx context.Context,
+	js jetstream.JetStream,
+	eventStore EventstoreGetEvents,
+	batchSize uint32,
+	lastPosition *Position,
+	boundary string,
+	db EventPublishing,
+	schema string,
+	logger logging.Logger,
+) error {
+	// Start polling loop
+	for {
+		if ctx.Err() != nil {
+			logger.Error("Context cancelled, stopping polling")
+			return ctx.Err()
+		}
+
+		logger.Debugf("Polling for boundary: %v", boundary)
+		req := &GetEventsRequest{
+			FromPosition: &Position{
+				CommitPosition:  lastPosition.CommitPosition,
+				PreparePosition: lastPosition.PreparePosition + 1, // we start from the next position since the underlying database is assumed to be position inclusive in its query handling.
+			},
+			Count:     batchSize,
+			Direction: Direction_ASC,
+			Boundary:  boundary,
+		}
+		resp, err := eventStore.Get(ctx, req)
+		if err != nil {
+			// return fmt.Errorf("failed to get events: %v", err)
+			logger.Fatalf("Failed to get events: %v", err)
+		}
+
+		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
+
+		for _, event := range resp.Events {
+			subjectName := GetEventJetstreamSubjectName(
+				boundary,
+				event.StreamId,
+				&Position{
+					CommitPosition:  event.Position.CommitPosition,
+					PreparePosition: event.Position.PreparePosition,
+				},
+			)
+			logger.Debugf("Subject name is: %s", subjectName)
+			eventData, err := json.Marshal(event)
+			if err != nil {
+				logger.Errorf("Failed to marshal event: %v", err)
+				panic(err)
+			}
+			publishEventWithRetry(
+				ctx,
+				js,
+				eventData,
+				subjectName,
+				event.Position.PreparePosition,
+				event.Position.CommitPosition,
+				logger,
+			)
+			lastPosition = event.Position
+		}
+		if len(resp.Events) > 0 {
+			mutex.Lock()
+			err = db.InsertLastPublishedEvent(
+				ctx,
+				boundary,
+				lastPosition.CommitPosition,
+				lastPosition.PreparePosition,
+			)
+			mutex.Unlock()
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		if len(resp.Events) > 0 {
+			lastPosition = resp.Events[len(resp.Events)-1].Position
+		}
+		logger.Debugf(":%v Sleeping.....", boundary)
+		time.Sleep(500 * time.Millisecond) // Polling interval
+	}
+}
+
+func publishEventWithRetry(
+	ctx context.Context,
+	js jetstream.JetStream,
+	eventData []byte,
+	subjectName string, preparePosition int64,
+	commitPosition int64, logger logging.Logger) {
+
+	messageIdOpts := jetstream.PublishOpt(
+		jetstream.WithMsgID(GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
+	)
+	retryOpts := jetstream.WithRetryAttempts(5)
+
+	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
+	if err == nil {
+		logger.Debugf("Successfully published event to jetstream")
+		return
+	}
+
+	logger.Errorf("Failed to publish event: %v, this should not happen.", err)
+	panic(err)
 }

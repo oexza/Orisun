@@ -2,54 +2,41 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"sync"
-
 	"github.com/goccy/go-json"
+	nats2 "orisun/nats"
 
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
-	"runtime"
-	"time"
-
-	logger "log"
-	pb "orisun/eventstore"
-	"runtime/debug"
-
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-
-	c "orisun/config"
-	l "orisun/logging"
-	pg "orisun/postgres"
-
-	admin "orisun/admin"
+	logger "log"
+	"net"
+	"net/http"
+	_ "net/http/pprof"
+	"orisun/admin"
 	changepassword "orisun/admin/slices/change_password"
 	common "orisun/admin/slices/common"
 	"orisun/admin/slices/create_user"
 	"orisun/admin/slices/dashboard"
+	"orisun/admin/slices/dashboard/event_count"
+	"orisun/admin/slices/dashboard/user_count"
 	"orisun/admin/slices/delete_user"
 	"orisun/admin/slices/login"
 	"orisun/admin/slices/users_page"
 	up "orisun/admin/slices/users_projection"
 	globalCommon "orisun/common"
-
-	event_count "orisun/admin/slices/dashboard/event_count"
-	user_count "orisun/admin/slices/dashboard/user_count"
-
-	_ "net/http/pprof"
-
-	"github.com/nats-io/nats-server/v2/server"
-	"golang.org/x/sync/errgroup"
+	c "orisun/config"
+	pb "orisun/eventstore"
+	l "orisun/logging"
+	pg "orisun/postgres"
+	"runtime"
+	"runtime/debug"
+	"time"
 )
 
 // LoginAuthenticatorAdapter bridges admin.Authenticator to login.Authenticator
@@ -178,11 +165,12 @@ func main() {
 	fmt.Printf("Starting Orisun %s (Go %s)\n", globalCommon.GetVersion(), runtime.Version())
 
 	// Load configuration and initialize logger
-	config := initializeConfig()
+	config := c.InitializeConfig()
 
 	// Initialize logger
-	AppLogger := initializeLogger(config)
+	AppLogger := l.InitializeDefaultLogger(config.Logging)
 	AppLogger.Debugf("config: %v", config)
+
 	// Start pprof server if enabled
 	if config.Pprof.Enabled {
 		addr := fmt.Sprintf(":%s", config.Pprof.Port)
@@ -193,22 +181,23 @@ func main() {
 			}
 		}()
 	}
+
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Initialize NATS
-	js, nc, ns := initializeNATS(ctx, config, AppLogger)
+	js, nc, ns := nats2.InitializeNATS(ctx, config.Nats, AppLogger)
 	defer nc.Close()
 	defer ns.Shutdown()
 
 	// time.Sleep(60 * time.Second)
 
 	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := initializeDatabase(ctx, config, js, AppLogger)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
 
 	// Initialize EventStore
-	eventStore := initializeEventStore(
+	eventStore := pb.InitializeEventStore(
 		ctx,
 		config,
 		saveEvents,
@@ -219,7 +208,7 @@ func main() {
 	)
 
 	// Start polling events from the event store and publish them to NATS jetstream
-	startEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
+	pb.StartEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
 
 	// Start projectors
 	pubsubStreamName := "ORISUN-ADMIN"
@@ -288,13 +277,9 @@ func main() {
 		AppLogger,
 	)
 
-	boundariesArray := []string{}
-	for _, boundary := range *config.GetBoundaries() {
-		boundariesArray = append(boundariesArray, boundary.Name)
-	}
 	startEventCountProjector(
 		ctx,
-		boundariesArray,
+		config.GetBoundaryNames(),
 		adminDB.GetProjectorLastPosition,
 		adminDB.UpdateProjectorPosition,
 		func(
@@ -375,7 +360,7 @@ func main() {
 	)
 	dashboardHandler := dashboard.NewDashboardHandler(
 		AppLogger,
-		boundariesArray,
+		config.GetBoundaryNames(),
 		getUserCount,
 		func(consumerName string, ctx context.Context, messageHandler *globalCommon.MessageHandler[user_count.UserCountReadModel]) error {
 			handler := globalCommon.NewMessageHandler[common.PublishRequest](ctx)
@@ -528,24 +513,6 @@ func main() {
 	startGRPCServer(config, eventStore, authenticator, AppLogger)
 }
 
-func initializeConfig() c.AppConfig {
-	config, err := c.LoadConfig()
-	if err != nil {
-		logger.Fatalf("Failed to load config: %v", err)
-	}
-	return config
-}
-
-func initializeLogger(config c.AppConfig) l.Logger {
-	// Initialize logger
-	logr, err := l.ZapLogger(config.Logging.Level)
-	if err != nil {
-		fmt.Printf("Failed to initialize logger: %v\n", err)
-		os.Exit(1)
-	}
-	return logr
-}
-
 func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore, logger l.Logger) error {
 	var userExistsError create_user.UserExistsError
 	if _, err := create_user.CreateUser(
@@ -563,318 +530,6 @@ func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.
 		return err
 	}
 	return nil
-}
-func initializeDatabase(
-	ctx context.Context,
-	config c.AppConfig,
-	js jetstream.JetStream,
-	logger l.Logger,
-) (pb.EventstoreSaveEvents, pb.EventstoreGetEvents, pb.LockProvider, common.DB, common.EventPublishing) {
-	// Create database connection string
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		config.Postgres.Host,
-		config.Postgres.Port,
-		config.Postgres.User,
-		config.Postgres.Password,
-		config.Postgres.Name,
-		config.Postgres.SSLMode,
-	)
-
-	// Create write database pool (optimized for write operations)
-	writeDB, err := sql.Open("pgx", connStr)
-	if err != nil {
-		logger.Fatalf("Failed to connect to write database: %v", err)
-	}
-
-	// Configure write pool - fewer connections, shorter lifetimes for consistency
-	writeDB.SetMaxOpenConns(config.Postgres.WriteMaxOpenConns)
-	writeDB.SetMaxIdleConns(config.Postgres.WriteMaxIdleConns)
-	writeDB.SetConnMaxIdleTime(config.Postgres.WriteConnMaxIdleTime)
-	writeDB.SetConnMaxLifetime(config.Postgres.WriteConnMaxLifetime)
-
-	// Create read database pool (optimized for read operations)
-	readDB, err := sql.Open("pgx", connStr)
-	if err != nil {
-		logger.Fatalf("Failed to connect to read database: %v", err)
-	}
-
-	// Configure read pool - more connections, longer lifetimes for performance
-	readDB.SetMaxOpenConns(config.Postgres.ReadMaxOpenConns)
-	readDB.SetMaxIdleConns(config.Postgres.ReadMaxIdleConns)
-	readDB.SetConnMaxIdleTime(config.Postgres.ReadConnMaxIdleTime)
-	readDB.SetConnMaxLifetime(config.Postgres.ReadConnMaxLifetime)
-
-	// Create admin database pool (optimized for admin operations)
-	adminDBPool, err := sql.Open("pgx", connStr)
-	if err != nil {
-		logger.Fatalf("Failed to connect to admin database: %v", err)
-	}
-
-	// Configure admin pool - moderate connections, longer lifetimes for admin tasks
-	adminDBPool.SetMaxOpenConns(config.Postgres.AdminMaxOpenConns)
-	adminDBPool.SetMaxIdleConns(config.Postgres.AdminMaxIdleConns)
-	adminDBPool.SetConnMaxIdleTime(config.Postgres.AdminConnMaxIdleTime)
-	adminDBPool.SetConnMaxLifetime(config.Postgres.AdminConnMaxLifetime)
-
-	// Test all connections
-	if err = writeDB.PingContext(ctx); err != nil {
-		logger.Fatalf("Failed to ping write database: %v", err)
-	}
-	if err = readDB.PingContext(ctx); err != nil {
-		logger.Fatalf("Failed to ping read database: %v", err)
-	}
-	if err = adminDBPool.PingContext(ctx); err != nil {
-		logger.Fatalf("Failed to ping admin database: %v", err)
-	}
-
-	logger.Info("Database connections established with separate read/write/admin pools")
-	logger.Infof("Write pool: %d max open, %d max idle connections",
-		config.Postgres.WriteMaxOpenConns, config.Postgres.WriteMaxIdleConns)
-	logger.Infof("Read pool: %d max open, %d max idle connections",
-		config.Postgres.ReadMaxOpenConns, config.Postgres.ReadMaxIdleConns)
-	logger.Infof("Admin pool: %d max open, %d max idle connections",
-		config.Postgres.AdminMaxOpenConns, config.Postgres.AdminMaxIdleConns)
-
-	go func() {
-		<-ctx.Done()
-		logger.Info("Shutting down database connections")
-		writeDB.Close()
-		readDB.Close()
-		adminDBPool.Close()
-	}()
-
-	postgesBoundarySchemaMappings := config.Postgres.GetSchemaMapping()
-	for _, schema := range postgesBoundarySchemaMappings {
-		isAdminBoundary := schema.Boundary == config.Admin.Boundary
-		// Use write pool for database migrations (schema changes)
-		if err = pg.RunDbScripts(writeDB, schema.Schema, isAdminBoundary, ctx); err != nil {
-			logger.Fatalf("Failed to run database migrations for schema %s: %v", schema, err)
-		}
-		logger.Infof("Database migrations for schema %s completed successfully", schema)
-	}
-
-	// Use write pool for save operations and read pool for get operations
-	saveEvents := pg.NewPostgresSaveEvents(ctx, writeDB, logger, postgesBoundarySchemaMappings)
-	getEvents := pg.NewPostgresGetEvents(readDB, logger, postgesBoundarySchemaMappings)
-	lockProvider, err := pb.NewJetStreamLockProvider(ctx, js, logger)
-	if err != nil {
-		logger.Fatalf("Failed to create lock provider: %v", err)
-	}
-	// lockProvider := postgres.NewPGLockProvider(db, AppLogger)
-	adminSchema := postgesBoundarySchemaMappings[config.Admin.Boundary]
-	if (adminSchema == c.BoundaryToPostgresSchemaMapping{}) {
-		logger.Fatalf("No schema specified for admin boundary", err)
-	}
-
-	// Use admin pool for admin operations (user management)
-	adminDB := pg.NewPostgresAdminDB(
-		adminDBPool,
-		logger,
-		adminSchema.Schema,
-		postgesBoundarySchemaMappings,
-	)
-
-	// Use write pool for event publishing operations
-	eventPublishing := pg.NewPostgresEventPublishing(
-		writeDB,
-		logger,
-		postgesBoundarySchemaMappings,
-	)
-
-	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing
-}
-
-func initializeNATS(ctx context.Context, config c.AppConfig, logger l.Logger) (jetstream.JetStream, *nats.Conn, *server.Server) {
-	natsOptions := createNATSOptions(config, logger)
-	natsServer := startNATSServer(natsOptions, config, logger)
-
-	// Connect to NATS
-	nc, err := nats.Connect("", nats.InProcessServer(natsServer))
-	if err != nil {
-		logger.Fatalf("Failed to connect to NATS: %v", err)
-	}
-
-	// Create JetStream context
-	js, err := jetstream.New(nc)
-	if err != nil {
-		logger.Fatalf("Failed to create JetStream context: %v", err)
-	}
-	// time.Sleep(30 * time.Second)
-	waitForJetStream(ctx, js, logger)
-	return js, nc, natsServer
-}
-
-func createNATSOptions(config c.AppConfig, logger l.Logger) server.Options {
-	options := server.Options{
-		ServerName: config.Nats.ServerName,
-		Port:       config.Nats.Port,
-		MaxPayload: config.Nats.MaxPayload,
-		JetStream:  true,
-		StoreDir:   config.Nats.StoreDir,
-	}
-
-	if config.Nats.Cluster.Enabled {
-		options.Cluster = server.ClusterOpts{
-			Name: config.Nats.Cluster.Name,
-			Host: config.Nats.Cluster.Host,
-			Port: config.Nats.Cluster.Port,
-		}
-		options.Routes = convertToURLSlice(config.Nats.Cluster.GetRoutes(), logger)
-		logger.Info("Nats cluster is enabled, running in clustered mode")
-		logger.Info(
-			"Cluster configuration: Name=%v, Host=%v, Port=%v, Routes=%v",
-			config.Nats.Cluster.Name,
-			config.Nats.Cluster.Host,
-			config.Nats.Cluster.Port,
-			config.Nats.Cluster.Routes,
-		)
-	} else {
-		logger.Info("Nats cluster is disabled, running in standalone mode")
-	}
-
-	return options
-}
-
-func startNATSServer(options server.Options, config c.AppConfig, logger l.Logger) *server.Server {
-	natsServer, err := server.NewServer(&options)
-	if err != nil {
-		logger.Fatalf("Failed to create NATS server: %v", err)
-	}
-
-	natsServer.ConfigureLogger()
-	go natsServer.Start()
-	if !natsServer.ReadyForConnections(config.Nats.Cluster.Timeout) {
-		logger.Fatal("NATS server failed to start")
-	}
-	logger.Info("NATS server started on ", natsServer.ClientURL())
-
-	return natsServer
-}
-
-func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logger) {
-	jetStreamTestDone := make(chan struct{})
-
-	go func() {
-		defer close(jetStreamTestDone)
-
-		for {
-			streamName := "test_jetstream"
-			_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-				Name: streamName,
-				Subjects: []string{
-					streamName + ".test",
-				},
-				MaxMsgs: 1,
-			})
-
-			if err != nil {
-				logger.Warnf("failed to add stream: %v %v", streamName, err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			r, err := js.Publish(ctx, streamName+".test", []byte("test"))
-			if err != nil {
-				logger.Warnf("Failed to publish to JetStream, retrying in 5 second: %v", err)
-				time.Sleep(5 * time.Second)
-			} else {
-				logger.Infof("Published to JetStream: %v", r)
-				break
-			}
-		}
-	}()
-
-	select {
-	case <-jetStreamTestDone:
-		logger.Info("JetStream system is available")
-	}
-}
-
-func initializeEventStore(
-	ctx context.Context,
-	config c.AppConfig,
-	saveEvents pb.EventstoreSaveEvents,
-	getEvents pb.EventstoreGetEvents,
-	lockProvider pb.LockProvider,
-	js jetstream.JetStream,
-	logger l.Logger) *pb.EventStore {
-
-	logger.Info("Initializing EventStore")
-	eventStore := pb.NewEventStoreServer(
-		ctx,
-		js,
-		saveEvents,
-		getEvents,
-		lockProvider,
-		getBoundaryNames((config.GetBoundaries())),
-		logger,
-	)
-	logger.Info("EventStore initialized")
-
-	return eventStore
-}
-
-func startEventPolling(
-	ctx context.Context,
-	config c.AppConfig,
-	lockProvider pb.LockProvider,
-	getEvents pb.EventstoreGetEvents,
-	js jetstream.JetStream,
-	eventPublishing common.EventPublishing,
-	logger l.Logger) {
-	g, gctx := errgroup.WithContext(ctx)
-	for _, schema := range config.Postgres.GetSchemaMapping() {
-		boundaryCopy := schema
-		g.Go(func() error {
-			for {
-				select {
-				case <-gctx.Done():
-					return gctx.Err()
-				default:
-					// Try to acquire lock for this boundary
-					err := lockProvider.Lock(gctx, boundaryCopy.Boundary)
-					if err != nil {
-						// If lock acquisition fails, wait a bit and try again
-						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
-						continue
-					}
-
-					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
-
-					// Get last published position
-					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
-					if err != nil {
-						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
-						continue
-					}
-					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
-
-					// Start polling - this will block until context is cancelled or error occurs
-					err = PollEventsFromDatabaseToNats(
-						gctx,
-						js,
-						getEvents,
-						config.PollingPublisher.BatchSize,
-						&lastPosition,
-						boundaryCopy.Boundary,
-						eventPublishing,
-						boundaryCopy.Schema,
-						logger,
-					)
-
-					if err != nil {
-						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
-					}
-					// Loop will continue to try acquiring lock again
-				}
-			}
-		})
-	}
-	// Not waiting here; goroutines will be governed by ctx lifecycle.
 }
 
 func startUserProjector(
@@ -1045,122 +700,6 @@ func startEventCountProjector(
 
 }
 
-var mutex sync.RWMutex
-
-func PollEventsFromDatabaseToNats(
-	ctx context.Context,
-	js jetstream.JetStream,
-	eventStore pb.EventstoreGetEvents,
-	batchSize uint32,
-	lastPosition *pb.Position,
-	boundary string,
-	db common.EventPublishing,
-	schema string,
-	logger l.Logger,
-) error {
-	// Start polling loop
-	for {
-		if ctx.Err() != nil {
-			logger.Error("Context cancelled, stopping polling")
-			return ctx.Err()
-		}
-
-		logger.Debugf("Polling for boundary: %v", boundary)
-		req := &pb.GetEventsRequest{
-			FromPosition: &pb.Position{
-				CommitPosition:  lastPosition.CommitPosition,
-				PreparePosition: lastPosition.PreparePosition + 1, // we start from the next position since the underlying database is assumed to be position inclusive in its query handling.
-			},
-			Count:     batchSize,
-			Direction: pb.Direction_ASC,
-			Boundary:  boundary,
-		}
-		resp, err := eventStore.Get(ctx, req)
-		if err != nil {
-			// return fmt.Errorf("failed to get events: %v", err)
-			logger.Fatalf("Failed to get events: %v", err)
-		}
-
-		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
-
-		for _, event := range resp.Events {
-			subjectName := pb.GetEventJetstreamSubjectName(
-				boundary,
-				event.StreamId,
-				&pb.Position{
-					CommitPosition:  event.Position.CommitPosition,
-					PreparePosition: event.Position.PreparePosition,
-				},
-			)
-			logger.Debugf("Subject name is: %s", subjectName)
-			eventData, err := json.Marshal(event)
-			if err != nil {
-				logger.Errorf("Failed to marshal event: %v", err)
-				panic(err)
-			}
-			publishEventWithRetry(
-				ctx,
-				js,
-				eventData,
-				subjectName,
-				event.Position.PreparePosition,
-				event.Position.CommitPosition,
-				logger,
-			)
-			lastPosition = event.Position
-		}
-		if len(resp.Events) > 0 {
-			mutex.Lock()
-			err = db.InsertLastPublishedEvent(
-				ctx,
-				boundary,
-				lastPosition.CommitPosition,
-				lastPosition.PreparePosition,
-			)
-			mutex.Unlock()
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		if len(resp.Events) > 0 {
-			lastPosition = resp.Events[len(resp.Events)-1].Position
-		}
-		logger.Debugf(":%v Sleeping.....", boundary)
-		time.Sleep(500 * time.Millisecond) // Polling interval
-	}
-}
-
-func publishEventWithRetry(
-	ctx context.Context,
-	js jetstream.JetStream,
-	eventData []byte,
-	subjectName string, preparePosition int64,
-	commitPosition int64, logger l.Logger) {
-
-	messageIdOpts := jetstream.PublishOpt(
-		jetstream.WithMsgID(pb.GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
-	)
-	retryOpts := jetstream.WithRetryAttempts(5)
-
-	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
-	if err == nil {
-		logger.Debugf("Successfully published event to jetstream")
-		return
-	}
-
-	logger.Errorf("Failed to publish event: %v, this should not happen.", err)
-	panic(err)
-}
-
-func getBoundaryNames(boundary *[]c.Boundary) *[]string {
-	var names []string
-	for _, boundary := range *boundary {
-		names = append(names, boundary.Name)
-	}
-	return &names
-}
-
 func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
 	return func(srv any,
 		ss grpc.ServerStream,
@@ -1186,19 +725,6 @@ func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 		}()
 		return handler(ctx, req)
 	}
-}
-
-func convertToURLSlice(routes []string, logger l.Logger) []*url.URL {
-	var urls []*url.URL
-	for _, route := range routes {
-		u, err := url.Parse(route)
-		if err != nil {
-			logger.Fatalf("Warning: invalid route URL %q: %v", route, err)
-			continue
-		}
-		urls = append(urls, u)
-	}
-	return urls
 }
 
 func startAdminServer(
@@ -1230,9 +756,9 @@ func startAdminServer(
 
 		logger.Infof("Starting admin server on port %s", config.Admin.Port)
 		if err := httpServer.ListenAndServe(); err != nil {
-			logger.Errorf("Admin server error: %v", err)
+			logger.Errorf("AdminConfig server error: %v", err)
 		}
-		logger.Infof("Admin server started on port %s", config.Admin.Port)
+		logger.Infof("AdminConfig server started on port %s", config.Admin.Port)
 	}()
 }
 

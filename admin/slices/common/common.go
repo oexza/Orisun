@@ -3,11 +3,11 @@ package admin_common
 import (
 	"context"
 	"net/http"
-	eventstore "orisun/eventstore"
-	"sync"
 	globalCommon "orisun/common"
+	"orisun/eventstore"
+	"sync"
 
-	datastar "github.com/starfederation/datastar-go/datastar"
+	"github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,11 +23,6 @@ type DB interface {
 	SaveUsersCount(uint32) error
 	GetEventsCount(boundary string) (int, error)
 	SaveEventCount(int, string) error
-}
-
-type EventPublishing interface {
-	GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error)
-	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
 }
 
 type SaveEventsType = func(ctx context.Context, in *eventstore.SaveEventsRequest) (resp *eventstore.WriteResult, err error)
@@ -85,7 +80,7 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-func GetCurrentUser(r *http.Request) (*globalCommon.User) {
+func GetCurrentUser(r *http.Request) *globalCommon.User {
 	currentUser := r.Context().Value(globalCommon.UserContextKey).(globalCommon.User)
 	if currentUser.Id != "" {
 		return &currentUser
