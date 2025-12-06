@@ -3,20 +3,20 @@ package create_user
 import (
 	"context"
 	"fmt"
+	ev "github.com/oexza/Orisun/admin/events"
+	t "github.com/oexza/Orisun/admin/templates"
+	"github.com/oexza/Orisun/eventstore"
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	ev "orisun/admin/events"
-	t "orisun/admin/templates"
-	"orisun/eventstore"
-	l "orisun/logging"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	pb "orisun/eventstore"
+	pb "github.com/oexza/Orisun/eventstore"
 
-	admin_common "orisun/admin/slices/common"
+	admin_common "github.com/oexza/Orisun/admin/slices/common"
 
-	globalCommon "orisun/common"
+	globalCommon "github.com/oexza/Orisun/common"
 
 	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"

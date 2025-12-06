@@ -3,15 +3,15 @@ package changepassword
 import (
 	"context"
 	"errors"
+	admin_common "github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/admin/templates"
+	"github.com/oexza/Orisun/eventstore"
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	admin_common "orisun/admin/slices/common"
-	"orisun/admin/templates"
-	"orisun/eventstore"
-	l "orisun/logging"
 
 	// "sync"
 
-	admin_events "orisun/admin/events"
+	admin_events "github.com/oexza/Orisun/admin/events"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -283,7 +283,7 @@ func changePassword(
 	if passwordChanged != nil && len(passwordChanged.Events) > 0 {
 		expectedPosition = passwordChanged.Events[0].Position
 	}
-	
+
 	if expectedPosition == nil {
 		expectedPosition = userCreated.Events[0].Position
 	}

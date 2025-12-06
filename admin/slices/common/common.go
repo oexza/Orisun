@@ -2,9 +2,9 @@ package admin_common
 
 import (
 	"context"
+	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/eventstore"
 	"net/http"
-	globalCommon "orisun/common"
-	"orisun/eventstore"
 	"sync"
 
 	"github.com/starfederation/datastar-go/datastar"

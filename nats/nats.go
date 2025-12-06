@@ -5,9 +5,9 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	c "github.com/oexza/Orisun/config"
+	l "github.com/oexza/Orisun/logging"
 	"net/url"
-	c "orisun/config"
-	l "orisun/logging"
 	"time"
 )
 

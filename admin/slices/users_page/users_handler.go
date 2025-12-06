@@ -1,13 +1,13 @@
 package users_page
 
 import (
+	admin_events "github.com/oexza/Orisun/admin/events"
+	"github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/admin/templates"
+	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/eventstore"
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	admin_events "orisun/admin/events"
-	"orisun/admin/slices/common"
-	"orisun/admin/templates"
-	globalCommon "orisun/common"
-	"orisun/eventstore"
-	l "orisun/logging"
 	"time"
 
 	"github.com/starfederation/datastar-go/datastar"

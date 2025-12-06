@@ -2,11 +2,11 @@ package user_count
 
 import (
 	"context"
-	ev "orisun/admin/events"
-	admin_common "orisun/admin/slices/common"
-	globalCommon "orisun/common"
-	eventstore "orisun/eventstore"
-	l "orisun/logging"
+	ev "github.com/oexza/Orisun/admin/events"
+	admin_common "github.com/oexza/Orisun/admin/slices/common"
+	globalCommon "github.com/oexza/Orisun/common"
+	eventstore "github.com/oexza/Orisun/eventstore"
+	l "github.com/oexza/Orisun/logging"
 	"time"
 
 	"github.com/goccy/go-json"

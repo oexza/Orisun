@@ -3,8 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"orisun/eventstore"
-	"orisun/logging"
+	"github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/logging"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

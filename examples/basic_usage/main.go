@@ -5,13 +5,13 @@ import (
 	"github.com/google/uuid"
 	"time"
 
-	globalCommon "orisun/common"
-	c "orisun/config"
-	evStore "orisun/eventstore"
-	"orisun/logging"
-	"orisun/nats"
-	"orisun/pkg/orisun"
-	pg "orisun/postgres"
+	globalCommon "github.com/oexza/Orisun/common"
+	c "github.com/oexza/Orisun/config"
+	evStore "github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/nats"
+	"github.com/oexza/Orisun/pkg/orisun"
+	pg "github.com/oexza/Orisun/postgres"
 )
 
 func main() {

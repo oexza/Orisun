@@ -2,11 +2,11 @@ package users_projection
 
 import (
 	"context"
-	ev "orisun/admin/events"
-	common "orisun/admin/slices/common"
-	globalCommon "orisun/common"
-	"orisun/eventstore"
-	l "orisun/logging"
+	ev "github.com/oexza/Orisun/admin/events"
+	common "github.com/oexza/Orisun/admin/slices/common"
+	globalCommon "github.com/oexza/Orisun/common"
+	"github.com/oexza/Orisun/eventstore"
+	l "github.com/oexza/Orisun/logging"
 	"time"
 
 	"github.com/goccy/go-json"

@@ -1,7 +1,7 @@
 package events
 
 import (
-	globalCommon "orisun/common"
+	globalCommon "github.com/oexza/Orisun/common"
 )
 
 const (
@@ -10,9 +10,9 @@ const (
 
 // Event types
 const (
-	EventTypeUserCreated     = "$UserCreated"
-	EventTypeUserDeleted     = "$UserDeleted"
-	EventTypeRolesChanged    = "$RolesChanged"
+	EventTypeUserCreated         = "$UserCreated"
+	EventTypeUserDeleted         = "$UserDeleted"
+	EventTypeRolesChanged        = "$RolesChanged"
 	EventTypeUserPasswordChanged = "$UserPasswordChanged"
 )
 

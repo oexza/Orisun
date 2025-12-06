@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"github.com/goccy/go-json"
+	admin_common "github.com/oexza/Orisun/admin/slices/common"
+	globalCommon "github.com/oexza/Orisun/common"
+	l "github.com/oexza/Orisun/logging"
 	datastar "github.com/starfederation/datastar-go/datastar"
 	"net/http"
-	admin_common "orisun/admin/slices/common"
-	globalCommon "orisun/common"
-	l "orisun/logging"
 )
 
 type Authenticator interface {

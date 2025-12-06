@@ -3,7 +3,7 @@ package eventstore
 import (
 	"context"
 	"fmt"
-	c "orisun/config"
+	c "github.com/oexza/Orisun/config"
 	"slices"
 	"strings"
 	"sync"
@@ -14,8 +14,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	globalCommon "orisun/common"
-	logging "orisun/logging"
+	globalCommon "github.com/oexza/Orisun/common"
+	logging "github.com/oexza/Orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sync/errgroup"

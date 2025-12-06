@@ -1,14 +1,14 @@
 package dashboard
 
 import (
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	l "orisun/logging"
 	"time"
 
-	adminCommon "orisun/admin/slices/common"
-	"orisun/admin/slices/dashboard/event_count"
-	"orisun/admin/slices/dashboard/user_count"
-	globalCommon "orisun/common"
+	adminCommon "github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/admin/slices/dashboard/event_count"
+	"github.com/oexza/Orisun/admin/slices/dashboard/user_count"
+	globalCommon "github.com/oexza/Orisun/common"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/sync/errgroup"

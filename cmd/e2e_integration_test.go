@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"orisun/eventstore"
-	pb "orisun/eventstore"
+	"github.com/oexza/Orisun/eventstore"
+	pb "github.com/oexza/Orisun/eventstore"
 )
 
 type E2ETestSuite struct {

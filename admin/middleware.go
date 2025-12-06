@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	globalCommon "orisun/common"
-	l "orisun/logging"
+	globalCommon "github.com/oexza/Orisun/common"
+	l "github.com/oexza/Orisun/logging"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -36,12 +36,12 @@ func UnaryAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.UnaryServer
 		}
 
 		withUserCtx := context.WithValue(ctx, globalCommon.UserContextKey, user)
-		
+
 		// Set the token in response headers using grpc.SetHeader
 		if err := grpc.SetHeader(withUserCtx, metadata.Pairs(tokenHeaderName, token)); err != nil {
 			logger.Errorf("Failed to set token header: %v", err)
 		}
-		
+
 		auth.logger.Debugf("Authenticated user %s for method %s with token %s", user.Username, info.FullMethod, token)
 		return handler(withUserCtx, req)
 	}
@@ -55,18 +55,19 @@ func StreamAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.StreamServ
 		}
 
 		newCtx := context.WithValue(ss.Context(), globalCommon.UserContextKey, user)
-		
+
 		// Set the token in response headers using grpc.SetHeader
 		if err := grpc.SetHeader(newCtx, metadata.Pairs(tokenHeaderName, token)); err != nil {
 			logger.Errorf("Failed to set token header: %v", err)
 		}
-		
+
 		wrapped := newWrappedServerStream(ss, newCtx)
 		return handler(srv, wrapped)
 	}
 }
 
 const tokenHeaderName = "x-auth-token"
+
 var mutex sync.RWMutex
 
 func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (globalCommon.User, string, error) {
@@ -83,7 +84,7 @@ func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (gl
 		if err == nil {
 			return *user, token[len(token)-1], nil
 		}
-		
+
 		logger.Errorf("invalid token: %v", err)
 	}
 

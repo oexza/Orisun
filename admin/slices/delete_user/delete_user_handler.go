@@ -3,16 +3,16 @@ package delete_user
 import (
 	"context"
 	"fmt"
+	admin_common "github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/admin/templates"
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	admin_common "orisun/admin/slices/common"
-	"orisun/admin/templates"
-	l "orisun/logging"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	"orisun/admin/events"
-	eventstore "orisun/eventstore"
+	"github.com/oexza/Orisun/admin/events"
+	eventstore "github.com/oexza/Orisun/eventstore"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -87,7 +87,7 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 				},
 			},
 			Stream: &eventstore.GetStreamQuery{
-				Name:        events.AdminStream,
+				Name: events.AdminStream,
 			},
 		},
 	)
@@ -144,7 +144,7 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 				EventId:   id.String(),
 				EventType: events.EventTypeUserDeleted,
 				Data:      string(eventData),
-				Metadata: "{\"schema\":\"" + dUH.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
+				Metadata:  "{\"schema\":\"" + dUH.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
 			}},
 		})
 

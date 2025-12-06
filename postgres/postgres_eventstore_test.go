@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	config "orisun/config"
-	"orisun/eventstore"
-	logging "orisun/logging"
+	config "github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/eventstore"
+	logging "github.com/oexza/Orisun/logging"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

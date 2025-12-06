@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nats-io/nats.go/jetstream"
-	common "orisun/admin/slices/common"
-	"orisun/logging"
+	common "github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/logging"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +15,11 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/lib/pq"
 
-	eventstore "orisun/eventstore"
+	eventstore "github.com/oexza/Orisun/eventstore"
 
-	config "orisun/config"
+	config "github.com/oexza/Orisun/config"
 
-	globalCommon "orisun/common"
+	globalCommon "github.com/oexza/Orisun/common"
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"

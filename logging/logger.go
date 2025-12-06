@@ -2,9 +2,9 @@ package logging
 
 import (
 	"fmt"
+	c "github.com/oexza/Orisun/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	c "orisun/config"
 	"os"
 )
 

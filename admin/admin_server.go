@@ -3,19 +3,19 @@ package admin
 import (
 	"context"
 	"encoding/base64"
+	"github.com/oexza/Orisun/admin/assets"
+	changepassword "github.com/oexza/Orisun/admin/slices/change_password"
+	create_user "github.com/oexza/Orisun/admin/slices/create_user"
+	dashboard "github.com/oexza/Orisun/admin/slices/dashboard"
+	"github.com/oexza/Orisun/admin/slices/delete_user"
+	"github.com/oexza/Orisun/admin/slices/login"
+	"github.com/oexza/Orisun/admin/slices/users_page"
+	l "github.com/oexza/Orisun/logging"
 	"net/http"
-	"orisun/admin/assets"
-	changepassword "orisun/admin/slices/change_password"
-	create_user "orisun/admin/slices/create_user"
-	dashboard "orisun/admin/slices/dashboard"
-	"orisun/admin/slices/delete_user"
-	"orisun/admin/slices/login"
-	"orisun/admin/slices/users_page"
-	l "orisun/logging"
 
 	"github.com/goccy/go-json"
 
-	globalCommon "orisun/common"
+	globalCommon "github.com/oexza/Orisun/common"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

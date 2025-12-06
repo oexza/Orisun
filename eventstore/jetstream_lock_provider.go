@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	logging "orisun/logging"
+	logging "github.com/oexza/Orisun/logging"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"

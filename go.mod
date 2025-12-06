@@ -1,4 +1,4 @@
-module orisun
+module github.com/oexza/Orisun
 
 go 1.25.5
 

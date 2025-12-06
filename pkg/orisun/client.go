@@ -3,13 +3,13 @@ package orisun
 import (
 	"context"
 	"fmt"
-	"orisun/common"
+	"github.com/oexza/Orisun/common"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"orisun/eventstore"
-	"orisun/logging"
+	"github.com/oexza/Orisun/eventstore"
+	"github.com/oexza/Orisun/logging"
 )
 
 // OrisunServer provides a high-level interface to interact with the Orisun event store
