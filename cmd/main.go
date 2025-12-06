@@ -191,8 +191,6 @@ func main() {
 	defer nc.Close()
 	defer ns.Shutdown()
 
-	// time.Sleep(60 * time.Second)
-
 	// Initialize database
 	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
 

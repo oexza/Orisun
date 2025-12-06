@@ -11,9 +11,9 @@ env:
 tasks:
   tools:
     cmds:
-      - go install github.com/a-h/templ/cmd/templ@v0.3.857
+      - go install github.com/a-h/templ/cmd/templ@latest
       - go install github.com/air-verse/air@latest
-      - go install github.com/go-delve/delve/cmd/dlv@v1.24.1
+      - go install github.com/go-delve/delve/cmd/dlv@1.25.2
       - go install github.com/go-task/task/v3/cmd/task@latest
 
   # The `build:` tasks below are used together for production builds of a project
@@ -54,17 +54,17 @@ tasks:
 
   build:
     cmds:
-      - go build -o bin/cmd/main .
+      - go build -tags dev -o tmp/bin/main ./cmd
     deps:
-      - build:lit-html
-      - build:templ
-      - build:esbuild
-      - build:styles
+#      - build:lit-html
+#      - build:templ
+#      - build:esbuild
+#      - build:styles
 
   # Use this task to debug with the delve debugger
   debug:
     cmds:
-      - dlv exec ./bin/cmd/main
+      - dlv exec ./tmp/bin/main --check-go-version=false
     deps:
       - build
 

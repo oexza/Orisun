@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/goccy/go-json"
 	"log"
 	"time"
 
@@ -180,7 +180,7 @@ func main() {
 	// Example 7: Using string helper
 	fmt.Println("\nExample 7: Using string helper...")
 	stringHelper := orisun.NewStringHelper()
-	
+
 	message := stringHelper.FormatMessage("Hello {}, you have {} new messages", "Alice", 5)
 	fmt.Printf("Formatted message: %s\n", message)
 
