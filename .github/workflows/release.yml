@@ -67,7 +67,8 @@ jobs:
           mkdir -p build
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build \
             -ldflags="-w -s -X 'orisun/common.Version=${{ env.VERSION }}' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=${GITHUB_SHA::8}'" \
-            -o build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
+            -o build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }} \
+            ./cmd
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
