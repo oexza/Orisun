@@ -1056,8 +1056,8 @@ const file_eventstore_eventstore_proto_rawDesc = "" +
 	"\tGetEvents\x12\x1c.eventstore.GetEventsRequest\x1a\x1d.eventstore.GetEventsResponse\"\x00\x12b\n" +
 	"\x18CatchUpSubscribeToEvents\x12/.eventstore.CatchUpSubscribeToEventStoreRequest\x1a\x11.eventstore.Event\"\x000\x01\x12^\n" +
 	"\x18CatchUpSubscribeToStream\x12+.eventstore.CatchUpSubscribeToStreamRequest\x1a\x11.eventstore.Event\"\x000\x01\x12;\n" +
-	"\x04Ping\x12\x17.eventstore.PingRequest\x1a\x18.eventstore.PingResponse\"\x00B*\n" +
-	"\x15com.orisun.eventstoreZ\x11orisun/eventstoreb\x06proto3"
+	"\x04Ping\x12\x17.eventstore.PingRequest\x1a\x18.eventstore.PingResponse\"\x00B;\n" +
+	"\x15com.orisun.eventstoreZ\"github.com/oexza/Orisun/eventstoreb\x06proto3"
 
 var (
 	file_eventstore_eventstore_proto_rawDescOnce sync.Once

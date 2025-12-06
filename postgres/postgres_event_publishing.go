@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	config "github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/eventstore"
@@ -32,7 +33,7 @@ type PostgresEventPublishing struct {
 func (s *PostgresEventPublishing) Schema(boundary string) (string, error) {
 	schema := s.boundarySchemaMappings[boundary]
 	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
-		return "", fmt.Errorf("No schema found for Boundary %s", boundary)
+		return "", fmt.Errorf("no schema found for Boundary %s", boundary)
 	}
 	return schema.Schema, nil
 }
@@ -72,7 +73,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	var globalID int64
 	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema), boundary).Scan(&transactionID, &globalID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Return default position (0,0) if no rows found
 			return eventstore.Position{
 				CommitPosition:  0,
@@ -111,7 +112,7 @@ func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
 	if err != nil {
-		fmt.Errorf("failed to set search path: %v", err)
+		return fmt.Errorf("failed to set search path: %v", err)
 	}
 
 	now := time.Now().UTC()

@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "orisun/admin/templates"
+import "github.com/oexza/Orisun/admin/templates"
 import "fmt"
 
 type DashboardDetails struct {

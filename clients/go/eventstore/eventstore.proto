@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package eventstore;
 
-option go_package = "orisun/eventstore";
+option go_package = "github.com/oexza/Orisun/eventstore";
 option java_package = "com.orisun.eventstore";
 
 import "google/protobuf/timestamp.proto";
