@@ -71,9 +71,11 @@ func NotExistsPosition() Position {
 	}
 }
 
-var FirstPosition = Position{
-	CommitPosition:  0,
-	PreparePosition: 0,
+func FirstPosition() Position {
+	return Position{
+		CommitPosition:  0,
+		PreparePosition: 0,
+	}
 }
 
 const (

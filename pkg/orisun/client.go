@@ -22,8 +22,8 @@ type OrisunServer struct {
 	js           jetstream.JetStream
 }
 
-// NewClient creates a new Orisun client with the provided configuration
-func NewClient(
+// NewOrisunServer creates a new Orisun client with the provided configuration
+func NewOrisunServer(
 	ctx context.Context,
 	saveEvents eventstore.EventstoreSaveEvents,
 	getEvents eventstore.EventstoreGetEvents,
