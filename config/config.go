@@ -166,7 +166,6 @@ func LoadConfig() (AppConfig, error) {
 	if err := config.ParseBoundaries(); err != nil {
 		return AppConfig{}, fmt.Errorf("failed to parse boundaries: %w", err)
 	}
-	fmt.Printf("boundaries are %+v\n", config.boundaries)
 
 	err := validateConfig(config)
 	if err != nil {
