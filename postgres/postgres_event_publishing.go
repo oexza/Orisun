@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	config "github.com/oexza/Orisun/config"
-	logging "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 	"time"
 )

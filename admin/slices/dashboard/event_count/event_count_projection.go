@@ -5,7 +5,6 @@ import (
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
 	l "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
-	eventstore "github.com/oexza/Orisun/orisun"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -61,7 +60,7 @@ func NewEventCountProjection(
 }
 
 func (p *EventCountEventHandler) Start(ctx context.Context) error {
-	stream := orisun.NewMessageHandler[eventstore.Event](ctx)
+	stream := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	// Get last checkpoint
 	pos, err := p.getProjectorLastPosition(projectorName)
@@ -90,7 +89,7 @@ func (p *EventCountEventHandler) Start(ctx context.Context) error {
 					continue
 				}
 
-				var pos = eventstore.Position{
+				var pos = orisun.Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,
 				}
@@ -126,7 +125,7 @@ func (p *EventCountEventHandler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *EventCountEventHandler) Project(ctx context.Context, event *eventstore.Event) error {
+func (p *EventCountEventHandler) Project(ctx context.Context, event *orisun.Event) error {
 	// For any event type, we increment the event count
 	// p.logger.Infof("Projecting event: %v", event)
 	// Get current event count

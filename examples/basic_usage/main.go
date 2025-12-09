@@ -60,8 +60,6 @@ func main() {
 		return
 	}
 
-	// generate example for getting, saving and subscribing to eventstore
-
 	// Example 1: Save events to the event store
 	logger.Info("=== Saving Events Example ===")
 
@@ -70,12 +68,12 @@ func main() {
 		{
 			EventId:   generateUUID(),
 			EventType: "UserCreated",
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"userId":   "user-123",
 				"username": "john_doe",
 				"email":    "john@example.com",
 			},
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"source":  "user-service",
 				"version": "1.0",
 			},
@@ -155,6 +153,7 @@ func main() {
 				return
 			default:
 				event, err := messageHandler.Recv()
+
 				if err != nil {
 					if ctx.Err() != nil {
 						// Context was cancelled

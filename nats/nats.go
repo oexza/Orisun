@@ -92,6 +92,7 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logg
 					streamName + ".test",
 				},
 				MaxMsgs: 1,
+				Storage: jetstream.MemoryStorage,
 			})
 
 			if err != nil {

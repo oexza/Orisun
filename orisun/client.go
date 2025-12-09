@@ -13,8 +13,8 @@ import (
 // OrisunServer provides a high-level interface to interact with the Orisun event store
 type OrisunServer struct {
 	eventStore   *EventStore
-	saveEvents   EventstoreSaveEvents
-	getEvents    EventstoreGetEvents
+	saveEvents   EventsSaver
+	getEvents    EventsRetriever
 	lockProvider LockProvider
 	logger       logging.Logger
 	js           jetstream.JetStream
@@ -23,8 +23,8 @@ type OrisunServer struct {
 // NewOrisunServer creates a new Orisun client with the provided configuration
 func NewOrisunServer(
 	ctx context.Context,
-	saveEvents EventstoreSaveEvents,
-	getEvents EventstoreGetEvents,
+	saveEvents EventsSaver,
+	getEvents EventsRetriever,
 	lockProvider LockProvider,
 	js jetstream.JetStream,
 	boundaryNames []string,

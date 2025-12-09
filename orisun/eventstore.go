@@ -14,7 +14,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	logging "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sync/errgroup"
@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type EventstoreSaveEvents interface {
+type EventsSaver interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
 		boundary string,
@@ -32,7 +32,7 @@ type EventstoreSaveEvents interface {
 	) (transactionID string, globalID int64, err error)
 }
 
-type EventstoreGetEvents interface {
+type EventsRetriever interface {
 	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
 }
 
@@ -57,8 +57,8 @@ type LockProvider interface {
 type EventStore struct {
 	UnimplementedEventStoreServer
 	js           jetstream.JetStream
-	saveEventsFn EventstoreSaveEvents
-	getEventsFn  EventstoreGetEvents
+	saveEventsFn EventsSaver
+	getEventsFn  EventsRetriever
 	lockProvider LockProvider
 	logger       logging.Logger
 }
@@ -106,8 +106,8 @@ func GetEventJetstreamSubjectName(boundary string, stream string, position *Posi
 func NewEventStoreServer(
 	ctx context.Context,
 	js jetstream.JetStream,
-	saveEventsFn EventstoreSaveEvents,
-	getEventsFn EventstoreGetEvents,
+	saveEventsFn EventsSaver,
+	getEventsFn EventsRetriever,
 	lockProvider LockProvider,
 	boundaries *[]string,
 	logger logging.Logger,
@@ -921,8 +921,8 @@ func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {
 func InitializeEventStore(
 	ctx context.Context,
 	config c.AppConfig,
-	saveEvents EventstoreSaveEvents,
-	getEvents EventstoreGetEvents,
+	saveEvents EventsSaver,
+	getEvents EventsRetriever,
 	lockProvider LockProvider,
 	js jetstream.JetStream,
 	logger logging.Logger) *EventStore {
@@ -950,7 +950,7 @@ func getBoundaryNames(boundary *[]c.Boundary) *[]string {
 	return &names
 }
 
-type EventPublishing interface {
+type EventPublishingTracker interface {
 	GetLastPublishedEventPosition(ctx context.Context, boundary string) (Position, error)
 	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
 }
@@ -959,9 +959,9 @@ func StartEventPolling(
 	ctx context.Context,
 	config c.AppConfig,
 	lockProvider LockProvider,
-	getEvents EventstoreGetEvents,
+	getEvents EventsRetriever,
 	js jetstream.JetStream,
-	eventPublishing EventPublishing,
+	eventPublishingTracker EventPublishingTracker,
 	logger logging.Logger) {
 	g, gctx := errgroup.WithContext(ctx)
 	for _, schema := range config.Postgres.GetSchemaMapping() {
@@ -984,7 +984,7 @@ func StartEventPolling(
 					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
 
 					// Get last published position
-					lastPosition, err := eventPublishing.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
+					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
 					if err != nil {
 						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
 						time.Sleep(5 * time.Second)
@@ -1000,7 +1000,7 @@ func StartEventPolling(
 						config.PollingPublisher.BatchSize,
 						&lastPosition,
 						boundaryCopy.Boundary,
-						eventPublishing,
+						eventPublishingTracker,
 						boundaryCopy.Schema,
 						logger,
 					)
@@ -1022,11 +1022,11 @@ var mutex sync.RWMutex
 func PollEventsFromDatabaseToNats(
 	ctx context.Context,
 	js jetstream.JetStream,
-	eventStore EventstoreGetEvents,
+	eventStore EventsRetriever,
 	batchSize uint32,
 	lastPosition *Position,
 	boundary string,
-	db EventPublishing,
+	db EventPublishingTracker,
 	schema string,
 	logger logging.Logger,
 ) error {

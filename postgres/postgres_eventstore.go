@@ -648,7 +648,7 @@ func InitializePostgresDatabase(
 	adminConfig config.AdminConfig,
 	js jetstream.JetStream,
 	logger logging.Logger,
-) (eventstore.EventstoreSaveEvents, eventstore.EventstoreGetEvents, eventstore.LockProvider, common.DB, eventstore.EventPublishing) {
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker) {
 	// Create database connection string
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",

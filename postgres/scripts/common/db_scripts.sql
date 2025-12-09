@@ -3,19 +3,19 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 -- Table & Sequence
 CREATE TABLE IF NOT EXISTS orisun_es_event
 (
-    transaction_id BIGINT                    NOT NULL,
+    transaction_id BIGINT                                         NOT NULL,
     global_id      BIGINT PRIMARY KEY,
-    stream_name    TEXT                      NOT NULL,
-    event_id       UUID                      NOT NULL,
-    event_type     TEXT                      NOT NULL CHECK (event_type <> ''),
-    data           JSONB                     NOT NULL,
+    stream_name    TEXT                                           NOT NULL,
+    event_id       UUID                                           NOT NULL,
+    event_type     TEXT                                           NOT NULL CHECK (event_type <> ''),
+    data           JSONB                                          NOT NULL,
     metadata       JSONB,
-    date_created   TIMESTAMPTZ DEFAULT(NOW() AT TIME ZONE 'UTC') NOT NULL
+    date_created   TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'UTC') NOT NULL
 );
 
 ALTER TABLE orisun_es_event
     DROP COLUMN IF EXISTS stream_version;
-    DROP INDEX IF EXISTS idx_stream_global_id;
+DROP INDEX IF EXISTS idx_stream_global_id;
 
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
     START WITH 0
@@ -71,18 +71,18 @@ CREATE OR REPLACE FUNCTION insert_events_with_consistency_v2(
 AS
 $$
 DECLARE
-    stream                  TEXT;
-    stream_criteria         JSONB;
-    expected_tx_id          BIGINT;
-    expected_gid            BIGINT;
-    current_tx_id           BIGINT;
-    latest_tx_id            BIGINT;
-    latest_gid              BIGINT;
-    key_record              TEXT;
-    stream_criteria_tags    TEXT[];
-    new_global_id           BIGINT;
-    latest_transaction_id   BIGINT;
-    latest_global_id        BIGINT;
+    stream                TEXT;
+    stream_criteria       JSONB;
+    expected_tx_id        BIGINT;
+    expected_gid          BIGINT;
+    current_tx_id         BIGINT;
+    latest_tx_id          BIGINT;
+    latest_gid            BIGINT;
+    key_record            TEXT;
+    stream_criteria_tags  TEXT[];
+    new_global_id         BIGINT;
+    latest_transaction_id BIGINT;
+    latest_global_id      BIGINT;
 BEGIN
     stream := stream_info ->> 'stream_name';
     stream_criteria := stream_info -> 'criteria';
@@ -111,7 +111,7 @@ BEGIN
             stream_criteria_tags := ARRAY(
                     SELECT DISTINCT unnest(stream_criteria_tags)
                     ORDER BY 1 -- Alphabetical sort to ensure consistent lock order and deadlock prevention.
-            );
+                                    );
 
             FOREACH key_record IN ARRAY stream_criteria_tags
                 LOOP
@@ -164,26 +164,23 @@ BEGIN
                    (e ->> 'event_id')::UUID,
                    nextval('orisun_es_event_global_id_seq'),
                    e ->> 'event_type',
-                   CASE 
+                   CASE
                        WHEN jsonb_typeof(e -> 'data') = 'string' THEN (e ->> 'data')::jsonb
                        ELSE COALESCE(e -> 'data', '{}')
-                   END,
-                   CASE 
+                       END,
+                   CASE
                        WHEN jsonb_typeof(e -> 'metadata') = 'string' THEN (e ->> 'metadata')::jsonb
                        ELSE COALESCE(e -> 'metadata', '{}')
-                   END
+                       END
             FROM jsonb_array_elements(events) AS e
-            RETURNING global_id
-        ),
-    max_global_id AS (
-        SELECT MAX(global_id) as max_seq_overall, COUNT(*) as inserted_count
-        FROM inserted_events
-    )
-     SELECT max_seq_overall, current_tx_id, max_seq_overall
-     INTO new_global_id, latest_transaction_id, latest_global_id
-     FROM max_global_id;
+            RETURNING global_id),
+         max_global_id AS (SELECT MAX(global_id) as max_seq_overall, COUNT(*) as inserted_count
+                           FROM inserted_events)
+    SELECT max_seq_overall, current_tx_id, max_seq_overall
+    INTO new_global_id, latest_transaction_id, latest_global_id
+    FROM max_global_id;
 
-     RETURN QUERY SELECT new_global_id, latest_transaction_id, latest_global_id;
+    RETURN QUERY SELECT new_global_id, latest_transaction_id, latest_global_id;
 END;
 $$;
 
@@ -200,21 +197,21 @@ CREATE OR REPLACE FUNCTION get_matching_events_v2(
     STABLE AS
 $$
 DECLARE
-    op TEXT := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
-    schema_prefix TEXT;
+    op             TEXT  := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
+    schema_prefix  TEXT;
     criteria_array JSONB := criteria -> 'criteria';
-    tx_id TEXT := (after_position ->> 'transaction_id')::text;
-    global_id TEXT := (after_position ->> 'global_id')::text;
+    tx_id          TEXT  := (after_position ->> 'transaction_id')::text;
+    global_id      TEXT  := (after_position ->> 'global_id')::text;
 BEGIN
     IF sort_dir NOT IN ('ASC', 'DESC') THEN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
     END IF;
-    
+
     schema_prefix := quote_ident(schema) || '.';
 
     -- General case with all possible filters
     RETURN QUERY EXECUTE format(
-        $q$
+            $q$
         SELECT * FROM %10$sorisun_es_event
         WHERE 
             (%1$L IS NULL OR stream_name = %1$L) AND
@@ -231,19 +228,19 @@ BEGIN
         ORDER BY transaction_id %8$s, global_id %8$s
         LIMIT %9$L
         $q$,
-        stream_name,
-        criteria_array,
-        after_position,
-        op,
-        tx_id,
-        global_id,
-        format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', 
-                tx_id
-        ),
-        sort_dir,
-        LEAST(GREATEST(max_count, 1), 10000),
-        schema_prefix
-    );
+            stream_name,
+            criteria_array,
+            after_position,
+            op,
+            tx_id,
+            global_id,
+            format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))',
+                   tx_id
+            ),
+            sort_dir,
+            LEAST(GREATEST(max_count, 1), 10000),
+            schema_prefix
+                         );
 END;
 $$;
 
@@ -256,16 +253,18 @@ CREATE TABLE IF NOT EXISTS orisun_last_published_event_position
     date_updated   TIMESTAMPTZ     DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS events_count (
-    id VARCHAR(255) PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS events_count
+(
+    id          VARCHAR(255) PRIMARY KEY,
     event_count VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS projector_checkpoint (
-    id VARCHAR(255) PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
-    commit_position BIGINT NOT NULL,
-    prepare_position BIGINT NOT NULL
+CREATE TABLE IF NOT EXISTS projector_checkpoint
+(
+    id               VARCHAR(255) PRIMARY KEY,
+    name             VARCHAR(255) UNIQUE NOT NULL,
+    commit_position  BIGINT              NOT NULL,
+    prepare_position BIGINT              NOT NULL
 );

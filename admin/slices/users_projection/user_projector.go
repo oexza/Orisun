@@ -2,13 +2,12 @@ package users_projection
 
 import (
 	"context"
+	"github.com/goccy/go-json"
 	ev "github.com/oexza/Orisun/admin/events"
 	common "github.com/oexza/Orisun/admin/slices/common"
 	l "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 	"time"
-
-	"github.com/goccy/go-json"
 )
 
 type CreateNewUserType = func(orisun.User) error
@@ -166,7 +165,10 @@ func (p *UserProjector) handleEvent(event *orisun.Event) error {
 			return err
 		}
 		user.HashedPassword = userEvent.PasswordHash
-		p.createNewUser(user)
+		err = p.createNewUser(user)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -193,7 +193,7 @@ func createAuthenticatedContext(username, password string) context.Context {
 
 	// Create metadata with the Authorization header
 	md := metadata.New(map[string]string{
-		"authorization": authHeader,
+		"Authorization": authHeader,
 	})
 
 	// Attach metadata to the context
