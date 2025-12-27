@@ -82,7 +82,7 @@ message GetEventsResponse {
 }
 
 message CatchUpSubscribeToEventStoreRequest {
-  Position afterPosition = 1;
+  Position after_position = 1;
   Query query = 2;
   string subscriber_name = 3;
   string boundary = 4;

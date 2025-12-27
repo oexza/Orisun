@@ -12,7 +12,7 @@ import (
 
 const (
 	lockBucketName = "ORISUN_LOCKS"
-	lockRetryDelay = 100 * time.Millisecond
+	lockRetryDelay = 500 * time.Millisecond
 	maxRetries     = 3
 )
 

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.0
-// source: eventstore.proto
+// source: clients/go/eventstore/eventstore.proto
 
 package eventstore
 
@@ -276,5 +276,5 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "eventstore.proto",
+	Metadata: "clients/go/eventstore/eventstore.proto",
 }

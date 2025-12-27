@@ -266,10 +266,17 @@ func (s *EventStore) SubscribeToAllEvents(
 	boundary string,
 	subscriberName string,
 	afterPosition *Position,
+	stream *string,
 	query *Query,
 	handler *MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName
+	streamIsSpecified := stream != nil && strings.TrimSpace(*stream) != ""
+
+	if streamIsSpecified {
+		subscriptionName = subscriptionName + "__" + *stream
+	}
+
 	// Use errgroup for coordinated error handling and cancellation
 	g, gCtx := errgroup.WithContext(ctx)
 	err := s.lockProvider.Lock(gCtx, subscriptionName)
@@ -315,6 +322,12 @@ func (s *EventStore) SubscribeToAllEvents(
 				},
 			}
 		}
+
+		//if streamIsSpecified {
+		//	getEventsReq.Stream = &GetStreamQuery{
+		//		Name: *stream,
+		//	}
+		//}
 
 		resp, err := s.getEventsFn.Get(gCtx, getEventsReq)
 		if err != nil {
@@ -365,7 +378,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	if lastProcessedPosition != nil {
 		// Start NATS subscription from the time of the last processed event
 		// We need to get the event to find its timestamp
-		lastEventResp, err := s.getEventsFn.Get(gCtx, &GetEventsRequest{
+		lastEventReq := &GetEventsRequest{
 			Count:     1,
 			Direction: Direction_DESC,
 			Boundary:  boundary,
@@ -373,7 +386,13 @@ func (s *EventStore) SubscribeToAllEvents(
 				PreparePosition: lastProcessedPosition.PreparePosition,
 				CommitPosition:  lastProcessedPosition.CommitPosition,
 			},
-		})
+		}
+		if streamIsSpecified {
+			lastEventReq.Stream = &GetStreamQuery{
+				Name: *stream,
+			}
+		}
+		lastEventResp, err := s.getEventsFn.Get(gCtx, lastEventReq)
 		if err != nil {
 			s.logger.Errorf("Failed to get last processed event for timestamp: %v", err)
 			return fmt.Errorf("cannot determine NATS subscription start time: failed to retrieve last processed event: %w", err)
@@ -467,8 +486,7 @@ func (s *EventStore) SubscribeToAllEvents(
 						// Context is still active, proceed with send
 						if err := handler.Send(&event); err != nil {
 							s.logger.Errorf("Failed to send event: %v", err)
-							// Continue processing other events instead of returning error
-							continue
+							return fmt.Errorf("failed to send event: %w", err)
 						}
 					}
 
@@ -485,228 +503,6 @@ func (s *EventStore) SubscribeToAllEvents(
 	})
 
 	// Wait for all goroutines to complete or for an error to occur
-	return g.Wait()
-}
-
-func (s *EventStore) SubscribeToStream(
-	ctx context.Context,
-	boundary string,
-	subscriberName string,
-	query *Query,
-	stream string,
-	afterPosition *Position,
-	handler *MessageHandler[Event],
-) error {
-	subscriptionName := boundary + "__" + subscriberName + "__" + stream
-	// Use errgroup for coordinated goroutine management
-	g, gCtx := errgroup.WithContext(ctx)
-	err := s.lockProvider.Lock(gCtx, subscriptionName)
-
-	if err != nil {
-		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
-	}
-
-	// Initialize position tracking
-	lastProcessedPosition := afterPosition
-
-	// Phase 1: Catch-up by polling the event store until we're up to date
-	s.logger.Info("Starting catch-up phase: polling event store for stream")
-
-	const batchSize = 100
-	for {
-		select {
-		case <-gCtx.Done():
-			return gCtx.Err()
-		default:
-		}
-
-		// Get events from the stream starting from our last processed position
-		var getEventsReq *GetEventsRequest
-		if lastProcessedPosition == nil {
-			// Start from the latest version if no version specified
-			getEventsReq = &GetEventsRequest{
-				Count:     batchSize,
-				Direction: Direction_DESC,
-				Boundary:  boundary,
-				Query:     query,
-				Stream: &GetStreamQuery{
-					Name: stream,
-				},
-			}
-		} else {
-			// Continue from the last processed stream version
-			getEventsReq = &GetEventsRequest{
-				Count:        batchSize,
-				Direction:    Direction_ASC,
-				Boundary:     boundary,
-				Query:        query,
-				FromPosition: lastProcessedPosition,
-				Stream: &GetStreamQuery{
-					Name: stream,
-				},
-			}
-		}
-
-		resp, err := s.getEventsFn.Get(gCtx, getEventsReq)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get events during catch-up: %v", err)
-		}
-
-		// If no more events, we're caught up
-		if len(resp.Events) == 0 {
-			s.logger.Info("Catch-up phase completed: no more events in stream")
-			break
-		}
-
-		// Send all events in this batch
-		for _, event := range resp.Events {
-			select {
-			case <-gCtx.Done():
-				return gCtx.Err()
-			default:
-			}
-
-			if err := handler.Send(event); err != nil {
-				return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
-			}
-			lastProcessedPosition = event.Position
-		}
-
-		// If we got fewer events than requested, we're caught up
-		if len(resp.Events) < batchSize {
-			s.logger.Info("Catch-up phase completed: reached end of stream")
-			break
-		}
-	}
-
-	// Capture the time immediately after polling is completed
-	pollingCompletedTime := time.Now()
-
-	// Phase 2: Subscribe to NATS for live updates
-	s.logger.Info("Starting live phase: subscribing to NATS for real-time updates")
-
-	// Determine the time to start NATS subscription from
-	var timeToSubscribeFromJetstream time.Time
-	if lastProcessedPosition != nil {
-		// Start NATS subscription from the time of the last processed event
-		// We need to get the event to find its timestamp
-		lastEventResp, err := s.getEventsFn.Get(gCtx, &GetEventsRequest{
-			Count:        1,
-			Direction:    Direction_DESC,
-			Boundary:     boundary,
-			FromPosition: lastProcessedPosition,
-			Stream: &GetStreamQuery{
-				Name: stream,
-			},
-		})
-		if err != nil {
-			s.logger.Errorf("Failed to get last processed event for stream %s timestamp: %v", stream, err)
-			return fmt.Errorf("cannot determine NATS subscription start time for stream %s: failed to retrieve last processed event: %w", stream, err)
-		} else if len(lastEventResp.Events) == 0 {
-			s.logger.Warnf("No events found at last processed position for stream %s, using polling completion time for NATS subscription", stream)
-			timeToSubscribeFromJetstream = pollingCompletedTime
-		} else {
-			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()
-			s.logger.Debugf("Starting NATS subscription for stream %s from last processed event time: %v", stream, timeToSubscribeFromJetstream)
-		}
-	} else {
-		// No events processed, start from polling completion time
-		timeToSubscribeFromJetstream = pollingCompletedTime
-	}
-
-	// Set up NATS subscription for live events
-	subs, err := s.js.Stream(gCtx, GetEventsNatsJetstreamStreamStreamName(boundary))
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
-	}
-
-	natsSubscriptionName := subscriberName + uuid.New().String()
-
-	consumer, err := subs.CreateOrUpdateConsumer(gCtx, jetstream.ConsumerConfig{
-		Name:          natsSubscriptionName,
-		DeliverPolicy: jetstream.DeliverByStartTimePolicy,
-		AckPolicy:     jetstream.AckNonePolicy,
-		ReplayPolicy:  jetstream.ReplayInstantPolicy,
-		OptStartTime:  &timeToSubscribeFromJetstream,
-	})
-
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
-	}
-	// Ensure the consumer is cleaned up using the same name
-	defer subs.DeleteConsumer(gCtx, natsSubscriptionName)
-
-	// Start consuming messages
-	msgs, err := consumer.Messages(jetstream.PullMaxMessages(200))
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get message iterator: %v", err)
-	}
-
-	// NATS Consumer Worker: processes messages from NATS stream
-	g.Go(func() error {
-		for {
-			select {
-			case <-gCtx.Done():
-				s.logger.Info("Message processing stopped")
-				return gCtx.Err()
-			default:
-				msg, err := msgs.Next()
-				if err != nil {
-					if gCtx.Err() != nil {
-						s.logger.Info("Context cancelled, stopping message processing")
-						return gCtx.Err()
-					}
-					s.logger.Errorf("Error getting next message: %v", err)
-					// Small backoff to avoid tight loop on repeated errors
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-
-				var event Event
-				if err := json.Unmarshal(msg.Data(), &event); err != nil {
-					s.logger.Errorf("Failed to unmarshal event: %v", err)
-					msg.Ack()
-					continue
-				}
-
-				// Only process events from the target stream and newer than our last processed position
-				isTargetStream := event.StreamId == stream
-				isNewer := false
-				if lastProcessedPosition != nil {
-					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
-				} else {
-					isNewer = true // If no position, all events are considered new
-				}
-
-				if isTargetStream && isNewer && s.eventMatchesQueryCriteria(&event, query, &stream) {
-					// Check context before attempting to send
-					select {
-					case <-gCtx.Done():
-						// Context is cancelled, don't try to send
-						s.logger.Info("Context cancelled, not sending event")
-						msg.Ack() // Acknowledge the message since we're shutting down
-						return gCtx.Err()
-					default:
-						// Context is still active, proceed with send
-						if err := handler.Send(&event); err != nil {
-							s.logger.Errorf("Failed to send event: %v", err)
-							msg.Nak() // Negative acknowledgment to retry later
-							continue
-						}
-					}
-
-					lastProcessedPosition = event.Position
-
-					if err := msg.Ack(); err != nil {
-						s.logger.Errorf("Failed to acknowledge message: %v", err)
-					}
-				} else {
-					msg.Ack() // Acknowledge messages that don't match criteria or are duplicates
-				}
-			}
-		}
-	})
-
 	return g.Wait()
 }
 
@@ -761,6 +557,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 			req.Boundary,
 			req.SubscriberName,
 			req.AfterPosition,
+			nil,
 			req.Query,
 			messageHandler,
 		)
@@ -812,13 +609,13 @@ func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamReque
 
 	// Subscription worker: runs the catch-up subscription and feeds the handler
 	g.Go(func() error {
-		return s.SubscribeToStream(
+		return s.SubscribeToAllEvents(
 			gctx,
 			req.Boundary,
 			req.SubscriberName,
-			req.Query,
-			req.Stream,
 			req.AfterPosition,
+			&req.Stream,
+			req.Query,
 			messageHandler,
 		)
 	})
@@ -1099,7 +896,7 @@ func PollEventsFromDatabaseToNats(
 			lastPosition = resp.Events[len(resp.Events)-1].Position
 		}
 		logger.Debugf(":%v Sleeping.....", boundary)
-		time.Sleep(500 * time.Millisecond) // Polling interval
+		time.Sleep(100 * time.Millisecond) // Polling interval
 	}
 }
 

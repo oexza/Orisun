@@ -766,7 +766,7 @@ func (x *GetEventsResponse) GetEvents() []*Event {
 
 type CatchUpSubscribeToEventStoreRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	AfterPosition  *Position              `protobuf:"bytes,1,opt,name=afterPosition,proto3" json:"afterPosition,omitempty"`
+	AfterPosition  *Position              `protobuf:"bytes,1,opt,name=after_position,json=afterPosition,proto3" json:"after_position,omitempty"`
 	Query          *Query                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
 	SubscriberName string                 `protobuf:"bytes,3,opt,name=subscriber_name,json=subscriberName,proto3" json:"subscriber_name,omitempty"`
 	Boundary       string                 `protobuf:"bytes,4,opt,name=boundary,proto3" json:"boundary,omitempty"`
@@ -1031,9 +1031,9 @@ const file_orisun_eventstore_proto_rawDesc = "" +
 	"\bboundary\x18\x05 \x01(\tR\bboundary\x12.\n" +
 	"\x06stream\x18\x06 \x01(\v2\x16.orisun.GetStreamQueryR\x06stream\":\n" +
 	"\x11GetEventsResponse\x12%\n" +
-	"\x06events\x18\x01 \x03(\v2\r.orisun.EventR\x06events\"\xc7\x01\n" +
-	"#CatchUpSubscribeToEventStoreRequest\x126\n" +
-	"\rafterPosition\x18\x01 \x01(\v2\x10.orisun.PositionR\rafterPosition\x12#\n" +
+	"\x06events\x18\x01 \x03(\v2\r.orisun.EventR\x06events\"\xc8\x01\n" +
+	"#CatchUpSubscribeToEventStoreRequest\x127\n" +
+	"\x0eafter_position\x18\x01 \x01(\v2\x10.orisun.PositionR\rafterPosition\x12#\n" +
 	"\x05query\x18\x02 \x01(\v2\r.orisun.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
 	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xdc\x01\n" +
@@ -1108,7 +1108,7 @@ var file_orisun_eventstore_proto_depIdxs = []int32{
 	0,  // 12: orisun.GetEventsRequest.direction:type_name -> orisun.Direction
 	10, // 13: orisun.GetEventsRequest.stream:type_name -> orisun.GetStreamQuery
 	6,  // 14: orisun.GetEventsResponse.events:type_name -> orisun.Event
-	1,  // 15: orisun.CatchUpSubscribeToEventStoreRequest.afterPosition:type_name -> orisun.Position
+	1,  // 15: orisun.CatchUpSubscribeToEventStoreRequest.after_position:type_name -> orisun.Position
 	4,  // 16: orisun.CatchUpSubscribeToEventStoreRequest.query:type_name -> orisun.Query
 	4,  // 17: orisun.CatchUpSubscribeToStreamRequest.query:type_name -> orisun.Query
 	1,  // 18: orisun.CatchUpSubscribeToStreamRequest.after_position:type_name -> orisun.Position

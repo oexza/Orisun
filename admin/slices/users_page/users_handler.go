@@ -32,13 +32,11 @@ func NewUsersPageHandler(logger l.Logger, boundary string,
 }
 
 func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Request) {
-	users, err := s.listUsers()
-	if err != nil {
-		s.logger.Debugf("Failed to list users: %v", err)
-		http.Error(w, "Failed to list users", http.StatusInternalServerError)
-		return
-	}
+	currentUser := admin_common.GetCurrentUser(r)
+	templates.UsersPage([]templates.User{}, r.URL.Path, currentUser.Id).Render(r.Context(), w)
+}
 
+func (s *UsersPageHandler) HandleUsersPageSSE(w http.ResponseWriter, r *http.Request) {
 	currentUser := admin_common.GetCurrentUser(r)
 
 	if isDatastarRequest(r) {
@@ -63,6 +61,7 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 						continue
 					}
 					if event.EventType == admin_events.EventTypeUserCreated || event.EventType == admin_events.EventTypeUserDeleted {
+						s.logger.Info("Received user event, updating users dashboard")
 						time.Sleep(1 * time.Second)
 						users, err := s.listUsers()
 						if err != nil {
@@ -78,8 +77,6 @@ func (s *UsersPageHandler) HandleUsersPage(w http.ResponseWriter, r *http.Reques
 		_ = grp.Wait()
 		// Wait for connection to close
 		<-sse.Context().Done()
-	} else {
-		templates.UsersPage(users, r.URL.Path, currentUser.Id).Render(r.Context(), w)
 	}
 }
 

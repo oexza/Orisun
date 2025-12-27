@@ -80,6 +80,7 @@ func NewAdminServer(
 			})
 			protected.Get("/dashboard", server.dashboardHandler.HandleDashboardPage)
 			protected.Get("/users", server.usersHandler.HandleUsersPage)
+			protected.Get("/users/sse", server.usersHandler.HandleUsersPageSSE)
 			protected.Post("/users", server.createUserHandler.HandleCreateUser)
 			protected.Get("/users/add", server.createUserHandler.HandleCreateUserPage)
 			protected.Delete("/users/{userId}/delete", server.deleteUserHandler.HandleUserDelete)

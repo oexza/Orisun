@@ -111,25 +111,16 @@ func (c *OrisunServer) SubscribeToEvents(
 ) error {
 
 	// Subscribe to events
-	if streamName == nil {
-		return c.eventStore.SubscribeToAllEvents(
-			ctx,
-			boundary,
-			subscriberName,
-			afterPosition,
-			query,
-			handler,
-		)
-	}
-	return c.eventStore.SubscribeToStream(
+	return c.eventStore.SubscribeToAllEvents(
 		ctx,
 		boundary,
 		subscriberName,
-		query,
-		*streamName,
 		afterPosition,
+		streamName,
+		query,
 		handler,
 	)
+
 }
 
 // Helper function to parse int64 from string

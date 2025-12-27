@@ -11,7 +11,7 @@ const UserPageId = "users-page"
 
 templ UsersPage(users []User, currentPath string, currentUser string) {
 	@Admin(currentPath, "Users") {
-		<div data-on-load="@get('/users')"></div>
+		<div data-on-load="@get('/users/sse')"></div>
 		@PageContainer(users, currentPath, currentUser)
 	}
 }
