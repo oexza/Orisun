@@ -82,6 +82,8 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 	// go func() {
 	// userByIdCache[userr.Id] = &userr
 	// userByUsernameCache[userr.Username] = &userr
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
 	userTokenCache[generatredToken] = &userr
 	// }()
 
