@@ -42,6 +42,7 @@ clients/dist/
 clients/php/grpc/
 
 cmd/data
-clients/node/.idea/*.xml
+*/.idea/*.xml
 clients/java/.idea/
 clients/php/.idea/
+/clients/node/.idea/
