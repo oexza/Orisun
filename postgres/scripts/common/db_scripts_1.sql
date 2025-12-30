@@ -5,7 +5,6 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
 (
     transaction_id BIGINT                                         NOT NULL,
     global_id      BIGINT PRIMARY KEY,
-    stream_name    TEXT                                           NOT NULL,
     event_id       UUID                                           NOT NULL,
     event_type     TEXT                                           NOT NULL CHECK (event_type <> ''),
     data           JSONB                                          NOT NULL,
@@ -71,14 +70,14 @@ CREATE OR REPLACE FUNCTION insert_events_with_consistency_v3(
 AS
 $$
 DECLARE
-    criteria       JSONB;
+    criteria              JSONB;
     expected_tx_id        BIGINT;
     expected_gid          BIGINT;
     current_tx_id         BIGINT;
     latest_tx_id          BIGINT;
     latest_gid            BIGINT;
     key_record            TEXT;
-    criteria_tags  TEXT[];
+    criteria_tags         TEXT[];
     new_global_id         BIGINT;
     latest_transaction_id BIGINT;
     latest_global_id      BIGINT;
@@ -95,8 +94,8 @@ BEGIN
     EXECUTE format('SET search_path TO %I', schema);
 
     -- If criteria is present then we acquire granular locks for each key value pair.
-    -- This is to ensure that we don't block other insert operations
-    -- having non-overlapping criteria.
+-- This is to ensure that we don't block other insert operations
+-- having non-overlapping criteria.
     IF criteria IS NOT NULL THEN
         -- Extract all unique criteria key-value pairs
         SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
@@ -104,12 +103,12 @@ BEGIN
         FROM jsonb_array_elements(criteria) AS criterion,
              jsonb_each_text(criterion) AS key_value;
 
-        -- Lock key-value pairs in alphabetical order (deadlock prevention)
+-- Lock key-value pairs in alphabetical order (deadlock prevention)
         IF criteria_tags IS NOT NULL THEN
             criteria_tags := ARRAY(
                     SELECT DISTINCT unnest(criteria_tags)
                     ORDER BY 1 -- Alphabetical sort to ensure consistent lock order and deadlock prevention.
-                                    );
+                             );
 
             FOREACH key_record IN ARRAY criteria_tags
                 LOOP
