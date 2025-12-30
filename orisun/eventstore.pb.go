@@ -336,7 +336,6 @@ type Event struct {
 	Metadata      string                 `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Position      *Position              `protobuf:"bytes,6,opt,name=position,proto3" json:"position,omitempty"`
 	DateCreated   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=date_created,json=dateCreated,proto3" json:"date_created,omitempty"`
-	StreamId      string                 `protobuf:"bytes,8,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -413,13 +412,6 @@ func (x *Event) GetDateCreated() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Event) GetStreamId() string {
-	if x != nil {
-		return x.StreamId
-	}
-	return ""
-}
-
 type WriteResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LogPosition   *Position              `protobuf:"bytes,1,opt,name=log_position,json=logPosition,proto3" json:"log_position,omitempty"`
@@ -464,29 +456,28 @@ func (x *WriteResult) GetLogPosition() *Position {
 	return nil
 }
 
-type SaveStreamQuery struct {
+type SaveQuery struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	ExpectedPosition *Position              `protobuf:"bytes,2,opt,name=expected_position,json=expectedPosition,proto3" json:"expected_position,omitempty"`
-	SubsetQuery      *Query                 `protobuf:"bytes,3,opt,name=subsetQuery,proto3" json:"subsetQuery,omitempty"`
+	ExpectedPosition *Position              `protobuf:"bytes,1,opt,name=expected_position,json=expectedPosition,proto3" json:"expected_position,omitempty"`
+	SubsetQuery      *Query                 `protobuf:"bytes,2,opt,name=subsetQuery,proto3" json:"subsetQuery,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *SaveStreamQuery) Reset() {
-	*x = SaveStreamQuery{}
+func (x *SaveQuery) Reset() {
+	*x = SaveQuery{}
 	mi := &file_orisun_eventstore_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SaveStreamQuery) String() string {
+func (x *SaveQuery) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SaveStreamQuery) ProtoMessage() {}
+func (*SaveQuery) ProtoMessage() {}
 
-func (x *SaveStreamQuery) ProtoReflect() protoreflect.Message {
+func (x *SaveQuery) ProtoReflect() protoreflect.Message {
 	mi := &file_orisun_eventstore_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -498,26 +489,19 @@ func (x *SaveStreamQuery) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SaveStreamQuery.ProtoReflect.Descriptor instead.
-func (*SaveStreamQuery) Descriptor() ([]byte, []int) {
+// Deprecated: Use SaveQuery.ProtoReflect.Descriptor instead.
+func (*SaveQuery) Descriptor() ([]byte, []int) {
 	return file_orisun_eventstore_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *SaveStreamQuery) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *SaveStreamQuery) GetExpectedPosition() *Position {
+func (x *SaveQuery) GetExpectedPosition() *Position {
 	if x != nil {
 		return x.ExpectedPosition
 	}
 	return nil
 }
 
-func (x *SaveStreamQuery) GetSubsetQuery() *Query {
+func (x *SaveQuery) GetSubsetQuery() *Query {
 	if x != nil {
 		return x.SubsetQuery
 	}
@@ -527,7 +511,7 @@ func (x *SaveStreamQuery) GetSubsetQuery() *Query {
 type SaveEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Boundary      string                 `protobuf:"bytes,2,opt,name=boundary,proto3" json:"boundary,omitempty"`
-	Stream        *SaveStreamQuery       `protobuf:"bytes,3,opt,name=stream,proto3" json:"stream,omitempty"`
+	Query         *SaveQuery             `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
 	Events        []*EventToSave         `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -570,9 +554,9 @@ func (x *SaveEventsRequest) GetBoundary() string {
 	return ""
 }
 
-func (x *SaveEventsRequest) GetStream() *SaveStreamQuery {
+func (x *SaveEventsRequest) GetQuery() *SaveQuery {
 	if x != nil {
-		return x.Stream
+		return x.Query
 	}
 	return nil
 }
@@ -584,58 +568,6 @@ func (x *SaveEventsRequest) GetEvents() []*EventToSave {
 	return nil
 }
 
-type GetStreamQuery struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FromPosition  *Position              `protobuf:"bytes,2,opt,name=from_position,json=fromPosition,proto3" json:"from_position,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetStreamQuery) Reset() {
-	*x = GetStreamQuery{}
-	mi := &file_orisun_eventstore_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetStreamQuery) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetStreamQuery) ProtoMessage() {}
-
-func (x *GetStreamQuery) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetStreamQuery.ProtoReflect.Descriptor instead.
-func (*GetStreamQuery) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *GetStreamQuery) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *GetStreamQuery) GetFromPosition() *Position {
-	if x != nil {
-		return x.FromPosition
-	}
-	return nil
-}
-
 type GetEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         *Query                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
@@ -643,14 +575,13 @@ type GetEventsRequest struct {
 	Count         uint32                 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
 	Direction     Direction              `protobuf:"varint,4,opt,name=direction,proto3,enum=orisun.Direction" json:"direction,omitempty"`
 	Boundary      string                 `protobuf:"bytes,5,opt,name=boundary,proto3" json:"boundary,omitempty"`
-	Stream        *GetStreamQuery        `protobuf:"bytes,6,opt,name=stream,proto3" json:"stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetEventsRequest) Reset() {
 	*x = GetEventsRequest{}
-	mi := &file_orisun_eventstore_proto_msgTypes[10]
+	mi := &file_orisun_eventstore_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -662,7 +593,7 @@ func (x *GetEventsRequest) String() string {
 func (*GetEventsRequest) ProtoMessage() {}
 
 func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[10]
+	mi := &file_orisun_eventstore_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -675,7 +606,7 @@ func (x *GetEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetEventsRequest) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{10}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetEventsRequest) GetQuery() *Query {
@@ -713,13 +644,6 @@ func (x *GetEventsRequest) GetBoundary() string {
 	return ""
 }
 
-func (x *GetEventsRequest) GetStream() *GetStreamQuery {
-	if x != nil {
-		return x.Stream
-	}
-	return nil
-}
-
 type GetEventsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
@@ -729,7 +653,7 @@ type GetEventsResponse struct {
 
 func (x *GetEventsResponse) Reset() {
 	*x = GetEventsResponse{}
-	mi := &file_orisun_eventstore_proto_msgTypes[11]
+	mi := &file_orisun_eventstore_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -741,7 +665,7 @@ func (x *GetEventsResponse) String() string {
 func (*GetEventsResponse) ProtoMessage() {}
 
 func (x *GetEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[11]
+	mi := &file_orisun_eventstore_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -754,7 +678,7 @@ func (x *GetEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetEventsResponse) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{11}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetEventsResponse) GetEvents() []*Event {
@@ -776,7 +700,7 @@ type CatchUpSubscribeToEventStoreRequest struct {
 
 func (x *CatchUpSubscribeToEventStoreRequest) Reset() {
 	*x = CatchUpSubscribeToEventStoreRequest{}
-	mi := &file_orisun_eventstore_proto_msgTypes[12]
+	mi := &file_orisun_eventstore_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -788,7 +712,7 @@ func (x *CatchUpSubscribeToEventStoreRequest) String() string {
 func (*CatchUpSubscribeToEventStoreRequest) ProtoMessage() {}
 
 func (x *CatchUpSubscribeToEventStoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[12]
+	mi := &file_orisun_eventstore_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -801,7 +725,7 @@ func (x *CatchUpSubscribeToEventStoreRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use CatchUpSubscribeToEventStoreRequest.ProtoReflect.Descriptor instead.
 func (*CatchUpSubscribeToEventStoreRequest) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{12}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CatchUpSubscribeToEventStoreRequest) GetAfterPosition() *Position {
@@ -832,82 +756,6 @@ func (x *CatchUpSubscribeToEventStoreRequest) GetBoundary() string {
 	return ""
 }
 
-type CatchUpSubscribeToStreamRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Query          *Query                 `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
-	SubscriberName string                 `protobuf:"bytes,3,opt,name=subscriber_name,json=subscriberName,proto3" json:"subscriber_name,omitempty"`
-	Boundary       string                 `protobuf:"bytes,4,opt,name=boundary,proto3" json:"boundary,omitempty"`
-	Stream         string                 `protobuf:"bytes,5,opt,name=stream,proto3" json:"stream,omitempty"`
-	AfterPosition  *Position              `protobuf:"bytes,6,opt,name=after_position,json=afterPosition,proto3" json:"after_position,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *CatchUpSubscribeToStreamRequest) Reset() {
-	*x = CatchUpSubscribeToStreamRequest{}
-	mi := &file_orisun_eventstore_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CatchUpSubscribeToStreamRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CatchUpSubscribeToStreamRequest) ProtoMessage() {}
-
-func (x *CatchUpSubscribeToStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CatchUpSubscribeToStreamRequest.ProtoReflect.Descriptor instead.
-func (*CatchUpSubscribeToStreamRequest) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *CatchUpSubscribeToStreamRequest) GetQuery() *Query {
-	if x != nil {
-		return x.Query
-	}
-	return nil
-}
-
-func (x *CatchUpSubscribeToStreamRequest) GetSubscriberName() string {
-	if x != nil {
-		return x.SubscriberName
-	}
-	return ""
-}
-
-func (x *CatchUpSubscribeToStreamRequest) GetBoundary() string {
-	if x != nil {
-		return x.Boundary
-	}
-	return ""
-}
-
-func (x *CatchUpSubscribeToStreamRequest) GetStream() string {
-	if x != nil {
-		return x.Stream
-	}
-	return ""
-}
-
-func (x *CatchUpSubscribeToStreamRequest) GetAfterPosition() *Position {
-	if x != nil {
-		return x.AfterPosition
-	}
-	return nil
-}
-
 type PingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -916,7 +764,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_orisun_eventstore_proto_msgTypes[14]
+	mi := &file_orisun_eventstore_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -928,7 +776,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[14]
+	mi := &file_orisun_eventstore_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -941,7 +789,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{14}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{12}
 }
 
 type PingResponse struct {
@@ -952,7 +800,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_orisun_eventstore_proto_msgTypes[15]
+	mi := &file_orisun_eventstore_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -964,7 +812,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orisun_eventstore_proto_msgTypes[15]
+	mi := &file_orisun_eventstore_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -977,7 +825,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_orisun_eventstore_proto_rawDescGZIP(), []int{15}
+	return file_orisun_eventstore_proto_rawDescGZIP(), []int{13}
 }
 
 var File_orisun_eventstore_proto protoreflect.FileDescriptor
@@ -1000,7 +848,7 @@ const file_orisun_eventstore_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xfb\x01\n" +
+	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xde\x01\n" +
 	"\x05Event\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
 	"\n" +
@@ -1008,53 +856,40 @@ const file_orisun_eventstore_proto_rawDesc = "" +
 	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
 	"\bmetadata\x18\x04 \x01(\tR\bmetadata\x12,\n" +
 	"\bposition\x18\x06 \x01(\v2\x10.orisun.PositionR\bposition\x12=\n" +
-	"\fdate_created\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vdateCreated\x12\x1b\n" +
-	"\tstream_id\x18\b \x01(\tR\bstreamId\"B\n" +
+	"\fdate_created\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vdateCreated\"B\n" +
 	"\vWriteResult\x123\n" +
-	"\flog_position\x18\x01 \x01(\v2\x10.orisun.PositionR\vlogPosition\"\x95\x01\n" +
-	"\x0fSaveStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12=\n" +
-	"\x11expected_position\x18\x02 \x01(\v2\x10.orisun.PositionR\x10expectedPosition\x12/\n" +
-	"\vsubsetQuery\x18\x03 \x01(\v2\r.orisun.QueryR\vsubsetQuery\"\x8d\x01\n" +
+	"\flog_position\x18\x01 \x01(\v2\x10.orisun.PositionR\vlogPosition\"{\n" +
+	"\tSaveQuery\x12=\n" +
+	"\x11expected_position\x18\x01 \x01(\v2\x10.orisun.PositionR\x10expectedPosition\x12/\n" +
+	"\vsubsetQuery\x18\x02 \x01(\v2\r.orisun.QueryR\vsubsetQuery\"\x85\x01\n" +
 	"\x11SaveEventsRequest\x12\x1a\n" +
-	"\bboundary\x18\x02 \x01(\tR\bboundary\x12/\n" +
-	"\x06stream\x18\x03 \x01(\v2\x17.orisun.SaveStreamQueryR\x06stream\x12+\n" +
-	"\x06events\x18\x04 \x03(\v2\x13.orisun.EventToSaveR\x06events\"[\n" +
-	"\x0eGetStreamQuery\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
-	"\rfrom_position\x18\x02 \x01(\v2\x10.orisun.PositionR\ffromPosition\"\x81\x02\n" +
+	"\bboundary\x18\x02 \x01(\tR\bboundary\x12'\n" +
+	"\x05query\x18\x03 \x01(\v2\x11.orisun.SaveQueryR\x05query\x12+\n" +
+	"\x06events\x18\x04 \x03(\v2\x13.orisun.EventToSaveR\x06events\"\xd1\x01\n" +
 	"\x10GetEventsRequest\x12#\n" +
 	"\x05query\x18\x01 \x01(\v2\r.orisun.QueryR\x05query\x125\n" +
 	"\rfrom_position\x18\x02 \x01(\v2\x10.orisun.PositionR\ffromPosition\x12\x14\n" +
 	"\x05count\x18\x03 \x01(\rR\x05count\x12/\n" +
 	"\tdirection\x18\x04 \x01(\x0e2\x11.orisun.DirectionR\tdirection\x12\x1a\n" +
-	"\bboundary\x18\x05 \x01(\tR\bboundary\x12.\n" +
-	"\x06stream\x18\x06 \x01(\v2\x16.orisun.GetStreamQueryR\x06stream\":\n" +
+	"\bboundary\x18\x05 \x01(\tR\bboundary\":\n" +
 	"\x11GetEventsResponse\x12%\n" +
 	"\x06events\x18\x01 \x03(\v2\r.orisun.EventR\x06events\"\xc8\x01\n" +
 	"#CatchUpSubscribeToEventStoreRequest\x127\n" +
 	"\x0eafter_position\x18\x01 \x01(\v2\x10.orisun.PositionR\rafterPosition\x12#\n" +
 	"\x05query\x18\x02 \x01(\v2\r.orisun.QueryR\x05query\x12'\n" +
 	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
-	"\bboundary\x18\x04 \x01(\tR\bboundary\"\xdc\x01\n" +
-	"\x1fCatchUpSubscribeToStreamRequest\x12#\n" +
-	"\x05query\x18\x02 \x01(\v2\r.orisun.QueryR\x05query\x12'\n" +
-	"\x0fsubscriber_name\x18\x03 \x01(\tR\x0esubscriberName\x12\x1a\n" +
-	"\bboundary\x18\x04 \x01(\tR\bboundary\x12\x16\n" +
-	"\x06stream\x18\x05 \x01(\tR\x06stream\x127\n" +
-	"\x0eafter_position\x18\x06 \x01(\v2\x10.orisun.PositionR\rafterPosition\"\r\n" +
+	"\bboundary\x18\x04 \x01(\tR\bboundary\"\r\n" +
 	"\vPingRequest\"\x0e\n" +
 	"\fPingResponse*\x1e\n" +
 	"\tDirection\x12\a\n" +
 	"\x03ASC\x10\x00\x12\b\n" +
-	"\x04DESC\x10\x012\xf9\x02\n" +
+	"\x04DESC\x10\x012\xa1\x02\n" +
 	"\n" +
 	"EventStore\x12>\n" +
 	"\n" +
 	"SaveEvents\x12\x19.orisun.SaveEventsRequest\x1a\x13.orisun.WriteResult\"\x00\x12B\n" +
 	"\tGetEvents\x12\x18.orisun.GetEventsRequest\x1a\x19.orisun.GetEventsResponse\"\x00\x12Z\n" +
-	"\x18CatchUpSubscribeToEvents\x12+.orisun.CatchUpSubscribeToEventStoreRequest\x1a\r.orisun.Event\"\x000\x01\x12V\n" +
-	"\x18CatchUpSubscribeToStream\x12'.orisun.CatchUpSubscribeToStreamRequest\x1a\r.orisun.Event\"\x000\x01\x123\n" +
+	"\x18CatchUpSubscribeToEvents\x12+.orisun.CatchUpSubscribeToEventStoreRequest\x1a\r.orisun.Event\"\x000\x01\x123\n" +
 	"\x04Ping\x12\x13.orisun.PingRequest\x1a\x14.orisun.PingResponse\"\x00B7\n" +
 	"\x15com.orisun.eventstoreZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
 
@@ -1071,62 +906,54 @@ func file_orisun_eventstore_proto_rawDescGZIP() []byte {
 }
 
 var file_orisun_eventstore_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orisun_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_orisun_eventstore_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_orisun_eventstore_proto_goTypes = []any{
-	(Direction)(0),                              // 0: orisun.Direction
-	(*Position)(nil),                            // 1: orisun.Position
-	(*Tag)(nil),                                 // 2: orisun.Tag
-	(*Criterion)(nil),                           // 3: orisun.Criterion
-	(*Query)(nil),                               // 4: orisun.Query
-	(*EventToSave)(nil),                         // 5: orisun.EventToSave
-	(*Event)(nil),                               // 6: orisun.Event
-	(*WriteResult)(nil),                         // 7: orisun.WriteResult
-	(*SaveStreamQuery)(nil),                     // 8: orisun.SaveStreamQuery
-	(*SaveEventsRequest)(nil),                   // 9: orisun.SaveEventsRequest
-	(*GetStreamQuery)(nil),                      // 10: orisun.GetStreamQuery
-	(*GetEventsRequest)(nil),                    // 11: orisun.GetEventsRequest
-	(*GetEventsResponse)(nil),                   // 12: orisun.GetEventsResponse
-	(*CatchUpSubscribeToEventStoreRequest)(nil), // 13: orisun.CatchUpSubscribeToEventStoreRequest
-	(*CatchUpSubscribeToStreamRequest)(nil),     // 14: orisun.CatchUpSubscribeToStreamRequest
-	(*PingRequest)(nil),                         // 15: orisun.PingRequest
-	(*PingResponse)(nil),                        // 16: orisun.PingResponse
-	(*timestamppb.Timestamp)(nil),               // 17: google.protobuf.Timestamp
+	(Direction)(0),            // 0: orisun.Direction
+	(*Position)(nil),          // 1: orisun.Position
+	(*Tag)(nil),               // 2: orisun.Tag
+	(*Criterion)(nil),         // 3: orisun.Criterion
+	(*Query)(nil),             // 4: orisun.Query
+	(*EventToSave)(nil),       // 5: orisun.EventToSave
+	(*Event)(nil),             // 6: orisun.Event
+	(*WriteResult)(nil),       // 7: orisun.WriteResult
+	(*SaveQuery)(nil),         // 8: orisun.SaveQuery
+	(*SaveEventsRequest)(nil), // 9: orisun.SaveEventsRequest
+	(*GetEventsRequest)(nil),  // 10: orisun.GetEventsRequest
+	(*GetEventsResponse)(nil), // 11: orisun.GetEventsResponse
+	(*CatchUpSubscribeToEventStoreRequest)(nil), // 12: orisun.CatchUpSubscribeToEventStoreRequest
+	(*PingRequest)(nil),                         // 13: orisun.PingRequest
+	(*PingResponse)(nil),                        // 14: orisun.PingResponse
+	(*timestamppb.Timestamp)(nil),               // 15: google.protobuf.Timestamp
 }
 var file_orisun_eventstore_proto_depIdxs = []int32{
 	2,  // 0: orisun.Criterion.tags:type_name -> orisun.Tag
 	3,  // 1: orisun.Query.criteria:type_name -> orisun.Criterion
 	1,  // 2: orisun.Event.position:type_name -> orisun.Position
-	17, // 3: orisun.Event.date_created:type_name -> google.protobuf.Timestamp
+	15, // 3: orisun.Event.date_created:type_name -> google.protobuf.Timestamp
 	1,  // 4: orisun.WriteResult.log_position:type_name -> orisun.Position
-	1,  // 5: orisun.SaveStreamQuery.expected_position:type_name -> orisun.Position
-	4,  // 6: orisun.SaveStreamQuery.subsetQuery:type_name -> orisun.Query
-	8,  // 7: orisun.SaveEventsRequest.stream:type_name -> orisun.SaveStreamQuery
+	1,  // 5: orisun.SaveQuery.expected_position:type_name -> orisun.Position
+	4,  // 6: orisun.SaveQuery.subsetQuery:type_name -> orisun.Query
+	8,  // 7: orisun.SaveEventsRequest.query:type_name -> orisun.SaveQuery
 	5,  // 8: orisun.SaveEventsRequest.events:type_name -> orisun.EventToSave
-	1,  // 9: orisun.GetStreamQuery.from_position:type_name -> orisun.Position
-	4,  // 10: orisun.GetEventsRequest.query:type_name -> orisun.Query
-	1,  // 11: orisun.GetEventsRequest.from_position:type_name -> orisun.Position
-	0,  // 12: orisun.GetEventsRequest.direction:type_name -> orisun.Direction
-	10, // 13: orisun.GetEventsRequest.stream:type_name -> orisun.GetStreamQuery
-	6,  // 14: orisun.GetEventsResponse.events:type_name -> orisun.Event
-	1,  // 15: orisun.CatchUpSubscribeToEventStoreRequest.after_position:type_name -> orisun.Position
-	4,  // 16: orisun.CatchUpSubscribeToEventStoreRequest.query:type_name -> orisun.Query
-	4,  // 17: orisun.CatchUpSubscribeToStreamRequest.query:type_name -> orisun.Query
-	1,  // 18: orisun.CatchUpSubscribeToStreamRequest.after_position:type_name -> orisun.Position
-	9,  // 19: orisun.EventStore.SaveEvents:input_type -> orisun.SaveEventsRequest
-	11, // 20: orisun.EventStore.GetEvents:input_type -> orisun.GetEventsRequest
-	13, // 21: orisun.EventStore.CatchUpSubscribeToEvents:input_type -> orisun.CatchUpSubscribeToEventStoreRequest
-	14, // 22: orisun.EventStore.CatchUpSubscribeToStream:input_type -> orisun.CatchUpSubscribeToStreamRequest
-	15, // 23: orisun.EventStore.Ping:input_type -> orisun.PingRequest
-	7,  // 24: orisun.EventStore.SaveEvents:output_type -> orisun.WriteResult
-	12, // 25: orisun.EventStore.GetEvents:output_type -> orisun.GetEventsResponse
-	6,  // 26: orisun.EventStore.CatchUpSubscribeToEvents:output_type -> orisun.Event
-	6,  // 27: orisun.EventStore.CatchUpSubscribeToStream:output_type -> orisun.Event
-	16, // 28: orisun.EventStore.Ping:output_type -> orisun.PingResponse
-	24, // [24:29] is the sub-list for method output_type
-	19, // [19:24] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	4,  // 9: orisun.GetEventsRequest.query:type_name -> orisun.Query
+	1,  // 10: orisun.GetEventsRequest.from_position:type_name -> orisun.Position
+	0,  // 11: orisun.GetEventsRequest.direction:type_name -> orisun.Direction
+	6,  // 12: orisun.GetEventsResponse.events:type_name -> orisun.Event
+	1,  // 13: orisun.CatchUpSubscribeToEventStoreRequest.after_position:type_name -> orisun.Position
+	4,  // 14: orisun.CatchUpSubscribeToEventStoreRequest.query:type_name -> orisun.Query
+	9,  // 15: orisun.EventStore.SaveEvents:input_type -> orisun.SaveEventsRequest
+	10, // 16: orisun.EventStore.GetEvents:input_type -> orisun.GetEventsRequest
+	12, // 17: orisun.EventStore.CatchUpSubscribeToEvents:input_type -> orisun.CatchUpSubscribeToEventStoreRequest
+	13, // 18: orisun.EventStore.Ping:input_type -> orisun.PingRequest
+	7,  // 19: orisun.EventStore.SaveEvents:output_type -> orisun.WriteResult
+	11, // 20: orisun.EventStore.GetEvents:output_type -> orisun.GetEventsResponse
+	6,  // 21: orisun.EventStore.CatchUpSubscribeToEvents:output_type -> orisun.Event
+	14, // 22: orisun.EventStore.Ping:output_type -> orisun.PingResponse
+	19, // [19:23] is the sub-list for method output_type
+	15, // [15:19] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_orisun_eventstore_proto_init() }
@@ -1140,7 +967,7 @@ func file_orisun_eventstore_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orisun_eventstore_proto_rawDesc), len(file_orisun_eventstore_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

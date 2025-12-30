@@ -29,11 +29,11 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM insert_events_with_consistency_v2($1::text, $2::jsonb, $3::jsonb)
+SELECT * FROM insert_events_with_consistency_v3($1::text, $2::jsonb, $3::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM get_matching_events_v2($1::text, $2, $3::jsonb, $4::jsonb, $5, $6::INT)
+SELECT * FROM get_matching_events_v3($1::text, $2::jsonb, $3::jsonb, $4, $5::INT)
 `
 
 const setSearchPath = `
@@ -85,7 +85,6 @@ func (s *PostgresSaveEvents) Save(
 	ctx context.Context,
 	events []eventstore.EventWithMapTags,
 	boundary string,
-	streamName string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
 	s.logger.Debug("Postgres: Saving events from request: %v", events)
@@ -99,7 +98,7 @@ func (s *PostgresSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
 
-	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(streamName, expectedPosition, streamConsistencyCondition))
+	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
@@ -217,12 +216,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		}
 	}
 
-	var streamName *string = nil
-
-	if req.Stream != nil {
-		streamName = &req.Stream.Name
-	}
-
 	// s.logger.Debugf("params: %v", paramsJSON)
 	// s.logger.Debugf("direction: %v", req.Direction)
 	// s.logger.Debugf("count: %v", req.Count)
@@ -243,7 +236,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	rows, err := tx.Query(
 		selectMatchingEvents,
 		schema,
-		streamName,
 		paramsJSON,
 		fromPositionMarshaled,
 		req.Direction.String(),
@@ -280,7 +272,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		"transaction_id": &transactionID,
 		"global_id":      &globalID,
 		"date_created":   &dateCreated,
-		"stream_name":    &event.StreamId,
 	}
 
 	for i, col := range columns {
@@ -315,7 +306,6 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 			EventType:   event.EventType,
 			Data:        event.Data,
 			Metadata:    event.Metadata,
-			StreamId:    event.StreamId,
 			Position:    event.Position,
 			DateCreated: event.DateCreated,
 		}
@@ -330,9 +320,8 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	return &eventstore.GetEventsResponse{Events: events}, nil
 }
 
-func getStreamSectionAsMap(streamName string, expectedPosition *eventstore.Position, consistencyCondition *eventstore.Query) map[string]any {
+func getStreamSectionAsMap(expectedPosition *eventstore.Position, consistencyCondition *eventstore.Query) map[string]any {
 	lastRetrievedPositions := make(map[string]any)
-	lastRetrievedPositions["stream_name"] = streamName
 
 	if expectedPosition != nil {
 		lastRetrievedPositions["expected_position"] = map[string]int64{

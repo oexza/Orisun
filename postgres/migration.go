@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -75,50 +76,51 @@ func runMigrationsInFolder(db *sql.DB, scripts embed.FS, schema string, ctx cont
 
 // Helper function to recursively process SQL files
 func processEmbeddedSQLFiles(fs embed.FS, builder *strings.Builder, dir string) error {
-    // Determine the base directory based on which embedded filesystem we're using
-    var baseDir string
-    if fs == sqlScripts {
-        baseDir = "scripts/common"
-    } else if fs == adminSqlScripts {
-        baseDir = "scripts/admin"
-    } else {
-        return fmt.Errorf("unknown script type")
-    }
-    
-    // If dir is empty, use the base directory
-    if dir == "" {
-        dir = baseDir
-    }
-    
-    entries, err := fs.ReadDir(dir)
-    if err != nil {
-        return fmt.Errorf("failed to read directory %s: %w", dir, err)
-    }
+	// Determine the base directory based on which embedded filesystem we're using
+	var baseDir string
+	if fs == sqlScripts {
+		baseDir = "scripts/common"
+	} else if fs == adminSqlScripts {
+		baseDir = "scripts/admin"
+	} else {
+		return fmt.Errorf("unknown script type")
+	}
 
-    for _, entry := range entries {
-        path := dir
-        if path != "" {
-            path += "/"
-        }
-        path += entry.Name()
+	// If dir is empty, use the base directory
+	if dir == "" {
+		dir = baseDir
+	}
 
-        if entry.IsDir() {
-            // Recursively process subdirectories
-            if err := processEmbeddedSQLFiles(fs, builder, path); err != nil {
-                return err
-            }
-        } else if strings.HasSuffix(entry.Name(), ".sql") {
-            // Process SQL file
-            content, err := fs.ReadFile(path)
-            if err != nil {
-                return fmt.Errorf("failed to read file %s: %w", path, err)
-            }
-            
-            builder.WriteString(fmt.Sprintf("\n-- Executing %s\n", path))
-            builder.WriteString(string(content))
-            builder.WriteString("\n")
-        }
-    }
+	entries, err := fs.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to read directory %s: %w", dir, err)
+	}
 
-    return nil
+	// Sort entries alphabetically by name to ensure deterministic execution order
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	for _, entry := range entries {
+		path := dir + "/" + entry.Name()
+
+		if entry.IsDir() {
+			// Recursively process subdirectories
+			if err := processEmbeddedSQLFiles(fs, builder, path); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(entry.Name(), ".sql") {
+			// Process SQL file
+			content, err := fs.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", path, err)
+			}
+
+			builder.WriteString(fmt.Sprintf("\n-- Executing %s\n", path))
+			builder.WriteString(string(content))
+			builder.WriteString("\n")
+		}
+	}
+
+	return nil
 }

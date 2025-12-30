@@ -286,7 +286,7 @@ func testBasicClusterFunctionality(t *testing.T, suite *ClusterTestSuite) {
 
 		req := &pb.SaveEventsRequest{
 			Boundary: fmt.Sprintf("orisun_test_%d", i+1),
-			Stream:   &pb.SaveStreamQuery{Name: fmt.Sprintf("cluster-test-stream-%d", i), ExpectedPosition: &expectedPosition},
+			Query:    &pb.SaveQuery{ExpectedPosition: &expectedPosition},
 			Events:   []*pb.EventToSave{event},
 		}
 
@@ -300,7 +300,6 @@ func testBasicClusterFunctionality(t *testing.T, suite *ClusterTestSuite) {
 	for i, node := range suite.nodes {
 		getReq := &pb.GetEventsRequest{
 			Boundary: fmt.Sprintf("orisun_test_%d", i+1),
-			Stream:   &pb.GetStreamQuery{Name: fmt.Sprintf("cluster-test-stream-%d", i)},
 			Count:    10,
 		}
 
@@ -317,8 +316,31 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	// Create authenticated context with admin credentials
 	ctx := createAuthenticatedContext("admin", "changeit")
 
+	// First, query the current position in orisun_test_1 to get the latest version
+	// This ensures we don't have optimistic concurrency conflicts with events from
+	// the previous test (BasicClusterFunctionality)
+	getCurrentReq := &pb.GetEventsRequest{
+		Boundary:  "orisun_test_1",
+		Count:     1,
+		Direction: pb.Direction_DESC,
+	}
+
+	currentResp, err := suite.nodes[0].client.GetEvents(ctx, getCurrentReq)
+	require.NoError(t, err, "Failed to query current position")
+
+	// Determine the expected position based on existing events
+	var expectedPosition pb.Position
+	if len(currentResp.Events) > 0 {
+		// Use the position of the most recent event
+		expectedPosition = *currentResp.Events[0].Position
+		t.Logf("Found existing events in orisun_test_1, current position: %v", expectedPosition)
+	} else {
+		// No events exist, use NotExistsPosition
+		expectedPosition = pb.NotExistsPosition()
+		t.Logf("No existing events in orisun_test_1, using NotExistsPosition")
+	}
+
 	// Save events to the first node
-	sharedStreamName := "shared-cluster-stream"
 	eventsToSave := []*pb.EventToSave{
 		{
 			EventId:   uuid.New().String(),
@@ -334,12 +356,10 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 		},
 	}
 
-	// Save all events in a single request to avoid version conflicts
-	// Use node 0's boundary since only node 0 can poll orisun_test_1
-	expectedPosition := pb.NotExistsPosition()
+	// Save all events in a single request with the correct expected position
 	req := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream:   &pb.SaveStreamQuery{Name: sharedStreamName, ExpectedPosition: &expectedPosition}, // Any version
+		Query:    &pb.SaveQuery{ExpectedPosition: &expectedPosition},
 		Events:   eventsToSave,
 	}
 
@@ -357,7 +377,6 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	for nodeIndex, node := range suite.nodes {
 		getReq := &pb.GetEventsRequest{
 			Boundary: "orisun_test_1", // All nodes read from node 0's boundary
-			Stream:   &pb.GetStreamQuery{Name: sharedStreamName},
 			Count:    10,
 		}
 

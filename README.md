@@ -18,6 +18,7 @@ Built for developers who need enterprise-grade event sourcing without the comple
 
 #### Core Event Sourcing
 - **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
+- **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
 - **Optimistic Concurrency**: Stream-based versioning with expected position checks
 - **Rich Event Querying**: Filter by stream, tags, event types, and global position
 - **Real-time Subscriptions**: Subscribe to event changes as they happen with catch-up subscriptions
@@ -261,16 +262,23 @@ The dashboard provides:
 All gRPC API calls require authentication using a basic auth header. You can provide this with grpcurl using the `-H` flag:
 
 ```bash
-grpcurl -H "Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=" -d @ localhost:50051 eventstore.EventStore/SaveEvents
+# Default credentials: admin:changeit
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents
 ```
 
 ### SaveEvents
 Save events to a specific schema/boundary. Here's an example of saving user registration events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
+  "query": {
+    "expected_position": {
+      "commit_position": -1,
+      "prepare_position": -1
+    }
+  },
   "events": [
     {
       "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178",
@@ -284,14 +292,7 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
       "data": "{\"phone\": \"+1234567890\", \"address\": \"123 Main St, City, Country\"}",
       "metadata": "{\"completed_at\": \"2024-01-20T15:30:00Z\"}"
     }
-  ],
-  "stream": {
-    "expected_position": {
-      "commit_position": -1,
-      "prepare_position": -1
-    },
-    "name": "user-1234"
-  }
+  ]
 }
 EOF
 ```
@@ -300,12 +301,9 @@ EOF
 Query events with various criteria. Here's an example of retrieving order events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/GetEvents <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 {
   "boundary": "orisun_test_2",
-  "stream": {
-    "name": "order-789"
-  },
   "query": {
     "criteria": [
       {
@@ -339,7 +337,7 @@ EOF
 Subscribe to events with complex filtering. Here's an example of monitoring payment events:
 
 ```bash
-grpcurl -d @ localhost:50051 eventstore.EventStore/CatchUpSubscribeToEvents <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
 {
   "subscriber_name": "payment-processor",
   "boundary": "orisun_test_2",
@@ -375,11 +373,10 @@ EOF
 ### Multiple Bounded Contexts
 ```bash
 # User domain events in orisun_test_1 schema
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
-  "stream": {
-    "name": "user-123",
+  "query": {
     "expected_position": {
       "commit_position": -1,
       "prepare_position": -1
@@ -397,11 +394,10 @@ grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
 EOF
 
 # Order domain events in orisun_test_2 schema
-grpcurl -d @ localhost:50051 eventstore.EventStore/SaveEvents <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_2",
-  "stream": {
-    "name": "order-456",
+  "query": {
     "expected_position": {
       "commit_position": -1,
       "prepare_position": -1

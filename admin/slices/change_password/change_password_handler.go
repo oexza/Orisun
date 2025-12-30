@@ -157,9 +157,6 @@ func changePassword(
 		Boundary:  boundary,
 		Count:     1,
 		Direction: orisun.Direction_DESC,
-		Stream: &orisun.GetStreamQuery{
-			Name: admin_events.AdminStream,
-		},
 	}
 
 	// Fetch UserCreated event
@@ -289,8 +286,7 @@ func changePassword(
 	}
 	_, err = saveEvents(ctx, &orisun.SaveEventsRequest{
 		Boundary: boundary,
-		Stream: &orisun.SaveStreamQuery{
-			Name:             admin_events.AdminStream,
+		Query: &orisun.SaveQuery{
 			ExpectedPosition: expectedPosition,
 			SubsetQuery:      &orisun.Query{Criteria: []*orisun.Criterion{{Tags: tags}}},
 		},

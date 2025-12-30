@@ -39,7 +39,6 @@ message Event {
   string metadata = 4;
   Position position = 6;
   google.protobuf.Timestamp date_created = 7;
-  string stream_id = 8;
 }
 
 message WriteResult {
@@ -51,21 +50,15 @@ enum Direction {
   DESC = 1;
 }
 
-message SaveStreamQuery{
-  string name = 1;
-  Position expected_position = 2;
-  Query subsetQuery = 3;
+message SaveQuery{
+  Position expected_position = 1;
+  Query subsetQuery = 2;
 }
 
 message SaveEventsRequest {
   string boundary = 2;
-  SaveStreamQuery stream = 3;
+  SaveQuery query = 3;
   repeated EventToSave events = 4;
-}
-
-message GetStreamQuery{
-  string name = 1;
-  Position from_position = 2;
 }
 
 message GetEventsRequest {
@@ -74,7 +67,6 @@ message GetEventsRequest {
   uint32 count = 3;
   Direction direction = 4;
   string boundary = 5;
-  GetStreamQuery stream = 6;
 }
 
 message GetEventsResponse {
@@ -88,14 +80,6 @@ message CatchUpSubscribeToEventStoreRequest {
   string boundary = 4;
 }
 
-message CatchUpSubscribeToStreamRequest {
-  Query query = 2;
-  string subscriber_name = 3;
-  string boundary = 4;
-  string stream = 5;
-  Position after_position = 6;
-}
-
 message PingRequest {}
 message PingResponse {}
 
@@ -103,6 +87,5 @@ service EventStore {
   rpc SaveEvents(SaveEventsRequest) returns (WriteResult) {}
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
   rpc CatchUpSubscribeToEvents(CatchUpSubscribeToEventStoreRequest) returns (stream Event) {}
-  rpc CatchUpSubscribeToStream(CatchUpSubscribeToStreamRequest) returns (stream Event) {}
   rpc Ping(PingRequest) returns (PingResponse) {}
 }

@@ -239,14 +239,12 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 
 	// Create authenticated context with admin credentials
 	ctx := createAuthenticatedContext("admin", "changeit")
-	streamName := "test-stream-" + uuid.New().String()
 
 	// Test SaveEvents
 	position := orisun.NotExistsPosition()
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
+		Query: &pb.SaveQuery{
 			ExpectedPosition: &position,
 		},
 		Events: []*pb.EventToSave{
@@ -272,10 +270,7 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 
 	// Test GetEvents
 	getReq := &pb.GetEventsRequest{
-		Boundary: "orisun_test_1",
-		Stream: &pb.GetStreamQuery{
-			Name: streamName,
-		},
+		Boundary:  "orisun_test_1",
 		Count:     10,
 		Direction: pb.Direction_ASC,
 	}
@@ -288,13 +283,11 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 	// Verify first event
 	firstEvent := getResp.Events[0]
 	assert.Equal(t, "TestEvent", firstEvent.EventType)
-	assert.Equal(t, streamName, firstEvent.StreamId)
 	assert.Contains(t, string(firstEvent.Data), "Hello World")
 
 	// Verify second event
 	secondEvent := getResp.Events[1]
 	assert.Equal(t, "TestEvent2", secondEvent.EventType)
-	assert.Equal(t, streamName, secondEvent.StreamId)
 	assert.Contains(t, string(secondEvent.Data), "Hello World 2")
 }
 
@@ -304,14 +297,12 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 
 	// Create authenticated context with admin credentials
 	ctx := createAuthenticatedContext("admin", "changeit")
-	streamName := "concurrency-test-" + uuid.New().String()
 
 	// Save first event
 	expectedPosition := orisun.NotExistsPosition()
 	firstSaveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
+		Query: &pb.SaveQuery{
 			ExpectedPosition: &expectedPosition,
 		},
 		Events: []*pb.EventToSave{
@@ -331,8 +322,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	// Try to save with wrong expected version (should fail)
 	wrongVersionReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
+		Query: &pb.SaveQuery{
 			ExpectedPosition: &expectedPosition, // Wrong version, should be 0
 		},
 		Events: []*pb.EventToSave{
@@ -351,8 +341,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	// Save with correct expected version (should succeed)
 	correctVersionReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
+		Query: &pb.SaveQuery{
 			ExpectedPosition: firstSaveResp.LogPosition, // Correct version
 		},
 		Events: []*pb.EventToSave{
@@ -376,7 +365,6 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 
 	// Create authenticated context with admin credentials
 	ctx := createAuthenticatedContext("admin", "changeit")
-	streamName := "multi-boundary-test-" + uuid.New().String()
 
 	// Save events in different boundaries
 	boundaries := []string{"orisun_test_1", "orisun_test_2"}
@@ -385,8 +373,7 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 	for i, boundary := range boundaries {
 		saveReq := &pb.SaveEventsRequest{
 			Boundary: boundary,
-			Stream: &pb.SaveStreamQuery{
-				Name:             streamName,
+			Query: &pb.SaveQuery{
 				ExpectedPosition: &expectedPosition,
 			},
 			Events: []*pb.EventToSave{
@@ -407,10 +394,7 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 	// Get events from each boundary
 	for _, boundary := range boundaries {
 		getReq := &pb.GetEventsRequest{
-			Boundary: boundary,
-			Stream: &pb.GetStreamQuery{
-				Name: streamName,
-			},
+			Boundary:  boundary,
 			Count:     10,
 			Direction: pb.Direction_ASC,
 		}
@@ -431,14 +415,11 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(createAuthenticatedContext("admin", "changeit"), 30*time.Second)
 	defer cancel()
 
-	streamName := "subscription-test-" + uuid.New().String()
-
 	// Save events first
 	expectedPosition := orisun.NotExistsPosition()
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
+		Query: &pb.SaveQuery{
 			ExpectedPosition: &expectedPosition,
 		},
 		Events: []*pb.EventToSave{
@@ -484,85 +465,4 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	assert.Equal(t, "SubscriptionTest", event.EventType)
 	assert.Contains(t, event.Data, "First subscription event")
 	t.Logf("Successfully received event: %s", event.EventId)
-}
-
-func TestE2E_CatchUpSubscribeToStream(t *testing.T) {
-	suite := setupE2ETest(t)
-	defer suite.teardown(t)
-
-	// Create authenticated context with admin credentials
-	ctx, cancel := context.WithTimeout(createAuthenticatedContext("admin", "changeit"), 30*time.Second)
-	defer cancel()
-
-	streamName := "stream-subscription-test--" + uuid.New().String()
-
-	// Save some initial events to a specific stream
-	expectedPosition := orisun.NotExistsPosition()
-	saveReq := &pb.SaveEventsRequest{
-		Boundary: "orisun_test_1",
-		Stream: &pb.SaveStreamQuery{
-			Name:             streamName,
-			ExpectedPosition: &expectedPosition,
-		},
-		Events: []*pb.EventToSave{
-			{
-				EventId:   uuid.New().String(),
-				EventType: "StreamSubscriptionTest",
-				Data:      `{"message": "First stream event"}`,
-				Metadata:  `{"source": "e2e-stream-subscription-test"}`,
-			},
-			{
-				EventId:   uuid.New().String(),
-				EventType: "StreamSubscriptionTest",
-				Data:      `{"message": "Second stream event"}`,
-				Metadata:  `{"source": "e2e-stream-subscription-test"}`,
-			},
-			{
-				EventId:   uuid.New().String(),
-				EventType: "StreamSubscriptionTest",
-				Data:      `{"message": "Third stream event"}`,
-				Metadata:  `{"source": "e2e-stream-subscription-test"}`,
-			},
-		},
-	}
-
-	_, err := suite.eventStoreClient.SaveEvents(ctx, saveReq)
-	require.NoError(t, err)
-
-	// Create stream subscription request (subscribe from version 1 onwards)
-	streamSubscribeReq := &pb.CatchUpSubscribeToStreamRequest{
-		Boundary:       "orisun_test_1",
-		SubscriberName: "test-stream-subscriber",
-		Stream:         streamName,
-		AfterPosition:  &expectedPosition, // Start from beginning
-		Query:          nil,               // Remove query to get all events from the stream
-	}
-
-	// Start stream subscription
-	streamSub, err := suite.eventStoreClient.CatchUpSubscribeToStream(ctx, streamSubscribeReq)
-	require.NoError(t, err)
-
-	// Try to receive at least one event
-	event, err := streamSub.Recv()
-	if err != nil {
-		t.Fatalf("Failed to receive event from stream subscription: %v", err)
-	}
-
-	// Verify the received event
-	assert.Equal(t, "StreamSubscriptionTest", event.EventType)
-	assert.Equal(t, streamName, event.StreamId)
-	assert.Contains(t, event.Data, "stream event")
-	t.Logf("Successfully received stream event: %s from stream: %s (version: %v)", event.EventId, event.StreamId, event.Position)
-
-	// Try to receive the second event
-	event2, err := streamSub.Recv()
-	if err != nil {
-		t.Fatalf("Failed to receive second event from stream subscription: %v", err)
-	}
-
-	// Verify the second event
-	assert.Equal(t, "StreamSubscriptionTest", event2.EventType)
-	assert.Equal(t, streamName, event2.StreamId)
-	assert.Contains(t, event2.Data, "stream event")
-	t.Logf("Successfully received second stream event: %s from stream: %s (version: %v)", event2.EventId, event2.StreamId, event2.Position)
 }

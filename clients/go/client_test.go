@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 )
 
 func TestClientBuilder_WithHost(t *testing.T) {
@@ -50,7 +50,7 @@ func TestClientBuilder_WithMultipleServers(t *testing.T) {
 		assert.Contains(t, err.Error(), "Failed to create gRPC channel")
 		return
 	}
-	
+
 	require.NotNil(t, client)
 	defer client.Close()
 
@@ -329,12 +329,12 @@ func TestExtractVersionNumbers(t *testing.T) {
 // Test subscription functionality
 func TestEventSubscription(t *testing.T) {
 	logger := NewNoOpLogger()
-	
+
 	// Track events received
 	var receivedEvents []*eventstore.Event
 	var completedCalled bool
 	var errorCalled bool
-	
+
 	handler := NewSimpleEventHandler().
 		WithOnEvent(func(event *eventstore.Event) error {
 			receivedEvents = append(receivedEvents, event)
@@ -362,14 +362,14 @@ func TestEventSubscription(t *testing.T) {
 			},
 		},
 		eventIndex: 0,
-		closed: false,
+		closed:     false,
 	}
 
 	subscription := NewEventSubscription(mockStream, handler, logger, func() {})
 
 	// Wait a moment for the goroutine to process events
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Test that events were received
 	assert.Equal(t, 2, len(receivedEvents))
 	assert.Equal(t, "test-1", receivedEvents[0].EventId)
@@ -395,7 +395,6 @@ func TestClient_SaveEvents(t *testing.T) {
 	// Test with valid request
 	request := &eventstore.SaveEventsRequest{
 		Boundary: "test-boundary",
-		Stream: &eventstore.SaveStreamQuery{Name: "test-stream"},
 		Events: []*eventstore.EventToSave{
 			{
 				EventId:   "550e8400-e29b-41d4-a716-446655440000000",
@@ -428,8 +427,7 @@ func TestClient_SaveEvents_Validation(t *testing.T) {
 	// Test with empty boundary
 	request := &eventstore.SaveEventsRequest{
 		Boundary: "",
-		Stream:   &eventstore.SaveStreamQuery{Name: "test-stream"},
-		Events:  []*eventstore.EventToSave{},
+		Events:   []*eventstore.EventToSave{},
 	}
 	_, err = client.SaveEvents(context.Background(), request)
 	assert.Error(t, err)
@@ -438,8 +436,7 @@ func TestClient_SaveEvents_Validation(t *testing.T) {
 	// Test with nil stream
 	request = &eventstore.SaveEventsRequest{
 		Boundary: "test-boundary",
-		Stream: nil,
-		Events:  []*eventstore.EventToSave{},
+		Events:   []*eventstore.EventToSave{},
 	}
 	_, err = client.SaveEvents(context.Background(), request)
 	assert.Error(t, err)
@@ -448,7 +445,6 @@ func TestClient_SaveEvents_Validation(t *testing.T) {
 	// Test with no events
 	request = &eventstore.SaveEventsRequest{
 		Boundary: "test-boundary",
-		Stream:   &eventstore.SaveStreamQuery{Name: "test-stream"},
 		Events:   []*eventstore.EventToSave{},
 	}
 	_, err = client.SaveEvents(context.Background(), request)
@@ -468,7 +464,6 @@ func TestClient_GetEvents(t *testing.T) {
 	// Test with valid request
 	request := &eventstore.GetEventsRequest{
 		Boundary: "test-boundary",
-		Stream:   &eventstore.GetStreamQuery{Name: "test-stream"},
 		Count:    10,
 	}
 
@@ -580,88 +575,6 @@ func TestClient_SubscribeToEvents_Validation(t *testing.T) {
 	assert.Contains(t, err.Error(), "Subscriber name is required")
 }
 
-// Test SubscribeToStream method
-func TestClient_SubscribeToStream(t *testing.T) {
-	builder := NewClientBuilder()
-	client, err := builder.WithHost("localhost").Build()
-
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	defer client.Close()
-
-	// Track events received
-	var receivedEvents []*eventstore.Event
-	handler := NewSimpleEventHandler().
-		WithOnEvent(func(event *eventstore.Event) error {
-			receivedEvents = append(receivedEvents, event)
-			return nil
-		}).
-		WithOnError(func(err error) {
-			// Handle error
-		}).
-		WithOnCompleted(func() {
-			// Handle completion
-		})
-
-	request := &eventstore.CatchUpSubscribeToStreamRequest{
-		Boundary:       "test-boundary",
-		Stream:         "test-stream",
-		SubscriberName: "test-subscriber",
-	}
-
-	// This will fail without actual server, but we test the method exists and validation works
-	_, err = client.SubscribeToStream(context.Background(), request, handler)
-	assert.Error(t, err) // Expected to fail without actual server
-	assert.Contains(t, err.Error(), "Failed to create subscription")
-}
-
-// Test SubscribeToStream with validation errors
-func TestClient_SubscribeToStream_Validation(t *testing.T) {
-	builder := NewClientBuilder()
-	client, err := builder.WithHost("localhost").Build()
-
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	defer client.Close()
-
-	handler := NewSimpleEventHandler()
-
-	// Test with nil request
-	_, err = client.SubscribeToStream(context.Background(), nil, handler)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "SubscribeToStreamRequest cannot be nil")
-
-	// Test with empty boundary
-	request := &eventstore.CatchUpSubscribeToStreamRequest{
-		Boundary:       "",
-		Stream:         "test-stream",
-		SubscriberName: "test-subscriber",
-	}
-	_, err = client.SubscribeToStream(context.Background(), request, handler)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Boundary is required")
-
-	// Test with empty subscriber name
-	request = &eventstore.CatchUpSubscribeToStreamRequest{
-		Boundary:       "test-boundary",
-		Stream:         "test-stream",
-		SubscriberName: "",
-	}
-	_, err = client.SubscribeToStream(context.Background(), request, handler)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Subscriber name is required")
-
-	// Test with empty stream name
-	request = &eventstore.CatchUpSubscribeToStreamRequest{
-		Boundary:       "test-boundary",
-		Stream:         "",
-		SubscriberName: "test-subscriber",
-	}
-	_, err = client.SubscribeToStream(context.Background(), request, handler)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Stream name is required")
-}
-
 // Test error handling scenarios
 func TestClient_SaveEvents_ErrorHandling(t *testing.T) {
 	builder := NewClientBuilder()
@@ -674,7 +587,6 @@ func TestClient_SaveEvents_ErrorHandling(t *testing.T) {
 	// Test with invalid event ID format
 	request := &eventstore.SaveEventsRequest{
 		Boundary: "test-boundary",
-		Stream:   &eventstore.SaveStreamQuery{Name: "test-stream"},
 		Events: []*eventstore.EventToSave{
 			{
 				EventId:   "invalid-uuid",
@@ -692,7 +604,7 @@ func TestClient_SaveEvents_ErrorHandling(t *testing.T) {
 // Test edge cases for boundary conditions
 func TestClient_EdgeCases(t *testing.T) {
 	builder := NewClientBuilder()
-	
+
 	// Test with empty host (should default to localhost)
 	client, err := builder.WithHost("").Build()
 	assert.NoError(t, err)
@@ -748,28 +660,28 @@ func TestClient_TokenCaching(t *testing.T) {
 
 // Mock event stream for testing
 type mockEventStream struct {
-	events    []*eventstore.Event
+	events     []*eventstore.Event
 	eventIndex int
-	closed    bool
+	closed     bool
 }
 
 func (m *mockEventStream) RecvMsg(msg interface{}) error {
 	if m.closed {
 		return fmt.Errorf("stream closed")
 	}
-	
+
 	if m.eventIndex >= len(m.events) {
 		return fmt.Errorf("no more events")
 	}
-	
+
 	event := m.events[m.eventIndex]
 	m.eventIndex++
-	
+
 	// Convert mock event to protobuf event
 	if eventMsg, ok := msg.(*eventstore.Event); ok {
 		*eventMsg = *event
 	}
-	
+
 	return nil
 }
 
@@ -803,11 +715,11 @@ func (m *mockEventStream) Recv() interface{} {
 	if m.closed {
 		return nil
 	}
-	
+
 	if m.eventIndex >= len(m.events) {
 		return nil
 	}
-	
+
 	event := m.events[m.eventIndex]
 	m.eventIndex++
 	return event

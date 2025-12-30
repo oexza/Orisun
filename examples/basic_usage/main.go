@@ -95,14 +95,12 @@ func main() {
 
 	// Save events to the event store
 	boundary := config.GetBoundaryNames()[0]
-	streamName := "user_" + generateUUID()
 	position := orisun.NotExistsPosition()
 	// Save events
 	newPosition, err := orisunServer.SaveEvents(
 		ctx,
 		events,
 		boundary,
-		streamName,
 		&position, // No expected position for new stream
 		nil,       // No subset query
 	)
@@ -121,9 +119,6 @@ func main() {
 		Count:     10,
 		Direction: orisun.Direction_ASC,
 		Boundary:  boundary,
-		Stream: &orisun.GetStreamQuery{
-			Name: streamName,
-		},
 	}
 
 	eventsResponse, err := orisunServer.GetEvents(ctx, getEventsReq)
@@ -131,10 +126,10 @@ func main() {
 		logger.Fatalf("Failed to get events: %v", err)
 	}
 
-	logger.Infof("Retrieved %d events from stream %s:", len(eventsResponse.Events), streamName)
+	logger.Infof("Retrieved %d events:", len(eventsResponse.Events))
 	for i, event := range eventsResponse.Events {
-		logger.Infof("Event %d: ID=%s, Type=%s, Stream=%s, Position=Commit=%d,Prepare=%d",
-			i+1, event.EventId, event.EventType, event.StreamId,
+		logger.Infof("Event %d: ID=%s, Type=%s, Position=Commit=%d,Prepare=%d",
+			i+1, event.EventId, event.EventType,
 			event.Position.CommitPosition, event.Position.PreparePosition)
 	}
 
@@ -163,8 +158,8 @@ func main() {
 					continue
 				}
 
-				logger.Infof("Received event: ID=%s, Type=%s, Stream=%s, Data=%s",
-					event.EventId, event.EventType, event.StreamId, event.Data)
+				logger.Infof("Received event: ID=%s, Type=%s, Data=%s",
+					event.EventId, event.EventType, event.Data)
 			}
 		}
 	}()
@@ -181,7 +176,6 @@ func main() {
 			subscriberName,
 			nil, // Start from the beginning
 			nil, // No query filter
-			nil, // Subscribe to all streams, not a specific one
 			messageHandler,
 		)
 		if err != nil {
@@ -223,26 +217,24 @@ func main() {
 				}
 
 				logger.Infof("Received stream event: ID=%s, Type=%s, Stream=%s, Data=%s",
-					event.EventId, event.EventType, event.StreamId, event.Data)
+					event.EventId, event.EventType, event.Data)
 			}
 		}
 	}()
 
 	// Subscribe to events from a specific stream
 	streamSubscriberName := "example_stream_subscriber"
-	targetStream := streamName
 
 	fromPosition := orisun.FirstPosition()
 	// Start stream subscription in a separate goroutine
 	go func() {
-		logger.Infof("Starting subscription to stream: %s...", targetStream)
+		logger.Infof("Starting subscription")
 		err := orisunServer.SubscribeToEvents(
 			ctx,
 			boundary,
 			streamSubscriberName,
 			&fromPosition, // Start from the beginning
 			nil,           // No query filter
-			&targetStream, // Subscribe to a specific stream
 			streamMessageHandler,
 		)
 		if err != nil {
@@ -285,7 +277,6 @@ func main() {
 		ctx,
 		moreEvents,
 		boundary,
-		streamName,
 		newPosition, // Use the previous position as expected position
 		nil,         // No subset query
 	)

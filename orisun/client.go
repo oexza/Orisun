@@ -62,14 +62,13 @@ func NewOrisunServer(
 
 // SaveEvents saves a batch of events to the event store
 func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags, boundary string,
-	streamName string, expectedPosition *Position, streamSubSet *Query) (*Position, error) {
+	expectedPosition *Position, streamSubSet *Query) (*Position, error) {
 
 	// Save events
 	transactionID, globalID, err := c.saveEvents.Save(
 		ctx,
 		events,
 		boundary,
-		streamName,
 		expectedPosition,
 		streamSubSet,
 	)
@@ -106,7 +105,6 @@ func (c *OrisunServer) SubscribeToEvents(
 	boundary string,
 	subscriberName string,
 	afterPosition *Position, query *Query,
-	streamName *string,
 	handler *MessageHandler[Event],
 ) error {
 
@@ -116,7 +114,6 @@ func (c *OrisunServer) SubscribeToEvents(
 		boundary,
 		subscriberName,
 		afterPosition,
-		streamName,
 		query,
 		handler,
 	)

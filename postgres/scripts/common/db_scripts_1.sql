@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS orisun_es_event
 );
 
 ALTER TABLE orisun_es_event
-    DROP COLUMN IF EXISTS stream_version;
+    DROP COLUMN IF EXISTS stream_version,
+    DROP COLUMN IF EXISTS stream_name;
 DROP INDEX IF EXISTS idx_stream_global_id;
 
 CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
@@ -23,13 +24,13 @@ CREATE SEQUENCE IF NOT EXISTS orisun_es_event_global_id_seq
     OWNED BY orisun_es_event.global_id;
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_stream ON orisun_es_event (stream_name);
-CREATE INDEX IF NOT EXISTS idx_stream_tran_idglobal_id ON orisun_es_event (stream_name, transaction_id, global_id);
+DROP INDEX IF EXISTS idx_stream;
+DROP INDEX IF EXISTS idx_stream_tran_idglobal_id;
+DROP INDEX IF EXISTS idx_stream_tags;
+DROP INDEX IF EXISTS idx_stream_data_gin;
 CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
-CREATE INDEX IF NOT EXISTS idx_stream_tags ON orisun_es_event
-    USING GIN (data, stream_name) WITH (fastupdate = true, gin_pending_list_limit = '128');
-CREATE INDEX IF NOT EXISTS idx_stream_data_gin ON orisun_es_event
-    USING GIN (stream_name, data);
+CREATE INDEX IF NOT EXISTS idx_tags ON orisun_es_event
+    USING GIN (data) WITH (fastupdate = true, gin_pending_list_limit = '128');
 
 -- Insert Function
 --
@@ -39,8 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_stream_data_gin ON orisun_es_event
 --
 -- Parameters:
 --   schema (TEXT): The schema to use for the event store table.
---   stream_info (JSONB): A JSON object containing stream metadata.
---     - stream_name (TEXT): The name of the stream to insert events into.
+--   query (JSONB): A JSON object containing stream metadata.
 --     - expected_version (BIGINT): The expected stream version for optimistic locking.
 --     - criteria (JSONB): Optional JSON object for granular locking.
 --   events (JSONB): A JSON array of events to insert. Each event is a JSON object
@@ -54,11 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_stream_data_gin ON orisun_es_event
 --   TABLE: A table with the following columns:
 -- example input to this function:
 -- Parameters: $1 = 'test2', $2 = '{"criteria": [{"username": "iskaba"}], 
--- "stream_name": "new", "expected_version": 17}', $3 = '[{"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}, {"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}]'
+-- "expected_version": 17}', $3 = '[{"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}, {"data": {"username": "iskaba", "eventType": "UNAA"}, "event_id": "0191b93c-5f3c-75c8-92ce-5a3300709178", "metadata": {"id": "1234"}, "event_type": "UNAA"}]'
 
-CREATE OR REPLACE FUNCTION insert_events_with_consistency_v2(
+CREATE OR REPLACE FUNCTION insert_events_with_consistency_v3(
     schema TEXT,
-    stream_info JSONB,
+    query JSONB,
     events JSONB
 )
     RETURNS TABLE
@@ -71,23 +71,21 @@ CREATE OR REPLACE FUNCTION insert_events_with_consistency_v2(
 AS
 $$
 DECLARE
-    stream                TEXT;
-    stream_criteria       JSONB;
+    criteria       JSONB;
     expected_tx_id        BIGINT;
     expected_gid          BIGINT;
     current_tx_id         BIGINT;
     latest_tx_id          BIGINT;
     latest_gid            BIGINT;
     key_record            TEXT;
-    stream_criteria_tags  TEXT[];
+    criteria_tags  TEXT[];
     new_global_id         BIGINT;
     latest_transaction_id BIGINT;
     latest_global_id      BIGINT;
 BEGIN
-    stream := stream_info ->> 'stream_name';
-    stream_criteria := stream_info -> 'criteria';
-    expected_tx_id := (stream_info -> 'expected_position' ->> 'transaction_id')::BIGINT;
-    expected_gid := (stream_info -> 'expected_position' ->> 'global_id')::BIGINT;
+    criteria := query -> 'criteria';
+    expected_tx_id := (query -> 'expected_position' ->> 'transaction_id')::BIGINT;
+    expected_gid := (query -> 'expected_position' ->> 'global_id')::BIGINT;
     current_tx_id := pg_current_xact_id()::TEXT::BIGINT;
 
     IF jsonb_array_length(events) = 0 THEN
@@ -96,39 +94,35 @@ BEGIN
 
     EXECUTE format('SET search_path TO %I', schema);
 
-    -- If stream_criteria is present then we acquire granular locks for each key value pair.
-    -- This is to ensure that we don't block other insert operations targeting the same stream,
-    -- with non-overlapping criteria.
-    IF stream_criteria IS NOT NULL THEN
+    -- If criteria is present then we acquire granular locks for each key value pair.
+    -- This is to ensure that we don't block other insert operations
+    -- having non-overlapping criteria.
+    IF criteria IS NOT NULL THEN
         -- Extract all unique criteria key-value pairs
         SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
-        INTO stream_criteria_tags
-        FROM jsonb_array_elements(stream_criteria) AS criterion,
+        INTO criteria_tags
+        FROM jsonb_array_elements(criteria) AS criterion,
              jsonb_each_text(criterion) AS key_value;
 
         -- Lock key-value pairs in alphabetical order (deadlock prevention)
-        IF stream_criteria_tags IS NOT NULL THEN
-            stream_criteria_tags := ARRAY(
-                    SELECT DISTINCT unnest(stream_criteria_tags)
+        IF criteria_tags IS NOT NULL THEN
+            criteria_tags := ARRAY(
+                    SELECT DISTINCT unnest(criteria_tags)
                     ORDER BY 1 -- Alphabetical sort to ensure consistent lock order and deadlock prevention.
                                     );
 
-            FOREACH key_record IN ARRAY stream_criteria_tags
+            FOREACH key_record IN ARRAY criteria_tags
                 LOOP
                     PERFORM pg_advisory_xact_lock(('x' || substr(md5(key_record), 1, 15))::bit(60)::bigint);
                 END LOOP;
         END IF;
-    ELSE
-        -- lock the whole stream.
-        PERFORM pg_advisory_xact_lock(('x' || substr(md5(stream), 1, 15))::bit(60)::bigint);
     END IF;
 
-    -- Stream version check
+    -- version check
     SELECT oe.transaction_id, oe.global_id
     INTO latest_tx_id, latest_gid
     FROM orisun_es_event oe
-    WHERE oe.stream_name = stream
-      AND (stream_criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(stream_criteria)))
+    WHERE (criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(criteria)))
     ORDER BY oe.transaction_id DESC, oe.global_id DESC
     LIMIT 1;
 
@@ -151,7 +145,6 @@ BEGIN
     -- CTE-based insert pattern
     WITH inserted_events AS (
         INSERT INTO orisun_es_event (
-                                     stream_name,
                                      transaction_id,
                                      event_id,
                                      global_id,
@@ -159,8 +152,7 @@ BEGIN
                                      data,
                                      metadata
             )
-            SELECT stream,
-                   current_tx_id,
+            SELECT current_tx_id,
                    (e ->> 'event_id')::UUID,
                    nextval('orisun_es_event_global_id_seq'),
                    e ->> 'event_type',
@@ -185,9 +177,8 @@ END;
 $$;
 
 -- Query Function
-CREATE OR REPLACE FUNCTION get_matching_events_v2(
+CREATE OR REPLACE FUNCTION get_matching_events_v3(
     schema TEXT,
-    stream_name TEXT DEFAULT NULL,
     criteria JSONB DEFAULT NULL,
     after_position JSONB DEFAULT NULL,
     sort_dir TEXT DEFAULT 'ASC',
@@ -209,12 +200,10 @@ BEGIN
 
     schema_prefix := quote_ident(schema) || '.';
 
-    -- General case with all possible filters
     RETURN QUERY EXECUTE format(
             $q$
         SELECT * FROM %10$sorisun_es_event
-        WHERE 
-            (%1$L IS NULL OR stream_name = %1$L) AND
+        WHERE
             (%2$L::JSONB IS NULL OR data @> ANY (
                 SELECT jsonb_array_elements(%2$L)
             )) AND
@@ -228,7 +217,7 @@ BEGIN
         ORDER BY transaction_id %8$s, global_id %8$s
         LIMIT %9$L
         $q$,
-            stream_name,
+            '',
             criteria_array,
             after_position,
             op,

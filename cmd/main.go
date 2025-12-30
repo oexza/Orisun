@@ -266,7 +266,7 @@ func main() {
 			query *pb.Query,
 			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, nil, query, handler,
+				ctx, boundary, subscriberName, pos, query, handler,
 			)
 		},
 		getUserCount,
@@ -288,7 +288,7 @@ func main() {
 			query *pb.Query,
 			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, nil, query, handler,
+				ctx, boundary, subscriberName, pos, query, handler,
 			)
 		},
 		getEventCount,
@@ -313,7 +313,7 @@ func main() {
 			query *pb.Query,
 			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, nil, query, handler,
+				ctx, boundary, subscriberName, pos, query, handler,
 			)
 		},
 		eventStore.SaveEvents,
@@ -332,7 +332,7 @@ func main() {
 			query *pb.Query,
 			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, nil, query, handler,
+				ctx, boundary, subscriberName, pos, query, handler,
 			)
 		},
 		AppLogger,
@@ -484,7 +484,7 @@ func main() {
 			query *pb.Query,
 			handler *orisun.MessageHandler[pb.Event]) error {
 			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, nil, query, handler,
+				ctx, boundary, subscriberName, pos, query, handler,
 			)
 		},
 	)

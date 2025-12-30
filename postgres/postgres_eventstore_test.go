@@ -167,7 +167,6 @@ func TestSaveAndGetEvents(t *testing.T) {
 		t.Context(),
 		events,
 		"test_boundary",
-		"test-stream",
 		&position,
 		nil,
 	)
@@ -183,9 +182,6 @@ func TestSaveAndGetEvents(t *testing.T) {
 			Boundary:  "test_boundary",
 			Direction: orisun.Direction_ASC,
 			Count:     10,
-			Stream: &orisun.GetStreamQuery{
-				Name: "test-stream",
-			},
 		},
 	)
 
@@ -230,7 +226,6 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
-	streamName := "test-stream-100-events"
 	expectedPosition := orisun.NotExistsPosition()
 
 	// Save 100 events one by one
@@ -252,7 +247,6 @@ func TestSave200EventsOneByOne(t *testing.T) {
 			t.Context(),
 			events,
 			"test_boundary",
-			streamName,
 			&expectedPosition,
 			nil,
 		)
@@ -276,9 +270,6 @@ func TestSave200EventsOneByOne(t *testing.T) {
 			Boundary:  "test_boundary",
 			Direction: orisun.Direction_ASC,
 			Count:     100,
-			Stream: &orisun.GetStreamQuery{
-				Name: streamName,
-			},
 		},
 	)
 
@@ -293,7 +284,7 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	// 	// assert.Equal(t, uint64(i), event.Version, "Event %d should have correct stream version", i)
 	// }
 
-	t.Logf("Successfully saved and verified 100 events in stream '%s'", streamName)
+	t.Logf("Successfully saved and verified 100 events")
 }
 
 func TestOptimisticConcurrency(t *testing.T) {
@@ -338,7 +329,6 @@ func TestOptimisticConcurrency(t *testing.T) {
 		t.Context(),
 		events,
 		"test_boundary",
-		"test-stream",
 		&position1,
 		nil,
 	)
@@ -359,7 +349,6 @@ func TestOptimisticConcurrency(t *testing.T) {
 		t.Context(),
 		events2,
 		"test_boundary",
-		"test-stream",
 		&position2, // Expected version -1 again, but should be 0 now
 		nil,
 	)
@@ -397,9 +386,6 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 
 	saveEvents1 := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	saveEvents2 := NewPostgresSaveEvents(t.Context(), db2, logger, mapping)
-
-	// Create a unique stream name for this test
-	streamName := "concurrent-test-stream-" + uuid.New().String()
 
 	// Create a shared stream consistency condition (Query) for both operations
 	sharedStreamCondition := &orisun.Query{
@@ -459,7 +445,6 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 			context.Background(),
 			events1,
 			"test_boundary",
-			streamName,
 			nil,
 			sharedStreamCondition,
 		)
@@ -481,7 +466,6 @@ func TestConcurrentSaveEventsOptimisticConcurrency(t *testing.T) {
 			context.Background(),
 			events2,
 			"test_boundary",
-			streamName,
 			nil,
 			sharedStreamCondition,
 		)
@@ -574,7 +558,6 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		t.Context(),
 		events1,
 		"test_boundary",
-		"test-stream",
 		&expectedPosition,
 		nil,
 	)
@@ -599,7 +582,6 @@ func TestGetEventsWithCriteria(t *testing.T) {
 		t.Context(),
 		events2,
 		"test_boundary",
-		"test-stream",
 		&orisun.Position{
 			PreparePosition: globalId,
 			CommitPosition:  tranIdConv,
@@ -615,9 +597,6 @@ func TestGetEventsWithCriteria(t *testing.T) {
 			Boundary:  "test_boundary",
 			Direction: orisun.Direction_ASC,
 			Count:     10,
-			Stream: &orisun.GetStreamQuery{
-				Name: "test-stream",
-			},
 			Query: &orisun.Query{
 				Criteria: []*orisun.Criterion{
 					{
@@ -684,7 +663,6 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 			ctx,
 			events,
 			"test_boundary",
-			"global-pos-stream",
 			lastPosition,
 			nil,
 		)
@@ -766,7 +744,6 @@ func TestPagination(t *testing.T) {
 			ctx,
 			events,
 			"test_boundary",
-			"pagination-stream",
 			lastPosition,
 			nil,
 		)
@@ -784,9 +761,6 @@ func TestPagination(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     3,
-		Stream: &orisun.GetStreamQuery{
-			Name: "pagination-stream",
-		},
 	})
 
 	assert.NoError(t, err)
@@ -798,9 +772,6 @@ func TestPagination(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     3,
-		Stream: &orisun.GetStreamQuery{
-			Name: "pagination-stream",
-		},
 		FromPosition: &orisun.Position{
 			CommitPosition:  lastPos.CommitPosition,
 			PreparePosition: lastPos.PreparePosition,
@@ -861,7 +832,6 @@ func TestDirectionOrdering(t *testing.T) {
 			ctx,
 			events,
 			"test_boundary",
-			"direction-stream",
 			lastPosition,
 			nil,
 		)
@@ -879,9 +849,6 @@ func TestDirectionOrdering(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &orisun.GetStreamQuery{
-			Name: "direction-stream",
-		},
 	})
 
 	assert.NoError(t, err)
@@ -892,9 +859,6 @@ func TestDirectionOrdering(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_DESC,
 		Count:     10,
-		Stream: &orisun.GetStreamQuery{
-			Name: "direction-stream",
-		},
 	})
 
 	assert.NoError(t, err)
@@ -953,7 +917,6 @@ func TestComplexTagQueries(t *testing.T) {
 		ctx,
 		events1,
 		"test_boundary",
-		"complex-query-stream",
 		lastPosition,
 		nil,
 	)
@@ -980,7 +943,6 @@ func TestComplexTagQueries(t *testing.T) {
 		ctx,
 		events2,
 		"test_boundary",
-		"complex-query-stream",
 		lastPosition,
 		nil,
 	)
@@ -1007,7 +969,6 @@ func TestComplexTagQueries(t *testing.T) {
 		ctx,
 		events3,
 		"test_boundary",
-		"complex-query-stream",
 		lastPosition,
 		nil,
 	)
@@ -1034,7 +995,7 @@ func TestComplexTagQueries(t *testing.T) {
 		ctx,
 		events4,
 		"test_boundary",
-		"complex-query-stream",
+
 		lastPosition,
 		nil,
 	)
@@ -1045,9 +1006,6 @@ func TestComplexTagQueries(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &orisun.GetStreamQuery{
-			Name: "complex-query-stream",
-		},
 		Query: &orisun.Query{
 			Criteria: []*orisun.Criterion{
 				{
@@ -1074,9 +1032,6 @@ func TestComplexTagQueries(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &orisun.GetStreamQuery{
-			Name: "complex-query-stream",
-		},
 		Query: &orisun.Query{
 			Criteria: []*orisun.Criterion{
 				{
@@ -1096,9 +1051,6 @@ func TestComplexTagQueries(t *testing.T) {
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
-		Stream: &orisun.GetStreamQuery{
-			Name: "complex-query-stream",
-		},
 		Query: &orisun.Query{
 			Criteria: []*orisun.Criterion{
 				{

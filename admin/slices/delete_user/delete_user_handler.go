@@ -86,9 +86,6 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 					},
 				},
 			},
-			Stream: &eventstore.GetStreamQuery{
-				Name: events.AdminStream,
-			},
 		},
 	)
 	if err != nil {
@@ -120,8 +117,7 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 
 		_, err = dUH.saveEvents(ctx, &eventstore.SaveEventsRequest{
 			Boundary: dUH.boundary,
-			Stream: &eventstore.SaveStreamQuery{
-				Name:             events.AdminStream,
+			Query: &eventstore.SaveQuery{
 				ExpectedPosition: lastExpectedVersion,
 				SubsetQuery: &eventstore.Query{
 					Criteria: []*eventstore.Criterion{

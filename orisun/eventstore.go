@@ -26,9 +26,8 @@ type EventsSaver interface {
 	Save(ctx context.Context,
 		events []EventWithMapTags,
 		boundary string,
-		streamName string,
 		expectedPosition *Position,
-		streamSubSet *Query,
+		subSet *Query,
 	) (transactionID string, globalID int64, err error)
 }
 
@@ -99,8 +98,8 @@ func GetEventsStreamSubjectFilterForSubscription(boundary string, stream *string
 	return subject + ">"
 }
 
-func GetEventJetstreamSubjectName(boundary string, stream string, position *Position) string {
-	return GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + "." + stream + "." + GetEventNatsMessageId(int64(position.PreparePosition), int64(position.CommitPosition))
+func GetEventJetstreamSubjectName(boundary string, position *Position) string {
+	return GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + "." + GetEventNatsMessageId(int64(position.PreparePosition), int64(position.CommitPosition))
 }
 
 func NewEventStoreServer(
@@ -226,9 +225,8 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		ctx,
 		eventsForMarshaling,
 		req.Boundary,
-		req.Stream.Name,
-		req.Stream.ExpectedPosition,
-		req.Stream.SubsetQuery,
+		req.Query.ExpectedPosition,
+		req.Query.SubsetQuery,
 	)
 
 	if err != nil {
@@ -266,16 +264,10 @@ func (s *EventStore) SubscribeToAllEvents(
 	boundary string,
 	subscriberName string,
 	afterPosition *Position,
-	stream *string,
 	query *Query,
 	handler *MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName
-	streamIsSpecified := stream != nil && strings.TrimSpace(*stream) != ""
-
-	if streamIsSpecified {
-		subscriptionName = subscriptionName + "__" + *stream
-	}
 
 	// Use errgroup for coordinated error handling and cancellation
 	g, gCtx := errgroup.WithContext(ctx)
@@ -387,11 +379,7 @@ func (s *EventStore) SubscribeToAllEvents(
 				CommitPosition:  lastProcessedPosition.CommitPosition,
 			},
 		}
-		if streamIsSpecified {
-			lastEventReq.Stream = &GetStreamQuery{
-				Name: *stream,
-			}
-		}
+
 		lastEventResp, err := s.getEventsFn.Get(gCtx, lastEventReq)
 		if err != nil {
 			s.logger.Errorf("Failed to get last processed event for timestamp: %v", err)
@@ -475,7 +463,7 @@ func (s *EventStore) SubscribeToAllEvents(
 					isNewer = true // If no position, all events are considered new
 				}
 
-				if isNewer && s.eventMatchesQueryCriteria(&event, query, nil) {
+				if isNewer && s.eventMatchesQueryCriteria(&event, query) {
 					// Check context before attempting to send
 					select {
 					case <-gCtx.Done():
@@ -557,64 +545,6 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 			req.Boundary,
 			req.SubscriberName,
 			req.AfterPosition,
-			nil,
-			req.Query,
-			messageHandler,
-		)
-	})
-
-	return g.Wait()
-}
-
-func (s *EventStore) CatchUpSubscribeToStream(req *CatchUpSubscribeToStreamRequest, stream EventStore_CatchUpSubscribeToStreamServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-	g, gctx := errgroup.WithContext(ctx)
-
-	messageHandler := NewMessageHandler[Event](gctx)
-
-	// Forwarder worker: reads from handler and writes to gRPC stream
-	g.Go(func() error {
-		for {
-			select {
-			case <-gctx.Done():
-				s.logger.Info("Message processing stopped")
-				return gctx.Err()
-			default:
-				event, err := messageHandler.Recv()
-				if err != nil {
-					if gctx.Err() != nil {
-						s.logger.Info("Context cancelled, stopping event processing")
-						return gctx.Err()
-					}
-					s.logger.Errorf("Failed to receive event: %v", err)
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-
-				select {
-				case <-gctx.Done():
-					s.logger.Info("Context cancelled, not sending event to stream")
-					return gctx.Err()
-				default:
-					if err := stream.Send(event); err != nil {
-						s.logger.Errorf("Failed to send event: %v", err)
-						time.Sleep(100 * time.Millisecond)
-						continue
-					}
-				}
-			}
-		}
-	})
-
-	// Subscription worker: runs the catch-up subscription and feeds the handler
-	g.Go(func() error {
-		return s.SubscribeToAllEvents(
-			gctx,
-			req.Boundary,
-			req.SubscriberName,
-			req.AfterPosition,
-			&req.Stream,
 			req.Query,
 			messageHandler,
 		)
@@ -659,18 +589,10 @@ func validateSaveEventsRequest(req *SaveEventsRequest) error {
 		return status.Error(codes.InvalidArgument, "Invalid request: no events provided")
 	}
 
-	if req.Stream == nil {
-		return status.Error(codes.InvalidArgument, "Invalid request: missing stream to save events to")
-	}
-
 	return nil
 }
 
-func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query, stream *string) bool {
-	if stream != nil && strings.TrimSpace(*stream) != event.StreamId {
-		return false
-	}
-
+func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bool {
 	if criteria == nil || len(criteria.Criteria) == 0 {
 		return true
 	}
@@ -855,7 +777,6 @@ func PollEventsFromDatabaseToNats(
 		for _, event := range resp.Events {
 			subjectName := GetEventJetstreamSubjectName(
 				boundary,
-				event.StreamId,
 				&Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,

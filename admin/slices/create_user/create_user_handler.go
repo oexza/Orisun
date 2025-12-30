@@ -209,9 +209,6 @@ func CreateUser(
 					},
 				},
 			},
-			Stream: &orisun.GetStreamQuery{
-				Name: ev.AdminStream,
-			},
 		},
 	)
 
@@ -251,9 +248,6 @@ func CreateUser(
 							},
 						},
 					},
-				},
-				Stream: &orisun.GetStreamQuery{
-					Name: ev.AdminStream,
 				},
 			},
 		)
@@ -313,8 +307,7 @@ func CreateUser(
 	_, err = saveEvents(ctx, &orisun.SaveEventsRequest{
 		Boundary: boundary,
 		Events:   eventsToSave,
-		Stream: &orisun.SaveStreamQuery{
-			Name:             ev.AdminStream,
+		Query: &orisun.SaveQuery{
 			ExpectedPosition: &position,
 			SubsetQuery: &orisun.Query{
 				Criteria: []*orisun.Criterion{

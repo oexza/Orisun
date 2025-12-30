@@ -436,7 +436,6 @@ func (c *OrisunClient) HealthCheck(ctx context.Context, boundary string) (bool, 
 	// Try to make a simple call to test connectivity
 	request := &eventstore.GetEventsRequest{
 		Boundary: boundary,
-		Stream:   &eventstore.GetStreamQuery{Name: "health-check"},
 		Count:    1,
 	}
 	_, err := c.GetEvents(ctx, request)
@@ -458,8 +457,8 @@ func (c *OrisunClient) SaveEvents(ctx context.Context, request *eventstore.SaveE
 		return nil, err
 	}
 
-	c.logger.Debug("Saving {} events to stream '{}' in boundary '{}'",
-		len(request.Events), request.Stream.Name, request.Boundary)
+	c.logger.Debug("Saving {} in boundary '{}'",
+		len(request.Events), request.Boundary)
 
 	// Make the gRPC call
 	response, err := c.client.SaveEvents(ctx, request)
@@ -467,8 +466,8 @@ func (c *OrisunClient) SaveEvents(ctx context.Context, request *eventstore.SaveE
 		return nil, c.handleSaveException(err)
 	}
 
-	c.logger.Info("Successfully saved {} events to stream '{}'",
-		len(request.Events), request.Stream.Name)
+	c.logger.Info("Successfully saved {} events ",
+		len(request.Events))
 
 	return response, nil
 }
@@ -509,37 +508,6 @@ func (c *OrisunClient) SubscribeToEvents(ctx context.Context, request *eventstor
 
 	// Make the gRPC streaming call
 	stream, err := c.client.CatchUpSubscribeToEvents(ctx, request)
-	if err != nil {
-		cancel()
-		return nil, c.handleSubscribeException(err, request)
-	}
-
-	// Create and return subscription
-	subscription := NewEventSubscription(stream, handler, c.logger, cancel)
-	return subscription, nil
-}
-
-// SubscribeToStream subscribes to events from a specific stream
-func (c *OrisunClient) SubscribeToStream(ctx context.Context, request *eventstore.CatchUpSubscribeToStreamRequest, handler EventHandler) (*EventSubscription, error) {
-	// Validate request
-	validator := NewRequestValidator()
-	if err := validator.ValidateSubscribeToStreamRequest(request); err != nil {
-		return nil, err
-	}
-
-	c.logger.Debug("Subscribing to stream '{}' in boundary '{}' with subscriber '{}'",
-		request.Stream, request.Boundary, request.SubscriberName)
-
-	// Create context with timeout if not provided
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Create cancel function for the subscription
-	ctx, cancel := context.WithCancel(ctx)
-
-	// Make the gRPC streaming call
-	stream, err := c.client.CatchUpSubscribeToStream(ctx, request)
 	if err != nil {
 		cancel()
 		return nil, c.handleSubscribeException(err, request)
