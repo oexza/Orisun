@@ -40,3 +40,8 @@ clients/node_modules/
 dist/
 clients/dist/
 clients/php/grpc/
+
+cmd/data
+clients/node/.idea/*.xml
+clients/java/.idea/
+clients/php/.idea/
