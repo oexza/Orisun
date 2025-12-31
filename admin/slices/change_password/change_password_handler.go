@@ -4,18 +4,14 @@ import (
 	"context"
 	"errors"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/admin/templates"
 	l "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
-	"net/http"
-
 	// "sync"
 
 	admin_events "github.com/oexza/Orisun/admin/events"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
-	"github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -59,85 +55,6 @@ func (r *ChangePasswordRequest) validate() error {
 		return errors.New("new password and confirm password do not match")
 	}
 	return nil
-}
-
-func (s *ChangePasswordHandler) HandleChangePasswordPage(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
-
-	sse.PatchElementTempl(ChangePasswordDialog(), datastar.WithModeReplace())
-	sse.ExecuteScript("setTimeout(() => { document.querySelector('#change-password-dialog').show() }, 1)")
-}
-
-func (s *ChangePasswordHandler) HandleChangePassword(w http.ResponseWriter, r *http.Request) {
-	currentUser := admin_common.GetCurrentUser(r)
-	if currentUser == nil {
-		sse := datastar.NewSSE(w, r)
-		sse.PatchElementTempl(templates.Alert("You must be logged in to change your password", templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-
-	changePasswordRequest := &ChangePasswordRequest{}
-
-	response := struct {
-		Message string `json:"message"`
-		Success bool   `json:"success"`
-		Failed  bool   `json:"failed"`
-	}{}
-
-	if err := datastar.ReadSignals(r, changePasswordRequest); err != nil {
-		sse := datastar.NewSSE(w, r)
-
-		s.logger.Infof("Error reading signals %v", err)
-		response.Failed = true
-		response.Message = err.Error()
-		sse.MarshalAndPatchSignals(response)
-		return
-	}
-
-	if err := changePasswordRequest.validate(); err != nil {
-		sse := datastar.NewSSE(w, r)
-		s.logger.Infof("Handling change password request %v", &changePasswordRequest)
-
-		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-
-	// Call the ChangePassword function with concurrent event fetching
-	err := ChangePassword(
-		r.Context(),
-		changePasswordRequest.CurrentPassword,
-		changePasswordRequest.NewPassword,
-		s.boundary,
-		s.saveEvents,
-		s.getEvents,
-		s.logger,
-		currentUser.Id,
-	)
-
-	sse := datastar.NewSSE(w, r)
-	if err != nil {
-		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-
-	// Password changed successfully
-	sse.PatchElementTempl(templates.Alert("Password changed successfully", templates.AlertSuccess), datastar.WithSelector("body"),
-		datastar.WithModePrepend(),
-	)
-	sse.ExecuteScript("document.querySelector('#alert').toast()")
-	sse.ExecuteScript("document.querySelector('#change-password-dialog').hide()")
-	response.Success = true
-	response.Message = "Password changed successfully"
-	sse.MarshalAndPatchSignals(response)
 }
 
 func ChangePassword(

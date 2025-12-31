@@ -47,6 +47,12 @@ type AppConfig struct {
 		Enabled bool
 		Port    string
 	}
+
+	OpenTelemetry struct {
+		Enabled     bool
+		Endpoint    string
+		ServiceName string
+	}
 }
 
 type LoggingConfig struct {

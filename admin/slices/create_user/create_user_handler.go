@@ -4,51 +4,35 @@ import (
 	"context"
 	"fmt"
 	ev "github.com/oexza/Orisun/admin/events"
-	t "github.com/oexza/Orisun/admin/templates"
 	l "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
-	"net/http"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	admin_common "github.com/oexza/Orisun/admin/slices/common"
+	admincommon "github.com/oexza/Orisun/admin/slices/common"
 
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type CreateUserHandler struct {
 	logger     l.Logger
 	boundary   string
-	saveEvents admin_common.SaveEventsType
-	getEvents  admin_common.GetEventsType
+	saveEvents admincommon.SaveEventsType
+	getEvents  admincommon.GetEventsType
 }
 
 func NewCreateUserHandler(
 	logger l.Logger,
 	boundary string,
-	saveEvents admin_common.SaveEventsType,
-	getEvents admin_common.GetEventsType) *CreateUserHandler {
+	saveEvents admincommon.SaveEventsType,
+	getEvents admincommon.GetEventsType) *CreateUserHandler {
 	return &CreateUserHandler{
 		logger:     logger,
 		boundary:   boundary,
 		getEvents:  getEvents,
 		saveEvents: saveEvents,
 	}
-}
-
-func (s *CreateUserHandler) HandleCreateUserPage(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
-
-	// Convert []Role to []string for template compatibility
-	roleStrings := make([]string, len(orisun.Roles))
-	for i, role := range orisun.Roles {
-		roleStrings[i] = role.String()
-	}
-
-	sse.PatchElementTempl(AddUser(r.URL.Path, roleStrings), datastar.WithModeReplace())
-	sse.ExecuteScript("setTimeout(() => { document.querySelector('#add-user-dialog').show() }, 1)")
 }
 
 type AddNewUserRequest struct {
@@ -59,135 +43,13 @@ type AddNewUserRequest struct {
 	Role            string
 }
 
-func (r *AddNewUserRequest) validate() error {
-	if r.Name == "" {
-		return fmt.Errorf("name is required")
-	}
-
-	if r.Username == "" {
-		return fmt.Errorf("username is required")
-	}
-
-	if len(r.Username) < 3 {
-		return fmt.Errorf("username must be at least 3 characters")
-	}
-
-	if r.Password == "" {
-		return fmt.Errorf("password is required")
-	}
-
-	if len(r.Password) < 6 {
-		return fmt.Errorf("password must be at least 6 characters")
-	}
-
-	if r.Password != r.ConfirmPassword {
-		return fmt.Errorf("passwords do not match")
-	}
-
-	if r.Role == "" {
-		return fmt.Errorf("role is required")
-	}
-
-	// Check if role is valid
-	validRole := false
-	for _, role := range orisun.Roles {
-		if strings.EqualFold(string(role), r.Role) {
-			validRole = true
-			break
-		}
-	}
-
-	if !validRole {
-		return fmt.Errorf("invalid role: %s", r.Role)
-	}
-
-	return nil
-}
-
-func (s *CreateUserHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
-	addUserRequest := &AddNewUserRequest{}
-	response := struct {
-		Message string `json:"message"`
-		Success bool   `json:"success"`
-		Failed  bool   `json:"failed"`
-	}{}
-
-	if err := datastar.ReadSignals(r, addUserRequest); err != nil {
-		sse := datastar.NewSSE(w, r)
-		response.Failed = true
-		response.Message = err.Error()
-		sse.MarshalAndPatchSignals(response)
-		return
-	}
-
-	err := addUserRequest.validate()
-
-	if err != nil {
-		sse := datastar.NewSSE(w, r)
-		response.Failed = true
-		response.Message = err.Error()
-		sse.MarshalAndPatchSignals(response)
-		sse.PatchElementTempl(
-			t.Alert(err.Error(), t.AlertDanger),
-			datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-
-	s.logger.Debugf("Creating user %v", addUserRequest)
-
-	sse := datastar.NewSSE(w, r)
-
-	currentUser := admin_common.GetCurrentUser(r)
-
-	_, err = CreateUser(
-		r.Context(),
-		addUserRequest.Name,
-		addUserRequest.Username,
-		addUserRequest.Password,
-		[]orisun.Role{orisun.Role(strings.ToUpper(addUserRequest.Role))},
-		s.boundary,
-		s.saveEvents,
-		s.getEvents,
-		s.logger,
-		&currentUser.Id,
-	)
-	if err != nil {
-		response.Failed = true
-		response.Message = err.Error()
-		sse.MarshalAndPatchSignals(response)
-		sse.PatchElementTempl(
-			t.Alert(err.Error(), t.AlertDanger),
-			datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		// delay the toast
-		sse.ExecuteScript("setTimeout(() => { document.querySelector('#alert').toast() }, 50)")
-		return
-	}
-
-	response.Success = true
-	response.Message = "User created successfully"
-	sse.MarshalAndPatchSignals(response)
-
-	sse.PatchElementTempl(
-		t.Alert("User created!", t.AlertSuccess),
-		datastar.WithSelector("body"),
-		datastar.WithModePrepend(),
-	)
-	sse.ExecuteScript("document.querySelector('#alert').toast()")
-	sse.ExecuteScript("document.querySelector('#add-user-dialog').hide()")
-}
-
 func CreateUser(
 	ctx context.Context,
 	name, username, password string,
 	roles []orisun.Role,
 	boundary string,
-	saveEvents admin_common.SaveEventsType,
-	getEvents admin_common.GetEventsType,
+	saveEvents admincommon.SaveEventsType,
+	getEvents admincommon.GetEventsType,
 	logger l.Logger,
 	currentUserId *string,
 ) (*ev.UserCreated, error) {
@@ -218,7 +80,7 @@ func CreateUser(
 
 	logger.Infof("userCreatedEvent: %v", userCreatedEvent)
 
-	events := []*ev.Event{}
+	var events []*ev.Event
 	for _, event := range userCreatedEvent.Events {
 		var userCreatedEvent = ev.UserCreated{}
 		err := json.Unmarshal([]byte(event.Data), &userCreatedEvent)
@@ -280,7 +142,7 @@ func CreateUser(
 		return nil, err
 	}
 
-	eventsToSave := []*orisun.EventToSave{}
+	var eventsToSave []*orisun.EventToSave
 
 	for _, event := range newEvents {
 		eventData, err := json.Marshal(event.Data)
@@ -355,7 +217,7 @@ func createUserCommandHandler(userId string, username, password string, name str
 		}
 	}
 
-	hash, err := admin_common.HashPassword(password)
+	hash, err := admincommon.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}

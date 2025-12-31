@@ -10,14 +10,6 @@ type UserContextKeyType string
 
 const UserContextKey UserContextKeyType = "user"
 
-type DatastarTabCookieKeyType string
-
-const DatastarTabCookieKey DatastarTabCookieKeyType = DatastarTabCookieKeyType("tab")
-
-func (k DatastarTabCookieKeyType) String() string {
-	return string(k)
-}
-
 type Role string
 
 const (

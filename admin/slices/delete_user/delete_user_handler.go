@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/admin/templates"
 	l "github.com/oexza/Orisun/logging"
-	"net/http"
 	"strings"
 
 	"github.com/goccy/go-json"
@@ -14,9 +12,7 @@ import (
 	"github.com/oexza/Orisun/admin/events"
 	eventstore "github.com/oexza/Orisun/orisun"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 type DeleteUserHandler struct {
@@ -33,26 +29,6 @@ func NewDeleteUserHandler(logger l.Logger, saveEvents admin_common.SaveEventsTyp
 		getEvents:  getEvents,
 		boundary:   boundary,
 	}
-}
-
-func (dUH *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Request) {
-	userId := chi.URLParam(r, "userId")
-	currentUser := admin_common.GetCurrentUser(r)
-	sse := datastar.NewSSE(w, r)
-
-	if err := dUH.deleteUser(r.Context(), userId, currentUser.Id); err != nil {
-		sse.RemoveElement("#alert")
-		sse.PatchElementTempl(templates.Alert(err.Error(), templates.AlertDanger), datastar.WithSelector("body"),
-			datastar.WithModePrepend(),
-		)
-		sse.ExecuteScript("document.querySelector('#alert').toast()")
-		return
-	}
-	sse.PatchElementTempl(templates.Alert("User Deleted", templates.AlertSuccess), datastar.WithSelector("body"),
-		datastar.WithModePrepend(),
-	)
-	sse.ExecuteScript("document.querySelector('#alert').toast()")
-	sse.RemoveElement("#user_" + userId)
 }
 
 func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {

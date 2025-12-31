@@ -3,11 +3,8 @@ package admin_common
 import (
 	"context"
 	"github.com/oexza/Orisun/orisun"
-	"net/http"
-	"sync"
-
-	"github.com/starfederation/datastar-go/datastar"
 	"golang.org/x/crypto/bcrypt"
+	"net/http"
 )
 
 type DB interface {
@@ -44,32 +41,6 @@ type PublishRequest struct {
 }
 
 type PublishToPubSubType = func(ctx context.Context, req *PublishRequest) error
-
-var sseConnections map[string]*datastar.ServerSentEventGenerator = map[string]*datastar.ServerSentEventGenerator{}
-var sseConnectionsMutex sync.RWMutex
-
-func GetOrCreateSSEConnection(w http.ResponseWriter, r *http.Request) (*datastar.ServerSentEventGenerator, string) {
-	tabId := r.Context().Value(orisun.DatastarTabCookieKey).(orisun.DatastarTabCookieKeyType).String()
-	sseConnectionsMutex.Lock()
-	defer sseConnectionsMutex.Unlock()
-
-	sse := sseConnections[tabId]
-	if sse != nil {
-		return sse, tabId
-	}
-	sse = datastar.NewSSE(w, r, datastar.WithCompression())
-	sseConnections[tabId] = sse
-
-	// Set up cleanup when context closes
-	go func() {
-		<-r.Context().Done()
-		sseConnectionsMutex.Lock()
-		defer sseConnectionsMutex.Unlock()
-		delete(sseConnections, tabId)
-	}()
-
-	return sse, tabId
-}
 
 func HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

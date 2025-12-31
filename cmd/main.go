@@ -557,12 +557,39 @@ func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 
 func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	authenticator *admin.Authenticator, adminDB common.DB, logger l.Logger) {
+	// Initialize OpenTelemetry
+	var otelShutdown func(context.Context) error
+	if config.OpenTelemetry.Enabled {
+		serviceName := config.OpenTelemetry.ServiceName
+		if serviceName == "" {
+			serviceName = "orisun"
+		}
+		var err error
+		otelShutdown, err = admin.InitTracer(serviceName, config.OpenTelemetry.Endpoint, logger)
+		if err != nil {
+			logger.Errorf("Failed to initialize OpenTelemetry: %v", err)
+		}
+		if otelShutdown != nil {
+			defer func() {
+				if err := otelShutdown(context.Background()); err != nil {
+					logger.Errorf("Failed to shutdown OpenTelemetry: %v", err)
+				}
+			}()
+		}
+	}
+
 	grpcServer := grpc.NewServer(
 		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
-		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
-		grpc.StreamInterceptor(admin.StreamAuthInterceptor(authenticator, logger)),
-		grpc.ChainUnaryInterceptor(recoveryInterceptor(logger)),
-		grpc.ChainStreamInterceptor(streamErrorInterceptor(logger)),
+		grpc.ChainUnaryInterceptor(
+			admin.UnaryTracingInterceptor(logger),
+			admin.UnaryAuthInterceptor(authenticator, logger),
+			recoveryInterceptor(logger),
+		),
+		grpc.ChainStreamInterceptor(
+			admin.StreamTracingInterceptor(logger),
+			admin.StreamAuthInterceptor(authenticator, logger),
+			streamErrorInterceptor(logger),
+		),
 		grpc.ConnectionTimeout(config.Grpc.ConnectionTimeout),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    config.Grpc.KeepAliveTime,
