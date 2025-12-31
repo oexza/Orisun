@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.7
 // 	protoc        v6.32.0
-// source: admin.proto
+// source: orisun/admin.proto
 
 package orisun
 
@@ -37,7 +37,7 @@ type AdminUser struct {
 
 func (x *AdminUser) Reset() {
 	*x = AdminUser{}
-	mi := &file_admin_proto_msgTypes[0]
+	mi := &file_orisun_admin_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -49,7 +49,7 @@ func (x *AdminUser) String() string {
 func (*AdminUser) ProtoMessage() {}
 
 func (x *AdminUser) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[0]
+	mi := &file_orisun_admin_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,7 +62,7 @@ func (x *AdminUser) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminUser.ProtoReflect.Descriptor instead.
 func (*AdminUser) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{0}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AdminUser) GetUserId() string {
@@ -120,7 +120,7 @@ type CreateUserRequest struct {
 
 func (x *CreateUserRequest) Reset() {
 	*x = CreateUserRequest{}
-	mi := &file_admin_proto_msgTypes[1]
+	mi := &file_orisun_admin_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -132,7 +132,7 @@ func (x *CreateUserRequest) String() string {
 func (*CreateUserRequest) ProtoMessage() {}
 
 func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[1]
+	mi := &file_orisun_admin_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -145,7 +145,7 @@ func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
 func (*CreateUserRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{1}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateUserRequest) GetName() string {
@@ -186,7 +186,7 @@ type CreateUserResponse struct {
 
 func (x *CreateUserResponse) Reset() {
 	*x = CreateUserResponse{}
-	mi := &file_admin_proto_msgTypes[2]
+	mi := &file_orisun_admin_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +198,7 @@ func (x *CreateUserResponse) String() string {
 func (*CreateUserResponse) ProtoMessage() {}
 
 func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[2]
+	mi := &file_orisun_admin_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +211,7 @@ func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserResponse.ProtoReflect.Descriptor instead.
 func (*CreateUserResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{2}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateUserResponse) GetUser() *AdminUser {
@@ -231,7 +231,7 @@ type DeleteUserRequest struct {
 
 func (x *DeleteUserRequest) Reset() {
 	*x = DeleteUserRequest{}
-	mi := &file_admin_proto_msgTypes[3]
+	mi := &file_orisun_admin_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -243,7 +243,7 @@ func (x *DeleteUserRequest) String() string {
 func (*DeleteUserRequest) ProtoMessage() {}
 
 func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[3]
+	mi := &file_orisun_admin_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -256,7 +256,7 @@ func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteUserRequest.ProtoReflect.Descriptor instead.
 func (*DeleteUserRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{3}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DeleteUserRequest) GetUserId() string {
@@ -276,7 +276,7 @@ type DeleteUserResponse struct {
 
 func (x *DeleteUserResponse) Reset() {
 	*x = DeleteUserResponse{}
-	mi := &file_admin_proto_msgTypes[4]
+	mi := &file_orisun_admin_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +288,7 @@ func (x *DeleteUserResponse) String() string {
 func (*DeleteUserResponse) ProtoMessage() {}
 
 func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[4]
+	mi := &file_orisun_admin_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +301,7 @@ func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteUserResponse.ProtoReflect.Descriptor instead.
 func (*DeleteUserResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{4}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DeleteUserResponse) GetSuccess() bool {
@@ -323,7 +323,7 @@ type ChangePasswordRequest struct {
 
 func (x *ChangePasswordRequest) Reset() {
 	*x = ChangePasswordRequest{}
-	mi := &file_admin_proto_msgTypes[5]
+	mi := &file_orisun_admin_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +335,7 @@ func (x *ChangePasswordRequest) String() string {
 func (*ChangePasswordRequest) ProtoMessage() {}
 
 func (x *ChangePasswordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[5]
+	mi := &file_orisun_admin_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +348,7 @@ func (x *ChangePasswordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangePasswordRequest.ProtoReflect.Descriptor instead.
 func (*ChangePasswordRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{5}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ChangePasswordRequest) GetUserId() string {
@@ -382,7 +382,7 @@ type ChangePasswordResponse struct {
 
 func (x *ChangePasswordResponse) Reset() {
 	*x = ChangePasswordResponse{}
-	mi := &file_admin_proto_msgTypes[6]
+	mi := &file_orisun_admin_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -394,7 +394,7 @@ func (x *ChangePasswordResponse) String() string {
 func (*ChangePasswordResponse) ProtoMessage() {}
 
 func (x *ChangePasswordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[6]
+	mi := &file_orisun_admin_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -407,7 +407,7 @@ func (x *ChangePasswordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangePasswordResponse.ProtoReflect.Descriptor instead.
 func (*ChangePasswordResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{6}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ChangePasswordResponse) GetSuccess() bool {
@@ -426,7 +426,7 @@ type ListUsersRequest struct {
 
 func (x *ListUsersRequest) Reset() {
 	*x = ListUsersRequest{}
-	mi := &file_admin_proto_msgTypes[7]
+	mi := &file_orisun_admin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -438,7 +438,7 @@ func (x *ListUsersRequest) String() string {
 func (*ListUsersRequest) ProtoMessage() {}
 
 func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[7]
+	mi := &file_orisun_admin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +451,7 @@ func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListUsersRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{7}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{7}
 }
 
 // ListUsersResponse returns list of users
@@ -464,7 +464,7 @@ type ListUsersResponse struct {
 
 func (x *ListUsersResponse) Reset() {
 	*x = ListUsersResponse{}
-	mi := &file_admin_proto_msgTypes[8]
+	mi := &file_orisun_admin_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +476,7 @@ func (x *ListUsersResponse) String() string {
 func (*ListUsersResponse) ProtoMessage() {}
 
 func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[8]
+	mi := &file_orisun_admin_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +489,7 @@ func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListUsersResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{8}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListUsersResponse) GetUsers() []*AdminUser {
@@ -510,7 +510,7 @@ type ValidateCredentialsRequest struct {
 
 func (x *ValidateCredentialsRequest) Reset() {
 	*x = ValidateCredentialsRequest{}
-	mi := &file_admin_proto_msgTypes[9]
+	mi := &file_orisun_admin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +522,7 @@ func (x *ValidateCredentialsRequest) String() string {
 func (*ValidateCredentialsRequest) ProtoMessage() {}
 
 func (x *ValidateCredentialsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[9]
+	mi := &file_orisun_admin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +535,7 @@ func (x *ValidateCredentialsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateCredentialsRequest.ProtoReflect.Descriptor instead.
 func (*ValidateCredentialsRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{9}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ValidateCredentialsRequest) GetUsername() string {
@@ -563,7 +563,7 @@ type ValidateCredentialsResponse struct {
 
 func (x *ValidateCredentialsResponse) Reset() {
 	*x = ValidateCredentialsResponse{}
-	mi := &file_admin_proto_msgTypes[10]
+	mi := &file_orisun_admin_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -575,7 +575,7 @@ func (x *ValidateCredentialsResponse) String() string {
 func (*ValidateCredentialsResponse) ProtoMessage() {}
 
 func (x *ValidateCredentialsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[10]
+	mi := &file_orisun_admin_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -588,7 +588,7 @@ func (x *ValidateCredentialsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateCredentialsResponse.ProtoReflect.Descriptor instead.
 func (*ValidateCredentialsResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{10}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ValidateCredentialsResponse) GetSuccess() bool {
@@ -614,7 +614,7 @@ type GetUserCountRequest struct {
 
 func (x *GetUserCountRequest) Reset() {
 	*x = GetUserCountRequest{}
-	mi := &file_admin_proto_msgTypes[11]
+	mi := &file_orisun_admin_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -626,7 +626,7 @@ func (x *GetUserCountRequest) String() string {
 func (*GetUserCountRequest) ProtoMessage() {}
 
 func (x *GetUserCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[11]
+	mi := &file_orisun_admin_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -639,7 +639,7 @@ func (x *GetUserCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserCountRequest.ProtoReflect.Descriptor instead.
 func (*GetUserCountRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{11}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{11}
 }
 
 // GetUserCountResponse returns user count
@@ -652,7 +652,7 @@ type GetUserCountResponse struct {
 
 func (x *GetUserCountResponse) Reset() {
 	*x = GetUserCountResponse{}
-	mi := &file_admin_proto_msgTypes[12]
+	mi := &file_orisun_admin_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +664,7 @@ func (x *GetUserCountResponse) String() string {
 func (*GetUserCountResponse) ProtoMessage() {}
 
 func (x *GetUserCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[12]
+	mi := &file_orisun_admin_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +677,7 @@ func (x *GetUserCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserCountResponse.ProtoReflect.Descriptor instead.
 func (*GetUserCountResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{12}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetUserCountResponse) GetCount() int64 {
@@ -697,7 +697,7 @@ type GetEventCountRequest struct {
 
 func (x *GetEventCountRequest) Reset() {
 	*x = GetEventCountRequest{}
-	mi := &file_admin_proto_msgTypes[13]
+	mi := &file_orisun_admin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +709,7 @@ func (x *GetEventCountRequest) String() string {
 func (*GetEventCountRequest) ProtoMessage() {}
 
 func (x *GetEventCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[13]
+	mi := &file_orisun_admin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +722,7 @@ func (x *GetEventCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventCountRequest.ProtoReflect.Descriptor instead.
 func (*GetEventCountRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{13}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetEventCountRequest) GetBoundary() string {
@@ -742,7 +742,7 @@ type GetEventCountResponse struct {
 
 func (x *GetEventCountResponse) Reset() {
 	*x = GetEventCountResponse{}
-	mi := &file_admin_proto_msgTypes[14]
+	mi := &file_orisun_admin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -754,7 +754,7 @@ func (x *GetEventCountResponse) String() string {
 func (*GetEventCountResponse) ProtoMessage() {}
 
 func (x *GetEventCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[14]
+	mi := &file_orisun_admin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -767,7 +767,7 @@ func (x *GetEventCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventCountResponse.ProtoReflect.Descriptor instead.
 func (*GetEventCountResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{14}
+	return file_orisun_admin_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetEventCountResponse) GetCount() int64 {
@@ -777,11 +777,11 @@ func (x *GetEventCountResponse) GetCount() int64 {
 	return 0
 }
 
-var File_admin_proto protoreflect.FileDescriptor
+var File_orisun_admin_proto protoreflect.FileDescriptor
 
-const file_admin_proto_rawDesc = "" +
+const file_orisun_admin_proto_rawDesc = "" +
 	"\n" +
-	"\vadmin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
+	"\x12orisun/admin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
 	"\tAdminUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -837,19 +837,19 @@ const file_admin_proto_rawDesc = "" +
 	"\x10com.orisun.adminZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
 
 var (
-	file_admin_proto_rawDescOnce sync.Once
-	file_admin_proto_rawDescData []byte
+	file_orisun_admin_proto_rawDescOnce sync.Once
+	file_orisun_admin_proto_rawDescData []byte
 )
 
-func file_admin_proto_rawDescGZIP() []byte {
-	file_admin_proto_rawDescOnce.Do(func() {
-		file_admin_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)))
+func file_orisun_admin_proto_rawDescGZIP() []byte {
+	file_orisun_admin_proto_rawDescOnce.Do(func() {
+		file_orisun_admin_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_orisun_admin_proto_rawDesc), len(file_orisun_admin_proto_rawDesc)))
 	})
-	return file_admin_proto_rawDescData
+	return file_orisun_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_admin_proto_goTypes = []any{
+var file_orisun_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_orisun_admin_proto_goTypes = []any{
 	(*AdminUser)(nil),                   // 0: orisun.AdminUser
 	(*CreateUserRequest)(nil),           // 1: orisun.CreateUserRequest
 	(*CreateUserResponse)(nil),          // 2: orisun.CreateUserResponse
@@ -867,7 +867,7 @@ var file_admin_proto_goTypes = []any{
 	(*GetEventCountResponse)(nil),       // 14: orisun.GetEventCountResponse
 	(*timestamppb.Timestamp)(nil),       // 15: google.protobuf.Timestamp
 }
-var file_admin_proto_depIdxs = []int32{
+var file_orisun_admin_proto_depIdxs = []int32{
 	15, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
 	15, // 1: orisun.AdminUser.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: orisun.CreateUserResponse.user:type_name -> orisun.AdminUser
@@ -894,26 +894,26 @@ var file_admin_proto_depIdxs = []int32{
 	0,  // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_admin_proto_init() }
-func file_admin_proto_init() {
-	if File_admin_proto != nil {
+func init() { file_orisun_admin_proto_init() }
+func file_orisun_admin_proto_init() {
+	if File_orisun_admin_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orisun_admin_proto_rawDesc), len(file_orisun_admin_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_admin_proto_goTypes,
-		DependencyIndexes: file_admin_proto_depIdxs,
-		MessageInfos:      file_admin_proto_msgTypes,
+		GoTypes:           file_orisun_admin_proto_goTypes,
+		DependencyIndexes: file_orisun_admin_proto_depIdxs,
+		MessageInfos:      file_orisun_admin_proto_msgTypes,
 	}.Build()
-	File_admin_proto = out.File
-	file_admin_proto_goTypes = nil
-	file_admin_proto_depIdxs = nil
+	File_orisun_admin_proto = out.File
+	file_orisun_admin_proto_goTypes = nil
+	file_orisun_admin_proto_depIdxs = nil
 }
