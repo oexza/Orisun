@@ -45,4 +45,4 @@ cmd/data
 */.idea/*.xml
 clients/java/.idea/
 clients/php/.idea/
-/clients/node/.idea/
+orisun/main

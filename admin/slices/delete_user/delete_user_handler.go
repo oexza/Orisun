@@ -56,18 +56,38 @@ func (dUH *DeleteUserHandler) HandleUserDelete(w http.ResponseWriter, r *http.Re
 }
 
 func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
+	return DeleteUser(
+		ctx,
+		userId,
+		currentUserId,
+		dUH.boundary,
+		dUH.saveEvents,
+		dUH.getEvents,
+		dUH.logger,
+	)
+}
+
+func DeleteUser(
+	ctx context.Context,
+	userId string,
+	currentUserId string,
+	boundary string,
+	saveEvents admin_common.SaveEventsType,
+	getEvents admin_common.GetEventsType,
+	logger l.Logger,
+) error {
 	userId = strings.TrimSpace(userId)
 	currentUserId = strings.TrimSpace(currentUserId)
-	dUH.logger.Debug("Current Userrrr: " + currentUserId)
+	logger.Debug("Current Userrrr: " + currentUserId)
 
 	if userId == currentUserId {
 		return fmt.Errorf("You cannot delete your own account")
 	}
-	dUH.logger.Infof("Deleting user: %s", userId)
-	evts, err := dUH.getEvents(
+	logger.Infof("Deleting user: %s", userId)
+	evts, err := getEvents(
 		ctx,
 		&eventstore.GetEventsRequest{
-			Boundary:  dUH.boundary,
+			Boundary:  boundary,
 			Count:     2,
 			Direction: eventstore.Direction_DESC,
 			Query: &eventstore.Query{
@@ -115,8 +135,8 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 		}
 		lastExpectedVersion := evts.Events[len(evts.Events)-1].Position
 
-		_, err = dUH.saveEvents(ctx, &eventstore.SaveEventsRequest{
-			Boundary: dUH.boundary,
+		_, err = saveEvents(ctx, &eventstore.SaveEventsRequest{
+			Boundary: boundary,
 			Query: &eventstore.SaveQuery{
 				ExpectedPosition: lastExpectedVersion,
 				SubsetQuery: &eventstore.Query{
@@ -140,7 +160,7 @@ func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, cur
 				EventId:   id.String(),
 				EventType: events.EventTypeUserDeleted,
 				Data:      string(eventData),
-				Metadata:  "{\"schema\":\"" + dUH.boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
+				Metadata:  "{\"schema\":\"" + boundary + "\",\"createdBy\":\"" + id.String() + "\"}",
 			}},
 		})
 

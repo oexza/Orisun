@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package orisun;
+
+option go_package = "github.com/oexza/Orisun/orisun";
+option java_package = "com.orisun.admin";
+
+import "google/protobuf/timestamp.proto";
+
+// AdminUser represents a user in the system
+message AdminUser {
+  string user_id = 1;
+  string name = 2;
+  string username = 3;
+  repeated string roles = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// CreateUserRequest creates a new user
+message CreateUserRequest {
+  string name = 1;
+  string username = 2;
+  string password = 3;
+  repeated string roles = 4;
+}
+
+// CreateUserResponse returns the created user
+message CreateUserResponse {
+  AdminUser user = 1;
+}
+
+// DeleteUserRequest deletes a user by ID
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+// DeleteUserResponse indicates success
+message DeleteUserResponse {
+  bool success = 1;
+}
+
+// ChangePasswordRequest changes a user's password
+message ChangePasswordRequest {
+  string user_id = 1;
+  string current_password = 2;
+  string new_password = 3;
+}
+
+// ChangePasswordResponse indicates success
+message ChangePasswordResponse {
+  bool success = 1;
+}
+
+// ListUsersRequest lists all users
+message ListUsersRequest {
+  // Empty for now, could add pagination/filtering later
+}
+
+// ListUsersResponse returns list of users
+message ListUsersResponse {
+  repeated AdminUser users = 1;
+}
+
+// ValidateCredentialsRequest validates username/password
+message ValidateCredentialsRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// ValidateCredentialsResponse returns validation result
+message ValidateCredentialsResponse {
+  bool success = 1;
+  AdminUser user = 2;
+}
+
+// GetUserCountRequest gets total user count
+message GetUserCountRequest {
+  // Empty
+}
+
+// GetUserCountResponse returns user count
+message GetUserCountResponse {
+  int64 count = 1;
+}
+
+// GetEventCountRequest gets event count for a boundary
+message GetEventCountRequest {
+  string boundary = 1;
+}
+
+// GetEventCountResponse returns event count
+message GetEventCountResponse {
+  int64 count = 1;
+}
+
+// Admin service provides user management and administrative operations
+service Admin {
+  // User Management
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Authentication
+  rpc ValidateCredentials(ValidateCredentialsRequest) returns (ValidateCredentialsResponse);
+
+  // Statistics
+  rpc GetUserCount(GetUserCountRequest) returns (GetUserCountResponse);
+  rpc GetEventCount(GetEventCountRequest) returns (GetEventCountResponse);
+}

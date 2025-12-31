@@ -108,8 +108,8 @@ func (s *ChangePasswordHandler) HandleChangePassword(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Call the changePassword function with concurrent event fetching
-	err := changePassword(
+	// Call the ChangePassword function with concurrent event fetching
+	err := ChangePassword(
 		r.Context(),
 		changePasswordRequest.CurrentPassword,
 		changePasswordRequest.NewPassword,
@@ -140,7 +140,7 @@ func (s *ChangePasswordHandler) HandleChangePassword(w http.ResponseWriter, r *h
 	sse.MarshalAndPatchSignals(response)
 }
 
-func changePassword(
+func ChangePassword(
 	ctx context.Context,
 	currentPassword, newPassword string,
 	boundary string,

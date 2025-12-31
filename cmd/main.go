@@ -9,15 +9,10 @@ import (
 	"fmt"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oexza/Orisun/admin"
-	changepassword "github.com/oexza/Orisun/admin/slices/change_password"
 	common "github.com/oexza/Orisun/admin/slices/common"
 	"github.com/oexza/Orisun/admin/slices/create_user"
-	"github.com/oexza/Orisun/admin/slices/dashboard"
 	"github.com/oexza/Orisun/admin/slices/dashboard/event_count"
 	"github.com/oexza/Orisun/admin/slices/dashboard/user_count"
-	"github.com/oexza/Orisun/admin/slices/delete_user"
-	"github.com/oexza/Orisun/admin/slices/login"
-	"github.com/oexza/Orisun/admin/slices/users_page"
 	up "github.com/oexza/Orisun/admin/slices/users_projection"
 	c "github.com/oexza/Orisun/config"
 	l "github.com/oexza/Orisun/logging"
@@ -38,21 +33,6 @@ import (
 	"runtime/debug"
 	"time"
 )
-
-// LoginAuthenticatorAdapter bridges admin.Authenticator to login.Authenticator
-type LoginAuthenticatorAdapter struct {
-	authenticator *admin.Authenticator
-	logger        l.Logger
-}
-
-// ValidateCredentials implements the login.Authenticator interface
-func (adapter *LoginAuthenticatorAdapter) ValidateCredentials(ctx context.Context, username string, password string) (orisun.User, error) {
-	user, _, err := adapter.authenticator.ValidateCredentials(ctx, username, password)
-	if err != nil {
-		return orisun.User{}, err
-	}
-	return user, nil
-}
 
 // ensureJetStreamStreamIsProperlySetup ensures that a JetStream stream with the given name exists.
 // If the stream doesn't exist, it creates a new one with default configuration.
@@ -338,7 +318,7 @@ func main() {
 		AppLogger,
 	)
 
-	//create default user
+	// Create default user
 	err := createDefaultUser(
 		ctx,
 		config.Admin.Boundary,
@@ -349,103 +329,7 @@ func main() {
 		AppLogger.Infof("%v", err)
 	}
 
-	// Start admin server
-	createUserCommandHandler := create_user.NewCreateUserHandler(
-		AppLogger,
-		config.Admin.Boundary,
-		eventStore.SaveEvents,
-		eventStore.GetEvents,
-	)
-	dashboardHandler := dashboard.NewDashboardHandler(
-		AppLogger,
-		config.GetBoundaryNames(),
-		getUserCount,
-		func(consumerName string, ctx context.Context, messageHandler *orisun.MessageHandler[user_count.UserCountReadModel]) error {
-			handler := orisun.NewMessageHandler[common.PublishRequest](ctx)
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						AppLogger.Debug("Context done, stopping...")
-						return // Exit the goroutine completely
-					default:
-						// Only try to receive if context is not done
-						event, err := handler.Recv()
-						if err != nil {
-							AppLogger.Errorf("Error receiving: %v", err)
-							return
-						}
-						userReadModel := user_count.UserCountReadModel{}
-						json.Unmarshal(event.Data, &userReadModel)
-						AppLogger.Debugf("User count updated is: %v", string(event.Data))
-						messageHandler.Send(&userReadModel)
-					}
-				}
-			}()
-
-			count, err := getUserCount()
-			if err != nil && count != (user_count.UserCountReadModel{}) {
-				messageHandler.Send(&count)
-			}
-			AppLogger.Infof("Subscribe To user count called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
-
-			err = setupJetStreamConsumer(ctx, js, pubsubStreamName, consumerName, user_count.UserCountPubSubscription, handler, AppLogger)
-			if err != nil {
-				return fmt.Errorf("failed to subscribe: %v", err)
-			}
-			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", user_count.UserCountPubSubscription, consumerName)
-			return nil
-		},
-		getEventCount,
-		func(consumerName string, boundary string, ctx context.Context, messageHandler *orisun.MessageHandler[event_count.EventCountReadModel]) error {
-			handler := orisun.NewMessageHandler[common.PublishRequest](ctx)
-			go func(boundary string, logger l.Logger) {
-				for {
-					select {
-					case <-ctx.Done():
-						logger.Debug("Context done, stopping...")
-						return // Exit the goroutine completely
-					default:
-						// Only try to receive if context is not done
-						event, err := handler.Recv()
-						if err != nil {
-							if ctx.Err() != nil {
-								// Context is done, exit gracefully
-								return
-							}
-							logger.Errorf("Error receiving: %v", err)
-							// Add a small sleep to prevent CPU spinning on persistent errors
-							time.Sleep(100 * time.Millisecond)
-							continue
-						}
-						eventReadModel := event_count.EventCountReadModel{}
-						json.Unmarshal(event.Data, &eventReadModel)
-
-						//Check if the boundary from the event is the same with the current boundary
-						if eventReadModel.Boundary == boundary {
-							messageHandler.Send(&eventReadModel)
-							AppLogger.Debugf("Event count updated is: %v", string(event.Data))
-
-						}
-					}
-				}
-			}(boundary, AppLogger)
-
-			count, err := getEventCount(boundary)
-			if err != nil && count != (event_count.EventCountReadModel{}) {
-				messageHandler.Send(&count)
-			}
-			AppLogger.Infof("Subscribe To event count called with subject: %s, consumer_name: %s", event_count.EventCountPubSubscription, consumerName)
-
-			err = setupJetStreamConsumer(ctx, js, pubsubStreamName, consumerName, event_count.EventCountPubSubscription, handler, AppLogger)
-			if err != nil {
-				return fmt.Errorf("failed to subscribe: %v", err)
-			}
-			AppLogger.Infof("setupJetStreamConsumer called with subject: %s, consumer_name: %s", event_count.EventCountPubSubscription, consumerName)
-			return nil
-		},
-	)
-
+	// Create authenticator for gRPC authentication
 	authenticator := admin.NewAuthenticator(
 		eventStore.GetEvents,
 		AppLogger,
@@ -453,62 +337,8 @@ func main() {
 		adminDB.GetUserByUsername,
 	)
 
-	// Create an adapter to bridge admin.Authenticator to login.Authenticator
-	loginAuthenticator := &LoginAuthenticatorAdapter{
-		authenticator: authenticator,
-		logger:        AppLogger,
-	}
-
-	loginHandler := login.NewLoginHandler(
-		AppLogger,
-		config.Admin.Boundary,
-		loginAuthenticator,
-	)
-
-	deleteUserHandler := delete_user.NewDeleteUserHandler(
-		AppLogger,
-		eventStore.SaveEvents,
-		eventStore.GetEvents,
-		config.Admin.Boundary,
-	)
-
-	usersPageHandler := users_page.NewUsersPageHandler(
-		AppLogger,
-		config.Admin.Boundary,
-		adminDB.ListAdminUsers,
-		func(
-			ctx context.Context,
-			boundary string,
-			subscriberName string,
-			pos *pb.Position,
-			query *pb.Query,
-			handler *orisun.MessageHandler[pb.Event]) error {
-			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, query, handler,
-			)
-		},
-	)
-
-	changePasswordHandler := changepassword.NewChangePasswordHandler(
-		AppLogger,
-		config.Admin.Boundary,
-		eventStore.SaveEvents,
-		eventStore.GetEvents,
-	)
-
-	startAdminServer(
-		config,
-		createUserCommandHandler,
-		dashboardHandler,
-		loginHandler,
-		deleteUserHandler,
-		usersPageHandler,
-		changePasswordHandler,
-		AppLogger,
-	)
-
 	// Start gRPC server
-	startGRPCServer(config, eventStore, authenticator, AppLogger)
+	startGRPCServer(config, eventStore, authenticator, adminDB, AppLogger)
 }
 
 func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore, logger l.Logger) error {
@@ -725,43 +555,8 @@ func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
-func startAdminServer(
-	config c.AppConfig,
-	createUserHandler *create_user.CreateUserHandler,
-	dashboardHandler *dashboard.DashboardHandler,
-	loginHandler *login.LoginHandler,
-	deleteUserHandler *delete_user.DeleteUserHandler,
-	usersHandler *users_page.UsersPageHandler,
-	changePasswordHandler *changepassword.ChangePasswordHandler,
-	logger l.Logger) {
-	go func() {
-		adminServer, err := admin.NewAdminServer(
-			logger,
-			createUserHandler,
-			dashboardHandler,
-			loginHandler,
-			deleteUserHandler,
-			usersHandler,
-			changePasswordHandler,
-		)
-		if err != nil {
-			logger.Fatalf("Could not start admin server %v", err)
-		}
-		httpServer := &http.Server{
-			Addr:    fmt.Sprintf(":%s", config.Admin.Port),
-			Handler: adminServer,
-		}
-
-		logger.Infof("Starting admin server on port %s", config.Admin.Port)
-		if err := httpServer.ListenAndServe(); err != nil {
-			logger.Errorf("AdminConfig server error: %v", err)
-		}
-		logger.Infof("AdminConfig server started on port %s", config.Admin.Port)
-	}()
-}
-
 func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
-	authenticator *admin.Authenticator, logger l.Logger) {
+	authenticator *admin.Authenticator, adminDB common.DB, logger l.Logger) {
 	grpcServer := grpc.NewServer(
 		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
 		grpc.UnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)),
@@ -776,6 +571,18 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		grpc.MaxConcurrentStreams(config.Grpc.MaxConcurrentStreams),
 	)
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
+
+	// Register Admin service
+	grpcAdminServer := admin.NewGRPCAdminServer(
+		logger,
+		config.Admin.Boundary,
+		eventStore.GetEvents,
+		eventStore.SaveEvents,
+		adminDB.ListAdminUsers,
+		authenticator,
+	)
+	pb.RegisterAdminServer(grpcServer, grpcAdminServer)
+
 	if config.Grpc.EnableReflection {
 		logger.Infof("Enabling gRPC server reflection")
 		reflection.Register(grpcServer)

@@ -56,7 +56,7 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate credentials
-	user, err := s.login(
+	user, err := s.Login(
 		r.Context(),
 		store.Username,
 		store.Password,
@@ -92,11 +92,11 @@ func (s *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	sse.PatchElements(`<div id="message">` + `Login Succeded` + `</div>`)
 
-	// Redirect to users page after successful login
+	// Redirect to users page after successful Login
 	sse.Redirect("/dashboard")
 }
 
-func (s *LoginHandler) login(ctx context.Context, username, password string) (orisun.User, error) {
+func (s *LoginHandler) Login(ctx context.Context, username, password string) (orisun.User, error) {
 	// Validate credentials
 	user, err := s.authenticator.ValidateCredentials(ctx, username, password)
 	if err != nil {
