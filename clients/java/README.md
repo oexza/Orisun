@@ -18,45 +18,58 @@ A Java client library for interacting with the Orisun Event Store, providing a s
 
 ## Installation
 
-### From Maven Central (Coming Soon)
+### Build from Source
 
-```xml
-<dependency>
-    <groupId>com.orisunlabs</groupId>
-    <artifactId>orisun-java-client</artifactId>
-    <version>0.0.1</version>
-</dependency>
-```
-
-### From GitHub Packages
-
-Add the GitHub Packages repository to your `pom.xml`:
-
-```xml
-<repositories>
-    <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/oexza/orisun</url>
-    </repository>
-</repositories>
-```
-
-Then add the dependency:
-
-```xml
-<dependency>
-    <groupId>com.orisunlabs</groupId>
-    <artifactId>orisun-java-client</artifactId>
-    <version>0.0.1</version>
-</dependency>
-```
-
-### From Source
+The recommended way to use the Java client is to build it from source:
 
 ```bash
-git clone https://github.com/oexza/orisun.git
-cd orisun/clients/java
+# Clone the repository
+git clone https://github.com/oexza/Orisun.git
+cd Orisun/clients/java
+
+# Build with Gradle
 ./gradlew build
+
+# Install to local Maven repository
+./gradlew publishToMavenLocal
+```
+
+Then add to your `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>com.orisunlabs</groupId>
+    <artifactId>orisun-java-client</artifactId>
+    <version>0.0.1</version>
+</dependency>
+```
+
+Or for Gradle:
+
+```groovy
+implementation 'com.orisunlabs:orisun-java-client:0.0.1'
+```
+
+### From JitPack (Alternative)
+
+JitPack can build the client directly from GitHub:
+
+```xml
+<repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+</repository>
+
+<dependency>
+    <groupId>com.github.oexza</groupId>
+    <artifactId>Orisun</artifactId>
+    <version>main-SNAPSHOT</version>
+</dependency>
+```
+
+Note: When using JitPack, you'll need to specify the full package path in your imports:
+```java
+import com.oexza.orisun.clients.java.*;
 ```
 
 ## Quick Start
