@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
-	"github.com/goccy/go-json"
-	nats2 "github.com/oexza/Orisun/nats"
-
 	"fmt"
+	"github.com/goccy/go-json"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oexza/Orisun/admin"
 	common "github.com/oexza/Orisun/admin/slices/common"
@@ -16,12 +16,14 @@ import (
 	up "github.com/oexza/Orisun/admin/slices/users_projection"
 	c "github.com/oexza/Orisun/config"
 	l "github.com/oexza/Orisun/logging"
+	nats2 "github.com/oexza/Orisun/nats"
 	"github.com/oexza/Orisun/orisun"
 	pb "github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
@@ -29,6 +31,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -555,6 +558,48 @@ func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
+// loadTLSCredentials creates TLS credentials from the configured certificate files
+func loadTLSCredentials(config c.AppConfig, logger l.Logger) (credentials.TransportCredentials, error) {
+	// Load server certificate and key
+	cert, err := tls.LoadX509KeyPair(config.Grpc.TLS.CertFile, config.Grpc.TLS.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load server certificate: %w", err)
+	}
+
+	// Create TLS config
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// If client authentication is required, load CA certificate
+	if config.Grpc.TLS.ClientAuthRequired && config.Grpc.TLS.CAFile != "" {
+		caCert, err := os.ReadFile(config.Grpc.TLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+
+		tlsConfig.ClientCAs = certPool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+
+	// Create credentials from TLS config
+	creds := credentials.NewTLS(tlsConfig)
+
+	logger.Infof("TLS enabled - Cert: %s, Key: %s, ClientAuth: %v",
+		config.Grpc.TLS.CertFile,
+		config.Grpc.TLS.KeyFile,
+		config.Grpc.TLS.ClientAuthRequired,
+	)
+
+	return creds, nil
+}
+
 func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	authenticator *admin.Authenticator, adminDB common.DB, logger l.Logger) {
 	// Initialize OpenTelemetry
@@ -578,8 +623,23 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		}
 	}
 
-	grpcServer := grpc.NewServer(
-		// grpc.ChainUnaryInterceptor(admin.UnaryPerformanceInterceptor()),
+	// Prepare gRPC server options
+	var serverOpts []grpc.ServerOption
+
+	// Add TLS credentials if enabled
+	if config.Grpc.TLS.Enabled {
+		tlsCreds, err := loadTLSCredentials(config, logger)
+		if err != nil {
+			logger.Fatalf("Failed to load TLS credentials: %v", err)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(tlsCreds))
+		logger.Infof("gRPC server running in TLS mode")
+	} else {
+		logger.Infof("gRPC server running in insecure mode (TLS disabled)")
+	}
+
+	// Add interceptors and other options
+	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(
 			admin.UnaryTracingInterceptor(logger),
 			admin.UnaryAuthInterceptor(authenticator, logger),
@@ -597,6 +657,8 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		}),
 		grpc.MaxConcurrentStreams(config.Grpc.MaxConcurrentStreams),
 	)
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	pb.RegisterEventStoreServer(grpcServer, eventStore)
 
 	// Register Admin service
@@ -620,7 +682,7 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		logger.Fatalf("Failed to listen: %v", err)
 	}
 
-	logger.Infof("Grpc Server listening on port %s", config.Grpc.Port)
+	logger.Infof("gRPC server listening on port %s (TLS: %v)", config.Grpc.Port, config.Grpc.TLS.Enabled)
 	if err := grpcServer.Serve(lis); err != nil {
 		logger.Fatalf("Failed to serve: %v", err)
 	}

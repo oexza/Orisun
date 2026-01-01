@@ -492,6 +492,11 @@ Orisun can be configured using environment variables:
 | `ORISUN_OTEL_ENABLED` | Enable OpenTelemetry tracing | false | No |
 | `ORISUN_OTEL_ENDPOINT` | OTLP gRPC endpoint for tracing | localhost:4317 | No |
 | `ORISUN_OTEL_SERVICE_NAME` | Service name for traces | orisun | No |
+| `ORISUN_GRPC_TLS_ENABLED` | Enable TLS for gRPC server | false | No |
+| `ORISUN_GRPC_TLS_CERT_FILE` | Path to TLS certificate file | /etc/orisun/tls/server.crt | No |
+| `ORISUN_GRPC_TLS_KEY_FILE` | Path to TLS private key file | /etc/orisun/tls/server.key | No |
+| `ORISUN_GRPC_TLS_CA_FILE` | Path to CA certificate (for client auth) | /etc/orisun/tls/ca.crt | No |
+| `ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED` | Require client certificates | false | No |
 
 ### Running Modes
 
@@ -622,6 +627,115 @@ For production Kubernetes deployments, consider:
 - PersistentVolumes for NATS data directories
 - Horizontal Pod Autoscaler for scaling based on load
 - Network policies for security between pods
+
+## TLS Configuration
+
+Orisun supports TLS for secure gRPC connections. By default, TLS is disabled, but it's recommended for production deployments.
+
+### Enabling TLS
+
+To enable TLS, set the following environment variables:
+
+```bash
+ORISUN_GRPC_TLS_ENABLED=true \
+ORISUN_GRPC_TLS_CERT_FILE=/path/to/server.crt \
+ORISUN_GRPC_TLS_KEY_FILE=/path/to/server.key \
+./orisun-darwin-arm64
+```
+
+### Generating Self-Signed Certificates
+
+For development and testing, you can generate self-signed certificates:
+
+```bash
+# Generate a private key
+openssl genrsa -out server.key 2048
+
+# Generate a certificate signing request
+openssl req -new -key server.key -out server.csr \
+  -subj "/CN=orisun.local/O=Orisun/C=US"
+
+# Generate a self-signed certificate
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+```
+
+### TLS with Client Authentication
+
+For enhanced security, you can require clients to present certificates:
+
+```bash
+# Generate CA certificate
+openssl genrsa -out ca.key 2048
+openssl req -new -x509 -days 365 -key ca.key -out ca.crt \
+  -subj "/CN=OrisunCA/O=Orisun/C=US"
+
+# Generate server certificate signed by CA
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr \
+  -subj "/CN=orisun.local/O=Orisun/C=US"
+openssl x509 -req -days 365 -in server.csr -CA ca.crt -CAkey ca.key \
+  -CAcreateserial -out server.crt
+
+# Generate client certificate
+openssl genrsa -out client.key 2048
+openssl req -new -key client.key -out client.csr \
+  -subj "/CN=client/O=OrisunClient/C=US"
+openssl x509 -req -days 365 -in client.csr -CA ca.crt -CAkey ca.key \
+  -CAcreateserial -out client.crt
+
+# Start Orisun with client authentication
+ORISUN_GRPC_TLS_ENABLED=true \
+ORISUN_GRPC_TLS_CERT_FILE=/path/to/server.crt \
+ORISUN_GRPC_TLS_KEY_FILE=/path/to/server.key \
+ORISUN_GRPC_TLS_CA_FILE=/path/to/ca.crt \
+ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED=true \
+./orisun-darwin-arm64
+```
+
+### Connecting with TLS
+
+When TLS is enabled, clients must connect using secure credentials:
+
+**Using grpcurl with TLS (skip server verification for testing):**
+```bash
+grpcurl -insecure \
+  -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  localhost:5005 list
+```
+
+**Using grpcurl with TLS and CA verification:**
+```bash
+grpcurl \
+  -cacert /path/to/ca.crt \
+  -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  localhost:5005 list
+```
+
+**Using grpcurl with TLS and client certificate:**
+```bash
+grpcurl \
+  -cacert /path/to/ca.crt \
+  -cert /path/to/client.crt \
+  -key /path/to/client.key \
+  -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  localhost:5005 list
+```
+
+**Docker Compose with TLS:**
+```yaml
+version: '3.8'
+services:
+  orisun:
+    image: orexza/orisun:latest
+    environment:
+      ORISUN_GRPC_TLS_ENABLED: "true"
+      ORISUN_GRPC_TLS_CERT_FILE: /etc/orisun/tls/server.crt
+      ORISUN_GRPC_TLS_KEY_FILE: /etc/orisun/tls/server.key
+    volumes:
+      - ./tls:/etc/orisun/tls:ro
+    ports:
+      - "5005:5005"
+```
 
 ## Error Handling
 

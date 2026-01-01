@@ -40,6 +40,13 @@ grpc:
   readBufferSize: ${ORISUN_GRPC_READ_BUFFER_SIZE:65536}                    # 64KB
   keepaliveMinTime: ${ORISUN_GRPC_KEEPALIVE_MIN_TIME:5s}
   keepalivePermitWithoutStream: ${ORISUN_GRPC_KEEPALIVE_PERMIT_WITHOUT_STREAM:true}
+  # TLS configuration
+  tls:
+    enabled: ${ORISUN_GRPC_TLS_ENABLED:false}
+    certFile: ${ORISUN_GRPC_TLS_CERT_FILE:/etc/orisun/tls/server.crt}
+    keyFile: ${ORISUN_GRPC_TLS_KEY_FILE:/etc/orisun/tls/server.key}
+    caFile: ${ORISUN_GRPC_TLS_CA_FILE:/etc/orisun/tls/ca.crt}               # Optional: for client certificate authentication
+    clientAuthRequired: ${ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED:false}      # Require client certificates
 nats:
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}

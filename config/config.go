@@ -26,6 +26,13 @@ type AppConfig struct {
 		KeepAliveTime        time.Duration
 		KeepAliveTimeout     time.Duration
 		MaxConcurrentStreams uint32
+		TLS                  struct {
+			Enabled            bool
+			CertFile           string
+			KeyFile            string
+			CAFile             string
+			ClientAuthRequired bool
+		}
 	}
 
 	PollingPublisher struct {
