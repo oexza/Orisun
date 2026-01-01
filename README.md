@@ -13,12 +13,12 @@ Built for developers who need enterprise-grade event sourcing without the comple
 - **Production-Ready**: Built-in clustering, failover, and monitoring
 - **Developer Experience**: Clean APIs, comprehensive documentation, and intuitive tooling
 - **Batteries Included**: Everything you need in a single binary - no external dependencies required
-- **Pluggable Storage**: PostgreSQL (first implementation), with SQLite and other backends coming soon
+- **PostgreSQL Storage**: Production-ready PostgreSQL backend with full ACID compliance and transaction guarantees
 
 ### Key Features
 
 #### Core Event Sourcing
-- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees (SQLite and other storage backends coming soon)
+- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
 - **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
 - **Optimistic Concurrency**: Stream-based versioning with expected position checks
 - **Rich Event Querying**: Filter by stream, tags, event types, and global position
@@ -147,7 +147,7 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
 
 ### How It Works
 
-1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support (initial implementation - SQLite and other databases coming soon)
+1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support
 2. **Real-time Streaming**: NATS JetStream provides immediate event delivery to subscribers
 3. **Multi-tenancy**: Each boundary operates in its own database schema for isolation
 4. **Pluggable Backends**: Storage abstraction allows multiple database implementations

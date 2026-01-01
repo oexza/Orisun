@@ -16,8 +16,26 @@ A Go client for the Orisun event store, providing a simple and intuitive interfa
 
 ## Installation
 
+### Install from GitHub
+
 ```bash
-go get github.com/orisunlabs/orisun-go-client
+go get github.com/oexza/Orisun/clients/go
+```
+
+### Build from Source
+
+If you prefer to build from source or need the latest development version:
+
+```bash
+# Clone the repository
+git clone https://github.com/oexza/Orisun.git
+cd Orisun/clients/go
+
+# Build the client
+go build ./...
+
+# Or install it locally
+go install ./...
 ```
 
 ## Quick Start
@@ -30,7 +48,7 @@ import (
     "log"
     "time"
 
-    "github.com/orisunlabs/orisun-go-client/orisun"
+    "github.com/oexza/Orisun/clients/go/orisun"
 )
 
 func main() {

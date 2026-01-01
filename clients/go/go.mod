@@ -1,4 +1,4 @@
-module github.com/orisunlabs/orisun-go-client
+module github.com/oexza/Orisun/clients/go
 
 go 1.25.5
 
