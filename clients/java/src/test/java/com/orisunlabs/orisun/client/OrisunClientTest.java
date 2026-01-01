@@ -52,7 +52,6 @@ class OrisunClientTest {
 
     @AfterEach
     void tearDown() throws Exception {
-
         (client).close();
         if (server != null) {
             server.shutdownNow();
@@ -72,11 +71,6 @@ class OrisunClientTest {
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")
                         .build())
-                .setStream(
-                        Eventstore.SaveStreamQuery
-                                .newBuilder()
-                                .setName("user-123")
-                                .build())
                 .build();
 
         // Configure mock response
@@ -124,12 +118,7 @@ class OrisunClientTest {
                         .setEventId(eventId)
                         .setEventType("UserCreated")
                         .setData("{\"username\":\"test\"}")
-                        .build())
-                .setStream(
-                        Eventstore.SaveStreamQuery
-                                .newBuilder()
-                                .setName("user-123")
-                                .build()
+                        .build()
                 )
                 .build();
 

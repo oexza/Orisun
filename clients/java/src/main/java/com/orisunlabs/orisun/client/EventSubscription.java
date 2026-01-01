@@ -47,7 +47,7 @@ public class EventSubscription implements AutoCloseable {
             @Override
             public void onNext(Eventstore.Event event) {
                 if (!closed) {
-                    logger.debug("Received event: {} from stream: {}", event.getEventType(), event.getStreamId());
+                    logger.debug("Received event: {}", event.getEventType());
                     handler.onEvent(event);
                 }
             }
@@ -98,7 +98,6 @@ public class EventSubscription implements AutoCloseable {
 
     // Constructor for stream subscription
     EventSubscription(EventStoreGrpc.EventStoreStub stub,
-                      Eventstore.CatchUpSubscribeToStreamRequest request,
                       EventHandler handler,
                       int timeoutSeconds,
                       Logger logger,
@@ -117,7 +116,7 @@ public class EventSubscription implements AutoCloseable {
             @Override
             public void onNext(Eventstore.Event event) {
                 if (!closed) {
-                    logger.debug("Received event: {} from stream: {}", event.getEventType(), event.getStreamId());
+                    logger.debug("Received event: {}", event.getEventType());
                     handler.onEvent(event);
                 }
             }
@@ -162,8 +161,7 @@ public class EventSubscription implements AutoCloseable {
         });
 
         enhancedStub
-                .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS)
-                .catchUpSubscribeToStream(request, observer);
+                .withDeadlineAfter(timeoutSeconds, TimeUnit.SECONDS);
     }
 
     @Override

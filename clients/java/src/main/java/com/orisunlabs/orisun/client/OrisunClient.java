@@ -355,15 +355,15 @@ public class OrisunClient implements AutoCloseable {
         // Validate request
         RequestValidator.validateSaveEventsRequest(request);
 
-        logger.debug("Saving {} events to stream '{}' in boundary '{}'",
-                request.getEventsCount(), request.getStream().getName(), request.getBoundary());
+        logger.debug("Saving {} events in boundary '{}'",
+                request.getEventsCount(), request.getBoundary());
 
         try {
             Eventstore.WriteResult result = blockingStub
                     .saveEvents(request);
 
-            logger.info("Successfully saved {} events to stream '{}'",
-                    request.getEventsCount(), request.getStream().getName());
+            logger.info("Successfully saved {} events'",
+                    request.getEventsCount());
             return result;
 
         } catch (StatusRuntimeException e) {
@@ -455,25 +455,6 @@ public class OrisunClient implements AutoCloseable {
     }
 
     /**
-     * Subscribe to events from a specific stream
-     *
-     * @param request The subscription request
-     * @param handler The event handler
-     * @return The subscription
-     */
-    public EventSubscription subscribeToStream(Eventstore.CatchUpSubscribeToStreamRequest request,
-                                               EventSubscription.EventHandler handler) {
-        // Validate request
-        RequestValidator.validateSubscribeToStreamRequest(request);
-
-        logger.debug("Subscribing to stream '{}' in boundary '{}' with subscriber '{}'",
-                request.getStream(), request.getBoundary(), request.getSubscriberName());
-
-        return new EventSubscription(asyncStub, request, handler, defaultTimeoutSeconds, logger, tokenCache, username,
-                password);
-    }
-
-    /**
      * Ping the server to check connectivity
      *
      * @throws OrisunException if the ping fails
@@ -511,7 +492,6 @@ public class OrisunClient implements AutoCloseable {
         // Try to make a simple call to test connectivity
         getEvents(Eventstore.GetEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.GetStreamQuery.newBuilder().setName("health-check"))
                 .setCount(1)
                 .build());
 

@@ -56,8 +56,7 @@ public class IntegrationExample {
         // Create order events
         Eventstore.SaveEventsRequest orderRequest = Eventstore.SaveEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.SaveStreamQuery.newBuilder()
-                        .setName(orderStreamName)
+                .setQuery(Eventstore.SaveQuery.newBuilder()
                         .setExpectedPosition(Eventstore.Position.newBuilder()
                                 .setCommitPosition(-1)
                                 .setPreparePosition(-1))
@@ -74,9 +73,6 @@ public class IntegrationExample {
         // Read back the order events
         Eventstore.GetEventsRequest readRequest = Eventstore.GetEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.GetStreamQuery.newBuilder()
-                        .setName(orderStreamName)
-                        .build())
                 .setCount(10)
                 .build();
 
@@ -166,8 +162,7 @@ public class IntegrationExample {
 
         Eventstore.SaveEventsRequest request = Eventstore.SaveEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.SaveStreamQuery.newBuilder()
-                        .setName(streamName)
+                .setQuery(Eventstore.SaveQuery.newBuilder()
                         .setExpectedPosition(Eventstore.Position.newBuilder()
                                 .setCommitPosition(-1)
                                 .setPreparePosition(-1))

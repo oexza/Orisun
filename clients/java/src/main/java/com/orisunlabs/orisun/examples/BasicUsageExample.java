@@ -43,7 +43,7 @@ public class BasicUsageExample {
             saveEventsExample(client, boundary, streamName);
 
             // Read events back
-            readEventsExample(client, boundary, streamName);
+            readEventsExample(client, boundary);
 
             // Subscribe to events
             subscribeToEventsExample(client, boundary, streamName);
@@ -57,8 +57,7 @@ public class BasicUsageExample {
 
         Eventstore.SaveEventsRequest request = Eventstore.SaveEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.SaveStreamQuery.newBuilder()
-                        .setName(streamName)
+                .setQuery(Eventstore.SaveQuery.newBuilder()
                         .setExpectedPosition(Eventstore.Position.newBuilder()
                                 .setCommitPosition(-1)
                                 .setPreparePosition(-1))
@@ -88,14 +87,11 @@ public class BasicUsageExample {
         }
     }
 
-    private static void readEventsExample(OrisunClient client, String boundary, String streamName) throws Exception {
-        System.out.println("📖 Reading events from stream: " + streamName);
+    private static void readEventsExample(OrisunClient client, String boundary) throws Exception {
+        System.out.println("📖 Reading events");
 
         Eventstore.GetEventsRequest request = Eventstore.GetEventsRequest.newBuilder()
                 .setBoundary(boundary)
-                .setStream(Eventstore.GetStreamQuery.newBuilder()
-                        .setName(streamName)
-                        .build())
                 .setCount(10)
                 .build();
 
@@ -108,7 +104,6 @@ public class BasicUsageExample {
             System.out.println("    ID: " + event.getEventId());
             System.out.println("    Type: " + event.getEventType());
             System.out.println("    Data: " + event.getData());
-            System.out.println("    Stream: " + event.getStreamId());
             System.out.println("    Created: " + event.getDateCreated());
         }
     }
@@ -128,7 +123,6 @@ public class BasicUsageExample {
                     public void onEvent(Eventstore.Event event) {
                         System.out.println("📨 Received event via subscription:");
                         System.out.println("    Type: " + event.getEventType());
-                        System.out.println("    Stream: " + event.getStreamId());
                         System.out.println("    Data: " + event.getData());
                     }
 

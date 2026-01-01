@@ -26,8 +26,9 @@ Built for developers who need enterprise-grade event sourcing without the comple
 #### Built-in Infrastructure
 - **Embedded NATS JetStream**: Real-time event streaming without external dependencies
 - **Multi-tenant Architecture**: Isolated boundaries with separate PostgreSQL schemas
-- **Admin Dashboard**: Web-based interface for monitoring, user management, and system administration
+- **Admin gRPC Service**: User management and system administration via gRPC
 - **User Management**: Create and manage users with role-based access control
+- **OpenTelemetry Tracing**: Built-in distributed tracing for observability
 
 #### Production Ready
 - **Clustered Deployment**: High availability with automatic failover and distributed locking
@@ -64,7 +65,6 @@ services:
       ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]'
       ORISUN_ADMIN_BOUNDARY: orisun_admin
     ports:
-      - "8992:8992"  # Admin Dashboard
       - "5005:5005"  # gRPC API
     depends_on:
       - postgres
@@ -75,12 +75,11 @@ services:
 docker-compose up -d
 ```
 
-3. **Access the Admin Dashboard:**
-- **URL**: http://localhost:8992
-- **Username**: `admin`
-- **Password**: `changeit`
-
-You're ready to start storing and querying events!
+3. **Verify Orisun is running:**
+```bash
+# List services (default admin credentials: admin/changeit)
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
+```
 
 ### Option 2: Download Binary
 
@@ -96,7 +95,7 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
 ./orisun-darwin-arm64
 
-# Access: http://localhost:8992 (admin/changeit)
+# gRPC API: localhost:5005 (default credentials: admin/changeit)
 # gRPC API: localhost:5005
 ```
 
@@ -119,7 +118,7 @@ docker run -d \
   -e ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
   orexza/orisun:latest
 
-# Access: http://localhost:8992 (admin/changeit)
+# gRPC API: localhost:5005 (default credentials: admin/changeit)
 # gRPC API: localhost:5005
 ```
 
