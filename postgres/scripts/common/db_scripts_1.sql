@@ -94,8 +94,8 @@ BEGIN
     EXECUTE format('SET search_path TO %I', schema);
 
     -- If criteria is present then we acquire granular locks for each key value pair.
--- This is to ensure that we don't block other insert operations
--- having non-overlapping criteria.
+    -- This is to ensure that we don't block other insert operations
+    -- having non-overlapping criteria.
     IF criteria IS NOT NULL THEN
         -- Extract all unique criteria key-value pairs
         SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
@@ -103,7 +103,7 @@ BEGIN
         FROM jsonb_array_elements(criteria) AS criterion,
              jsonb_each_text(criterion) AS key_value;
 
--- Lock key-value pairs in alphabetical order (deadlock prevention)
+        -- Lock key-value pairs in alphabetical order (deadlock prevention)
         IF criteria_tags IS NOT NULL THEN
             criteria_tags := ARRAY(
                     SELECT DISTINCT unnest(criteria_tags)
@@ -130,7 +130,7 @@ BEGIN
         latest_gid := -1;
     END IF;
 
-    -- If expected_position is not provided, we assume it's a new stream.
+    -- If expected_position is not provided, we set the default.
     IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
         expected_tx_id := -1;
         expected_gid := -1;

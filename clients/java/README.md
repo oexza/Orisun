@@ -18,9 +18,69 @@ A Java client library for interacting with the Orisun Event Store, providing a s
 
 ## Installation
 
-### Build from Source
+### Option 1: Download JAR from Releases (Recommended)
 
-The recommended way to use the Java client is to build it from source:
+Download the JAR file from the [GitHub Releases](https://github.com/oexza/Orisun/releases) page:
+
+1. Go to the [releases page](https://github.com/oexza/Orisun/releases)
+2. Find the latest Java Client release (tagged as `java-client-vX.X.X`)
+3. Download `orisun-java-client-X.X.X.jar` from the assets
+4. Add it to your project's classpath
+
+**Available artifacts:**
+- `orisun-java-client-{version}.jar` - Main JAR with all dependencies
+- `orisun-java-client-{version}-sources.jar` - Source code
+- `orisun-java-client-{version}-javadoc.jar` - Javadoc
+
+### Option 2: GitHub Packages
+
+Add the GitHub Packages repository and dependency to your `pom.xml`:
+
+```xml
+<repository>
+    <id>github</id>
+    <url>https://maven.pkg.github.com/oexza/Orisun</url>
+</repository>
+
+<dependency>
+    <groupId>com.orisunlabs</groupId>
+    <artifactId>orisun-java-client</artifactId>
+    <version>LATEST_VERSION</version>
+</dependency>
+```
+
+Or for Gradle:
+
+```groovy
+repositories {
+    maven { url 'https://maven.pkg.github.com/oexza/Orisun' }
+}
+
+dependencies {
+    implementation 'com.orisunlabs:orisun-java-client:LATEST_VERSION'
+}
+```
+
+**Authentication Required:** GitHub Packages requires authentication. Add to your `~/.gradle/gradle.properties`:
+
+```properties
+githubUsername=YOUR_GITHUB_USERNAME
+githubPassword=YOUR_GITHUB_TOKEN
+```
+
+Or for Maven, add to your `~/.m2/settings.xml`:
+
+```xml
+<server>
+    <id>github</id>
+    <username>${env.GITHUB_USERNAME}</username>
+    <password>${env.GITHUB_TOKEN}</password>
+</server>
+```
+
+### Option 3: Build from Source
+
+Build the client from source:
 
 ```bash
 # Clone the repository
@@ -50,9 +110,9 @@ Or for Gradle:
 implementation 'com.orisunlabs:orisun-java-client:0.0.1'
 ```
 
-### From JitPack (Alternative)
+### Option 4: JitPack (Alternative)
 
-JitPack can build the client directly from GitHub:
+JitPack can build the client directly from any commit:
 
 ```xml
 <repository>
@@ -63,13 +123,8 @@ JitPack can build the client directly from GitHub:
 <dependency>
     <groupId>com.github.oexza</groupId>
     <artifactId>Orisun</artifactId>
-    <version>main-SNAPSHOT</version>
+    <version>java-client-v1.0.0</version>
 </dependency>
-```
-
-Note: When using JitPack, you'll need to specify the full package path in your imports:
-```java
-import com.oexza.orisun.clients.java.*;
 ```
 
 ## Quick Start

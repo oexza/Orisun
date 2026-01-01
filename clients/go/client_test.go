@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
+	eventstore "github.com/oexza/Orisun/clients/go/eventstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"

@@ -1,0 +1,263 @@
+name: Release Java Client
+
+on:
+  push:
+    tags:
+      - 'java-client-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/java-client-v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x clients/java/gradlew
+
+      - name: Run tests
+        run: |
+          cd clients/java
+          ./gradlew test
+
+  build-java-client:
+    name: Build Java Client Artifacts
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x clients/java/gradlew
+
+      - name: Build JAR
+        run: |
+          cd clients/java
+          ./gradlew clean build jar
+
+      - name: Build Sources JAR
+        run: |
+          cd clients/java
+          ./gradlew sourcesJar
+
+      - name: Build Javadoc JAR
+        run: |
+          cd clients/java
+          ./gradlew javadocJar
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p release-artifacts
+          cd clients/java/build/libs
+          # Find the main JAR (without sources or javadoc suffix)
+          main_jar=$(ls *.jar | grep -v 'javadoc' | grep -v 'sources' | grep -v 'plain' | head -1)
+          cp "$main_jar" ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}.jar
+
+          # Copy sources and javadoc JARs
+          if ls *sources.jar 1> /dev/null 2>&1; then
+            cp $(ls *sources.jar | head -1) ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-sources.jar
+          fi
+          if ls *javadoc.jar 1> /dev/null 2>&1; then
+            cp $(ls *javadoc.jar | head -1) ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-javadoc.jar
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-client-artifacts
+          path: release-artifacts/*.jar
+          if-no-files-found: error
+
+  publish-to-github-packages:
+    name: Publish to GitHub Packages
+    needs: [validate, build-java-client]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x clients/java/gradlew
+
+      - name: Configure Gradle
+        run: |
+          cd clients/java
+          echo "VERSION=${{ needs.validate.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Publish to GitHub Packages
+        run: |
+          cd clients/java
+          ./gradlew publish \
+            -Pversion=${{ needs.validate.outputs.version }} \
+            -PmavenUsername=${{ github.actor }} \
+            -PmavenPassword=${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [validate, build-java-client]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: java-client-artifacts
+          path: release-artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git tag -l "java-client-v*" --sort=-v:refname | sed -n '2p')
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "changelog=Initial release of the Java client" >> $GITHUB_OUTPUT
+          else
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD -- clients/java >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Java Client v${{ needs.validate.outputs.version }}
+          tag_name: java-client-v${{ needs.validate.outputs.version }}
+          body: |
+            ## Orisun Java Client v${{ needs.validate.outputs.version }}
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Installation
+
+            ### Option 1: Download JAR
+
+            Download the JAR file from the assets below and add it to your project.
+
+            ### Option 2: GitHub Packages
+
+            Add to your `pom.xml`:
+
+            ```xml
+            <repository>
+                <id>github</id>
+                <url>https://maven.pkg.github.com/oexza/Orisun</url>
+            </repository>
+
+            <dependency>
+                <groupId>com.orisunlabs</groupId>
+                <artifactId>orisun-java-client</artifactId>
+                <version>${{ needs.validate.outputs.version }}</version>
+            </dependency>
+            ```
+
+            Or for Gradle:
+
+            ```groovy
+            repositories {
+                maven { url 'https://maven.pkg.github.com/oexza/Orisun' }
+            }
+
+            implementation 'com.orisunlabs:orisun-java-client:${{ needs.validate.outputs.version }}'
+            ```
+
+            **Note**: To use GitHub Packages, you'll need to authenticate:
+
+            ```groovy
+            // In ~/.gradle/gradle.properties
+            githubUsername=YOUR_GITHUB_USERNAME
+            githubPassword=YOUR_GITHUB_TOKEN
+            ```
+
+            Or in `pom.xml`:
+
+            ```xml
+            <server>
+                <id>github</id>
+                <username>${env.GITHUB_USERNAME}</username>
+                <password>${env.GITHUB_TOKEN}</password>
+            </server>
+            ```
+
+            ### Option 3: JitPack
+
+            JitPack can build from any commit:
+
+            ```xml
+            <repository>
+                <id>jitpack.io</id>
+                <url>https://jitpack.io</url>
+            </repository>
+
+            <dependency>
+                <groupId>com.github.oexza</groupId>
+                <artifactId>Orisun</artifactId>
+                <version>v${{ needs.validate.outputs.version }}</version>
+            </dependency>
+            ```
+
+            ## Usage
+
+            See the [Java Client README](https://github.com/oexza/Orisun/blob/main/clients/java/README.md) for detailed usage instructions.
+
+            Quick start:
+
+            ```java
+            import com.orisunlabs.orisun.client.OrisunClient;
+
+            OrisunClient client = OrisunClient.newBuilder()
+                .withServer("localhost", 5005)
+                .withBasicAuth("admin", "changeit")
+                .build();
+
+            // Use the client...
+            ```
+          files: release-artifacts/*
+          draft: false
+          prerelease: false
