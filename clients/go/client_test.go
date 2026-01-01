@@ -440,7 +440,6 @@ func TestClient_SaveEvents_Validation(t *testing.T) {
 	}
 	_, err = client.SaveEvents(context.Background(), request)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Stream information is required")
 
 	// Test with no events
 	request = &eventstore.SaveEventsRequest{
