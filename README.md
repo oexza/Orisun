@@ -6,18 +6,19 @@
 
 ## Introduction
 
-Orisun is a batteries-included event store designed for modern event-driven applications. It combines PostgreSQL's rock-solid reliability with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
+Orisun is a batteries-included event store designed for modern event-driven applications. It combines the reliability of pluggable event storage with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
 
 Built for developers who need enterprise-grade event sourcing without the complexity, Orisun provides:
 - **Zero-Configuration Setup**: Get started in minutes with sensible defaults
 - **Production-Ready**: Built-in clustering, failover, and monitoring
 - **Developer Experience**: Clean APIs, comprehensive documentation, and intuitive tooling
 - **Batteries Included**: Everything you need in a single binary - no external dependencies required
+- **Pluggable Storage**: PostgreSQL (first implementation), with SQLite and other backends coming soon
 
 ### Key Features
 
 #### Core Event Sourcing
-- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
+- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees (SQLite and other storage backends coming soon)
 - **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
 - **Optimistic Concurrency**: Stream-based versioning with expected position checks
 - **Rich Event Querying**: Filter by stream, tags, event types, and global position
@@ -25,7 +26,8 @@ Built for developers who need enterprise-grade event sourcing without the comple
 
 #### Built-in Infrastructure
 - **Embedded NATS JetStream**: Real-time event streaming without external dependencies
-- **Multi-tenant Architecture**: Isolated boundaries with separate PostgreSQL schemas
+- **Multi-tenant Architecture**: Isolated boundaries with separate database schemas
+- **Pluggable Storage Backend**: PostgreSQL support today, with SQLite and other databases on the roadmap
 - **Admin gRPC Service**: User management and system administration via gRPC
 - **User Management**: Create and manage users with role-based access control
 - **OpenTelemetry Tracing**: Built-in distributed tracing for observability
@@ -109,7 +111,6 @@ Run Orisun with Docker (requires external PostgreSQL):
 # Run Orisun container
 docker run -d \
   --name orisun \
-  -p 8992:8992 \
   -p 5005:5005 \
   -e ORISUN_PG_HOST=host.docker.internal \
   -e ORISUN_PG_USER=postgres \
@@ -119,33 +120,38 @@ docker run -d \
   orexza/orisun:latest
 
 # gRPC API: localhost:5005 (default credentials: admin/changeit)
-# gRPC API: localhost:5005
 ```
 
 ## Architecture Overview
 
-Orisun combines the reliability of PostgreSQL with the real-time capabilities of NATS JetStream to deliver a complete event sourcing solution:
+Orisun combines a pluggable storage layer with the real-time capabilities of NATS JetStream to deliver a complete event sourcing solution:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Orisun Event Store                       │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   PostgreSQL    │   NATS JetStream│      Admin Dashboard    │
-│   (Storage)     │   (Streaming)   │      (Monitoring)       │
-├─────────────────┼─────────────────┼─────────────────────────┤
-│ • ACID Compliant│ • Real-time Pub/Sub│ • User Management     │
-│ • Event Storage │ • Catch-up Subs  │ • System Monitoring    │
-│ • Multi-tenant  │ • Durable Streams│ • Performance Metrics   │
-│ • Rich Querying │ • Clustering     │ • Event Browser        │
-└─────────────────┴─────────────────┴─────────────────────────┘
+├──────────────────────┬──────────────────────────────────────┤
+│   Storage Layer      │         NATS JetStream                │
+│   (Pluggable)        │         (Streaming)                  │
+├──────────────────────┼──────────────────────────────────────┤
+│ • PostgreSQL (1st)    │ • Real-time Pub/Sub                  │
+│ • SQLite (Coming)     │ • Catch-up Subscriptions            │
+│ • More (Roadmap)      │ • Durable Streams                   │
+│ • ACID Transactions   │ • Clustering Support                │
+│ • Event Storage      │ • Message Ordering                  │
+│ • Rich Querying      │ • At-Least-Once Delivery             │
+└──────────────────────┴──────────────────────────────────────┘
+│          Admin & Observability (gRPC)                       │
+│ • User Management  • OpenTelemetry Tracing                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### How It Works
 
-1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support
+1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support (initial implementation - SQLite and other databases coming soon)
 2. **Real-time Streaming**: NATS JetStream provides immediate event delivery to subscribers
-3. **Multi-tenancy**: Each boundary operates in its own PostgreSQL schema for isolation
-4. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
+3. **Multi-tenancy**: Each boundary operates in its own database schema for isolation
+4. **Pluggable Backends**: Storage abstraction allows multiple database implementations
+5. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
 
 ### Data Flow
 
@@ -239,22 +245,6 @@ For example:
   - ✅ `boundary: "orisun_admin"` - Request will succeed
   - ❌ `boundary: "payments"` - Request will fail (schema not configured)
 
-### Admin Dashboard
-Orisun includes a built-in admin dashboard accessible at the configured admin port (default: 8992):
-
-```bash
-# Access URL (default)
-http://localhost:8992
-
-# Default admin credentials
-Username: admin
-Password: changeit
-```
-
-The dashboard provides:
-- **User Management**: Create, view, and delete users
-- **System Monitoring**: View event counts and system statistics
-- **Authentication**: Secure login system with session management
 
 ## gRPC API Examples
 
@@ -367,6 +357,57 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 EOF
 ```
 
+### Admin gRPC Service
+
+Orisun provides a comprehensive Admin gRPC service for user management and system administration. All Admin operations require authentication using the same basic auth header.
+
+**Quick Examples:**
+
+```bash
+# Create a new user
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"name":"Jane Doe","username":"janedoe","password":"securePass123","roles":["user"]}' \
+  localhost:5005 orisun.Admin/CreateUser
+
+# List all users
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  localhost:5005 orisun.Admin/ListUsers
+
+# Validate credentials
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"username":"janedoe","password":"securePass123"}' \
+  localhost:5005 orisun.Admin/ValidateCredentials
+
+# Change password
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"user_id":"user-id-here","current_password":"oldPass","new_password":"newPass"}' \
+  localhost:5005 orisun.Admin/ChangePassword
+
+# Delete user
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"user_id":"user-id-here"}' \
+  localhost:5005 orisun.Admin/DeleteUser
+
+# Get system statistics
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  localhost:5005 orisun.Admin/GetUserCount
+
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary":"orisun_test_1"}' \
+  localhost:5005 orisun.Admin/GetEventCount
+```
+
+**Available Admin Operations:**
+- `CreateUser` - Create new users with roles
+- `ListUsers` - List all users in the system
+- `ValidateCredentials` - Validate username and password
+- `ChangePassword` - Change user passwords
+- `DeleteUser` - Delete users by ID
+- `GetUserCount` - Get total user count
+- `GetEventCount` - Get event count for a boundary
+
+For complete documentation of all Admin gRPC endpoints, see [ADMIN_API.md](ADMIN_API.md).
+
 ## Common Use Cases
 
 ### Multiple Bounded Contexts
@@ -441,9 +482,6 @@ Orisun can be configured using environment variables:
 | `ORISUN_PG_SCHEMAS` | Comma-separated list of boundary:schema mappings | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Yes |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions with names and descriptions | `[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]` | Yes |
 | `ORISUN_ADMIN_BOUNDARY` | Name of the boundary used for admin operations | orisun_admin | Yes |
-| `ORISUN_ADMIN_PORT` | Port for the admin dashboard | 8992 | No |
-| `ORISUN_ADMIN_USERNAME` | Admin dashboard username | admin | No |
-| `ORISUN_ADMIN_PASSWORD` | Admin dashboard password | changeit | No |
 | `ORISUN_GRPC_PORT` | gRPC server port | 5005 | No |
 | `ORISUN_GRPC_ENABLE_REFLECTION` | Enable gRPC reflection | true | No |
 | `ORISUN_NATS_SERVER_NAME` | NATS server name | orisun-nats-2 | No |
@@ -460,6 +498,9 @@ Orisun can be configured using environment variables:
 | `ORISUN_NATS_CLUSTER_ROUTES` | Comma-separated list of cluster routes | `nats://0.0.0.0:6223,nats://0.0.0.0:6224` | No |
 | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` | Batch size for event polling | 1000 | No |
 | `ORISUN_LOGGING_LEVEL` | Logging level (DEBUG, INFO, WARN, ERROR) | INFO | No |
+| `ORISUN_OTEL_ENABLED` | Enable OpenTelemetry tracing | false | No |
+| `ORISUN_OTEL_ENDPOINT` | OTLP gRPC endpoint for tracing | localhost:4317 | No |
+| `ORISUN_OTEL_SERVICE_NAME` | Service name for traces | orisun | No |
 
 ### Running Modes
 
@@ -475,9 +516,6 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8992 \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
 ORISUN_NATS_PORT=4222 \
 ./orisun-darwin-arm64
@@ -503,9 +541,6 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8992 \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
 ORISUN_NATS_PORT=4222 \
 ORISUN_NATS_CLUSTER_ENABLED=true \
@@ -530,9 +565,6 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8992 \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5006 \
 ORISUN_NATS_PORT=4223 \
 ORISUN_NATS_CLUSTER_ENABLED=true \
@@ -557,9 +589,6 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8993 \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5007 \
 ORISUN_NATS_PORT=4224 \
 ORISUN_NATS_CLUSTER_ENABLED=true \
@@ -585,7 +614,6 @@ ORISUN_NATS_STORE_DIR=./data/node3/nats \
 - Check logs for lock acquisition messages: `"Successfully acquired lock for boundary: <boundary_name>"`
 - Monitor projection startup messages: `"User projector started"`, `"Auth user projector started"`
 - Watch for failover events: `"Failed to acquire lock"` followed by retry attempts
-- Admin dashboards on each node show local metrics
 
 **Best Practices:**
 - Use a load balancer for gRPC endpoints across nodes
@@ -633,11 +661,6 @@ For production Kubernetes deployments, consider:
    - Verify boundary configurations match schema mappings
    - Validate JSON format in ORISUN_BOUNDARIES environment variable
 
-4. **Admin Dashboard Issues**
-   - Check admin boundary configuration
-   - Verify admin credentials
-   - Ensure admin port is accessible
-   - For clusters: Each node has its own admin dashboard
 
 5. **Cluster-Specific Issues**
    - **Lock Acquisition Failures**: Check logs for "Failed to acquire lock" messages - this is normal behavior when other nodes hold locks
@@ -687,9 +710,6 @@ ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_ADMIN_PORT=8992 \
-ORISUN_ADMIN_USERNAME=admin \
-ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_GRPC_PORT=5005 \
 ORISUN_NATS_PORT=4222 \
 ./orisun-darwin-arm64
@@ -702,7 +722,6 @@ Orisun uses:
 - **NATS JetStream 2.11.1+**: For real-time event streaming and pub/sub
 - **gRPC**: For client-server communication
 - **Go 1.24.2+**: For high-performance server implementation
-- **Admin Dashboard**: Built-in web interface for system management
 - **User Management**: Integrated user administration system
 - **Modular Design**: Plugin system for extending functionality
 
