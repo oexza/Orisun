@@ -88,11 +88,12 @@ public class TokenCache {
         } else if (this.cachedBasicAuthString.get() != null) {
             metadata.put(Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER), cachedBasicAuthString.get());
         } else if (basicAuthCredentials != null) {
-            this.cachedBasicAuthString.updateAndGet((s) -> {
-                metadata.put(Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER), basicAuthCredentials.get());
-                return basicAuthCredentials.get();
-            });
-            logger.debug("Using basic authentication");
+            String credentials = basicAuthCredentials.get();
+            if (credentials != null) {
+                this.cachedBasicAuthString.set(credentials);
+                metadata.put(Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER), credentials);
+                logger.debug("Using basic authentication");
+            }
         }
 
         return metadata;
