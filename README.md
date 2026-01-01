@@ -173,9 +173,12 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
 
 ## Clients
 
-Orisun provides official client libraries for Node.js and Java, with support for generating clients for other languages using Protocol Buffers.
+Orisun provides official client libraries for Go, Node.js, and Java, with support for generating clients for other languages using Protocol Buffers.
 
 ### Official Client Libraries
+
+**Go Client:**
+For Go applications, see the [Go Client README](clients/go/README.md) for installation and usage instructions.
 
 **Node.js Client:**
 For Node.js applications, see the [Node.js Client README](clients/node/README.md) for installation and usage instructions.
@@ -186,18 +189,6 @@ For Java applications, see the [Java Client README](clients/java/README.md) for 
 ### Generate Custom Clients
 
 For other programming languages, you can generate clients using the Protocol Buffers definition file available at `eventstore/eventstore.proto`.
-
-**Go Client:**
-```bash
-# Install protoc-gen-go and protoc-gen-go-grpc
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Generate Go client
-protoc --go_out=. --go_opt=paths=source_relative \
-       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-       eventstore/eventstore.proto
-```
 
 **Python Client:**
 ```bash
