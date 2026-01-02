@@ -6,7 +6,34 @@
 
 ## Introduction
 
-Orisun is a batteries-included event store designed for modern event-driven applications. It combines the reliability of pluggable event storage with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
+Orisun is a batteries-included event store designed for modern event-driven applications. It combines the reliability of PostgreSQL storage with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
+
+**Command Context Consistency (CCC)**
+
+Orisun implements **Command Context Consistency**—a conceptually simple approach to ensuring data consistency in event-sourced systems without the complexity of streams, aggregates, or predefined tags.
+
+**What is Command Context Consistency?**
+
+In CCC, each command defines its **context** as the set of events relevant to checking its business rules. The context is determined by querying events based on their **type and payload content**, not by stream ID or aggregate root.
+
+**Example: Money Transfer**
+```
+Command: transferMoney("Peter", "Janine", 10)
+Context: All events where payload references Peter or Janine
+  - accountOpened, moneyDeposited, moneyWithdrawn, moneyTransferred, etc.
+Context Model: { accountBalances: [{holder: "Peter", balance: 100}, {holder: "Janine", balance: 50}] }
+Business Rules: Both accounts exist, Peter has sufficient funds
+```
+
+**Two-Phase Consistency:**
+1. **Check**: Build context model from queried events, validate business rules
+2. **Record**: Before saving, re-run query to ensure context hasn't changed (optimistic locking)
+
+**Key Advantages:**
+- **No Aggregate/Stream Lock-in**: Query events by payload content, not pre-defined streams
+- **Command-Specific Contexts**: Each command sees only the events relevant to its rules
+- **Flexible Querying**: Filter by event type, data fields, metadata, or combinations
+- **Simple Mental Model**: Like RDBMS queries + optimistic locking, but for events
 
 Built for developers who need enterprise-grade event sourcing without the complexity, Orisun provides:
 - **Zero-Configuration Setup**: Get started in minutes with sensible defaults
@@ -20,8 +47,8 @@ Built for developers who need enterprise-grade event sourcing without the comple
 #### Core Event Sourcing
 - **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
 - **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
-- **Optimistic Concurrency**: Stream-based versioning with expected position checks
-- **Rich Event Querying**: Filter by stream, tags, event types, and global position
+- **Optimistic Concurrency**: Boundary-based versioning with expected position checks
+- **Rich Event Querying**: Filter by boundary, event type, data content, metadata, and global position
 - **Real-time Subscriptions**: Subscribe to event changes as they happen with catch-up subscriptions
 
 #### Built-in Infrastructure
@@ -145,10 +172,49 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
 
 ### How It Works
 
-1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support
-2. **Real-time Streaming**: NATS JetStream provides immediate event delivery to subscribers
-3. **Multi-tenancy**: Each boundary operates in its own database schema for isolation
-4. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
+**Command Context Consistency: A Simple Mental Model**
+
+Command Context Consistency brings the simplicity of RDBMS queries + optimistic locking to event sourcing.
+
+**Traditional Event Sourcing (Complex)**
+- Organize events by streams/aggregates (User-123, Order-456)
+- Manage aggregate boundaries and consistency per stream
+- Complex when commands span multiple aggregates
+
+**Command Context Consistency (Simple)**
+- Query events by **type** and **payload content**
+- Each command defines its own context via a query
+- Two-phase consistency: Check rules → Check context stability
+
+**Example: Banking System**
+
+Command: `transferMoney("Peter", "Janine", 10)`
+
+```
+Context Query: All events where payload references "Peter" or "Janine"
+  Event types: accountOpened, moneyDeposited, moneyWithdrawn, moneyTransferred
+  Payload filter: holder IN ("Peter", "Janine")
+
+Context Model (projection):
+  { accountBalances: [{holder: "Peter", balance: 100}, {holder: "Janine", balance: 50}] }
+
+Phase #1 - Check: Both accounts exist, Peter has sufficient funds ✓
+Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then record
+```
+
+**What Makes CCC Different:**
+- **No Aggregate Lock-in**: Query by payload, not pre-defined streams
+- **Command-Specific Contexts**: Each command sees only relevant events
+- **Flexible**: Context defined by query criteria (type, data fields, metadata)
+- **Simple**: Like `SELECT WHERE` + optimistic locking, but for events
+
+**Orisun's Implementation:**
+
+1. **Multi-Tenancy**: Boundaries (PostgreSQL schemas) provide isolated domains/bounded contexts
+2. **Event Storage**: Events stored with full queryability on type, data, and metadata
+3. **CCC Support**: Query events by payload content to build command-specific contexts
+4. **Real-time Streaming**: NATS JetStream delivers events immediately to subscribers
+5. **Clustering**: Multiple nodes coordinate via distributed locks for high availability
 
 ### Data Flow
 
@@ -159,7 +225,7 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
    - Subscribers receive events in real-time
 
 2. **Read Path**:
-   - Clients can query events by stream, tags, or global position
+   - Clients can query events by boundary, event type, data content, metadata, or global position
    - Real-time subscriptions receive new events as they occur
    - Catch-up subscriptions can replay historical events
 
