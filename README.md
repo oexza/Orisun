@@ -14,7 +14,7 @@ Orisun implements **Command Context Consistency**—a conceptually simple approa
 
 **What is Command Context Consistency?**
 
-In CCC, each command defines its **context** as the set of events relevant to checking its business rules. The context is determined by querying events based on their **type and payload content**, not by stream ID or aggregate root.
+In CCC, each command defines its **context** as the set of events relevant to checking its business rules. The context is determined by querying events based on their **data content**, not by stream ID or aggregate root.
 
 **Example: Money Transfer**
 ```
@@ -32,7 +32,7 @@ Business Rules: Both accounts exist, Peter has sufficient funds
 **Key Advantages:**
 - **No Aggregate/Stream Lock-in**: Query events by payload content, not pre-defined streams
 - **Command-Specific Contexts**: Each command sees only the events relevant to its rules
-- **Flexible Querying**: Filter by event type, data fields, metadata, or combinations
+- **Flexible Querying**: Filter by data content using JSONB containment queries
 - **Simple Mental Model**: Like RDBMS queries + optimistic locking, but for events
 
 Built for developers who need enterprise-grade event sourcing without the complexity, Orisun provides:
@@ -48,7 +48,7 @@ Built for developers who need enterprise-grade event sourcing without the comple
 - **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
 - **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
 - **Optimistic Concurrency**: Boundary-based versioning with expected position checks
-- **Rich Event Querying**: Filter by boundary, event type, data content, metadata, and global position
+- **Rich Event Querying**: Filter by boundary, data content, and global position
 - **Real-time Subscriptions**: Subscribe to event changes as they happen with catch-up subscriptions
 
 #### Built-in Infrastructure
@@ -205,13 +205,13 @@ Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then rec
 **What Makes CCC Different:**
 - **No Aggregate Lock-in**: Query by payload, not pre-defined streams
 - **Command-Specific Contexts**: Each command sees only relevant events
-- **Flexible**: Context defined by query criteria (type, data fields, metadata)
+- **Flexible**: Context defined by query criteria on data content
 - **Simple**: Like `SELECT WHERE` + optimistic locking, but for events
 
 **Orisun's Implementation:**
 
 1. **Multi-Tenancy**: Boundaries (PostgreSQL schemas) provide isolated domains/bounded contexts
-2. **Event Storage**: Events stored with full queryability on type, data, and metadata
+2. **Event Storage**: Events stored with full queryability on data content
 3. **CCC Support**: Query events by payload content to build command-specific contexts
 4. **Real-time Streaming**: NATS JetStream delivers events immediately to subscribers
 5. **Clustering**: Multiple nodes coordinate via distributed locks for high availability
@@ -225,7 +225,7 @@ Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then rec
    - Subscribers receive events in real-time
 
 2. **Read Path**:
-   - Clients can query events by boundary, event type, data content, metadata, or global position
+   - Clients can query events by boundary, data content, or global position
    - Real-time subscriptions receive new events as they occur
    - Catch-up subscriptions can replay historical events
 
