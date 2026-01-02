@@ -115,30 +115,30 @@ BEGIN
                     PERFORM pg_advisory_xact_lock(('x' || substr(md5(key_record), 1, 15))::bit(60)::bigint);
                 END LOOP;
         END IF;
-    END IF;
 
-    -- version check
-    SELECT oe.transaction_id, oe.global_id
-    INTO latest_tx_id, latest_gid
-    FROM orisun_es_event oe
-    WHERE (criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(criteria)))
-    ORDER BY oe.transaction_id DESC, oe.global_id DESC
-    LIMIT 1;
+        -- version check
+        SELECT oe.transaction_id, oe.global_id
+        INTO latest_tx_id, latest_gid
+        FROM orisun_es_event oe
+        WHERE (criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(criteria)))
+        ORDER BY oe.transaction_id DESC, oe.global_id DESC
+        LIMIT 1;
 
-    IF latest_tx_id IS NULL THEN
-        latest_tx_id := -1;
-        latest_gid := -1;
-    END IF;
+        IF latest_tx_id IS NULL THEN
+            latest_tx_id := -1;
+            latest_gid := -1;
+        END IF;
 
-    -- If expected_position is not provided, we set the default.
-    IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
-        expected_tx_id := -1;
-        expected_gid := -1;
-    END IF;
+        -- If expected_position is not provided, we set the default.
+        IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
+            expected_tx_id := -1;
+            expected_gid := -1;
+        END IF;
 
-    IF latest_tx_id <> expected_tx_id OR latest_gid <> expected_gid THEN
-        RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected (%, %), Actual (%, %)',
-            expected_tx_id, expected_gid, latest_tx_id, latest_gid;
+        IF latest_tx_id <> expected_tx_id OR latest_gid <> expected_gid THEN
+            RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected (%, %), Actual (%, %)',
+                expected_tx_id, expected_gid, latest_tx_id, latest_gid;
+        END IF;
     END IF;
 
     -- CTE-based insert pattern

@@ -6,7 +6,7 @@
 
 ## Introduction
 
-Orisun is a batteries-included event store designed for modern event-driven applications. It combines the reliability of PostgreSQL storage with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
+Orisun is a batteries-included event store designed for modern event-driven applications. It combines pluggable storage backends (currently PostgreSQL, with SQLite and FoundationDB planned) with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
 
 **Command Context Consistency (CCC)**
 
@@ -40,12 +40,12 @@ Built for developers who need enterprise-grade event sourcing without the comple
 - **Production-Ready**: Built-in clustering, failover, and monitoring
 - **Developer Experience**: Clean APIs, comprehensive documentation, and intuitive tooling
 - **Batteries Included**: Everything you need in a single binary - no external dependencies required
-- **PostgreSQL Storage**: Production-ready PostgreSQL backend with full ACID compliance and transaction guarantees
+- **Pluggable Storage**: PostgreSQL backend with pluggable architecture for future storage options
 
 ### Key Features
 
 #### Core Event Sourcing
-- **Reliable Event Storage**: PostgreSQL-backed with full ACID compliance and transaction guarantees
+- **Reliable Event Storage**: PostgreSQL backend with full ACID compliance and transaction guarantees
 - **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
 - **Optimistic Concurrency**: Boundary-based versioning with expected position checks
 - **Rich Event Querying**: Filter by boundary, data content, and global position
@@ -54,7 +54,7 @@ Built for developers who need enterprise-grade event sourcing without the comple
 #### Built-in Infrastructure
 - **Embedded NATS JetStream**: Real-time event streaming without external dependencies
 - **Multi-tenant Architecture**: Isolated boundaries with separate database schemas
-- **PostgreSQL Storage**: Production-ready with full ACID compliance and transaction guarantees
+- **Pluggable Storage**: PostgreSQL backend with production-ready reliability
 - **Admin gRPC Service**: User management and system administration via gRPC
 - **User Management**: Create and manage users with role-based access control
 - **OpenTelemetry Tracing**: Built-in distributed tracing for observability
@@ -884,7 +884,7 @@ ORISUN_NATS_PORT=4222 \
 ## Architecture
 
 Orisun uses:
-- **PostgreSQL 17.5+**: For durable event storage and consistency guarantees
+- **PostgreSQL 13+**: Current production storage backend (pluggable architecture supports future backends like SQLite and FoundationDB)
 - **NATS JetStream 2.11.1+**: For real-time event streaming and pub/sub
 - **gRPC**: For client-server communication
 - **Go 1.24.2+**: For high-performance server implementation
@@ -897,50 +897,53 @@ Orisun is designed for high-performance event processing with comprehensive benc
 
 ### Benchmark Results
 
-The following benchmarks were conducted on a local development environment:
+The following benchmarks were conducted on an Apple M1 Pro (darwin-arm64) with PostgreSQL running in a Docker container:
 
-| Benchmark | Events/Sec | Description |
-|-----------|------------|-------------|
-| **SaveEvents_Single** | ~213 | Single event saves with unique streams |
-| **SaveEvents_Batch_100** | ~1,900 | Batch saves (100 events per batch, new streams) |
-| **SaveEvents_Batch_1000** | ~15,200 | Batch saves (1,000 events per batch, new streams) |
-| **SaveEvents_Batch_10000** | ~59,400 | Batch saves (10,000 events per batch, new streams) |
-| **SaveEvents_SingleStream_100** | ~1,737 | Batch saves (100 events per batch, same stream) |
-| **SaveEvents_SingleStream_1000** | ~14,884 | Batch saves (1,000 events per batch, same stream) |
-| **SaveEvents_ConcurrentStreams_10** | ~221 | Concurrent saves (10 workers, unique streams) |
-| **SaveEvents_ConcurrentStreams_100** | ~221 | Concurrent saves (100 workers, unique streams) |
-| **GetEvents** | ~2,250-2,500 | Event retrieval (50 events per request) |
-| **MemoryUsage** | ~1,250-1,500 | Memory-intensive operations |
-| **HighThroughput** | Variable | Concurrent operations with multiple workers |
+| Benchmark | Result | Description |
+|-----------|---------|-------------|
+| **SaveEvents_Single** | 718 events/sec | Single event saves with authentication |
+| **SaveEvents_Batch_10** | 5,065 events/sec | Batch saves (10 events per batch) |
+| **SaveEvents_Batch_100** | 12,037 events/sec | Batch saves (100 events per batch) |
+| **SaveEvents_Batch_1000** | 14,528 events/sec | Batch saves (1,000 events per batch) |
+| **SaveEvents_Batch_2500** | 16,595 events/sec | Batch saves (2,500 events per batch) |
+| **GetEvents** | 2,313 iterations @ 1.56ms/op | Event retrieval operations |
+| **SubscribeToEvents** | 45 iterations @ 76ms/op | Event subscription operations |
+| **SaveEvents_Burst10000** | 6,221 events/sec | Burst operations (10K events) |
+| **SaveEvents_Burst10000Optimized** | 5,974 events/sec | Optimized burst operations |
+| **MemoryUsage** | 2,006 iterations @ 1.60ms/op | Memory allocation patterns |
+| **DirectDatabase10K** | 2,164 events/sec | Direct database writes (concurrent) |
+| **DirectDatabase10KBatch** | 78K-112K events/sec | Direct database batch writes |
 
 ### Benchmark Scenarios
 
-- **SaveEvents_Single**: Individual event saves to new streams (simulates basic event creation)
-- **SaveEvents_Batch**: Batch saves to new streams (simulates bulk data import scenarios)
-- **SaveEvents_SingleStream**: Sequential batch saves to the same stream (simulates event sourcing append scenarios)
-- **SaveEvents_ConcurrentStreams**: Concurrent saves where each worker uses its own stream (simulates multi-user scenarios)
+- **SaveEvents_Single**: Individual event saves through the gRPC API with full authentication and authorization checks
+- **SaveEvents_Batch**: Batch saves through the gRPC API with optimistic concurrency control
+- **GetEvents**: Event retrieval queries with pagination and filtering
+- **SubscribeToEvents**: Real-time event subscriptions via NATS JetStream
+- **SaveEvents_Burst**: High-throughput burst operations simulating traffic spikes
+- **DirectDatabase**: Direct database write operations bypassing the gRPC layer
+- **DirectDatabaseBatch**: Batch database writes showing maximum achievable throughput
 
 ### Performance Insights
 
-- **Enhanced Granular Locking**: The updated implementation with two-tier locking (criteria-based + stream-level fallback) delivers excellent performance scaling
-- **Batch Size Optimization**: Performance scales dramatically with batch size:
-  - **100 events**: 1,769 events/sec (56.5ms latency)
-  - **1,000 events**: 15,131 events/sec (66.1ms latency)
-  - **5,000 events**: 45,607 events/sec (109.6ms latency)
-- **Memory Efficiency**: Stable allocation patterns (115-165 allocs/op) with linear memory scaling relative to batch size
-- **Consistency Guarantees**: Zero data corruption with optimistic concurrency control through dual version checking
-- **Deadlock Prevention**: Ordered lock acquisition prevents deadlocks in high-concurrency scenarios
-- **CTE Performance**: Optimized Common Table Expression-based insertion maintains high throughput while ensuring data integrity
+- **Batch Size Scaling**: Throughput improves significantly with batch size:
+  - **10 events**: 5,065 events/sec (1.97ms latency)
+  - **100 events**: 12,037 events/sec (8.31ms latency)
+  - **1,000 events**: 14,528 events/sec (68.83ms latency)
+  - **2,500 events**: 16,595 events/sec (150.65ms latency)
+- **Direct Database Performance**: Batch writes achieve 78K-112K events/sec, demonstrating the underlying PostgreSQL performance
+- **gRPC Overhead**: The gRPC API layer adds authentication, validation, and coordination overhead, providing 718-16,595 events/sec depending on batch size
+- **Concurrent Operations**: Successfully handles truly simultaneous writes (10K concurrent attempts in 4.62 seconds)
+- **Memory Efficiency**: Stable allocation patterns with predictable memory usage
 
 ### Key Performance Features
 
-- **High Throughput**: Handles thousands of events per second
-- **Efficient Querying**: PostgreSQL indexes and GIN support for fast lookups
-- **Load Balanced Distribution**: Automatic message distribution across nodes
-- **Optimized Operations**: Both write and read operations are performance-tuned
-- **Real-time Streaming**: Minimal latency event streaming with NATS JetStream
-- **Concurrent Processing**: Parallel execution support for maximum throughput
-- **Memory Efficient**: Optimized memory usage for large-scale deployments
+- **High Throughput**: Scales from 718 events/sec for single operations to 112K events/sec for batch operations
+- **Efficient Querying**: PostgreSQL JSONB indexes and GIN support for fast event lookups
+- **Optimistic Concurrency**: Command Context Consistency with dual-phase checking prevents data corruption
+- **Real-time Streaming**: Low-latency event distribution via NATS JetStream
+- **Concurrent Processing**: Handles simultaneous operations with proper locking and coordination
+- **Memory Efficient**: Optimized memory allocation patterns for long-running operations
 
 ### Running Benchmarks
 
@@ -948,16 +951,16 @@ To run the benchmark suite yourself:
 
 ```bash
 # Run all benchmarks
-go test -bench=. -benchmem ./benchmark_test.go
+go test -bench=. -benchtime=3s -count=1 ./cmd/benchmark_test.go
 
 # Run specific benchmark
-go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./benchmark_test.go
+go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./cmd/benchmark_test.go
 
 # Use the collection script
 ./collect_benchmarks.sh
 ```
 
-*Note: Performance results may vary based on hardware, PostgreSQL configuration, and system load.*
+*Note: Performance results may vary based on hardware, PostgreSQL configuration, and system load. These benchmarks were run on Apple M1 Pro with PostgreSQL in Docker.*
 
 ## Development
 
@@ -1001,39 +1004,6 @@ go run main.go
 
 # Or run the built binary
 ./orisun-[platform]-[arch]
-```
-
-#### Using Generated Clients
-
-**Using the Generated Client:**
-
-Once you've generated the client code, you can connect to Orisun and use the EventStore service:
-
-```go
-// Go example
-conn, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
-if err != nil {
-    log.Fatal(err)
-}
-defer conn.Close()
-
-client := eventstore.NewEventStoreClient(conn)
-
-// Add basic auth header
-ctx := metadata.AppendToOutgoingContext(context.Background(), 
-    "authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("username:password")))
-
-// Save events
-response, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
-    Boundary: "orisun_test_1",
-    Events: []*eventstore.Event{
-        {
-            EventId: "unique-event-id",
-            EventType: "UserRegistered",
-            Data: `{"email": "user@example.com"}`,
-        },
-    },
-})
 ```
 
 ### Code Style

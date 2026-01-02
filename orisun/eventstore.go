@@ -220,13 +220,21 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	var transactionID string
 	var globalID int64
 
+	// Extract ExpectedPosition and SubsetQuery from Query if present
+	var expectedPosition *Position
+	var subsetQuery *Query
+	if req.Query != nil {
+		expectedPosition = req.Query.ExpectedPosition
+		subsetQuery = req.Query.SubsetQuery
+	}
+
 	// Execute the query
 	transactionID, globalID, err = s.saveEventsFn.Save(
 		ctx,
 		eventsForMarshaling,
 		req.Boundary,
-		req.Query.ExpectedPosition,
-		req.Query.SubsetQuery,
+		expectedPosition,
+		subsetQuery,
 	)
 
 	if err != nil {

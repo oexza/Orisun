@@ -229,7 +229,7 @@ func TestInsecureServerConfiguration(t *testing.T) {
 	}
 
 	// Create server without TLS
-	serverOpts := []grpc.ServerOption{}
+	var serverOpts []grpc.ServerOption
 	_ = grpc.NewServer(serverOpts...)
 
 	// Test that we can create insecure credentials

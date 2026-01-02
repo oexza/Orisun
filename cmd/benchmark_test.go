@@ -170,7 +170,7 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_PG_USER=postgres",
 		"ORISUN_PG_PASSWORD=postgres",
 		"ORISUN_PG_NAME=orisun",
-		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin",
+		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin,subscribe_boundary:public",
 		// Increase connection pool limits for benchmark performance
 		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=100", // Increased from 20 to 100
 		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",  // Increased from 3 to 20
@@ -189,7 +189,7 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=benchmark_admin",
-		"ORISUN_BOUNDARIES=[{\"name\":\"benchmark_test\",\"description\":\"benchmark boundary\"},{\"name\":\"benchmark_admin\",\"description\":\"admin boundary\"}]",
+		"ORISUN_BOUNDARIES=[{\"name\":\"benchmark_test\",\"description\":\"benchmark boundary\"},{\"name\":\"benchmark_admin\",\"description\":\"admin boundary\"},{\"name\":\"subscribe_boundary\",\"description\":\"subscription benchmark boundary\"}]",
 	}
 
 	// Add current environment variables
@@ -261,13 +261,27 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUnaryInterceptor(unaryInterceptor),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*100)), // 100MB max message size
 	)
 	require.NoError(b, err)
 	s.conn = conn
 	s.client = orisun.NewEventStoreClient(conn)
-	// Perform initial ping to get token
-	pingResp, err := s.client.Ping(s.authContext(), &orisun.PingRequest{})
-	b.Logf("Ping response: %v, %v", pingResp, err)
+
+	// Wait for admin user to be created by the projector
+	// Retry authentication until it succeeds
+	var pingResp *orisun.PingResponse
+	for i := 0; i < 30; i++ {
+		pingResp, err = s.client.Ping(s.authContext(), &orisun.PingRequest{})
+		if err == nil {
+			b.Logf("Authentication successful on attempt %d", i+1)
+			break
+		}
+		b.Logf("Authentication attempt %d failed: %v, retrying...", i+1, err)
+		time.Sleep(time.Second)
+	}
+	if err != nil {
+		b.Logf("Final ping response: %v, %v", pingResp, err)
+	}
 }
 
 func (s *BenchmarkSetup) cleanup(b *testing.B) {
@@ -320,11 +334,39 @@ func (s *BenchmarkSetup) authContext() context.Context {
 }
 
 func generateRandomEvent(eventType string) *orisun.EventToSave {
+	timestamp := time.Now().Format(time.RFC3339)
 	return &orisun.EventToSave{
 		EventId:   uuid.New().String(),
 		EventType: eventType,
-		Data:      fmt.Sprintf(`{"timestamp": "%s", "message": "random event"}`, time.Now().Format(time.RFC3339)),
-		Metadata:  `{"source": "benchmark"}`,
+		Data: fmt.Sprintf(`{
+			"timestamp": "%s",
+			"message": "random event",
+			"user_id": "%s",
+			"session_id": "%s",
+			"event_id": "%s",
+			"source_ip": "192.168.1.100",
+			"user_agent": "Mozilla/5.0",
+			"request_id": "%s",
+			"correlation_id": "%s",
+			"priority": "high",
+			"status": "active",
+			"region": "us-east-1",
+			"environment": "production",
+			"version": "1.0.0",
+			"category": "user_action",
+			"sub_category": "login",
+			"retry_count": 3,
+			"latency_ms": 45,
+			"success": true,
+			"tags": ["benchmark", "test", "performance"]
+		}`, timestamp, uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()),
+		Metadata: fmt.Sprintf(`{
+			"source": "benchmark",
+			"hostname": "test-server",
+			"pid": 12345,
+			"thread_id": "thread-1",
+			"app_version": "2.1.0"
+		}`),
 	}
 }
 
@@ -350,13 +392,43 @@ func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*o
 }
 
 func generateEvents(count int, streamId string) []*orisun.EventToSave {
+	timestamp := time.Now().Format(time.RFC3339)
 	events := make([]*orisun.EventToSave, count)
 	for i := 0; i < count; i++ {
 		events[i] = &orisun.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "TestEvent",
-			Data:      fmt.Sprintf(`{"message": "test event %d", "timestamp": "%s"}`, i, time.Now().Format(time.RFC3339)),
-			Metadata:  fmt.Sprintf(`{"source": "benchmark", "stream": "%s"}`, streamId),
+			Data: fmt.Sprintf(`{
+				"timestamp": "%s",
+				"message": "test event %d",
+				"user_id": "%s",
+				"session_id": "%s",
+				"event_id": "%s",
+				"source_ip": "192.168.1.100",
+				"user_agent": "Mozilla/5.0",
+				"request_id": "%s",
+				"correlation_id": "%s",
+				"priority": "high",
+				"status": "active",
+				"region": "us-east-1",
+				"environment": "production",
+				"version": "1.0.0",
+				"category": "test",
+				"sub_category": "benchmark",
+				"retry_count": 0,
+				"latency_ms": 25,
+				"success": true,
+				"tags": ["test", "benchmark", "performance"],
+				"stream_id": "%s"
+			}`, timestamp, i, uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), streamId),
+			Metadata: fmt.Sprintf(`{
+				"source": "benchmark",
+				"hostname": "test-server",
+				"pid": 12345,
+				"thread_id": "thread-1",
+				"app_version": "2.1.0",
+				"stream": "%s"
+			}`, streamId),
 		}
 	}
 	return events
@@ -378,13 +450,9 @@ func BenchmarkSaveEvents_Single(b *testing.B) {
 	b.ResetTimer()
 	totalEvents := 0
 	for i := 0; i < b.N; i++ {
-		position := orisun.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 			Boundary: "benchmark_test",
-			Query: &orisun.SaveQuery{
-				ExpectedPosition: &position,
-			},
-			Events: []*orisun.EventToSave{events[i]},
+			Events:   []*orisun.EventToSave{events[i]},
 		})
 		if err != nil {
 			b.Errorf("Failed to save single event: %v", err)
@@ -400,7 +468,7 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 	setup := setupBenchmark(b)
 	defer setup.cleanup(b)
 
-	batchSizes := []int{10, 100, 1000, 5000} // Reduced max batch size to prevent memory issues
+	batchSizes := []int{10, 100, 1000, 2500} // Reduced max batch size to prevent gRPC message size issues
 
 	for _, batchSize := range batchSizes {
 		b.Run(fmt.Sprintf("BatchSize_%d", batchSize), func(b *testing.B) {
@@ -424,13 +492,9 @@ func BenchmarkSaveEvents_Batch(b *testing.B) {
 					}
 				}
 
-				position := orisun.NotExistsPosition()
 				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: "benchmark_test",
-					Query: &orisun.SaveQuery{
-						ExpectedPosition: &position,
-					},
-					Events: batch,
+					Events:   batch,
 				})
 				if err != nil {
 					b.Errorf("Failed to save batch: %v", err)
@@ -560,13 +624,9 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 		go func() {
 			defer workerWg.Done()
 			for jobIndex := range jobs {
-				p := orisun.NotExistsPosition()
 				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: boundary,
-					Query: &orisun.SaveQuery{
-						ExpectedPosition: &p,
-					},
-					Events: []*orisun.EventToSave{events[jobIndex]},
+					Events:   []*orisun.EventToSave{events[jobIndex]},
 				})
 				if err == nil {
 					atomic.AddInt64(&totalEvents, 1)
@@ -632,13 +692,9 @@ func BenchmarkSaveEvents_Burst10000Optimized(b *testing.B) {
 		go func() {
 			defer workerWg.Done()
 			for jobIndex := range jobs {
-				p := orisun.NotExistsPosition()
 				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 					Boundary: boundary,
-					Query: &orisun.SaveQuery{
-						ExpectedPosition: &p,
-					},
-					Events: []*orisun.EventToSave{events[jobIndex]},
+					Events:   []*orisun.EventToSave{events[jobIndex]},
 				})
 				if err == nil {
 					atomic.AddInt64(&totalEvents, 1)
