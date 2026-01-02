@@ -27,7 +27,7 @@ Built for developers who need enterprise-grade event sourcing without the comple
 #### Built-in Infrastructure
 - **Embedded NATS JetStream**: Real-time event streaming without external dependencies
 - **Multi-tenant Architecture**: Isolated boundaries with separate database schemas
-- **Pluggable Storage Backend**: PostgreSQL support today, with SQLite and other databases on the roadmap
+- **PostgreSQL Storage**: Production-ready with full ACID compliance and transaction guarantees
 - **Admin gRPC Service**: User management and system administration via gRPC
 - **User Management**: Create and manage users with role-based access control
 - **OpenTelemetry Tracing**: Built-in distributed tracing for observability
@@ -133,12 +133,10 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
 │   Storage Layer      │         NATS JetStream                │
 │   (Pluggable)        │         (Streaming)                  │
 ├──────────────────────┼──────────────────────────────────────┤
-│ • PostgreSQL (1st)    │ • Real-time Pub/Sub                  │
-│ • SQLite (Coming)     │ • Catch-up Subscriptions            │
-│ • More (Roadmap)      │ • Durable Streams                   │
-│ • ACID Transactions   │ • Clustering Support                │
-│ • Event Storage      │ • Message Ordering                  │
-│ • Rich Querying      │ • At-Least-Once Delivery             │
+│ • PostgreSQL          │ • Real-time Pub/Sub                  │
+│ • ACID Transactions   │ • Catch-up Subscriptions            │
+│ • Event Storage      │ • Durable Streams                   │
+│ • Rich Querying      │ • Clustering Support                │
 └──────────────────────┴──────────────────────────────────────┘
 │          Admin & Observability (gRPC)                       │
 │ • User Management  • OpenTelemetry Tracing                 │
@@ -150,8 +148,7 @@ Orisun combines a pluggable storage layer with the real-time capabilities of NAT
 1. **Event Storage**: Events are durably stored in PostgreSQL with full transaction support
 2. **Real-time Streaming**: NATS JetStream provides immediate event delivery to subscribers
 3. **Multi-tenancy**: Each boundary operates in its own database schema for isolation
-4. **Pluggable Backends**: Storage abstraction allows multiple database implementations
-5. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
+4. **Clustering**: Multiple Orisun nodes can form a cluster for high availability
 
 ### Data Flow
 
@@ -612,21 +609,20 @@ ORISUN_NATS_STORE_DIR=./data/node3/nats \
 - Watch for failover events: `"Failed to acquire lock"` followed by retry attempts
 
 **Best Practices:**
-- Use a load balancer for gRPC endpoints across nodes
+- Use client-side load balancing (all official clients support multi-server and DNS-based load balancing)
 - Monitor PostgreSQL connection pool usage
 - Set up proper network security between cluster nodes
-- Use persistent storage for NATS data directories
 - Configure appropriate timeouts for your network latency
 - Monitor NATS cluster status and JetStream health
+- Note: NATS JetStream uses in-memory storage (data is not persisted)
 
 
 **Kubernetes Deployment:**
 For production Kubernetes deployments, consider:
-- Using StatefulSets for persistent NATS storage
 - ConfigMaps for environment configuration
-- PersistentVolumes for NATS data directories
 - Horizontal Pod Autoscaler for scaling based on load
 - Network policies for security between pods
+- Resource limits and requests for pods
 
 ## TLS Configuration
 
@@ -773,7 +769,6 @@ services:
    - **NATS Cluster Issues**: Verify cluster routes configuration and ensure all nodes can reach each other
    - **Split Brain Prevention**: Ensure minimum 3 nodes for proper JetStream quorum
    - **Failover Delays**: Nodes may take 5-10 seconds to detect and take over from failed nodes
-   - **Data Directory Conflicts**: Ensure each node has unique NATS storage directories
 
 6. **Common Log Messages (Normal Behavior)**
    - `"Failed to acquire lock for boundary: <name>"` - Another node is processing this boundary
