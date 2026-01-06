@@ -27,7 +27,8 @@ DROP INDEX IF EXISTS idx_stream;
 DROP INDEX IF EXISTS idx_stream_tran_idglobal_id;
 DROP INDEX IF EXISTS idx_stream_tags;
 DROP INDEX IF EXISTS idx_stream_data_gin;
-CREATE INDEX IF NOT EXISTS idx_global_order ON orisun_es_event (transaction_id, global_id);
+DROP INDEX IF EXISTS idx_global_order;
+CREATE INDEX IF NOT EXISTS idx_global_order_covering ON orisun_es_event (transaction_id DESC, global_id DESC) INCLUDE (data);
 CREATE INDEX IF NOT EXISTS idx_tags ON orisun_es_event
     USING GIN (data) WITH (fastupdate = true, gin_pending_list_limit = '128');
 
@@ -117,10 +118,11 @@ BEGIN
         END IF;
 
         -- version check
-        SELECT oe.transaction_id, oe.global_id
+        SELECT DISTINCT oe.transaction_id, oe.global_id
         INTO latest_tx_id, latest_gid
         FROM orisun_es_event oe
-        WHERE (criteria IS NULL OR data @> ANY (SELECT jsonb_array_elements(criteria)))
+                 CROSS JOIN LATERAL jsonb_array_elements(criteria) AS crit(elem)
+        WHERE oe.data @> crit.elem
         ORDER BY oe.transaction_id DESC, oe.global_id DESC
         LIMIT 1;
 

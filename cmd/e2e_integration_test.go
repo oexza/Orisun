@@ -323,7 +323,16 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	wrongVersionReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
-			ExpectedPosition: &expectedPosition, // Wrong version, should be 0
+			ExpectedPosition: &expectedPosition,
+			SubsetQuery: &orisun.Query{
+				Criteria: []*pb.Criterion{
+					{
+						Tags: []*pb.Tag{
+							{Key: "eventType", Value: "FirstEvent"},
+						},
+					},
+				},
+			},
 		},
 		Events: []*pb.EventToSave{
 			{

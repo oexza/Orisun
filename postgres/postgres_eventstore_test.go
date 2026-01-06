@@ -330,7 +330,15 @@ func TestOptimisticConcurrency(t *testing.T) {
 		events,
 		"test_boundary",
 		&position1,
-		nil,
+		&orisun.Query{
+			Criteria: []*orisun.Criterion{
+				{
+					Tags: []*orisun.Tag{
+						{Key: "key", Value: "value"},
+					},
+				},
+			},
+		},
 	)
 	require.NoError(t, err)
 
@@ -349,8 +357,16 @@ func TestOptimisticConcurrency(t *testing.T) {
 		t.Context(),
 		events2,
 		"test_boundary",
-		&position2, // Expected version -1 again, but should be 0 now
-		nil,
+		&position2,
+		&orisun.Query{
+			Criteria: []*orisun.Criterion{
+				{
+					Tags: []*orisun.Tag{
+						{Key: "key", Value: "value"},
+					},
+				},
+			},
+		},
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "OptimisticConcurrencyException")

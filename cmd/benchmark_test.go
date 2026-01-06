@@ -629,7 +629,6 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 			} else {
 				atomic.AddInt64(&totalErrors, 1)
 			}
-
 		}()
 	}
 
@@ -637,74 +636,6 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	b.ResetTimer()
 	startTime := time.Now()
 	close(start) // Signal all workers to start
-
-	workerWg.Wait()
-	b.StopTimer()
-	elapsed := time.Since(startTime)
-
-	b.ReportMetric(float64(totalEvents)/elapsed.Seconds(), "events/sec")
-	if totalErrors > 0 {
-		b.Logf("Encountered %d errors during burst", totalErrors)
-	}
-}
-
-// BenchmarkSaveEvents_Burst10000Optimized uses optimizations to reduce overhead
-func BenchmarkSaveEvents_Burst10000Optimized(b *testing.B) {
-	setup := setupBenchmark(b)
-	defer setup.cleanup(b)
-
-	boundary := "benchmark_test"
-	concurrency := 10000
-
-	var totalEvents int64
-	var totalErrors int64
-
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
-
-	// Pre-create all events to reduce allocation during timing
-	events := make([]*orisun.EventToSave, concurrency)
-	streamIds := make([]string, concurrency)
-	for i := 0; i < concurrency; i++ {
-		events[i] = generateRandomEvent("BurstEvent")
-		streamIds[i] = uuid.New().String()
-	}
-
-	// Use a worker pool pattern to reduce goroutine overhead
-	numWorkers := runtime.GOMAXPROCS(0) * 20 // Use 4x CPU cores for workers
-	jobs := make(chan int, concurrency)
-	var workerWg sync.WaitGroup
-
-	// Start worker goroutines
-	for w := 0; w < numWorkers; w++ {
-		workerWg.Add(1)
-		go func() {
-			defer workerWg.Done()
-			for jobIndex := range jobs {
-				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
-					Boundary: boundary,
-					Events:   []*orisun.EventToSave{events[jobIndex]},
-				})
-				if err == nil {
-					atomic.AddInt64(&totalEvents, 1)
-				} else {
-					atomic.AddInt64(&totalErrors, 1)
-				}
-			}
-		}()
-	}
-
-	// Measure the burst window only
-	b.ResetTimer()
-	startTime := time.Now()
-	close(start) // Signal all workers to start
-
-	// Distribute jobs to workers
-	for i := 0; i < concurrency; i++ {
-		jobs <- i
-	}
-	close(jobs)
 
 	workerWg.Wait()
 	b.StopTimer()
@@ -777,7 +708,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	defer db.Close()
 
 	// Configure connection pool for high performance
-	db.SetMaxOpenConns(170)
+	db.SetMaxOpenConns(250)
 	db.SetMaxIdleConns(100)
 	db.SetConnMaxLifetime(time.Hour)
 
