@@ -901,18 +901,10 @@ The following benchmarks were conducted on an Apple M1 Pro (darwin-arm64) with P
 
 | Benchmark | Result | Description |
 |-----------|---------|-------------|
-| **SaveEvents_Single** | 718 events/sec | Single event saves with authentication |
-| **SaveEvents_Batch_10** | 5,065 events/sec | Batch saves (10 events per batch) |
-| **SaveEvents_Batch_100** | 12,037 events/sec | Batch saves (100 events per batch) |
-| **SaveEvents_Batch_1000** | 14,528 events/sec | Batch saves (1,000 events per batch) |
-| **SaveEvents_Batch_2500** | 16,595 events/sec | Batch saves (2,500 events per batch) |
-| **GetEvents** | 2,313 iterations @ 1.56ms/op | Event retrieval operations |
-| **SubscribeToEvents** | 45 iterations @ 76ms/op | Event subscription operations |
 | **SaveEvents_Burst10000** | 6,221 events/sec | Burst operations (10K events) |
-| **SaveEvents_Burst10000Optimized** | 5,974 events/sec | Optimized burst operations |
 | **MemoryUsage** | 2,006 iterations @ 1.60ms/op | Memory allocation patterns |
-| **DirectDatabase10K** | 2,164 events/sec | Direct database writes (concurrent) |
-| **DirectDatabase10KBatch** | 78K-112K events/sec | Direct database batch writes |
+| **DirectDatabase10K** | 2,212 events/sec | Direct database writes (concurrent with granular locking) |
+| **DirectDatabase10KBatch** | 88K-104K events/sec | Direct database batch writes |
 
 ### Benchmark Scenarios
 
