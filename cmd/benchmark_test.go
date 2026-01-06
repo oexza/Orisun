@@ -68,34 +68,34 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 		Cmd: []string{
 			"postgres",
 			// Memory settings
-			"-c", "shared_buffers=2GB",
-			"-c", "work_mem=64MB",
-			"-c", "maintenance_work_mem=512MB",
-			"-c", "effective_cache_size=6GB",
-			// WAL settings for write performance
-			"-c", "wal_buffers=64MB",
-			"-c", "min_wal_size=2GB",
-			"-c", "max_wal_size=8GB",
-			"-c", "checkpoint_completion_target=0.7",
-			"-c", "checkpoint_timeout=3min",
-			// Connection and concurrency
-			"-c", "max_connections=200",
-			"-c", "max_worker_processes=14",
-			"-c", "max_parallel_workers=14",
-			"-c", "max_parallel_workers_per_gather=7",
-			"-c", "max_parallel_maintenance_workers=7",
-			// Performance tuning
-			"-c", "random_page_cost=1.1",
-			"-c", "seq_page_cost=1.0",
-			"-c", "cpu_tuple_cost=0.01",
-			"-c", "cpu_index_tuple_cost=0.005",
-			"-c", "cpu_operator_cost=0.0025",
-			// Logging for performance monitoring
-			"-c", "log_min_duration_statement=1000",
-			"-c", "log_checkpoints=on",
-			"-c", "log_connections=on",
-			"-c", "log_disconnections=on",
-			"-c", "log_lock_waits=on",
+			//"-c", "shared_buffers=2GB",
+			//"-c", "work_mem=128MB",
+			//"-c", "maintenance_work_mem=512MB",
+			//"-c", "effective_cache_size=6GB",
+			//// WAL settings for write performance
+			//"-c", "wal_buffers=128MB",
+			//"-c", "min_wal_size=2GB",
+			//"-c", "max_wal_size=8GB",
+			//"-c", "checkpoint_completion_target=0.7",
+			//"-c", "checkpoint_timeout=3min",
+			//// Connection and concurrency
+			"-c", "max_connections=300",
+			//"-c", "max_worker_processes=20",
+			//"-c", "max_parallel_workers=14",
+			//"-c", "max_parallel_workers_per_gather=7",
+			//"-c", "max_parallel_maintenance_workers=7",
+			//// Performance tuning
+			//"-c", "random_page_cost=1.1",
+			//"-c", "seq_page_cost=1.0",
+			//"-c", "cpu_tuple_cost=0.01",
+			//"-c", "cpu_index_tuple_cost=0.005",
+			//"-c", "cpu_operator_cost=0.0025",
+			//// Logging for performance monitoring
+			//"-c", "log_min_duration_statement=1000",
+			//"-c", "log_checkpoints=on",
+			//"-c", "log_connections=on",
+			//"-c", "log_disconnections=on",
+			//"-c", "log_lock_waits=on",
 		},
 		WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60 * time.Second),
 	}
@@ -172,7 +172,7 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_PG_NAME=orisun",
 		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin,subscribe_boundary:public",
 		// Increase connection pool limits for benchmark performance
-		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=100", // Increased from 20 to 100
+		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=200", // Increased from 20 to 100
 		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",  // Increased from 3 to 20
 		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",   // Increased from 10 to 50
 		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",    // Increased from 5 to 10
@@ -598,7 +598,7 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	defer setup.cleanup(b)
 
 	boundary := "benchmark_test"
-	concurrency := 10000
+	concurrency := 20000
 
 	var totalEvents int64
 	var totalErrors int64
@@ -613,27 +613,23 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 		events[i] = generateRandomEvent("BurstEvent")
 	}
 
-	// Use a worker pool pattern to reduce goroutine overhead
-	numWorkers := runtime.GOMAXPROCS(0) * 20 // Use 10x CPU cores for workers
-	jobs := make(chan int, concurrency)
 	var workerWg sync.WaitGroup
 
 	// Start worker goroutines
-	for w := 0; w < numWorkers; w++ {
+	for w := 0; w < len(events); w++ {
 		workerWg.Add(1)
 		go func() {
 			defer workerWg.Done()
-			for jobIndex := range jobs {
-				_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
-					Boundary: boundary,
-					Events:   []*orisun.EventToSave{events[jobIndex]},
-				})
-				if err == nil {
-					atomic.AddInt64(&totalEvents, 1)
-				} else {
-					atomic.AddInt64(&totalErrors, 1)
-				}
+			_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
+				Boundary: boundary,
+				Events:   []*orisun.EventToSave{events[w]},
+			})
+			if err == nil {
+				atomic.AddInt64(&totalEvents, 1)
+			} else {
+				atomic.AddInt64(&totalErrors, 1)
 			}
+
 		}()
 	}
 
@@ -641,12 +637,6 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	b.ResetTimer()
 	startTime := time.Now()
 	close(start) // Signal all workers to start
-
-	// Distribute jobs to workers
-	for i := 0; i < concurrency; i++ {
-		jobs <- i
-	}
-	close(jobs)
 
 	workerWg.Wait()
 	b.StopTimer()
