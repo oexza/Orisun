@@ -1280,34 +1280,9 @@ The following benchmarks were conducted on an Apple M1 Pro (darwin-arm64) with P
 
 ### Benchmark Scenarios
 
-- **SaveEvents_Single**: Individual event saves through the gRPC API with full authentication and authorization checks
-- **SaveEvents_Batch**: Batch saves through the gRPC API with optimistic concurrency control
-- **GetEvents**: Event retrieval queries with pagination and filtering
-- **SubscribeToEvents**: Real-time event subscriptions via NATS JetStream
 - **SaveEvents_Burst**: High-throughput burst operations simulating traffic spikes
 - **DirectDatabase**: Direct database write operations bypassing the gRPC layer
 - **DirectDatabaseBatch**: Batch database writes showing maximum achievable throughput
-
-### Performance Insights
-
-- **Batch Size Scaling**: Throughput improves significantly with batch size:
-  - **10 events**: 5,065 events/sec (1.97ms latency)
-  - **100 events**: 12,037 events/sec (8.31ms latency)
-  - **1,000 events**: 14,528 events/sec (68.83ms latency)
-  - **2,500 events**: 16,595 events/sec (150.65ms latency)
-- **Direct Database Performance**: Batch writes achieve 78K-112K events/sec, demonstrating the underlying PostgreSQL performance
-- **gRPC Overhead**: The gRPC API layer adds authentication, validation, and coordination overhead, providing 718-16,595 events/sec depending on batch size
-- **Concurrent Operations**: Successfully handles truly simultaneous writes (10K concurrent attempts in 4.62 seconds)
-- **Memory Efficiency**: Stable allocation patterns with predictable memory usage
-
-### Key Performance Features
-
-- **High Throughput**: Scales from 718 events/sec for single operations to 112K events/sec for batch operations
-- **Efficient Querying**: PostgreSQL JSONB indexes and GIN support for fast event lookups
-- **Optimistic Concurrency**: Command Context Consistency with dual-phase checking prevents data corruption
-- **Real-time Streaming**: Low-latency event distribution via NATS JetStream
-- **Concurrent Processing**: Handles simultaneous operations with proper locking and coordination
-- **Memory Efficient**: Optimized memory allocation patterns for long-running operations
 
 ### Running Benchmarks
 
