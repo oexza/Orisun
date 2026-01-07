@@ -370,27 +370,6 @@ func generateRandomEvent(eventType string) *orisun.EventToSave {
 	}
 }
 
-// generateGenericCriteria creates generic criteria based on worker ID and index
-func generateGenericCriteria(workerID string, criteriaIndex, tagsCount int) []*orisun.Criterion {
-	tags := make([]*orisun.Tag, tagsCount)
-
-	// Always include worker_id as first tag
-	tags[0] = &orisun.Tag{Key: "worker_id", Value: workerID}
-
-	// Generate additional tags based on criteria index
-	for i := 1; i < tagsCount; i++ {
-		key := fmt.Sprintf("tag_%d", i)
-		value := fmt.Sprintf("value_%d_%d", criteriaIndex, i)
-		tags[i] = &orisun.Tag{Key: key, Value: value}
-	}
-
-	return []*orisun.Criterion{
-		{
-			Tags: tags,
-		},
-	}
-}
-
 func generateEvents(count int, streamId string) []*orisun.EventToSave {
 	timestamp := time.Now().Format(time.RFC3339)
 	events := make([]*orisun.EventToSave, count)
