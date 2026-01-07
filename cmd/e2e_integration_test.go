@@ -106,7 +106,7 @@ func (s *E2ETestSuite) buildBinary(t *testing.T) {
 		"-ldflags=-w -s",
 		"-gcflags=-m",
 		"-o", s.binaryPath,
-		"./basic_usage.go")
+		"./main.go")
 
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("GOOS=%s", targetOS),
