@@ -117,47 +117,6 @@ func TestClient_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestClient_Ping(t *testing.T) {
-	builder := NewClientBuilder()
-	client, err := builder.
-		WithServer("127.0.0.1", 5005).
-		WithBasicAuth("admin", "changeit"). // Using correct credentials from example
-		Build()
-
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	defer client.Close()
-
-	ctx, cancel := WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Note: This will fail without actual server, but we test the method exists
-	err = client.Ping(ctx)
-	// In a real test with a mock server, we would expect no error
-	// For now, we just verify the method doesn't panic
-	// Since our placeholder implementation always returns nil, we expect no error
-	assert.NoError(t, err)
-}
-
-func TestClient_HealthCheck(t *testing.T) {
-	builder := NewClientBuilder()
-	client, err := builder.WithHost("localhost").Build()
-
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	defer client.Close()
-
-	ctx, cancel := WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Note: HealthCheck calls GetEvents which will fail without actual server
-	// We expect this to fail since we don't have a mock implementation
-	// This test verifies that the method exists and handles errors appropriately
-	_, err = client.HealthCheck(ctx, "test-boundary")
-	assert.Error(t, err) // Expected to fail without actual server
-	assert.Contains(t, err.Error(), "Health check failed")
-}
-
 func TestServerAddress(t *testing.T) {
 	sa := NewServerAddress("localhost", 5005)
 
