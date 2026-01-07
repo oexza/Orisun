@@ -155,6 +155,8 @@ jobs:
     name: Build and Push Docker Images
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
