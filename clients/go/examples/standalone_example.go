@@ -1,3 +1,6 @@
+//go:build example_standalone
+// +build example_standalone
+
 package main
 
 import (
