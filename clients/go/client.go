@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"time"
 
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
+	eventstore "github.com/oexza/Orisun/clients/go/eventstore"
 )
 
 // OrisunClient is the main client for interacting with the Orisun event store

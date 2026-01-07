@@ -5,31 +5,31 @@ import (
 	"sync"
 	"time"
 
+	eventstore "github.com/oexza/Orisun/clients/go/eventstore"
 	"google.golang.org/grpc"
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
 )
 
 // EventHandler defines the interface for handling events from a subscription
 type EventHandler interface {
 	// OnEvent is called when an event is received
 	OnEvent(event *eventstore.Event) error
-	
+
 	// OnError is called when an error occurs
 	OnError(err error)
-	
+
 	// OnCompleted is called when the subscription completes
 	OnCompleted()
 }
 
 // EventSubscription represents a subscription to events
 type EventSubscription struct {
-	stream   grpc.ClientStream
-	handler  EventHandler
-	logger   Logger
-	closed   bool
-	mu       sync.RWMutex
-	cancel   context.CancelFunc
-	done     chan struct{}
+	stream  grpc.ClientStream
+	handler EventHandler
+	logger  Logger
+	closed  bool
+	mu      sync.RWMutex
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 // NewEventSubscription creates a new EventSubscription
@@ -42,7 +42,7 @@ func NewEventSubscription(
 	if logger == nil {
 		logger = NewNoOpLogger()
 	}
-	
+
 	subscription := &EventSubscription{
 		stream:  stream,
 		handler: handler,
@@ -51,26 +51,26 @@ func NewEventSubscription(
 		cancel:  cancel,
 		done:    make(chan struct{}),
 	}
-	
+
 	// Start the event processing goroutine
 	go subscription.processEvents()
-	
+
 	return subscription
 }
 
 // processEvents processes events from the stream
 func (es *EventSubscription) processEvents() {
 	defer close(es.done)
-	
+
 	for {
 		es.mu.RLock()
 		closed := es.closed
 		es.mu.RUnlock()
-		
+
 		if closed {
 			return
 		}
-		
+
 		// Receive the actual event from the stream
 		event := &eventstore.Event{}
 		err := es.stream.RecvMsg(event)
@@ -83,7 +83,7 @@ func (es *EventSubscription) processEvents() {
 			es.mu.RUnlock()
 			return
 		}
-		
+
 		es.mu.RLock()
 		if !es.closed {
 			es.logger.Debug("Received event from stream: %s", event.EventId)
@@ -99,23 +99,23 @@ func (es *EventSubscription) processEvents() {
 func (es *EventSubscription) Close() error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
-	
+
 	if es.closed {
 		es.logger.Debug("Subscription already closed")
 		return nil
 	}
-	
+
 	es.logger.Debug("Closing subscription")
 	es.closed = true
-	
+
 	// Cancel the context
 	if es.cancel != nil {
 		es.cancel()
 	}
-	
+
 	// Call the completion handler
 	es.handler.OnCompleted()
-	
+
 	// Wait for the processing goroutine to finish with timeout
 	select {
 	case <-es.done:
@@ -124,7 +124,7 @@ func (es *EventSubscription) Close() error {
 		// Timeout reached, log and continue
 		es.logger.Warn("Timeout waiting for subscription processing goroutine to finish")
 	}
-	
+
 	return nil
 }
 
@@ -179,8 +179,8 @@ func (b *EventSubscriptionBuilder) Build() *EventSubscription {
 
 // SimpleEventHandler provides a simple implementation of EventHandler
 type SimpleEventHandler struct {
-	onEventFunc    func(event *eventstore.Event) error
-	onErrorFunc    func(err error)
+	onEventFunc     func(event *eventstore.Event) error
+	onErrorFunc     func(err error)
 	onCompletedFunc func()
 }
 

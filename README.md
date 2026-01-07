@@ -4,6 +4,31 @@
 [![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 
+## Table of Contents
+
+- [Introduction](#introduction)
+  - [What is Command Context Consistency?](#what-is-command-context-consistency)
+  - [Key Features](#key-features)
+- [Quick Start](#quick-start)
+  - [Docker Compose](#option-1-docker-compose-recommended---60-seconds)
+  - [Download Binary](#option-2-download-binary)
+  - [Docker Standalone](#option-3-docker-standalone)
+- [Getting Started Guide](#getting-started-guide)
+  - [Your First Event](#your-first-event)
+  - [Querying Events](#querying-events)
+  - [Subscribing to Events](#subscribing-to-events)
+  - [Command Context Consistency in Practice](#command-context-consistency-in-practice)
+- [Architecture Overview](#architecture-overview)
+- [Clients](#clients)
+- [Configuration](#configuration)
+- [Advanced Usage](#advanced-usage)
+  - [Multiple Bounded Contexts](#multiple-bounded-contexts)
+  - [Schema Management](#schema-management)
+- [gRPC API Reference](#grpc-api-reference)
+- [Performance](#performance)
+- [Development](#development)
+- [License](#license)
+
 ## Introduction
 
 Orisun is a batteries-included event store designed for modern event-driven applications. It combines pluggable storage backends (currently PostgreSQL, with SQLite and FoundationDB planned) with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
@@ -148,6 +173,353 @@ docker run -d \
 
 # gRPC API: localhost:5005 (default credentials: admin/changeit)
 ```
+
+## Getting Started Guide
+
+This guide will walk you through the core operations of Orisun: storing events, querying them, and subscribing to updates.
+
+### Your First Event
+
+Let's save your first event to Orisun. We'll use a simple user registration scenario:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "orisun_test_1",
+  "query": {
+    "expected_position": {
+      "transaction_id": -1,
+      "global_id": -1
+    }
+  },
+  "events": [
+    {
+      "event_id": "user-001",
+      "event_type": "UserRegistered",
+      "data": "{\"email\": \"alice@example.com\", \"username\": \"alice\", \"full_name\": \"Alice Smith\"}",
+      "metadata": "{\"source\": \"web_signup\", \"ip\": \"192.168.1.100\"}"
+    }
+  ]
+}
+EOF
+```
+
+**What's happening:**
+- **boundary**: "orisun_test_1" - The bounded context/schema for this event
+- **expected_position**: {-1, -1} - We're starting fresh, no previous events expected
+- **event_id**: Unique identifier for this event (use UUIDs in production)
+- **event_type**: Type of event (e.g., "UserRegistered", "OrderCreated")
+- **data**: Event payload as JSON (the actual domain data)
+- **metadata**: Additional information about the event (source, timestamps, etc.)
+
+**Response:**
+```json
+{
+  "new_global_id": 0,
+  "latest_transaction_id": 1234567890123456,
+  "latest_global_id": 0
+}
+```
+
+### Saving Multiple Events
+
+You can save multiple events in a single transaction (they all share the same position):
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "orisun_test_1",
+  "query": {
+    "expected_position": {
+      "transaction_id": 0,
+      "global_id": 0
+    }
+  },
+  "events": [
+    {
+      "event_id": "profile-001",
+      "event_type": "UserProfileCompleted",
+      "data": "{\"user_id\": \"user-001\", \"phone\": \"+1234567890\", \"address\": \"123 Main St\"}",
+      "metadata": "{\"completed_at\": \"2024-01-20T10:30:00Z\"}"
+    },
+    {
+      "event_id": "email-001",
+      "event_type": "EmailVerified",
+      "data": "{\"user_id\": \"user-001\", \"email\": \"alice@example.com\"}",
+      "metadata": "{\"verified_at\": \"2024-01-20T10:31:00Z\"}"
+    }
+  ]
+}
+EOF
+```
+
+**Note**: The `expected_position` now points to the previous event (transaction_id: 0, global_id: 0). This ensures optimistic concurrency - if someone else saved events, we'll detect the conflict.
+
+### Querying Events
+
+Query all events from the beginning:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+{
+  "boundary": "orisun_test_1",
+  "count": 100,
+  "direction": "ASC"
+}
+EOF
+```
+
+Query events after a specific position (pagination):
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+{
+  "boundary": "orisun_test_1",
+  "after_position": {
+    "transaction_id": 0,
+    "global_id": 1
+  },
+  "count": 100,
+  "direction": "ASC"
+}
+EOF
+```
+
+Query events by content using JSONB containment:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+{
+  "boundary": "orisun_test_1",
+  "query": {
+    "criteria": [
+      {
+        "tags": [
+          {"key": "username", "value": "alice"}
+        ]
+      }
+    ]
+  },
+  "count": 100,
+  "direction": "ASC"
+}
+EOF
+```
+
+This query finds all events where the data contains `"username": "alice"`.
+
+### Subscribing to Events
+
+Subscribe to all events in real-time:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
+{
+  "subscriber_name": "my-subscriber",
+  "boundary": "orisun_test_1",
+  "after_position": {
+    "transaction_id": -1,
+    "global_id": -1
+  }
+}
+EOF
+```
+
+This will:
+1. First, replay all historical events from the beginning
+2. Then, stream new events as they arrive in real-time
+
+Subscribe to filtered events:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
+{
+  "subscriber_name": "user-events-subscriber",
+  "boundary": "orisun_test_1",
+  "after_position": {
+    "transaction_id": -1,
+    "global_id": -1
+  },
+  "query": {
+    "criteria": [
+      {
+        "tags": [
+          {"key": "event_type", "value": "UserRegistered"}
+        ]
+      },
+      {
+        "tags": [
+          {"key": "event_type", "value": "UserProfileCompleted"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+```
+
+This subscription only receives `UserRegistered` and `UserProfileCompleted` events.
+
+### Command Context Consistency in Practice
+
+Let's see how to use CCC for a real banking scenario. Imagine a command to transfer money between accounts:
+
+```bash
+# Step 1: Query the current state (Check Phase)
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+{
+  "boundary": "banking",
+  "query": {
+    "criteria": [
+      {
+        "tags": [
+          {"key": "account_holder", "value": "alice"}
+        ]
+      },
+      {
+        "tags": [
+          {"key": "account_holder", "value": "bob"}
+        ]
+      }
+    ]
+  },
+  "count": 1000,
+  "direction": "DESC"
+}
+EOF
+```
+
+From the results, build your context model:
+```json
+[
+  {"account_holder": "alice", "balance": 1000},
+  {"account_holder": "bob", "balance": 500}
+]
+```
+
+**Check business rules**: Both accounts exist, Alice has sufficient funds ✓
+
+```bash
+# Step 2: Record the transfer (Record Phase)
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "banking",
+  "query": {
+    "expected_position": {
+      "transaction_id": 123,  // Latest position from Step 1
+      "global_id": 456
+    },
+    "criteria": [  // This ensures no new events for alice/bob were added
+      {
+        "tags": [
+          {"key": "account_holder", "value": "alice"}
+        ]
+      },
+      {
+        "tags": [
+          {"key": "account_holder", "value": "bob"}
+        ]
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "transfer-001",
+      "event_type": "MoneyTransferred",
+      "data": "{\"from\": \"alice\", \"to\": \"bob\", \"amount\": 100, \"reference\": \"rent\"}",
+      "metadata": "{\"timestamp\": \"2024-01-20T11:00:00Z\"}"
+    }
+  ]
+}
+EOF
+```
+
+**What happens:**
+1. Orisun re-runs the query to check for new alice/bob events
+2. If the position matches (no new events), the transfer is saved
+3. If there are new events (concurrent modification), you'll get an `ALREADY_EXISTS` error
+
+**Error handling:**
+```bash
+# If you get an error, re-run Step 1 and Step 2 with the new position
+# This ensures you always work with the latest state
+```
+
+### Real-World Example: E-Commerce Order
+
+Here's a complete e-commerce order flow:
+
+```bash
+# 1. Create the order
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "ecommerce",
+  "query": {
+    "expected_position": {
+      "transaction_id": -1,
+      "global_id": -1
+    },
+    "criteria": [{"tags": [{"key": "order_id", "value": "ORDER-123"}]}]
+  },
+  "events": [{
+    "event_id": "order-created-001",
+    "event_type": "OrderCreated",
+    "data": "{\"order_id\": \"ORDER-123\", \"customer_id\": \"CUST-456\", \"total\": 99.99, \"items\": [{\"product_id\": \"P-789\", \"quantity\": 2}]}",
+    "metadata": "{\"timestamp\": \"2024-01-20T12:00:00Z\"}"
+  }]
+}
+EOF
+
+# 2. Payment processed
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "ecommerce",
+  "query": {
+    "expected_position": {"transaction_id": 100, "global_id": 0},
+    "criteria": [{"tags": [{"key": "order_id", "value": "ORDER-123"}]}]
+  },
+  "events": [{
+    "event_id": "payment-001",
+    "event_type": "PaymentProcessed",
+    "data": "{\"order_id\": \"ORDER-123\", \"amount\": 99.99, \"payment_method\": \"credit_card\"}",
+    "metadata": "{\"timestamp\": \"2024-01-20T12:05:00Z\"}"
+  }]
+}
+EOF
+
+# 3. Order shipped
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+{
+  "boundary": "ecommerce",
+  "query": {
+    "expected_position": {"transaction_id": 101, "global_id": 1},
+    "criteria": [{"tags": [{"key": "order_id", "value": "ORDER-123"}]}]
+  },
+  "events": [{
+    "event_id": "shipped-001",
+    "event_type": "OrderShipped",
+    "data": "{\"order_id\": \"ORDER-123\", \"tracking_number\": \"TN-987654\", \"shipping_address\": \"123 Main St\"}",
+    "metadata": "{\"timestamp\": \"2024-01-20T14:00:00Z\"}"
+  }]
+}
+EOF
+```
+
+**Query the order history:**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+{
+  "boundary": "ecommerce",
+  "query": {
+    "criteria": [{"tags": [{"key": "order_id", "value": "ORDER-123"}]}]
+  },
+  "count": 100,
+  "direction": "ASC"
+}
+EOF
+```
+
+This returns all events for ORDER-123 in chronological order, perfect for rebuilding the order state.
 
 ## Architecture Overview
 
