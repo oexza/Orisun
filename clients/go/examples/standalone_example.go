@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	orisun "github.com/oexza/Orisun/clients/go"
 	"log"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/orisunlabs/orisun-go-client"
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
+	eventstore "github.com/oexza/Orisun/clients/go/eventstore"
 )
 
 func standaloneExample() {
@@ -63,9 +63,6 @@ func standaloneExample() {
 
 	saveRequest := &eventstore.SaveEventsRequest{
 		Boundary: "orisun_admin",
-		Stream: &eventstore.SaveStreamQuery{
-			Name: "user-stream",
-		},
 		Events: []*eventstore.EventToSave{
 			{
 				EventId:   uuid.New().String(),
@@ -96,10 +93,7 @@ func standaloneExample() {
 
 	getRequest := &eventstore.GetEventsRequest{
 		Boundary: "orisun_admin",
-		Stream: &eventstore.GetStreamQuery{
-			Name: "user-stream",
-		},
-		Count: 10,
+		Count:    10,
 	}
 
 	response, err := client.GetEvents(ctx, getRequest)
@@ -145,30 +139,6 @@ func standaloneExample() {
 		// Close subscription
 		if err := subscription.Close(); err != nil {
 			fmt.Printf("Error closing subscription: %v\n", err)
-		}
-	}
-
-	// Example 6: Subscribe to a specific stream
-	fmt.Println("\nExample 6: Subscribing to a specific stream...")
-	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	streamSubscribeRequest := &eventstore.CatchUpSubscribeToStreamRequest{
-		Boundary:       "orisun_admin",
-		Stream:         "user-stream",
-		SubscriberName: "example-stream-subscriber",
-	}
-
-	streamSubscription, err := client.SubscribeToStream(ctx, streamSubscribeRequest, handler)
-	if err != nil {
-		fmt.Printf("Failed to subscribe to stream: %v\n", err)
-	} else {
-		fmt.Println("Successfully subscribed to stream")
-		// Let it run for a bit
-		time.Sleep(5 * time.Second)
-		// Close subscription
-		if err := streamSubscription.Close(); err != nil {
-			fmt.Printf("Error closing stream subscription: %v\n", err)
 		}
 	}
 

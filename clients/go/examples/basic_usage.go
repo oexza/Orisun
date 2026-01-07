@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/goccy/go-json"
+	orisun "github.com/oexza/Orisun/clients/go"
 	"log"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/orisunlabs/orisun-go-client"
-	eventstore "github.com/orisunlabs/orisun-go-client/eventstore"
+	eventstore "github.com/oexza/Orisun/clients/go/eventstore"
 )
 
 func main() {
@@ -81,10 +81,7 @@ func main() {
 
 	saveRequest := &eventstore.SaveEventsRequest{
 		Boundary: "orisun_admin",
-		Stream: &eventstore.SaveStreamQuery{
-			Name: "user-stream",
-		},
-		Events: events,
+		Events:   events,
 	}
 
 	writeResult, err := client.SaveEvents(ctx, saveRequest)
@@ -100,10 +97,7 @@ func main() {
 	defer cancel()
 
 	getRequest := &eventstore.GetEventsRequest{
-		Boundary: "orisun_admin",
-		Stream: &eventstore.GetStreamQuery{
-			Name: "user-stream",
-		},
+		Boundary:  "orisun_admin",
 		Count:     10,
 		Direction: eventstore.Direction_ASC,
 	}
