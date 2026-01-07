@@ -79,17 +79,35 @@ jobs:
         run: |
           mkdir -p release-artifacts
           cd clients/java/build/libs
+
           # Find the main JAR (without sources or javadoc suffix)
-          main_jar=$(ls *.jar | grep -v 'javadoc' | grep -v 'sources' | grep -v 'plain' | head -1)
+          main_jar=$(ls *.jar 2>/dev/null | grep -v 'javadoc' | grep -v 'sources' | grep -v 'plain' | head -1)
+
+          if [ -z "$main_jar" ]; then
+            echo "Error: No main JAR file found"
+            ls -la
+            exit 1
+          fi
+
+          echo "Found main JAR: $main_jar"
           cp "$main_jar" ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}.jar
 
           # Copy sources and javadoc JARs
           if ls *sources.jar 1> /dev/null 2>&1; then
-            cp $(ls *sources.jar | head -1) ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-sources.jar
+            sources_jar=$(ls *sources.jar | head -1)
+            echo "Found sources JAR: $sources_jar"
+            cp "$sources_jar" ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-sources.jar
           fi
+
           if ls *javadoc.jar 1> /dev/null 2>&1; then
-            cp $(ls *javadoc.jar | head -1) ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-javadoc.jar
+            javadoc_jar=$(ls *javadoc.jar | head -1)
+            echo "Found javadoc JAR: $javadoc_jar"
+            cp "$javadoc_jar" ../../../release-artifacts/orisun-java-client-${{ needs.validate.outputs.version }}-javadoc.jar
           fi
+
+          # Verify files were copied
+          echo "Contents of release-artifacts:"
+          ls -la ../../../release-artifacts/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
