@@ -63,9 +63,9 @@ jobs:
         working-directory: ./clients/go
         run: go mod download
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: ./clients/go
-        run: go test -v ./...
+        run: go test -v ./... -tags=!integration
 
       - name: Build
         working-directory: ./clients/go

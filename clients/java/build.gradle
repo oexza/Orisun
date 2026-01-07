@@ -68,19 +68,6 @@ java {
     withJavadocJar()
 }
 
-// Tasks for building sources and javadoc JARs
-tasks.register('sourcesJar', Jar) {
-    dependsOn classes
-    archiveClassifier = 'sources'
-    from sourceSets.main.allSource
-}
-
-tasks.register('javadocJar', Jar) {
-    dependsOn javadoc
-    archiveClassifier = 'javadoc'
-    from javadoc.destinationDir
-}
-
 publishing {
     publications {
         shadow(MavenPublication) { publication ->
