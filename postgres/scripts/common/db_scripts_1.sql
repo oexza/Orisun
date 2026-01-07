@@ -112,7 +112,7 @@ BEGIN
 
             FOREACH key_record IN ARRAY criteria_tags
                 LOOP
-                    PERFORM pg_advisory_xact_lock(('x' || substr(md5(key_record), 1, 15))::bit(60)::bigint);
+                    PERFORM pg_advisory_xact_lock(hashtext(key_record));
                 END LOOP;
         END IF;
 
