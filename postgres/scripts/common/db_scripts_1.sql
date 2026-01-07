@@ -40,8 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_tags ON orisun_es_event
 --
 -- Parameters:
 --   schema (TEXT): The schema to use for the event store table.
---   query (JSONB): A JSON object containing stream metadata.
---     - expected_version (BIGINT): The expected stream version for optimistic locking.
+--   query (JSONB): A JSON object containing query metadata.
 --     - criteria (JSONB): Optional JSON object for granular locking.
 --   events (JSONB): A JSON array of events to insert. Each event is a JSON object
 --     with the following properties:
@@ -94,15 +93,15 @@ BEGIN
 
     EXECUTE format('SET search_path TO %I', schema);
 
-    -- If criteria is present then we acquire granular locks for each key value pair.
+    -- If criteria is present then we acquire granular locks for each criterion.
     -- This is to ensure that we don't block other insert operations
     -- having non-overlapping criteria.
+    -- Each criterion object is locked as a unit (not individual fields within it).
     IF criteria IS NOT NULL THEN
-        -- Extract all unique criteria key-value pairs
-        SELECT ARRAY_AGG(DISTINCT format('%s:%s', key_value.key, key_value.value))
+        -- Extract all unique criteria (each criterion is one lock)
+        SELECT ARRAY_AGG(DISTINCT criterion::text)
         INTO criteria_tags
-        FROM jsonb_array_elements(criteria) AS criterion,
-             jsonb_each_text(criterion) AS key_value;
+        FROM jsonb_array_elements(criteria) AS criterion;
 
         -- Lock key-value pairs in alphabetical order (deadlock prevention)
         IF criteria_tags IS NOT NULL THEN

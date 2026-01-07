@@ -85,7 +85,7 @@ jobs:
 
           if [ -z "$main_jar" ]; then
             echo "Error: No main JAR file found"
-            ls -la
+            ls -la 
             exit 1
           fi
 
