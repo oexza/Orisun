@@ -44,6 +44,33 @@ jobs:
   #       with:
   #         version: latest
 
+  go-client-test:
+    name: Test Go Client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Install dependencies
+        working-directory: ./clients/go
+        run: go mod download
+
+      - name: Run tests
+        working-directory: ./clients/go
+        run: go test -v ./...
+
+      - name: Build
+        working-directory: ./clients/go
+        run: go build -v ./...
+
   node-client-test:
     name: Test Node.js Client
     runs-on: ubuntu-latest
@@ -69,6 +96,29 @@ jobs:
       - name: Run tests
         working-directory: ./clients/node
         run: npm test
+
+  java-client-test:
+    name: Test Java Client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Build with Gradle
+        working-directory: ./clients/java
+        run: ./gradlew build -x test
+
+      - name: Run tests
+        working-directory: ./clients/java
+        run: ./gradlew test
 
   build:
     name: Build
