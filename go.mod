@@ -20,7 +20,11 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require github.com/goccy/go-json v0.10.5
+require (
+	github.com/goccy/go-json v0.10.5
+	github.com/knaka/go-sqlite3-fts5 v0.0.0-20240729040425-e53b86878d0d
+	github.com/mattn/go-sqlite3 v1.14.33
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

@@ -39,20 +39,6 @@ type LockProvider interface {
 	Lock(ctx context.Context, lockName string) error
 }
 
-//type EventstoreDependencies interface {
-//	Save(ctx context.Context,
-//		events []EventWithMapTags,
-//		boundary string,
-//		streamName string,
-//		expectedPosition *Position,
-//		streamSubSet *Query,
-//	) (transactionID string, globalID int64, err error)
-//
-//	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
-//
-//	Lock(ctx context.Context, lockName string) error
-//}
-
 type EventStore struct {
 	UnimplementedEventStoreServer
 	js           jetstream.JetStream
