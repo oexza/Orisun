@@ -73,5 +73,45 @@ func EnsureDatabaseExists(dbPath string, logger logging.Logger) (*sql.DB, error)
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Apply performance optimizations
+	if err := ApplyPerformanceOptimizations(db, logger); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to apply performance optimizations: %w", err)
+	}
+
 	return db, nil
+}
+
+// ApplyPerformanceOptimizations configures SQLite for optimal performance
+func ApplyPerformanceOptimizations(db *sql.DB, logger logging.Logger) error {
+	optimizations := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "Page cache size (256MB)",
+			sql:  "PRAGMA cache_size = -262144;",
+		},
+		{
+			name: "Memory-mapped I/O (256MB)",
+			sql:  "PRAGMA mmap_size = 268435456;",
+		},
+		{
+			name: "Temp store in memory",
+			sql:  "PRAGMA temp_store = MEMORY;",
+		},
+		{
+			name: "Busy timeout (30 seconds)",
+			sql:  "PRAGMA busy_timeout = 30000000000;",
+		},
+	}
+
+	for _, opt := range optimizations {
+		if _, err := db.Exec(opt.sql); err != nil {
+			return fmt.Errorf("failed to set %s: %w", opt.name, err)
+		}
+		logger.Infof("Applied SQLite optimization: %s", opt.name)
+	}
+
+	return nil
 }

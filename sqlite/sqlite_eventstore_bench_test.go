@@ -41,7 +41,7 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 // BenchmarkBatchWrite tests batch insert performance
 func BenchmarkBatchWrite(b *testing.B) {
-	db := getTestDB(&testing.T{})
+	db := getBenchmarkDB(&testing.B{})
 	defer db.Close()
 
 	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())

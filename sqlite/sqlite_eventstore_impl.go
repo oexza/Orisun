@@ -174,6 +174,68 @@ func (s *SQLiteSaveEvents) getLatestPositionForCriteria(tx *sql.Tx, criteria []*
 	return txID, globalID, nil
 }
 
+// getLatestPositionForCriteriaByDB finds the latest event matching the criteria using the DB directly
+// This is used for batch processing to check positions without starting a transaction
+func (s *SQLiteSaveEvents) getLatestPositionForCriteriaByDB(criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
+	// Build FTS query from criteria
+	ftsQuery := buildFTSQuery(criteria)
+	if ftsQuery == "" {
+		return -1, -1, nil
+	}
+
+	// Query using FTS5 index to find latest matching event
+	query := `
+		SELECT e.transaction_id, e.global_id
+		FROM orisun_es_event e
+		INNER JOIN events_search_idx idx ON e.global_id = idx.rowid
+		WHERE events_search_idx MATCH ?
+		ORDER BY e.global_id DESC
+		LIMIT 1
+	`
+
+	row := s.db.QueryRow(query, ftsQuery)
+	err = row.Scan(&txID, &globalID)
+	if err == sql.ErrNoRows {
+		return -1, -1, nil
+	}
+	if err != nil {
+		return -1, -1, fmt.Errorf("failed to scan latest position: %w", err)
+	}
+
+	return txID, globalID, nil
+}
+
+// getLatestPositionForCriteriaWithTx finds the latest event matching the criteria using a transaction
+// This is used for batch processing with transaction-based locking
+func (s *SQLiteSaveEvents) getLatestPositionForCriteriaWithTx(tx *sql.Tx, criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
+	// Build FTS query from criteria
+	ftsQuery := buildFTSQuery(criteria)
+	if ftsQuery == "" {
+		return -1, -1, nil
+	}
+
+	// Query using FTS5 index to find latest matching event
+	query := `
+		SELECT e.transaction_id, e.global_id
+		FROM orisun_es_event e
+		INNER JOIN events_search_idx idx ON e.global_id = idx.rowid
+		WHERE events_search_idx MATCH ?
+		ORDER BY e.global_id DESC
+		LIMIT 1
+	`
+
+	row := tx.QueryRow(query, ftsQuery)
+	err = row.Scan(&txID, &globalID)
+	if err == sql.ErrNoRows {
+		return -1, -1, nil
+	}
+	if err != nil {
+		return -1, -1, fmt.Errorf("failed to scan latest position: %w", err)
+	}
+
+	return txID, globalID, nil
+}
+
 // SQLiteGetEvents handles retrieving events from SQLite
 type SQLiteGetEvents struct {
 	db     *sql.DB
