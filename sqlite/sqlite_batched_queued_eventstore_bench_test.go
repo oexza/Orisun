@@ -24,8 +24,8 @@ func BenchmarkBatchedQueuedEventStore_10K(b *testing.B) {
 	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
 
 	// Create batched queued event store with queue size of 10,000 and max batch size of 10,000
-	queueSize := 10000
-	maxBatchSize := 10000
+	queueSize := 15000
+	maxBatchSize := 20000
 	batchedStore := NewBatchedQueuedEventStore(saveEvents, queueSize, maxBatchSize, getTestLogger())
 	batchedStore.Start()
 	defer batchedStore.Stop()
@@ -36,7 +36,7 @@ func BenchmarkBatchedQueuedEventStore_10K(b *testing.B) {
 	b.ReportAllocs()
 
 	// Prepare test configuration
-	const totalEvents = 10000
+	const totalEvents = 15000
 	var wg sync.WaitGroup
 	startSignal := make(chan struct{})
 	var successfulSaves int64
@@ -88,6 +88,12 @@ func BenchmarkBatchedQueuedEventStore_10K(b *testing.B) {
 					Tags: []*orisun.Tag{
 						{Key: "resource_type", Value: fmt.Sprintf("type_%d", eventIndex)},
 						{Key: "status", Value: fmt.Sprintf("status_%d", eventIndex)},
+					},
+				},
+				{
+					Tags: []*orisun.Tag{
+						{Key: "resource_typee", Value: fmt.Sprintf("typee_%d", eventIndex)},
+						{Key: "statuss", Value: fmt.Sprintf("statuss_%d", eventIndex)},
 					},
 				},
 			},

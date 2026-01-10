@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -236,13 +237,11 @@ func (q *BatchedQueuedEventStore) fetchPositionsAndValidateAgainstDB(requests []
 	}
 	var stateMutex sync.Mutex
 
-	// Number of workers - cap at number of CPUs or max 10 workers
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 10 {
-		numWorkers = 10
-	}
-	if numWorkers < 2 {
-		numWorkers = 2
+	// Number of workers - use fewer workers to reduce synchronization overhead
+	// Profiling showed lock contention is a major bottleneck
+	numWorkers := 2
+	if runtime.NumCPU() < 2 {
+		numWorkers = 1
 	}
 
 	// Create channels for worker pool
@@ -262,13 +261,11 @@ func (q *BatchedQueuedEventStore) fetchPositionsAndValidateAgainstDB(requests []
 		}()
 	}
 
-	// Send jobs
-	go func() {
-		for i := range requests {
-			jobs <- i
-		}
-		close(jobs)
-	}()
+	// Send all jobs directly (no need for extra goroutine)
+	for i := range requests {
+		jobs <- i
+	}
+	close(jobs)
 
 	// Wait for workers to finish
 	wg.Wait()
@@ -392,7 +389,8 @@ func (q *BatchedQueuedEventStore) validateCrossBatchConcurrency(requests []valid
 	}
 
 	// Build tag -> events mapping (single pass)
-	tagIndex := make(map[string][]eventLocation)
+	// Pre-allocate with estimated capacity to reduce reallocations
+	tagIndex := make(map[string][]eventLocation, totalEvents*2)
 
 	for reqIdx, vreq := range requests {
 		for eventIdx, event := range vreq.request.events {
@@ -400,24 +398,9 @@ func (q *BatchedQueuedEventStore) validateCrossBatchConcurrency(requests []valid
 			if dataMap, ok := event.Data.(map[string]interface{}); ok {
 				for key, value := range dataMap {
 					// Normalize value to string for consistent matching with criteria tags
-					var valueStr string
-					switch v := value.(type) {
-					case string:
-						valueStr = v
-					case int, int8, int16, int32, int64:
-						valueStr = fmt.Sprintf("%d", v)
-					case uint, uint8, uint16, uint32, uint64:
-						valueStr = fmt.Sprintf("%d", v)
-					case float32:
-						valueStr = fmt.Sprintf("%f", v)
-					case float64:
-						valueStr = fmt.Sprintf("%f", v)
-					case bool:
-						valueStr = fmt.Sprintf("%t", v)
-					default:
-						valueStr = fmt.Sprintf("%v", v) // fallback for complex types
-					}
-					tagKey := fmt.Sprintf("%s:%s", key, valueStr)
+					valueStr := fastStringConversion(value)
+					// Build tag key efficiently without fmt.Sprintf
+					tagKey := key + ":" + valueStr
 					tagIndex[tagKey] = append(tagIndex[tagKey], eventLocation{reqIdx, eventIdx})
 				}
 			}
@@ -482,6 +465,47 @@ func (q *BatchedQueuedEventStore) validateCrossBatchConcurrency(requests []valid
 	return validRequests
 }
 
+// fastStringConversion converts interface{} to string faster than fmt.Sprintf
+// Optimized for the hot path of tag value conversion
+func fastStringConversion(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		// Fallback for complex types - still use fmt.Sprintf
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 // hasMatchingInBatchEvents checks if any events in the batch match the given criteria
 // Tags within a criterion are ANDed, criteria are ORed
 // Returns true if ANY criterion matches (OR across criteria, AND within each criterion)
@@ -511,10 +535,11 @@ func (q *BatchedQueuedEventStore) matchesCriterion(
 		return false
 	}
 
-	// Build list of tag keys for this criterion
-	var tagKeys []string
+	// Build list of tag keys for this criterion - pre-allocate for performance
+	tagKeys := make([]string, 0, len(criterion.Tags))
 	for _, tag := range criterion.Tags {
-		tagKeys = append(tagKeys, fmt.Sprintf("%s:%v", tag.Key, tag.Value))
+		// Build tag key efficiently without fmt.Sprintf
+		tagKeys = append(tagKeys, tag.Key+":"+tag.Value)
 	}
 
 	// Start with events matching first tag
@@ -569,16 +594,16 @@ func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedReq
 	// Generate a single transaction ID for this batch
 	currentTxID := time.Now().UnixNano()
 
-	// Collect all events and build the batch insert
-	valuePlaceholders := make([]string, 0)
-	insertArgs := make([]interface{}, 0)
+	// Single-pass: count events and marshal in one loop
+	valuePlaceholders := make([]string, 0, len(validRequests)*100)
+	insertArgs := make([]interface{}, 0, len(validRequests)*100*5) // 5 args per event
 	requestEventCounts := make([]int, len(validRequests))
 
-	totalEvents := 0
+	currentTotalEvents := 0
 	for reqIdx, vreq := range validRequests {
-		startIdx := totalEvents
+		startIdx := currentTotalEvents
 		for _, event := range vreq.request.events {
-			// Marshal data and metadata to JSON
+			// Marshal data and metadata to JSON (sequential is fast enough!)
 			dataJSON, err := json.Marshal(event.Data)
 			if err != nil {
 				q.logger.Errorf("Failed to marshal event data: %v", err)
@@ -604,9 +629,9 @@ func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedReq
 				string(metadataJSON),
 			)
 
-			totalEvents++
+			currentTotalEvents++
 		}
-		requestEventCounts[reqIdx] = totalEvents - startIdx
+		requestEventCounts[reqIdx] = currentTotalEvents - startIdx
 	}
 
 	if len(valuePlaceholders) == 0 {
@@ -656,7 +681,7 @@ func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedReq
 	}
 
 	// Success! Send results back to all requests
-	baseGlobalID := lastGlobalID - int64(totalEvents) + 1
+	baseGlobalID := lastGlobalID - int64(currentTotalEvents) + 1
 	currentGlobalID := baseGlobalID
 
 	for i := 0; i < len(validRequests); i++ {
@@ -695,11 +720,17 @@ func (q *BatchedQueuedEventStore) createConcurrencyError(expectedTxID, expectedG
 // hashCriteria creates a simple hash from criteria for grouping
 func hashCriteria(criteria []*orisun.Criterion) string {
 	// Simple hash implementation - in production, use a proper hash function
-	var result string
+	// Pre-allocate builder with reasonable capacity
+	var b strings.Builder
+	b.Grow(64) // Pre-allocate space for typical criteria
+
 	for _, c := range criteria {
 		for _, t := range c.Tags {
-			result += t.Key + ":" + t.Value + ";"
+			b.WriteString(t.Key)
+			b.WriteByte(':')
+			b.WriteString(t.Value)
+			b.WriteByte(';')
 		}
 	}
-	return result
+	return b.String()
 }

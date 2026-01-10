@@ -18,9 +18,10 @@ import (
 
 func getTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
 	// Enable FTS5 and other SQLite extensions
-	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on&_journal_mode=WAL&_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
@@ -65,10 +66,33 @@ func getBenchmarkDB(b *testing.B) *sql.DB {
 		b.Fatalf("Failed to ping benchmark database: %v", err)
 	}
 
-	// Set busy timeout via PRAGMA as well (redundant but ensures it's set)
-	if _, err = db.Exec("PRAGMA busy_timeout = 30000000000;"); err != nil {
-		db.Close()
-		b.Fatalf("Failed to set busy timeout: %v", err)
+	// Apply production-level performance optimizations for event sourcing
+	optimizations := []string{
+		// Write-Ahead Logging - CRITICAL for production concurrency
+		// Allows concurrent reads and writes without blocking
+		"PRAGMA journal_mode = WAL;",
+		// NORMAL with WAL = full ACID compliance + much better performance
+		// Still guarantees data is written to disk before commit returns
+		"PRAGMA synchronous = NORMAL;",
+		// Larger cache for read-heavy event sourcing (256MB)
+		"PRAGMA cache_size = -262144;",
+		// Store temp tables in memory for faster operations
+		"PRAGMA temp_store = MEMORY;",
+		// Enable memory-mapped I/O up to 256MB for faster large file access
+		"PRAGMA mmap_size = 268435456;",
+		// Use larger page size (8KB) for better bulk insert performance
+		"PRAGMA page_size = 8192;",
+		// Checkpoint WAL every 1000 pages to balance performance and recovery
+		"PRAGMA wal_autocheckpoint = 1000;",
+		// Set busy timeout to 30 seconds
+		"PRAGMA busy_timeout = 30000000;",
+	}
+
+	for _, pragma := range optimizations {
+		if _, err = db.Exec(pragma); err != nil {
+			db.Close()
+			b.Fatalf("Failed to set pragma '%s': %v", pragma, err)
+		}
 	}
 
 	// Run migrations
