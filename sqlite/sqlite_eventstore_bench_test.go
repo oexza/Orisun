@@ -14,10 +14,10 @@ import (
 
 // BenchmarkWriteThroughput tests write performance with sequential inserts
 func BenchmarkWriteThroughput(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := context.Background()
 
 	b.ResetTimer()
@@ -41,10 +41,10 @@ func BenchmarkWriteThroughput(b *testing.B) {
 
 // BenchmarkBatchWrite tests batch insert performance
 func BenchmarkBatchWrite(b *testing.B) {
-	db := getBenchmarkDB(&testing.B{})
-	defer db.Close()
+	pool := getBenchmarkDB(&testing.B{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := context.Background()
 
 	batchSizes := []int{10000}
@@ -75,11 +75,13 @@ func BenchmarkBatchWrite(b *testing.B) {
 
 // BenchmarkReadThroughput tests read performance
 func BenchmarkReadThroughput(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	// Pre-populate with 10,000 events
@@ -120,11 +122,13 @@ func BenchmarkReadThroughput(b *testing.B) {
 
 // BenchmarkReadWithCriteria tests FTS5 search performance
 func BenchmarkReadWithCriteria(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	// Pre-populate with 10,000 events with varying data
@@ -182,11 +186,13 @@ func BenchmarkReadWithCriteria(b *testing.B) {
 
 // BenchmarkMixedWorkload simulates realistic read/write mix
 func BenchmarkMixedWorkload(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	// Pre-populate
@@ -268,11 +274,13 @@ func BenchmarkMixedWorkload(b *testing.B) {
 
 // BenchmarkThroughput measures total throughput with 10k operations
 func BenchmarkThroughput(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	operations := []struct {
@@ -350,11 +358,13 @@ func BenchmarkThroughput(b *testing.B) {
 
 // BenchmarkConcurrentAccess tests concurrent read/write performance
 func BenchmarkConcurrentAccess(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	concurrencyLevels := []int{1, 2, 4, 8, 16}
@@ -395,10 +405,10 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 
 // BenchmarkOptimisticConcurrency tests the overhead of optimistic concurrency checks
 func BenchmarkOptimisticConcurrency(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := context.Background()
 
 	// Pre-populate
@@ -466,11 +476,13 @@ func BenchmarkOptimisticConcurrency(b *testing.B) {
 
 // BenchmarkPagination tests pagination performance
 func BenchmarkPagination(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	// Pre-populate
@@ -525,11 +537,13 @@ func BenchmarkPagination(b *testing.B) {
 
 // Custom benchmark for 10k requests
 func Benchmark10kRequests(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getTestDB(&testing.T{})
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
+	getEvents := NewSQLiteGetEvents(conn, getTestLogger())
 	ctx := context.Background()
 
 	b.Log("Starting 10,000 request benchmark...")
@@ -640,10 +654,10 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 		b.Skip("Skipping benchmark in short mode")
 	}
 
-	db := getBenchmarkDB(b)
-	defer db.Close()
+	pool := getBenchmarkDB(b)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := context.Background()
 
 	// Prepare test events - 10K simultaneous saves to the SAME boundary

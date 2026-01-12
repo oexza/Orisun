@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -12,98 +11,107 @@ import (
 	"github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // Test helper functions
 
-func getTestDB(t *testing.T) *sql.DB {
+func getTestDB(t *testing.T) *sqlitex.Pool {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
-	// Enable FTS5 and other SQLite extensions
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL&_pragma=foreign_keys(1)")
+
+	// Create connection pool
+	pool, err := sqlitex.NewPool(dbPath+"?_foreign_keys=on&_journal_mode=WAL", sqlitex.PoolOptions{
+		PoolSize: 1,
+	})
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
 
-	// Enable FTS5 extension
-	_, err = db.Exec("PRAGMA auto_vacuum = FULL;")
-	if err != nil {
-		db.Close()
-		t.Fatalf("Failed to set pragma: %v", err)
-	}
+	// Get connection for initialization
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
 
 	// Run migrations
 	logger, _ := logging.ZapLogger("info")
-	err = RunDbScripts(db, ":memory:", logger)
+	err = RunDbScripts(conn, dbPath, logger)
 	if err != nil {
-		db.Close()
+		pool.Close()
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	return db
+	// Initialize locks table
+	err = InitializeLocksTable(conn)
+	if err != nil {
+		pool.Close()
+		t.Fatalf("Failed to initialize locks table: %v", err)
+	}
+
+	return pool
 }
 
-func getBenchmarkDB(b *testing.B) *sql.DB {
+func getBenchmarkDB(b *testing.B) *sqlitex.Pool {
 	b.Helper()
 
 	// Create a temporary file-based database for realistic benchmarking
 	tmpDir := b.TempDir()
 	dbPath := tmpDir + "/benchmark.db"
 
-	// Enable FTS5 and other SQLite extensions with WAL mode and busy timeout
-	// _timeout=30000 makes SQLite wait up to 30 seconds for locks
-	// _journal_mode=WAL enables write-ahead logging for better concurrency
-	// _synchronous=NORMAL reduces disk I/O while maintaining safety
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL&_timeout=3000000")
+	// Create connection pool with optimizations
+	pool, err := sqlitex.NewPool(dbPath+"?_foreign_keys=on&_journal_mode=WAL", sqlitex.PoolOptions{
+		PoolSize: 1,
+	})
 	if err != nil {
 		b.Fatalf("Failed to open benchmark database: %v", err)
 	}
 
-	// Test the connection and enable WAL mode
-	if err = db.Ping(); err != nil {
-		db.Close()
-		b.Fatalf("Failed to ping benchmark database: %v", err)
-	}
+	// Get connection for initialization
+	conn := pool.Get(context.Background())
+	defer pool.Put(conn)
 
 	// Apply production-level performance optimizations for event sourcing
-	optimizations := []string{
-		// Write-Ahead Logging - CRITICAL for production concurrency
-		// Allows concurrent reads and writes without blocking
-		"PRAGMA journal_mode = WAL;",
-		// NORMAL with WAL = full ACID compliance + much better performance
-		// Still guarantees data is written to disk before commit returns
-		"PRAGMA synchronous = NORMAL;",
-		// Larger cache for read-heavy event sourcing (256MB)
-		"PRAGMA cache_size = -262144;",
-		// Store temp tables in memory for faster operations
-		"PRAGMA temp_store = MEMORY;",
-		// Enable memory-mapped I/O up to 256MB for faster large file access
-		"PRAGMA mmap_size = 268435456;",
-		// Use larger page size (8KB) for better bulk insert performance
-		"PRAGMA page_size = 8192;",
-		// Checkpoint WAL every 1000 pages to balance performance and recovery
-		"PRAGMA wal_autocheckpoint = 1000;",
-		// Set busy timeout to 30 seconds
-		"PRAGMA busy_timeout = 30000000;",
-	}
-
-	for _, pragma := range optimizations {
-		if _, err = db.Exec(pragma); err != nil {
-			db.Close()
-			b.Fatalf("Failed to set pragma '%s': %v", pragma, err)
-		}
+	err = ApplyPerformanceOptimizations(conn, getTestLogger())
+	if err != nil {
+		pool.Close()
+		b.Fatalf("Failed to apply performance optimizations: %v", err)
 	}
 
 	// Run migrations
 	logger, _ := logging.ZapLogger("info")
-	err = RunDbScripts(db, dbPath, logger)
+	err = RunDbScripts(conn, dbPath, logger)
 	if err != nil {
-		db.Close()
+		pool.Close()
 		b.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	return db
+	// Initialize locks table
+	err = InitializeLocksTable(conn)
+	if err != nil {
+		pool.Close()
+		b.Fatalf("Failed to initialize locks table: %v", err)
+	}
+
+	return pool
+}
+
+// Helper to get a read connection from pool for GetEvents
+func getReadConn(pool *sqlitex.Pool) *sqlite.Conn {
+	conn := pool.Get(context.Background())
+	return conn
+}
+
+// Helper to get a connection from pool for admin operations
+func getAdminConn(pool *sqlitex.Pool) *sqlite.Conn {
+	conn := pool.Get(context.Background())
+	return conn
+}
+
+// Helper to get a connection from pool for lock provider
+func getLockConn(pool *sqlitex.Pool) *sqlite.Conn {
+	conn := pool.Get(context.Background())
+	return conn
 }
 
 func getTestLogger() logging.Logger {
@@ -118,10 +126,10 @@ func getTestContext() context.Context {
 // SQLiteSaveEvents Tests
 
 func TestSQLiteSaveEvents_Save(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	events := []orisun.EventWithMapTags{
@@ -154,10 +162,10 @@ func TestSQLiteSaveEvents_Save(t *testing.T) {
 }
 
 func TestSQLiteSaveEvents_SaveMultiple(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	events := []orisun.EventWithMapTags{
@@ -192,7 +200,9 @@ func TestSQLiteSaveEvents_SaveMultiple(t *testing.T) {
 	}
 
 	// Verify all events were saved
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	readConn := pool.Get(ctx)
+	defer pool.Put(readConn)
+	getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Count:    100,
 		Boundary: "test_boundary",
@@ -207,10 +217,10 @@ func TestSQLiteSaveEvents_SaveMultiple(t *testing.T) {
 }
 
 func TestSQLiteSaveEvents_SaveEmptyEvents(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	_, _, err := saveEvents.Save(ctx, []orisun.EventWithMapTags{}, "test_boundary", nil, nil)
@@ -224,10 +234,10 @@ func TestSQLiteSaveEvents_SaveEmptyEvents(t *testing.T) {
 }
 
 func TestSQLiteSaveEvents_OptimisticConcurrency(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Save initial event
@@ -294,11 +304,10 @@ func TestSQLiteSaveEvents_OptimisticConcurrency(t *testing.T) {
 // SQLiteGetEvents Tests
 
 func TestSQLiteGetEvents_Get(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Save test events
@@ -321,6 +330,9 @@ func TestSQLiteGetEvents_Get(t *testing.T) {
 	}
 
 	// Get events
+	readConn := pool.Get(ctx)
+	defer pool.Put(readConn)
+	getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Count:    10,
 		Boundary: "test_boundary",
@@ -339,11 +351,10 @@ func TestSQLiteGetEvents_Get(t *testing.T) {
 }
 
 func TestSQLiteGetEvents_GetWithCriteria(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Save test events
@@ -372,6 +383,9 @@ func TestSQLiteGetEvents_GetWithCriteria(t *testing.T) {
 	}
 
 	// Get events with criteria
+	readConn := pool.Get(ctx)
+	defer pool.Put(readConn)
+	getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Count:    10,
 		Boundary: "test_boundary",
@@ -395,11 +409,10 @@ func TestSQLiteGetEvents_GetWithCriteria(t *testing.T) {
 }
 
 func TestSQLiteGetEvents_GetWithPagination(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Save test events
@@ -417,6 +430,8 @@ func TestSQLiteGetEvents_GetWithPagination(t *testing.T) {
 	}
 
 	// Get first page
+	readConn := pool.Get(ctx)
+	getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 	resp1, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Count:     2,
 		Boundary:  "test_boundary",
@@ -450,14 +465,15 @@ func TestSQLiteGetEvents_GetWithPagination(t *testing.T) {
 	if resp1.Events[1].EventId == resp2.Events[0].EventId {
 		t.Error("Expected different events on different pages")
 	}
+
+	pool.Put(readConn)
 }
 
 func TestSQLiteGetEvents_GetDescending(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Save test events
@@ -473,6 +489,9 @@ func TestSQLiteGetEvents_GetDescending(t *testing.T) {
 	}
 
 	// Get events in descending order
+	readConn := pool.Get(ctx)
+	defer pool.Put(readConn)
+	getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Count:     10,
 		Boundary:  "test_boundary",
@@ -495,11 +514,14 @@ func TestSQLiteGetEvents_GetDescending(t *testing.T) {
 // SQLiteLockProvider Tests
 
 func TestSQLiteLockProvider_Lock(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	lockProvider := NewSQLiteLockProvider(db, getTestLogger())
 	ctx := getTestContext()
+
+	lockConn := pool.Get(ctx)
+	defer pool.Put(lockConn)
+	lockProvider := NewSQLiteLockProvider(lockConn, getTestLogger())
 
 	lockName := "test_lock"
 
@@ -521,36 +543,44 @@ func TestSQLiteLockProvider_Lock(t *testing.T) {
 }
 
 func TestSQLiteLockProvider_LockTimeout(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	lockProvider := NewSQLiteLockProvider(db, getTestLogger())
 	ctx := getTestContext()
 
 	lockName := "test_lock_timeout"
 
 	// Manually insert an expired lock
-	_, err := db.Exec(`
+	lockConn := pool.Get(ctx)
+	err := sqlitex.ExecuteTransient(lockConn, `
 		INSERT INTO locks (lock_name, locked_at, locked_by)
 		VALUES (?, ?, ?)
-	`, lockName, time.Now().Unix()-35000, "other_process")
+	`, &sqlitex.ExecOptions{
+		Args: []interface{}{lockName, time.Now().Unix() - 35000, "other_process"},
+	})
 	if err != nil {
 		t.Fatalf("Failed to insert expired lock: %v", err)
 	}
 
 	// Should be able to acquire lock (old one expired)
+	lockProvider := NewSQLiteLockProvider(lockConn, getTestLogger())
 	err = lockProvider.Lock(ctx, lockName)
 	if err != nil {
 		t.Fatalf("Failed to acquire expired lock: %v", err)
 	}
+
+	pool.Put(lockConn)
 }
 
 func TestSQLiteLockProvider_Unlock(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	lockProvider := NewSQLiteLockProvider(db, getTestLogger())
 	ctx := getTestContext()
+
+	lockConn := pool.Get(ctx)
+	defer pool.Put(lockConn)
+	lockProvider := NewSQLiteLockProvider(lockConn, getTestLogger())
 
 	lockName := "test_unlock"
 
@@ -576,10 +606,12 @@ func TestSQLiteLockProvider_Unlock(t *testing.T) {
 // SQLiteAdminDB Tests
 
 func TestSQLiteAdminDB_UserCRUD(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	adminDB := NewSQLiteAdminDB(db, getTestLogger())
+	adminConn := pool.Get(context.Background())
+	defer pool.Put(adminConn)
+	adminDB := NewSQLiteAdminDB(adminConn, getTestLogger())
 
 	// Create user
 	user := orisun.User{
@@ -639,10 +671,12 @@ func TestSQLiteAdminDB_UserCRUD(t *testing.T) {
 }
 
 func TestSQLiteAdminDB_UserCount(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	adminDB := NewSQLiteAdminDB(db, getTestLogger())
+	adminConn := pool.Get(context.Background())
+	defer pool.Put(adminConn)
+	adminDB := NewSQLiteAdminDB(adminConn, getTestLogger())
 
 	// Save user count
 	err := adminDB.SaveUsersCount(42)
@@ -662,10 +696,12 @@ func TestSQLiteAdminDB_UserCount(t *testing.T) {
 }
 
 func TestSQLiteAdminDB_EventCount(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	adminDB := NewSQLiteAdminDB(db, getTestLogger())
+	adminConn := pool.Get(context.Background())
+	defer pool.Put(adminConn)
+	adminDB := NewSQLiteAdminDB(adminConn, getTestLogger())
 
 	// Save event count
 	err := adminDB.SaveEventCount(100, "test_boundary")
@@ -685,10 +721,12 @@ func TestSQLiteAdminDB_EventCount(t *testing.T) {
 }
 
 func TestSQLiteAdminDB_ProjectorPosition(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	adminDB := NewSQLiteAdminDB(db, getTestLogger())
+	adminConn := pool.Get(context.Background())
+	defer pool.Put(adminConn)
+	adminDB := NewSQLiteAdminDB(adminConn, getTestLogger())
 
 	projectorName := "test_projector"
 
@@ -721,11 +759,14 @@ func TestSQLiteAdminDB_ProjectorPosition(t *testing.T) {
 // SQLiteEventPublishingTracker Tests
 
 func TestSQLiteEventPublishingTracker_PositionTracking(t *testing.T) {
-	db := getTestDB(t)
-	defer db.Close()
+	pool := getTestDB(t)
+	defer pool.Close()
 
-	tracker := NewSQLiteEventPublishingTracker(db, getTestLogger())
 	ctx := getTestContext()
+
+	trackerConn := pool.Get(ctx)
+	defer pool.Put(trackerConn)
+	tracker := NewSQLiteEventPublishingTracker(trackerConn, getTestLogger())
 
 	boundary := "test_boundary"
 
@@ -764,10 +805,10 @@ func TestSQLiteEventPublishingTracker_PositionTracking(t *testing.T) {
 // Benchmark Tests
 
 func BenchmarkSaveEvents(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getBenchmarkDB(b)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	b.ResetTimer()
@@ -789,11 +830,10 @@ func BenchmarkSaveEvents(b *testing.B) {
 }
 
 func BenchmarkGetEvents(b *testing.B) {
-	db := getTestDB(&testing.T{})
-	defer db.Close()
+	pool := getBenchmarkDB(b)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
-	getEvents := NewSQLiteGetEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 	ctx := getTestContext()
 
 	// Pre-populate with events
@@ -811,10 +851,13 @@ func BenchmarkGetEvents(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
+		readConn := pool.Get(ctx)
+		getEvents := NewSQLiteGetEvents(readConn, getTestLogger())
 		_, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 			Count:    100,
 			Boundary: "bench_boundary",
 		})
+		pool.Put(readConn)
 		if err != nil {
 			b.Fatalf("Failed to get events: %v", err)
 		}

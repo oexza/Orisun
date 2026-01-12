@@ -2,31 +2,30 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	_ "github.com/knaka/go-sqlite3-fts5"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // SQLiteSaveEvents handles saving events to SQLite
 type SQLiteSaveEvents struct {
-	db     *sql.DB
+	pool   *sqlitex.Pool
 	logger logging.Logger
 }
 
 // NewSQLiteSaveEvents creates a new SQLiteSaveEvents instance
-func NewSQLiteSaveEvents(db *sql.DB, logger logging.Logger) *SQLiteSaveEvents {
+func NewSQLiteSaveEvents(pool *sqlitex.Pool, logger logging.Logger) *SQLiteSaveEvents {
 	return &SQLiteSaveEvents{
-		db:     db,
+		pool:   pool,
 		logger: logger,
 	}
 }
@@ -45,27 +44,30 @@ func (s *SQLiteSaveEvents) Save(
 		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
 	}
 
-	// Start transaction with immediate lock (SQLite's replacement for advisory locks)
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelSerializable,
-		ReadOnly:  false,
-	})
-	if err != nil {
-		s.logger.Errorf("Failed to begin transaction: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
+	// Get connection from pool
+	conn := s.pool.Get(ctx)
+	defer s.pool.Put(conn)
 
 	// Generate transaction ID (using nanoseconds since epoch)
 	currentTxID := time.Now().UnixNano()
 
+	// Use transaction for atomicity
+	err = sqlitex.ExecuteTransient(conn, "BEGIN TRANSACTION;", nil)
+	if err != nil {
+		s.logger.Errorf("Failed to begin transaction: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+
+	// Defer rollback on error
+	defer func() {
+		if err != nil {
+			sqlitex.ExecuteTransient(conn, "ROLLBACK;", nil)
+		}
+	}()
+
 	// Check optimistic concurrency if criteria provided
 	if streamConsistencyCondition != nil && len(streamConsistencyCondition.Criteria) > 0 {
-		latestTxID, latestGID, err := s.getLatestPositionForCriteria(tx, streamConsistencyCondition.Criteria)
+		latestTxID, latestGID, err := s.getLatestPositionForCriteria(conn, streamConsistencyCondition.Criteria)
 		if err != nil {
 			s.logger.Errorf("Failed to check latest position: %v", err)
 			return "", 0, status.Errorf(codes.Internal, "failed to check latest position: %v", err)
@@ -121,21 +123,20 @@ func (s *SQLiteSaveEvents) Save(
 	`, strings.Join(valuePlaceholders, ", "))
 
 	// Execute batch insert in a single statement
-	result, err := tx.ExecContext(ctx, query, insertArgs...)
+	err = sqlitex.ExecuteTransient(conn, query, &sqlitex.ExecOptions{
+		Args: insertArgs,
+	})
 	if err != nil {
 		s.logger.Errorf("Failed to insert events: %v", err)
 		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", err)
 	}
 
 	// Get the last insert ID (global_id of the last inserted row)
-	lastGlobalID, err := result.LastInsertId()
-	if err != nil {
-		s.logger.Errorf("Failed to get last insert ID: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "failed to get last insert ID: %v", err)
-	}
+	lastGlobalID := conn.LastInsertRowID()
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	err = sqlitex.ExecuteTransient(conn, "COMMIT;", nil)
+	if err != nil {
 		s.logger.Errorf("Failed to commit transaction: %v", err)
 		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
 	}
@@ -145,7 +146,7 @@ func (s *SQLiteSaveEvents) Save(
 }
 
 // getLatestPositionForCriteria finds the latest event matching the criteria using FTS5
-func (s *SQLiteSaveEvents) getLatestPositionForCriteria(tx *sql.Tx, criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
+func (s *SQLiteSaveEvents) getLatestPositionForCriteria(conn *sqlite.Conn, criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
 	// Build FTS query from criteria
 	ftsQuery := buildFTSQuery(criteria)
 	if ftsQuery == "" {
@@ -162,75 +163,28 @@ func (s *SQLiteSaveEvents) getLatestPositionForCriteria(tx *sql.Tx, criteria []*
 		LIMIT 1
 	`
 
-	row := tx.QueryRow(query, ftsQuery)
-	err = row.Scan(&txID, &globalID)
-	if err == sql.ErrNoRows {
-		return -1, -1, nil
-	}
+	err = sqlitex.ExecuteTransient(conn, query, &sqlitex.ExecOptions{
+		Args: []interface{}{ftsQuery},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			hasRow, err := stmt.Step()
+			if err != nil {
+				return err
+			}
+			if !hasRow {
+				return nil // No rows
+			}
+			txID = stmt.ColumnInt64(0)
+			globalID = stmt.ColumnInt64(1)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return -1, -1, fmt.Errorf("failed to scan latest position: %w", err)
 	}
 
-	return txID, globalID, nil
-}
-
-// getLatestPositionForCriteriaByDB finds the latest event matching the criteria using the DB directly
-// This is used for batch processing to check positions without starting a transaction
-func (s *SQLiteSaveEvents) getLatestPositionForCriteriaByDB(criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
-	// Build FTS query from criteria
-	ftsQuery := buildFTSQuery(criteria)
-	if ftsQuery == "" {
-		return -1, -1, nil
-	}
-
-	// Query using FTS5 index to find latest matching event
-	query := `
-		SELECT e.transaction_id, e.global_id
-		FROM orisun_es_event e
-		INNER JOIN events_search_idx idx ON e.global_id = idx.rowid
-		WHERE events_search_idx MATCH ?
-		ORDER BY e.global_id DESC
-		LIMIT 1
-	`
-
-	row := s.db.QueryRow(query, ftsQuery)
-	err = row.Scan(&txID, &globalID)
-	if err == sql.ErrNoRows {
-		return -1, -1, nil
-	}
-	if err != nil {
-		return -1, -1, fmt.Errorf("failed to scan latest position: %w", err)
-	}
-
-	return txID, globalID, nil
-}
-
-// getLatestPositionForCriteriaWithTx finds the latest event matching the criteria using a transaction
-// This is used for batch processing with transaction-based locking
-func (s *SQLiteSaveEvents) getLatestPositionForCriteriaWithTx(tx *sql.Tx, criteria []*orisun.Criterion) (txID int64, globalID int64, err error) {
-	// Build FTS query from criteria
-	ftsQuery := buildFTSQuery(criteria)
-	if ftsQuery == "" {
-		return -1, -1, nil
-	}
-
-	// Query using FTS5 index to find latest matching event
-	query := `
-		SELECT e.transaction_id, e.global_id
-		FROM orisun_es_event e
-		INNER JOIN events_search_idx idx ON e.global_id = idx.rowid
-		WHERE events_search_idx MATCH ?
-		ORDER BY e.global_id DESC
-		LIMIT 1
-	`
-
-	row := tx.QueryRow(query, ftsQuery)
-	err = row.Scan(&txID, &globalID)
-	if err == sql.ErrNoRows {
-		return -1, -1, nil
-	}
-	if err != nil {
-		return -1, -1, fmt.Errorf("failed to scan latest position: %w", err)
+	if txID == 0 && globalID == 0 {
+		return -1, -1, nil // No matching events
 	}
 
 	return txID, globalID, nil
@@ -238,14 +192,14 @@ func (s *SQLiteSaveEvents) getLatestPositionForCriteriaWithTx(tx *sql.Tx, criter
 
 // SQLiteGetEvents handles retrieving events from SQLite
 type SQLiteGetEvents struct {
-	db     *sql.DB
+	conn   *sqlite.Conn
 	logger logging.Logger
 }
 
 // NewSQLiteGetEvents creates a new SQLiteGetEvents instance
-func NewSQLiteGetEvents(db *sql.DB, logger logging.Logger) *SQLiteGetEvents {
+func NewSQLiteGetEvents(conn *sqlite.Conn, logger logging.Logger) *SQLiteGetEvents {
 	return &SQLiteGetEvents{
-		db:     db,
+		conn:   conn,
 		logger: logger,
 	}
 }
@@ -253,17 +207,6 @@ func NewSQLiteGetEvents(db *sql.DB, logger logging.Logger) *SQLiteGetEvents {
 // Get retrieves events based on the request parameters
 func (s *SQLiteGetEvents) Get(ctx context.Context, req *orisun.GetEventsRequest) (*orisun.GetEventsResponse, error) {
 	s.logger.Debugf("SQLite: Getting events for boundary: %s", req.Boundary)
-
-	// Start read-only transaction
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelSerializable,
-		ReadOnly:  true,
-	})
-	if err != nil {
-		s.logger.Errorf("Failed to begin read transaction: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
-	}
-	defer tx.Rollback()
 
 	// Build query
 	var query strings.Builder
@@ -312,49 +255,46 @@ func (s *SQLiteGetEvents) Get(ctx context.Context, req *orisun.GetEventsRequest)
 	args = append(args, req.Count)
 
 	// Execute query
-	rows, err := tx.QueryContext(ctx, query.String(), args...)
+	events := make([]*orisun.Event, 0, req.Count)
+	err := sqlitex.ExecuteTransient(s.conn, query.String(), &sqlitex.ExecOptions{
+		Args: args,
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			for {
+				hasRow, err := stmt.Step()
+				if err != nil {
+					return err
+				}
+				if !hasRow {
+					break
+				}
+
+				var event orisun.Event
+				event.EventId = stmt.ColumnText(0)
+				event.EventType = stmt.ColumnText(1)
+				event.Data = stmt.ColumnText(2)
+				event.Metadata = stmt.ColumnText(3)
+				txID := stmt.ColumnInt64(4)
+				globalID := stmt.ColumnInt64(5)
+				dateCreated := stmt.ColumnInt64(6)
+
+				// Set position
+				event.Position = &orisun.Position{
+					CommitPosition:  txID,
+					PreparePosition: globalID,
+				}
+
+				// Set date created
+				event.DateCreated = timestamppb.New(time.Unix(dateCreated, 0))
+
+				events = append(events, &event)
+			}
+			return nil
+		},
+	})
+
 	if err != nil {
 		s.logger.Errorf("Failed to execute query: %v", err)
 		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
-	}
-	defer rows.Close()
-
-	// Parse results
-	events := make([]*orisun.Event, 0, req.Count)
-	for rows.Next() {
-		var event orisun.Event
-		var txID, globalID int64
-		var dateCreated int64
-
-		err := rows.Scan(
-			&event.EventId,
-			&event.EventType,
-			&event.Data,
-			&event.Metadata,
-			&txID,
-			&globalID,
-			&dateCreated,
-		)
-		if err != nil {
-			s.logger.Errorf("Failed to scan row: %v", err)
-			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
-		}
-
-		// Set position
-		event.Position = &orisun.Position{
-			CommitPosition:  txID,
-			PreparePosition: globalID,
-		}
-
-		// Set date created
-		event.DateCreated = timestamppb.New(time.Unix(dateCreated, 0))
-
-		events = append(events, &event)
-	}
-
-	if err := rows.Err(); err != nil {
-		s.logger.Errorf("Error iterating rows: %v", err)
-		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
 	}
 
 	s.logger.Debugf("Successfully retrieved %d events", len(events))
@@ -410,14 +350,14 @@ func escapeFTSValue(value string) string {
 
 // SQLiteLockProvider implements distributed locking using SQLite
 type SQLiteLockProvider struct {
-	db     *sql.DB
+	conn   *sqlite.Conn
 	logger logging.Logger
 }
 
 // NewSQLiteLockProvider creates a new SQLiteLockProvider instance
-func NewSQLiteLockProvider(db *sql.DB, logger logging.Logger) *SQLiteLockProvider {
+func NewSQLiteLockProvider(conn *sqlite.Conn, logger logging.Logger) *SQLiteLockProvider {
 	return &SQLiteLockProvider{
-		db:     db,
+		conn:   conn,
 		logger: logger,
 	}
 }
@@ -430,41 +370,55 @@ func (p *SQLiteLockProvider) Lock(ctx context.Context, lockName string) error {
 	// First check if lock exists and is held
 	var existingLockedBy string
 	var existingLockedAt int64
-	err := p.db.QueryRowContext(ctx, "SELECT locked_by, locked_at FROM locks WHERE lock_name = ?", lockName).Scan(&existingLockedBy, &existingLockedAt)
+	err := sqlitex.ExecuteTransient(p.conn, "SELECT locked_by, locked_at FROM locks WHERE lock_name = ?", &sqlitex.ExecOptions{
+		Args: []interface{}{lockName},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			hasRow, err := stmt.Step()
+			if err != nil {
+				return err
+			}
+			if hasRow {
+				existingLockedBy = stmt.ColumnText(0)
+				existingLockedAt = stmt.ColumnInt64(1)
+			}
+			return nil // No lock found
+		},
+	})
+
+	if err != nil {
+		p.logger.Errorf("Failed to check existing lock: %v", err)
+		return status.Errorf(codes.Internal, "failed to check existing lock: %v", err)
+	}
 
 	// If lock exists and is not expired, fail
-	if err == nil && (time.Now().Unix()-existingLockedAt) < 30000 {
+	if existingLockedBy != "" && (time.Now().Unix()-existingLockedAt) < 30000 {
 		p.logger.Debugf("Lock %s is already held by %s", lockName, existingLockedBy)
 		return status.Errorf(codes.AlreadyExists, "lock is already held")
 	}
 
 	// Lock doesn't exist or is expired, acquire it
-	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelSerializable,
-		ReadOnly:  false,
-	})
+	err = sqlitex.ExecuteTransient(p.conn, "BEGIN TRANSACTION;", nil)
 	if err != nil {
 		p.logger.Errorf("Failed to begin lock transaction: %v", err)
 		return status.Errorf(codes.Internal, "failed to begin lock transaction: %v", err)
 	}
+
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			sqlitex.ExecuteTransient(p.conn, "ROLLBACK;", nil)
 		}
 	}()
 
 	// Insert or update the lock
-	_, err = tx.ExecContext(ctx, `
+	err = sqlitex.ExecuteTransient(p.conn, `
 		INSERT INTO locks (lock_name, locked_at, locked_by)
 		VALUES (?, ?, ?)
 		ON CONFLICT (lock_name) DO UPDATE SET
 			locked_at = excluded.locked_at,
 			locked_by = excluded.locked_by
-	`,
-		lockName,
-		time.Now().Unix(),
-		lockName,
-	)
+	`, &sqlitex.ExecOptions{
+		Args: []interface{}{lockName, time.Now().Unix(), lockName},
+	})
 
 	if err != nil {
 		p.logger.Errorf("Failed to acquire lock: %v", err)
@@ -472,7 +426,8 @@ func (p *SQLiteLockProvider) Lock(ctx context.Context, lockName string) error {
 	}
 
 	// Commit the transaction to persist the lock
-	if err := tx.Commit(); err != nil {
+	err = sqlitex.ExecuteTransient(p.conn, "COMMIT;", nil)
+	if err != nil {
 		p.logger.Errorf("Failed to commit lock transaction: %v", err)
 		return status.Errorf(codes.Internal, "failed to commit lock transaction: %v", err)
 	}
@@ -485,7 +440,9 @@ func (p *SQLiteLockProvider) Lock(ctx context.Context, lockName string) error {
 func (p *SQLiteLockProvider) Unlock(ctx context.Context, lockName string) error {
 	p.logger.Debugf("Releasing lock: %s", lockName)
 
-	_, err := p.db.ExecContext(ctx, "DELETE FROM locks WHERE lock_name = ? AND locked_by = ?", lockName, lockName)
+	err := sqlitex.ExecuteTransient(p.conn, "DELETE FROM locks WHERE lock_name = ? AND locked_by = ?", &sqlitex.ExecOptions{
+		Args: []interface{}{lockName, lockName},
+	})
 	if err != nil {
 		p.logger.Errorf("Failed to release lock: %v", err)
 		return status.Errorf(codes.Internal, "failed to release lock: %v", err)
@@ -496,8 +453,8 @@ func (p *SQLiteLockProvider) Unlock(ctx context.Context, lockName string) error 
 }
 
 // InitializeLocksTable creates the locks table if it doesn't exist
-func InitializeLocksTable(db *sql.DB) error {
-	_, err := db.Exec(`
+func InitializeLocksTable(conn *sqlite.Conn) error {
+	return sqlitex.ExecuteTransient(conn, `
 		CREATE TABLE IF NOT EXISTS locks (
 			lock_name TEXT PRIMARY KEY,
 			locked_at INTEGER NOT NULL,
@@ -505,6 +462,5 @@ func InitializeLocksTable(db *sql.DB) error {
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_locks_locked_at ON locks(locked_at);
-	`)
-	return err
+	`, nil)
 }

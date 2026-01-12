@@ -18,10 +18,10 @@ func BenchmarkQueuedEventStore_10K(b *testing.B) {
 		b.Skip("Skipping benchmark in short mode")
 	}
 
-	db := getBenchmarkDB(b)
-	defer db.Close()
+	pool := getBenchmarkDB(b)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 
 	// Create queued event store with queue size of 10,000
 	queueSize := 10000
@@ -115,10 +115,10 @@ func BenchmarkQueuedEventStore_Batched(b *testing.B) {
 		b.Skip("Skipping benchmark in short mode")
 	}
 
-	db := getBenchmarkDB(b)
-	defer db.Close()
+	pool := getBenchmarkDB(b)
+	defer pool.Close()
 
-	saveEvents := NewSQLiteSaveEvents(db, getTestLogger())
+	saveEvents := NewSQLiteSaveEvents(pool, getTestLogger())
 
 	// Smaller queue size for batching
 	queueSize := 100

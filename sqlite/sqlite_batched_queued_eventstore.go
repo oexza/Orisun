@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"runtime"
@@ -16,6 +15,8 @@ import (
 	"github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // BatchedQueuedEventStore wraps SQLiteSaveEvents with intelligent batching
@@ -165,13 +166,13 @@ func (q *BatchedQueuedEventStore) fetchBatch() []saveRequest {
 
 // processBatch validates and processes a batch of requests together
 func (q *BatchedQueuedEventStore) processBatch(requests []saveRequest) {
+	ctx := requests[0].ctx
+	conn := q.saveEvents.pool.Get(ctx)
+	defer q.saveEvents.pool.Put(conn)
+
 	// Start transaction early to lock the DB for writes
 	// This prevents other processes from inserting events while we validate
-	ctx := requests[0].ctx
-	tx, err := q.saveEvents.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelSerializable,
-		ReadOnly:  false,
-	})
+	err := sqlitex.ExecuteTransient(conn, "BEGIN;", nil)
 	if err != nil {
 		q.logger.Errorf("Failed to begin transaction: %v", err)
 		// Send error to all requests
@@ -185,19 +186,19 @@ func (q *BatchedQueuedEventStore) processBatch(requests []saveRequest) {
 	// Rollback on error (will be cleared if we commit successfully)
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			sqlitex.ExecuteTransient(conn, "ROLLBACK;", nil)
 		}
 	}()
 
 	// Phase 1: Fetch positions from DB and validate against DB
 	// This returns only requests that passed DB-level validation
-	batchState, validRequests := q.fetchPositionsAndValidateAgainstDB(requests, tx)
+	batchState, validRequests := q.fetchPositionsAndValidateAgainstDB(requests, conn)
 
 	// Phase 2: Validate cross-batch concurrency within this batch
 	validRequests = q.validateCrossBatchConcurrency(validRequests, batchState)
 
 	// Phase 3: Batch insert all valid events using the same transaction
-	if txErr := q.batchInsertWithTx(validRequests, tx); txErr != nil {
+	if txErr := q.batchInsertWithTx(validRequests, conn); txErr != nil {
 		err = txErr
 		return
 	}
@@ -230,7 +231,7 @@ type eventLocation struct {
 // fetchPositionsAndValidateAgainstDB fetches positions from DB and validates requests against DB in parallel
 // Uses a worker pool to validate requests concurrently while preserving order
 // Returns batch state with positions from DB, and only the requests that passed DB-level validation
-func (q *BatchedQueuedEventStore) fetchPositionsAndValidateAgainstDB(requests []saveRequest, tx *sql.Tx) (*batchState, []validatedRequest) {
+func (q *BatchedQueuedEventStore) fetchPositionsAndValidateAgainstDB(requests []saveRequest, conn *sqlite.Conn) (*batchState, []validatedRequest) {
 	state := &batchState{
 		latestPositions: make(map[string]*orisun.Position),
 		eventCounts:     make(map[string]int),
@@ -255,7 +256,7 @@ func (q *BatchedQueuedEventStore) fetchPositionsAndValidateAgainstDB(requests []
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
-				result := q.validateRequestAgainstDB(idx, requests[idx], tx, state, &stateMutex)
+				result := q.validateRequestAgainstDB(idx, requests[idx], conn, state, &stateMutex)
 				results <- result
 			}
 		}()
@@ -299,7 +300,7 @@ type validateResult struct {
 }
 
 // validateRequestAgainstDB validates a single request against the DB
-func (q *BatchedQueuedEventStore) validateRequestAgainstDB(idx int, req saveRequest, tx *sql.Tx, state *batchState, stateMutex *sync.Mutex) validateResult {
+func (q *BatchedQueuedEventStore) validateRequestAgainstDB(idx int, req saveRequest, conn *sqlite.Conn, state *batchState, stateMutex *sync.Mutex) validateResult {
 	// Check if context is cancelled
 	if err := req.ctx.Err(); err != nil {
 		q.sendResult(req, saveResult{"", 0, err})
@@ -319,7 +320,7 @@ func (q *BatchedQueuedEventStore) validateRequestAgainstDB(idx int, req saveRequ
 		stateMutex.Unlock()
 
 		if !exists {
-			latestTxID, latestGID, err := q.saveEvents.getLatestPositionForCriteria(tx, req.streamConsistencyCondition.Criteria)
+			latestTxID, latestGID, err := q.saveEvents.getLatestPositionForCriteria(conn, req.streamConsistencyCondition.Criteria)
 			if err != nil {
 				// Real database error - fail the request immediately
 				q.sendResult(req, saveResult{
@@ -586,7 +587,7 @@ func (q *BatchedQueuedEventStore) matchesCriterion(
 }
 
 // batchInsertWithTx performs a single batch insert of all valid events using an existing transaction
-func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedRequest, tx *sql.Tx) error {
+func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedRequest, conn *sqlite.Conn) error {
 	if len(validRequests) == 0 {
 		return nil
 	}
@@ -645,8 +646,9 @@ func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedReq
 	`, strings.Join(valuePlaceholders, ", "))
 
 	// Execute batch insert in a single statement
-	ctx := validRequests[0].request.ctx
-	result, err := tx.ExecContext(ctx, query, insertArgs...)
+	err := sqlitex.ExecuteTransient(conn, query, &sqlitex.ExecOptions{
+		Args: insertArgs,
+	})
 	if err != nil {
 		q.logger.Errorf("Failed to insert events: %v", err)
 		// Send error to all requests
@@ -658,19 +660,10 @@ func (q *BatchedQueuedEventStore) batchInsertWithTx(validRequests []validatedReq
 	}
 
 	// Get the last insert ID (global_id of the last inserted row)
-	lastGlobalID, err := result.LastInsertId()
-	if err != nil {
-		q.logger.Errorf("Failed to get last insert ID: %v", err)
-		// Send error to all requests
-		for _, vreq := range validRequests {
-			q.sendResult(vreq.request, saveResult{"", 0,
-				status.Errorf(codes.Internal, "failed to get last insert ID: %v", err)})
-		}
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
+	lastGlobalID := conn.LastInsertRowID()
 
 	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err := sqlitex.ExecuteTransient(conn, "COMMIT;", nil); err != nil {
 		q.logger.Errorf("Failed to commit transaction: %v", err)
 		// Send error to all requests
 		for _, vreq := range validRequests {
