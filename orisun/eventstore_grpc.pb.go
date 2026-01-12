@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.0
-// source: orisun/eventstore.proto
+// source: eventstore.proto
 
 package orisun
 
@@ -235,5 +235,5 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "orisun/eventstore.proto",
+	Metadata: "eventstore.proto",
 }
