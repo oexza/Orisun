@@ -1,3 +1,12 @@
 [submodule "clients/node"]
 	path = clients/node
 	url = https://github.com/oexza/orisun-node-client.git
+[submodule "clients/proto"]
+	path = clients/proto
+	url = https://github.com/oexza/orisun-proto.git
+[submodule "clients/go"]
+	path = clients/go
+	url = https://github.com/oexza/orisun-client-go.git
+[submodule "clients/java"]
+	path = clients/java
+	url = https://github.com/oexza/orisun-client-java.git
