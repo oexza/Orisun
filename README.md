@@ -608,25 +608,50 @@ Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then rec
 
 ## Clients
 
-Orisun provides official client libraries for Go, Node.js, and Java, with support for generating clients for other languages using Protocol Buffers.
+Orisun provides official client libraries for Go, Node.js, and Java. These clients are maintained as separate repositories with their own release cycles.
 
 ### Official Client Libraries
 
-**Go Client:**
-For Go applications, see the [Go Client README](clients/go/README.md) for installation and usage instructions.
+All clients are now independent repositories:
+- **Go Client**: [github.com/oexza/orisun-client-go](https://github.com/oexza/orisun-client-go)
+- **Java Client**: [github.com/oexza/orisun-client-java](https://github.com/oexza/orisun-client-java)
+- **Node.js Client**: [github.com/oexza/orisun-node-client](https://github.com/oexza/orisun-node-client)
 
-**Node.js Client:**
-For Node.js applications, see the [Node.js Client README](clients/node/README.md) for installation and usage instructions.
+### Protocol Buffer Definitions
+
+The shared Protocol Buffer definitions are maintained in a separate repository:
+- **Proto Definitions**: [github.com/oexza/orisun-proto](https://github.com/oexza/orisun-proto)
+
+### Quick Links
+
+**Go Client:**
+```bash
+go get github.com/oexza/orisun-client-go
+```
+See [orisun-client-go](https://github.com/oexza/orisun-client-go) for documentation.
 
 **Java Client:**
-For Java applications, see the [Java Client README](clients/java/README.md) for installation and usage instructions.
+```groovy
+implementation 'com.orisunlabs:orisun-java-client:0.0.1'
+```
+See [orisun-client-java](https://github.com/oexza/orisun-client-java) for documentation.
+
+**Node.js Client:**
+```bash
+npm install @orisun/eventstore-client
+```
+See [orisun-node-client](https://github.com/oexza/orisun-node-client) for documentation.
 
 ### Generate Custom Clients
 
-For other programming languages, you can generate clients using the Protocol Buffers definition file available at `eventstore/eventstore.proto`.
+For other programming languages, you can generate clients using the Protocol Buffer definitions from the [orisun-proto](https://github.com/oexza/orisun-proto) repository.
 
 **Python Client:**
 ```bash
+# Clone the proto repository
+git clone https://github.com/oexza/orisun-proto.git
+cd orisun-proto
+
 # Install grpcio-tools
 pip install grpcio-tools
 
@@ -634,16 +659,20 @@ pip install grpcio-tools
 python -m grpc_tools.protoc -I. \
        --python_out=. \
        --grpc_python_out=. \
-       eventstore/eventstore.proto
+       eventstore.proto
 ```
 
 **C# Client:**
 ```bash
+# Clone the proto repository
+git clone https://github.com/oexza/orisun-proto.git
+cd orisun-proto
+
 # Install Grpc.Tools package
 dotnet add package Grpc.Tools
 
 # Generate C# client (add to .csproj)
-<Protobuf Include="eventstore/eventstore.proto" GrpcServices="Client" />
+<Protobuf Include="eventstore.proto" GrpcServices="Client" />
 ```
 
 ## Boundaries and Schemas
