@@ -608,18 +608,18 @@ Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then rec
 
 ## Clients
 
-Orisun provides official client libraries for Go, Node.js, and Java. These clients are maintained as separate repositories with their own release cycles.
+Orisun provides official client libraries for Go, Node.js, and Java. These clients are maintained as separate repositories with their own release cycles, and all clients reference the shared proto repository.
 
 ### Official Client Libraries
 
-All clients are now independent repositories:
+All clients are independent repositories that use the shared proto definitions:
 - **Go Client**: [github.com/oexza/orisun-client-go](https://github.com/oexza/orisun-client-go)
 - **Java Client**: [github.com/oexza/orisun-client-java](https://github.com/oexza/orisun-client-java)
 - **Node.js Client**: [github.com/oexza/orisun-node-client](https://github.com/oexza/orisun-node-client)
 
 ### Protocol Buffer Definitions
 
-The shared Protocol Buffer definitions are maintained in a separate repository:
+The shared Protocol Buffer definitions are maintained in a separate repository and are referenced by all clients as submodules:
 - **Proto Definitions**: [github.com/oexza/orisun-proto](https://github.com/oexza/orisun-proto)
 
 ### Quick Links
