@@ -1,6 +1,3 @@
-CREATE TABLE IF NOT EXISTS users_count (
-    id VARCHAR(255) PRIMARY KEY,
-    user_count VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+-- NOTE: The users_count table creation has been consolidated into initialize_admin_tables()
+-- in 000002_create_users_table.sql. This file is kept for backward compatibility with
+-- the migration script that processes all SQL files in order.

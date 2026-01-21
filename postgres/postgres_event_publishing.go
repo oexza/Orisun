@@ -12,7 +12,7 @@ import (
 )
 
 const insertLastPublishedPosition = `
-insert into %s.orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
+insert into %s.%s_orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
 values ($1, $2, $3, $4, $5)
 ON CONFLICT (boundary)
     do update set transaction_id = $2,
@@ -21,7 +21,7 @@ ON CONFLICT (boundary)
 `
 
 const getLastPublishedEventQuery = `
-select transaction_id, global_id from %s.orisun_last_published_event_position where boundary = $1
+select transaction_id, global_id from %s.%s_orisun_last_published_event_position where boundary = $1
 `
 
 type PostgresEventPublishing struct {
@@ -71,7 +71,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	}
 	var transactionID int64
 	var globalID int64
-	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema), boundary).Scan(&transactionID, &globalID)
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema, boundary), boundary).Scan(&transactionID, &globalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Return default position (0,0) if no rows found
@@ -117,7 +117,7 @@ func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 
 	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx,
-		fmt.Sprintf(insertLastPublishedPosition, schema),
+		fmt.Sprintf(insertLastPublishedPosition, schema, boundaryOfInterest),
 		boundaryOfInterest,
 		transactionId,
 		globalId,

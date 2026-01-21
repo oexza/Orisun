@@ -215,12 +215,49 @@ func validateConfig(config AppConfig) error {
 		if boundary.Name == config.Admin.Boundary {
 			isAdminBoundaryDefined = true
 		}
+		// Validate boundary name is a valid PostgreSQL identifier
+		if err := validateBoundaryName(boundary.Name); err != nil {
+			return fmt.Errorf("invalid boundary name '%s': %w", boundary.Name, err)
+		}
 	}
 	if !isAdminBoundaryDefined {
 		return fmt.Errorf("admin boundary not defined")
 
 	}
 	return nil
+}
+
+// validateBoundaryName checks if a boundary name is a valid PostgreSQL identifier.
+// PostgreSQL identifiers:
+// - Must start with a letter (a-z, A-Z) or underscore (_)
+// - Can contain letters, digits (0-9), and underscores
+// - Maximum length is 63 characters
+func validateBoundaryName(boundary string) error {
+	if len(boundary) == 0 || len(boundary) > 63 {
+		return fmt.Errorf("boundary name must be 1-63 characters, got %d", len(boundary))
+	}
+
+	firstChar := boundary[0]
+	if !isLetter(firstChar) && firstChar != '_' {
+		return fmt.Errorf("boundary name must start with a letter or underscore, got '%c'", firstChar)
+	}
+
+	for i := 1; i < len(boundary); i++ {
+		c := boundary[i]
+		if !isLetter(c) && !isDigit(c) && c != '_' {
+			return fmt.Errorf("boundary name can only contain letters, digits, and underscores, invalid char '%c' at position %d", c, i)
+		}
+	}
+
+	return nil
+}
+
+func isLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
 
 func substituteEnvVars(value string) string {

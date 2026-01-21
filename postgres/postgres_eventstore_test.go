@@ -115,7 +115,7 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 
 	// Run database migrations using the common scripts
 	ctx := context.Background()
-	if err := RunDbScripts(db, "public", false, ctx); err != nil {
+	if err := RunDbScripts(db, "test_boundary", "public", false, ctx); err != nil {
 		return nil, fmt.Errorf("failed to run database migrations: %v", err)
 	}
 

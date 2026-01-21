@@ -630,7 +630,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	}
 
 	// Run database migrations
-	if err := postgres.RunDbScripts(db, "public", false, ctx); err != nil {
+	if err := postgres.RunDbScripts(db, "benchmark_test", "public", false, ctx); err != nil {
 		b.Fatalf("Failed to migrate public schema: %v", err)
 	}
 
@@ -829,7 +829,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 	}
 
 	// Run database migrations
-	if err := postgres.RunDbScripts(db, "public", false, ctx); err != nil {
+	if err := postgres.RunDbScripts(db, "benchmark_test", "public", false, ctx); err != nil {
 		b.Fatalf("Failed to migrate public schema: %v", err)
 	}
 
