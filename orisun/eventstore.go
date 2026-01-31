@@ -258,6 +258,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 }
 
 func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
+	s.logger.Debugf("GetEvents called with req: %v", req)
 	if req.Count == 0 {
 		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
 	}

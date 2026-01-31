@@ -17,7 +17,8 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 CREATE OR REPLACE FUNCTION initialize_boundary_tables(
     boundary_name TEXT,
     schema_name TEXT
-) RETURNS VOID AS $$
+) RETURNS VOID AS
+$$
 BEGIN
     -- Validate boundary_name is a valid PostgreSQL identifier
     -- - Must start with letter or underscore
@@ -43,16 +44,16 @@ BEGIN
         START WITH 0
         MINVALUE 0
         OWNED BY %I.%I.%I',
-        schema_name, boundary_name || '_orisun_es_event_global_id_seq',
-        schema_name, boundary_name || '_orisun_es_event', 'global_id');
+                   schema_name, boundary_name || '_orisun_es_event_global_id_seq',
+                   schema_name, boundary_name || '_orisun_es_event', 'global_id');
 
     -- Create indexes
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
-        boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
+                   boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
 
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I
         USING GIN (data) WITH (fastupdate = true, gin_pending_list_limit = ''128'')',
-        boundary_name || '_idx_tags', schema_name, boundary_name || '_orisun_es_event');
+                   boundary_name || '_idx_tags', schema_name, boundary_name || '_orisun_es_event');
 
     -- Create last published event position table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -171,8 +172,8 @@ BEGIN
             WHERE oe.data @> crit.elem
             ORDER BY oe.transaction_id DESC, oe.global_id DESC
             LIMIT 1',
-            boundary_name
-        ) USING criteria INTO latest_tx_id, latest_gid;
+                       boundary_name
+                ) USING criteria INTO latest_tx_id, latest_gid;
 
         IF latest_tx_id IS NULL THEN
             latest_tx_id := -1;
@@ -221,9 +222,9 @@ BEGIN
                            FROM inserted_events)
         SELECT max_seq_overall, $1, max_seq_overall
         FROM max_global_id',
-        boundary_name,
-        prefixed_seq_name
-    ) USING current_tx_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
+                   boundary_name,
+                   prefixed_seq_name
+            ) USING current_tx_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
 
     RETURN QUERY SELECT new_global_id, latest_transaction_id, latest_global_id;
 END;
@@ -253,24 +254,27 @@ CREATE OR REPLACE FUNCTION get_matching_events_v3(
     after_position JSONB DEFAULT NULL,
     sort_dir TEXT DEFAULT 'ASC',
     max_count INT DEFAULT 1000
-) RETURNS TABLE(
-    transaction_id BIGINT,
-    global_id BIGINT,
-    event_id UUID,
-    event_type TEXT,
-    data JSONB,
-    metadata JSONB,
-    date_created TIMESTAMPTZ
 )
+    RETURNS TABLE
+            (
+                transaction_id BIGINT,
+                global_id      BIGINT,
+                event_id       UUID,
+                event_type     TEXT,
+                data           JSONB,
+                metadata       JSONB,
+                date_created   TIMESTAMPTZ
+            )
     LANGUAGE plpgsql
-    STABLE AS
+    STABLE
+AS
 $$
 DECLARE
-    op             TEXT  := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
+    op                   TEXT  := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
     qualified_table_name TEXT;
-    criteria_array JSONB := criteria -> 'criteria';
-    tx_id          TEXT  := (after_position ->> 'transaction_id')::text;
-    global_id      TEXT  := (after_position ->> 'global_id')::text;
+    criteria_array       JSONB := criteria -> 'criteria';
+    tx_id                TEXT  := (after_position ->> 'transaction_id')::text;
+    global_id            TEXT  := (after_position ->> 'global_id')::text;
 BEGIN
     IF sort_dir NOT IN ('ASC', 'DESC') THEN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
@@ -303,11 +307,12 @@ BEGIN
             op,
             tx_id,
             global_id,
-            CASE WHEN after_position IS NOT NULL THEN
-                format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', tx_id)
-            ELSE
-                ''
-            END,
+            CASE
+                WHEN after_position IS NOT NULL AND sort_dir != 'DESC' THEN
+                    format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', tx_id)
+                ELSE
+                    ''
+                END,
             sort_dir,
             LEAST(GREATEST(max_count, 1), 10000)
                          );
