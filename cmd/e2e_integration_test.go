@@ -161,7 +161,7 @@ func (s *E2ETestSuite) startBinary(t *testing.T) {
 func (s *E2ETestSuite) waitForGRPCServer(t *testing.T) {
 	// Wait for the gRPC server to be ready
 	maxRetries := 30
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		conn, err := grpc.Dial(fmt.Sprintf("localhost:%s", s.grpcPort),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithBlock(),

@@ -234,7 +234,7 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	var token *string = nil
 
 	// Create an interceptor to extract token from response metadata
-	unaryInterceptor := func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	unaryInterceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		//if token is not nil, add it to the outgoing context
 		if token != nil {
 			ctx = metadata.AppendToOutgoingContext(ctx, "x-auth-token", *token)
@@ -270,7 +270,7 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	// Wait for admin user to be created by the projector
 	// Retry authentication until it succeeds
 	var pingResp *orisun.PingResponse
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		pingResp, err = s.client.Ping(s.authContext(), &orisun.PingRequest{})
 		if err == nil {
 			b.Logf("Authentication successful on attempt %d", i+1)
@@ -373,7 +373,7 @@ func generateRandomEvent(eventType string) *orisun.EventToSave {
 func generateEvents(count int, streamId string) []*orisun.EventToSave {
 	timestamp := time.Now().Format(time.RFC3339)
 	events := make([]*orisun.EventToSave, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		events[i] = &orisun.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "TestEvent",
@@ -454,7 +454,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	boundary := "subscribe_boundary"
 
 	// Pre-populate with events to ensure subscription has data to read
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		event := generateRandomEvent("PrePopulateEvent")
 		p := orisun.NotExistsPosition()
 		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
@@ -482,7 +482,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 
 		// Read events from the subscription (should have pre-populated data)
 		eventsRead := 0
-		for j := 0; j < 10; j++ {
+		for range 10 {
 			_, err := stream.Recv()
 			if err != nil {
 				break
@@ -515,17 +515,15 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 
 	// Pre-create all events to reduce allocation during timing
 	events := make([]*orisun.EventToSave, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		events[i] = generateRandomEvent("BurstEvent")
 	}
 
 	var workerWg sync.WaitGroup
 
 	// Start worker goroutines
-	for w := 0; w < len(events); w++ {
-		workerWg.Add(1)
-		go func() {
-			defer workerWg.Done()
+	for w := range events {
+		workerWg.Go(func() {
 			_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
 				Boundary: boundary,
 				Events:   []*orisun.EventToSave{events[w]},
@@ -535,7 +533,7 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 			} else {
 				atomic.AddInt64(&totalErrors, 1)
 			}
-		}()
+		})
 	}
 
 	// Measure the burst window only
@@ -619,7 +617,7 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 	db.SetConnMaxLifetime(time.Hour)
 
 	// Wait for database to be ready
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		if err := db.Ping(); err == nil {
 			break
 		}

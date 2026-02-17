@@ -72,7 +72,7 @@ func setupClusterTest(t *testing.T) *ClusterTestSuite {
 
 	// Create 3 cluster nodes (minimum for JetStream quorum)
 	suite.nodes = make([]*ClusterNode, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		suite.nodes[i] = &ClusterNode{
 			grpcPort:    fmt.Sprintf("%d", 15010+i),
 			natsPort:    fmt.Sprintf("%d", 14222+i),
@@ -84,7 +84,7 @@ func setupClusterTest(t *testing.T) *ClusterTestSuite {
 
 	// Start nodes sequentially to allow proper cluster formation
 	// RAFT consensus works better when nodes join one at a time
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		suite.startBinary(t, i)
 		// Allow time for each node to join the cluster before starting the next
 		if i < 2 {
@@ -98,7 +98,7 @@ func setupClusterTest(t *testing.T) *ClusterTestSuite {
 	time.Sleep(20 * time.Second)
 
 	// Wait for all gRPC servers to be ready
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		suite.waitForGRPCServer(t, i)
 		suite.createGRPCClient(t, i)
 	}
@@ -133,7 +133,7 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 	// Create NATS cluster routes for this node
 	// Include all cluster ports (NATS will handle connections as nodes become available)
 	routes := ""
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if i != nodeIndex {
 			if routes != "" {
 				routes += ","
@@ -196,7 +196,7 @@ func (s *ClusterTestSuite) waitForGRPCServer(t *testing.T, nodeIndex int) {
 	address := fmt.Sprintf("127.0.0.1:%s", node.grpcPort)
 
 	// Wait for the gRPC server to be ready
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			conn.Close()

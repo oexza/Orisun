@@ -83,7 +83,7 @@ func GetTracer() trace.Tracer {
 
 // UnaryTracingInterceptor returns a gRPC unary interceptor that adds OpenTelemetry tracing
 func UnaryTracingInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if tracer == nil {
 			// Tracing not enabled, just call handler
 			return handler(ctx, req)
@@ -121,7 +121,7 @@ func UnaryTracingInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 
 // StreamTracingInterceptor returns a gRPC streaming interceptor that adds OpenTelemetry tracing
 func StreamTracingInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if tracer == nil {
 			// Tracing not enabled, just call handler
 			return handler(srv, ss)

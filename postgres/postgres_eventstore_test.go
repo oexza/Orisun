@@ -85,7 +85,7 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 	var db *sql.DB
 	var err error
 
-	for retries := 0; retries < 3; retries++ {
+	for retries := range 3 {
 		db, err = sql.Open("postgres", connStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %v", err)
@@ -744,7 +744,7 @@ func TestPagination(t *testing.T) {
 
 	// Save 10 events
 	var lastPosition *orisun.Position
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
@@ -832,7 +832,7 @@ func TestDirectionOrdering(t *testing.T) {
 
 	// Save 5 events
 	var lastPosition *orisun.Position
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		eventId, err := uuid.NewV7()
 		require.NoError(t, err)
 
@@ -881,7 +881,7 @@ func TestDirectionOrdering(t *testing.T) {
 	assert.Len(t, respDesc.Events, 5)
 
 	// Verify the order is reversed
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		assert.Equal(t, respAsc.Events[i].EventId, respDesc.Events[4-i].EventId)
 	}
 }
