@@ -100,28 +100,37 @@ The fastest way to get started with Orisun:
 version: '3.8'
 services:
   postgres:
-    image: postgres:17.5-alpine
+    image: postgres:17.5-alpine3.22
     environment:
       POSTGRES_DB: orisun
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: password@1
     ports:
-      - "5432:5432"
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
   orisun:
     image: orexza/orisun:latest
     environment:
       ORISUN_PG_HOST: postgres
       ORISUN_PG_USER: postgres
-      ORISUN_PG_PASSWORD: postgres
+      ORISUN_PG_PASSWORD: password@1
       ORISUN_PG_NAME: orisun
-      ORISUN_PG_SCHEMAS: "orisun_test_1:public,orisun_admin:admin"
-      ORISUN_BOUNDARIES: '[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]'
-      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_USERNAME: admin
+      ORISUN_ADMIN_PASSWORD: changeit
     ports:
       - "5005:5005"  # gRPC API
+      - "8991:8991"  # Admin HTTP API
+    volumes:
+      - orisun-data:/var/lib/orisun/data
     depends_on:
       - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  orisun-data:
 ```
 
 2. **Start everything:**
@@ -164,11 +173,13 @@ Run Orisun with Docker (requires external PostgreSQL):
 docker run -d \
   --name orisun \
   -p 5005:5005 \
+  -p 8991:8991 \
   -e ORISUN_PG_HOST=host.docker.internal \
   -e ORISUN_PG_USER=postgres \
   -e ORISUN_PG_PASSWORD=your_password \
   -e ORISUN_PG_NAME=your_database \
-  -e ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
+  -e ORISUN_ADMIN_USERNAME=admin \
+  -e ORISUN_ADMIN_PASSWORD=changeit \
   orexza/orisun:latest
 
 # gRPC API: localhost:5005 (default credentials: admin/changeit)
@@ -205,7 +216,7 @@ EOF
 ```
 
 **What's happening:**
-- **boundary**: "orisun_test_1" - The bounded context/schema for this event
+- **boundary**: "orisun_test_1" - The bounded context for this event
 - **expected_position**: {-1, -1} - We're starting fresh, no previous events expected
 - **event_id**: Unique identifier for this event (use UUIDs in production)
 - **event_type**: Type of event (e.g., "UserRegistered", "OrderCreated")
@@ -582,7 +593,7 @@ Phase #2 - Record: Re-run query, ensure no new events for Peter/Janine, then rec
 
 **Orisun's Implementation:**
 
-1. **Multi-Tenancy**: Boundaries (PostgreSQL schemas) provide isolated domains/bounded contexts
+1. **Multi-Tenancy**: Boundaries provide isolated domains/bounded contexts — multiple boundaries can share a PostgreSQL schema, with isolation achieved via boundary-prefixed tables
 2. **Event Storage**: Events stored with full queryability on data content
 3. **CCC Support**: Query events by payload content to build command-specific contexts
 4. **Real-time Streaming**: NATS JetStream delivers events immediately to subscribers
@@ -678,29 +689,38 @@ dotnet add package Grpc.Tools
 ```
 
 ## Boundaries and Schemas
-In Orisun, a "boundary" directly corresponds to a PostgreSQL schema. Boundaries must be pre-configured at startup:
+
+In Orisun, a boundary is a logical domain — **it does not map one-to-one with a PostgreSQL schema**. Multiple boundaries can share the same schema. Isolation between boundaries is maintained at the table level: each boundary gets its own set of prefixed tables (e.g., `orders_orisun_es_event`, `payments_orisun_es_event`) within whichever schema they are assigned to.
+
+`ORISUN_PG_SCHEMAS` maps each boundary name to a schema:
+
+```
+ORISUN_PG_SCHEMAS=orders:public,payments:public,admin:admin
+```
+
+Here, `orders` and `payments` both live in the `public` schema but are fully isolated by their table prefixes.
+
+Boundaries must be pre-configured at startup:
 
 ```bash
-# Configure allowed boundaries (schemas) and their descriptions
-ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"admin boundary"}]' \
-ORISUN_ADMIN_BOUNDARY=orisun_admin \
+ORISUN_PG_SCHEMAS=orders:public,payments:public,admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orders","description":"Order domain"},{"name":"payments","description":"Payment domain"},{"name":"admin","description":"Admin boundary"}]' \
+ORISUN_ADMIN_BOUNDARY=admin \
 ORISUN_PG_HOST=localhost \
 [... other config ...] \
 orisun-darwin-arm64
 ```
 
 When Orisun starts:
-1. It validates and creates the specified schemas if they don't exist
-2. Only requests to these pre-configured boundaries will be accepted
-3. Each boundary maintains its own event sequences and consistency guarantees
+1. It validates and creates the configured schemas if they don't exist
+2. For each boundary it calls `initialize_boundary_tables(boundary, schema)`, which creates the boundary's prefixed tables inside the target schema
+3. Only requests to pre-configured boundaries are accepted; all others are rejected
 
-For example:
-- If `ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin`, then:
-  - ✅ `boundary: "orisun_test_1"` - Request will succeed
-  - ✅ `boundary: "orisun_test_2"` - Request will succeed
-  - ✅ `boundary: "orisun_admin"` - Request will succeed
-  - ❌ `boundary: "payments"` - Request will fail (schema not configured)
+For example, with `ORISUN_PG_SCHEMAS=orders:public,payments:public,admin:admin`:
+  - ✅ `boundary: "orders"` - Request will succeed
+  - ✅ `boundary: "payments"` - Request will succeed
+  - ✅ `boundary: "admin"` - Request will succeed
+  - ❌ `boundary: "shipping"` - Request will fail (boundary not configured)
 
 
 ## gRPC API Examples
@@ -713,7 +733,7 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 ```
 
 ### SaveEvents
-Save events to a specific schema/boundary. Here's an example of saving user registration events:
+Save events to a specific boundary. Here's an example of saving user registration events:
 
 ```bash
 grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
@@ -913,17 +933,18 @@ EOF
 ```
 
 ### Schema Management
-- Each boundary (schema) maintains its own:
-  - Event sequences
-  - Consistency boundaries
-  - Indexes
-  - Event tables
 
-This separation ensures:
-- Domain isolation
-- Independent scaling
-- Separate consistency guarantees
-- Clear bounded context boundaries
+Each boundary maintains its own set of tables within its assigned PostgreSQL schema, prefixed with the boundary name:
+
+- `{boundary}_orisun_es_event` — event storage
+- `{boundary}_orisun_es_event_global_id_seq` — global ID sequence
+- `{boundary}_orisun_last_published_event_position` — publisher tracking
+- `{boundary}_projector_checkpoint` — projector state
+
+Multiple boundaries can share a schema; they are fully isolated by these prefixed tables. This means:
+- Domain isolation without requiring a schema per boundary
+- Independent event sequences and consistency guarantees per boundary
+- Flexible deployment: group related boundaries in one schema or spread them across many
 
 ## Configuration
 
@@ -932,15 +953,25 @@ Orisun can be configured using environment variables:
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `ORISUN_PG_HOST` | PostgreSQL host | localhost | Yes |
-| `ORISUN_PG_PORT` | PostgreSQL port | 5432 | Yes |
+| `ORISUN_PG_PORT` | PostgreSQL port | 5434 | Yes |
 | `ORISUN_PG_USER` | PostgreSQL username | postgres | Yes |
 | `ORISUN_PG_PASSWORD` | PostgreSQL password | postgres | Yes |
 | `ORISUN_PG_NAME` | PostgreSQL database name | orisun | Yes |
+| `ORISUN_PG_SSLMODE` | PostgreSQL SSL mode | disable | No |
 | `ORISUN_PG_SCHEMAS` | Comma-separated list of boundary:schema mappings | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Yes |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions with names and descriptions | `[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]` | Yes |
 | `ORISUN_ADMIN_BOUNDARY` | Name of the boundary used for admin operations | orisun_admin | Yes |
+| `ORISUN_ADMIN_USERNAME` | Default admin username | admin | No |
+| `ORISUN_ADMIN_PASSWORD` | Default admin password | changeit | No |
+| `ORISUN_ADMIN_PORT` | Admin HTTP service port | 8991 | No |
 | `ORISUN_GRPC_PORT` | gRPC server port | 5005 | No |
 | `ORISUN_GRPC_ENABLE_REFLECTION` | Enable gRPC reflection | true | No |
+| `ORISUN_GRPC_CONNECTION_TIMEOUT` | gRPC connection timeout | 60s | No |
+| `ORISUN_GRPC_KEEP_ALIVE_TIME` | gRPC keep-alive interval | 30s | No |
+| `ORISUN_GRPC_KEEP_ALIVE_TIMEOUT` | gRPC keep-alive timeout | 5s | No |
+| `ORISUN_GRPC_MAX_CONCURRENT_STREAMS` | Max concurrent gRPC streams | 10000 | No |
+| `ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE` | Max receive message size (bytes) | 67108864 (64MB) | No |
+| `ORISUN_GRPC_MAX_SEND_MESSAGE_SIZE` | Max send message size (bytes) | 67108864 (64MB) | No |
 | `ORISUN_NATS_SERVER_NAME` | NATS server name | orisun-nats-2 | No |
 | `ORISUN_NATS_PORT` | NATS server port | 4224 | No |
 | `ORISUN_NATS_MAX_PAYLOAD` | Maximum payload size for NATS messages | 1048576 | No |
@@ -955,9 +986,17 @@ Orisun can be configured using environment variables:
 | `ORISUN_NATS_CLUSTER_ROUTES` | Comma-separated list of cluster routes | `nats://0.0.0.0:6223,nats://0.0.0.0:6224` | No |
 | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` | Batch size for event polling | 1000 | No |
 | `ORISUN_LOGGING_LEVEL` | Logging level (DEBUG, INFO, WARN, ERROR) | INFO | No |
-| `ORISUN_OTEL_ENABLED` | Enable OpenTelemetry tracing | false | No |
+| `ORISUN_OTEL_ENABLED` | Enable OpenTelemetry tracing | true | No |
 | `ORISUN_OTEL_ENDPOINT` | OTLP gRPC endpoint for tracing | localhost:4317 | No |
 | `ORISUN_OTEL_SERVICE_NAME` | Service name for traces | orisun | No |
+| `ORISUN_PPROF_ENABLED` | Enable pprof profiling endpoint | false | No |
+| `ORISUN_PPROF_PORT` | pprof HTTP port | 6060 | No |
+| `ORISUN_PG_WRITE_MAX_OPEN_CONNS` | Write pool max open connections | 10 | No |
+| `ORISUN_PG_WRITE_MAX_IDLE_CONNS` | Write pool max idle connections | 3 | No |
+| `ORISUN_PG_READ_MAX_OPEN_CONNS` | Read pool max open connections | 10 | No |
+| `ORISUN_PG_READ_MAX_IDLE_CONNS` | Read pool max idle connections | 5 | No |
+| `ORISUN_PG_ADMIN_MAX_OPEN_CONNS` | Admin pool max open connections | 5 | No |
+| `ORISUN_PG_ADMIN_MAX_IDLE_CONNS` | Admin pool max idle connections | 1 | No |
 | `ORISUN_GRPC_TLS_ENABLED` | Enable TLS for gRPC server | false | No |
 | `ORISUN_GRPC_TLS_CERT_FILE` | Path to TLS certificate file | /etc/orisun/tls/server.crt | No |
 | `ORISUN_GRPC_TLS_KEY_FILE` | Path to TLS private key file | /etc/orisun/tls/server.key | No |
@@ -1191,7 +1230,7 @@ grpcurl \
 version: '3.8'
 services:
   orisun:
-    image: orexza/orisun:latest
+    image: oexza/orisun:latest
     environment:
       ORISUN_GRPC_TLS_ENABLED: "true"
       ORISUN_GRPC_TLS_CERT_FILE: /etc/orisun/tls/server.crt
@@ -1231,15 +1270,14 @@ services:
    - Verify boundary configurations match schema mappings
    - Validate JSON format in ORISUN_BOUNDARIES environment variable
 
-
-5. **Cluster-Specific Issues**
+4. **Cluster-Specific Issues**
    - **Lock Acquisition Failures**: Check logs for "Failed to acquire lock" messages - this is normal behavior when other nodes hold locks
    - **Projection Startup Issues**: Look for "Failed to start [projection] projection" followed by retry attempts
    - **NATS Cluster Issues**: Verify cluster routes configuration and ensure all nodes can reach each other
    - **Split Brain Prevention**: Ensure minimum 3 nodes for proper JetStream quorum
    - **Failover Delays**: Nodes may take 5-10 seconds to detect and take over from failed nodes
 
-6. **Common Log Messages (Normal Behavior)**
+5. **Common Log Messages (Normal Behavior)**
    - `"Failed to acquire lock for boundary: <name>"` - Another node is processing this boundary
    - `"Successfully acquired lock for boundary: <name>"` - This node is now processing the boundary
    - `"User projector started"` - Projection service started successfully
@@ -1248,7 +1286,7 @@ services:
 ## Building from Source
 
 ### Prerequisites
-- Go 1.24.2+
+- Go 1.26.0+
 - Make
 
 1. Clone the repository:
@@ -1288,9 +1326,9 @@ ORISUN_NATS_PORT=4222 \
 
 Orisun uses:
 - **PostgreSQL 13+**: Current production storage backend (pluggable architecture supports future backends like SQLite and FoundationDB)
-- **NATS JetStream 2.11.1+**: For real-time event streaming and pub/sub
+- **NATS JetStream 2.12.4+**: For real-time event streaming and pub/sub
 - **gRPC**: For client-server communication
-- **Go 1.24.2+**: For high-performance server implementation
+- **Go 1.26.0+**: For high-performance server implementation
 - **User Management**: Integrated user administration system
 - **Modular Design**: Plugin system for extending functionality
 
@@ -1303,11 +1341,10 @@ Orisun is designed for high-performance event processing with comprehensive benc
 The following benchmarks were conducted on an Apple M1 Pro (darwin-arm64) with PostgreSQL running in a Docker container:
 
 | Benchmark | Result | Description |
-|-----------|---------|-------------|
-| **SaveEvents_Burst10000** | 6,221 events/sec | Burst operations (10K events) |
-| **MemoryUsage** | 2,006 iterations @ 1.60ms/op | Memory allocation patterns |
-| **DirectDatabase10K** | 2,212 events/sec | Direct database writes (concurrent with granular locking) |
-| **DirectDatabase10KBatch** | 88K-104K events/sec | Direct database batch writes |
+|-----------|--------|-------------|
+| **SaveEvents_Batch (10 events)** | ~5,960 events/sec | Batched writes via gRPC |
+| **DirectDatabase10K** | ~1,013 events/sec | Direct database writes (concurrent with granular locking) |
+| **DirectDatabase10KBatch** | high throughput | Direct database batch writes (bypasses gRPC layer) |
 
 ### Benchmark Scenarios
 
