@@ -14,14 +14,13 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
-	"github.com/st
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	_ "github.com/lib/pq"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+const (
 	benchNumStreams      = 500
-	benchNumStreams     = 500
 	benchEventsPerStream = 20
 )
 
