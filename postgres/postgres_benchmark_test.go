@@ -8,8 +8,8 @@ import (
 	"time"
 
 	common "github.com/oexza/Orisun/admin/slices/common"
-	config "github.com/oexza/Orisun/config"
-	logging "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 
 	"github.com/google/uuid"
