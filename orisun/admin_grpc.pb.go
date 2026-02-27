@@ -26,6 +26,8 @@ const (
 	Admin_ValidateCredentials_FullMethodName = "/orisun.Admin/ValidateCredentials"
 	Admin_GetUserCount_FullMethodName        = "/orisun.Admin/GetUserCount"
 	Admin_GetEventCount_FullMethodName       = "/orisun.Admin/GetEventCount"
+	Admin_CreateIndex_FullMethodName         = "/orisun.Admin/CreateIndex"
+	Admin_DropIndex_FullMethodName           = "/orisun.Admin/DropIndex"
 )
 
 // AdminClient is the client API for Admin service.
@@ -44,6 +46,9 @@ type AdminClient interface {
 	// Statistics
 	GetUserCount(ctx context.Context, in *GetUserCountRequest, opts ...grpc.CallOption) (*GetUserCountResponse, error)
 	GetEventCount(ctx context.Context, in *GetEventCountRequest, opts ...grpc.CallOption) (*GetEventCountResponse, error)
+	// Index Management
+	CreateIndex(ctx context.Context, in *CreateIndexRequest, opts ...grpc.CallOption) (*CreateIndexResponse, error)
+	DropIndex(ctx context.Context, in *DropIndexRequest, opts ...grpc.CallOption) (*DropIndexResponse, error)
 }
 
 type adminClient struct {
@@ -124,6 +129,26 @@ func (c *adminClient) GetEventCount(ctx context.Context, in *GetEventCountReques
 	return out, nil
 }
 
+func (c *adminClient) CreateIndex(ctx context.Context, in *CreateIndexRequest, opts ...grpc.CallOption) (*CreateIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateIndexResponse)
+	err := c.cc.Invoke(ctx, Admin_CreateIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminClient) DropIndex(ctx context.Context, in *DropIndexRequest, opts ...grpc.CallOption) (*DropIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DropIndexResponse)
+	err := c.cc.Invoke(ctx, Admin_DropIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServer is the server API for Admin service.
 // All implementations must embed UnimplementedAdminServer
 // for forward compatibility.
@@ -140,6 +165,9 @@ type AdminServer interface {
 	// Statistics
 	GetUserCount(context.Context, *GetUserCountRequest) (*GetUserCountResponse, error)
 	GetEventCount(context.Context, *GetEventCountRequest) (*GetEventCountResponse, error)
+	// Index Management
+	CreateIndex(context.Context, *CreateIndexRequest) (*CreateIndexResponse, error)
+	DropIndex(context.Context, *DropIndexRequest) (*DropIndexResponse, error)
 	mustEmbedUnimplementedAdminServer()
 }
 
@@ -170,6 +198,12 @@ func (UnimplementedAdminServer) GetUserCount(context.Context, *GetUserCountReque
 }
 func (UnimplementedAdminServer) GetEventCount(context.Context, *GetEventCountRequest) (*GetEventCountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEventCount not implemented")
+}
+func (UnimplementedAdminServer) CreateIndex(context.Context, *CreateIndexRequest) (*CreateIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateIndex not implemented")
+}
+func (UnimplementedAdminServer) DropIndex(context.Context, *DropIndexRequest) (*DropIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DropIndex not implemented")
 }
 func (UnimplementedAdminServer) mustEmbedUnimplementedAdminServer() {}
 func (UnimplementedAdminServer) testEmbeddedByValue()               {}
@@ -318,6 +352,42 @@ func _Admin_GetEventCount_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Admin_CreateIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).CreateIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_CreateIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).CreateIndex(ctx, req.(*CreateIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Admin_DropIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DropIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).DropIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_DropIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).DropIndex(ctx, req.(*DropIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Admin_ServiceDesc is the grpc.ServiceDesc for Admin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -352,6 +422,14 @@ var Admin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEventCount",
 			Handler:    _Admin_GetEventCount_Handler,
+		},
+		{
+			MethodName: "CreateIndex",
+			Handler:    _Admin_CreateIndex_Handler,
+		},
+		{
+			MethodName: "DropIndex",
+			Handler:    _Admin_DropIndex_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

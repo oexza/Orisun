@@ -14,7 +14,6 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/lib/pq"
-
 	eventstore "github.com/oexza/Orisun/orisun"
 
 	config "github.com/oexza/Orisun/config"
@@ -643,6 +642,104 @@ func (s *PostgresAdminDB) SaveEventCount(event_count int, boundary string) error
 	}
 
 	return nil
+}
+
+func (db *PostgresAdminDB) CreateBoundaryIndex(
+	ctx context.Context,
+	boundary, name string,
+	fields []common.IndexField,
+	conditions []common.IndexCondition,
+	combinator string,
+) error {
+	mapping, ok := db.boundarySchemaMappings[boundary]
+	if !ok {
+		return fmt.Errorf("unknown boundary: %s", boundary)
+	}
+	schema := mapping.Schema
+
+	if err := validateBoundaryName(name); err != nil {
+		return fmt.Errorf("invalid index name %s: %w", name, err)
+	}
+	if len(fields) == 0 {
+		return fmt.Errorf("at least one field is required")
+	}
+
+	// Build index expression list
+	exprs := make([]string, len(fields))
+	for i, f := range fields {
+		key := pq.QuoteLiteral(f.JsonKey)
+		switch f.ValueType {
+		case "numeric":
+			exprs[i] = "((data->>" + key + ")::numeric)"
+		case "boolean":
+			exprs[i] = "((data->>" + key + ")::boolean)"
+		case "timestamptz":
+			exprs[i] = "((data->>" + key + ")::timestamptz)"
+		default: // "text"
+			exprs[i] = "(data->>" + key + ")"
+		}
+	}
+
+	// Build WHERE clause
+	var whereClause string
+	if len(conditions) > 0 {
+		validOps := map[string]bool{"=": true, ">": true, "<": true, ">=": true, "<=": true}
+		validCombinators := map[string]bool{common.CombinatorAND: true, common.CombinatorOR: true}
+
+		if combinator == "" {
+			combinator = common.CombinatorAND
+		}
+		if !validCombinators[combinator] {
+			return fmt.Errorf("invalid combinator %q: must be AND or OR", combinator)
+		}
+
+		predicates := make([]string, len(conditions))
+		for i, c := range conditions {
+			if !validOps[c.Operator] {
+				return fmt.Errorf("invalid operator %q: must be one of =, >, <, >=, <=", c.Operator)
+			}
+			predicates[i] = "(data->>" + pq.QuoteLiteral(c.Key) + ") " + c.Operator + " " + pq.QuoteLiteral(c.Value)
+		}
+		whereClause = " WHERE " + strings.Join(predicates, " "+combinator+" ")
+	}
+
+	indexName := pq.QuoteIdentifier(boundary + "_" + name + "_idx")
+	tableName := pq.QuoteIdentifier(boundary + "_orisun_es_event")
+	schemaName := pq.QuoteIdentifier(schema)
+
+	ddl := fmt.Sprintf(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s USING btree (%s)%s",
+		indexName,
+		schemaName,
+		tableName,
+		strings.Join(exprs, ", "),
+		whereClause,
+	)
+
+	_, err := db.db.ExecContext(ctx, ddl)
+	return err
+}
+
+func (db *PostgresAdminDB) DropBoundaryIndex(
+	ctx context.Context,
+	boundary, name string,
+) error {
+	mapping, ok := db.boundarySchemaMappings[boundary]
+	if !ok {
+		return fmt.Errorf("unknown boundary: %s", boundary)
+	}
+	schema := mapping.Schema
+
+	if err := validateBoundaryName(name); err != nil {
+		return fmt.Errorf("invalid index name %s: %w", name, err)
+	}
+
+	indexName := pq.QuoteIdentifier(boundary + "_" + name + "_idx")
+	schemaName := pq.QuoteIdentifier(schema)
+
+	ddl := fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s.%s", schemaName, indexName)
+	_, err := db.db.ExecContext(ctx, ddl)
+	return err
 }
 
 func InitializePostgresDatabase(

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	common "github.com/oexza/Orisun/admin/slices/common"
 	config "github.com/oexza/Orisun/config"
 	logging "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
@@ -884,6 +885,120 @@ func TestDirectionOrdering(t *testing.T) {
 	for i := range 5 {
 		assert.Equal(t, respAsc.Events[i].EventId, respDesc.Events[4-i].EventId)
 	}
+}
+
+func TestCreateAndDropBoundaryIndex(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	adminDB := NewPostgresAdminDB(db, logger, "public", "test_boundary", mapping)
+	ctx := t.Context()
+
+	indexExists := func(indexName string) bool {
+		var exists bool
+		err := db.QueryRowContext(ctx,
+			"SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1)",
+			indexName,
+		).Scan(&exists)
+		require.NoError(t, err)
+		return exists
+	}
+
+	t.Run("single field text index", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "user_id", []common.IndexField{
+			{JsonKey: "user_id", ValueType: "text"},
+		}, nil, "")
+		require.NoError(t, err)
+		assert.True(t, indexExists("test_boundary_user_id_idx"), "index should exist after creation")
+
+		err = adminDB.DropBoundaryIndex(ctx, "test_boundary", "user_id")
+		require.NoError(t, err)
+		assert.False(t, indexExists("test_boundary_user_id_idx"), "index should be gone after drop")
+	})
+
+	t.Run("composite index", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "cat_prio", []common.IndexField{
+			{JsonKey: "category", ValueType: "text"},
+			{JsonKey: "priority", ValueType: "text"},
+		}, nil, "")
+		require.NoError(t, err)
+		assert.True(t, indexExists("test_boundary_cat_prio_idx"))
+
+		require.NoError(t, adminDB.DropBoundaryIndex(ctx, "test_boundary", "cat_prio"))
+		assert.False(t, indexExists("test_boundary_cat_prio_idx"))
+	})
+
+	t.Run("partial index with condition", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "placed_amount", []common.IndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []common.IndexCondition{
+			{Key: "eventType", Operator: "=", Value: "OrderPlaced"},
+		}, common.CombinatorAND)
+		require.NoError(t, err)
+		assert.True(t, indexExists("test_boundary_placed_amount_idx"))
+
+		require.NoError(t, adminDB.DropBoundaryIndex(ctx, "test_boundary", "placed_amount"))
+		assert.False(t, indexExists("test_boundary_placed_amount_idx"))
+	})
+
+	t.Run("unknown boundary returns error", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "nonexistent", "idx", []common.IndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, nil, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown boundary")
+	})
+
+	t.Run("no fields returns error", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "empty", nil, nil, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at least one field")
+	})
+
+	t.Run("invalid operator returns error", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "bad_op", []common.IndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, []common.IndexCondition{
+			{Key: "eventType", Operator: "LIKE", Value: "Order%"},
+		}, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid operator")
+	})
+
+	t.Run("invalid combinator returns error", func(t *testing.T) {
+		err := adminDB.CreateBoundaryIndex(ctx, "test_boundary", "bad_comb", []common.IndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, []common.IndexCondition{
+			{Key: "eventType", Operator: "=", Value: "Placed"},
+		}, "XOR")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid combinator")
+	})
+
+	t.Run("drop unknown boundary returns error", func(t *testing.T) {
+		err := adminDB.DropBoundaryIndex(ctx, "nonexistent", "idx")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown boundary")
+	})
 }
 
 func TestComplexTagQueries(t *testing.T) {

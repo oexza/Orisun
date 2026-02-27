@@ -669,6 +669,8 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		eventStore.SaveEvents,
 		adminDB.ListAdminUsers,
 		authenticator,
+		adminDB.CreateBoundaryIndex,
+		adminDB.DropBoundaryIndex,
 	)
 	pb.RegisterAdminServer(grpcServer, grpcAdminServer)
 

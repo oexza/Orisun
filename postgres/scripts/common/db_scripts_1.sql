@@ -1,5 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS btree_gin;
-
 -- Initialize Boundary Tables Function
 --
 -- This function creates all boundary-prefixed tables, indexes, and sequences
@@ -50,10 +48,6 @@ BEGIN
     -- Create indexes
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
                    boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
-
-    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I
-        USING GIN (data) WITH (fastupdate = true, gin_pending_list_limit = ''128'')',
-                   boundary_name || '_idx_tags', schema_name, boundary_name || '_orisun_es_event');
 
     -- Create last published event position table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -126,6 +120,12 @@ DECLARE
     latest_transaction_id BIGINT;
     latest_global_id      BIGINT;
     prefixed_seq_name     TEXT;
+    criteria_sql          TEXT;
+    crit                  JSONB;
+    crit_parts            TEXT[];
+    all_parts             TEXT[];
+    k                     TEXT;
+    v                     TEXT;
 BEGIN
     criteria := query -> 'criteria';
     expected_tx_id := (query -> 'expected_position' ->> 'transaction_id')::BIGINT;
@@ -164,16 +164,32 @@ BEGIN
                 END LOOP;
         END IF;
 
+        -- Build criteria_sql from criteria array (replaces GIN @> operator)
+        all_parts := '{}';
+        FOR crit IN SELECT jsonb_array_elements(criteria) LOOP
+            crit_parts := '{}';
+            FOR k, v IN SELECT * FROM jsonb_each_text(crit) LOOP
+                crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+            END LOOP;
+            IF array_length(crit_parts, 1) > 0 THEN
+                all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
+            END IF;
+        END LOOP;
+        criteria_sql := CASE
+            WHEN array_length(all_parts, 1) > 0
+            THEN '(' || array_to_string(all_parts, ' OR ') || ')'
+            ELSE 'TRUE'
+        END;
+
         -- version check - use dynamic SQL to query the prefixed table
         EXECUTE format('
             SELECT DISTINCT oe.transaction_id, oe.global_id
             FROM %I_orisun_es_event oe
-                     CROSS JOIN LATERAL jsonb_array_elements($1) AS crit(elem)
-            WHERE oe.data @> crit.elem
+            WHERE %s
             ORDER BY oe.transaction_id DESC, oe.global_id DESC
             LIMIT 1',
-                       boundary_name
-                ) USING criteria INTO latest_tx_id, latest_gid;
+                       boundary_name, criteria_sql
+                ) INTO latest_tx_id, latest_gid;
 
         IF latest_tx_id IS NULL THEN
             latest_tx_id := -1;
@@ -275,6 +291,12 @@ DECLARE
     criteria_array       JSONB := criteria -> 'criteria';
     tx_id                TEXT  := (after_position ->> 'transaction_id')::text;
     global_id            TEXT  := (after_position ->> 'global_id')::text;
+    criteria_sql         TEXT;
+    crit                 JSONB;
+    crit_parts           TEXT[];
+    all_parts            TEXT[];
+    k                    TEXT;
+    v                    TEXT;
 BEGIN
     IF sort_dir NOT IN ('ASC', 'DESC') THEN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
@@ -283,14 +305,33 @@ BEGIN
     -- Build qualified table name
     qualified_table_name := format('%I.%I_orisun_es_event', schema, boundary_name);
 
+    -- Build criteria_sql from criteria_array (replaces GIN @> operator)
+    IF criteria_array IS NOT NULL THEN
+        all_parts := '{}';
+        FOR crit IN SELECT jsonb_array_elements(criteria_array) LOOP
+            crit_parts := '{}';
+            FOR k, v IN SELECT * FROM jsonb_each_text(crit) LOOP
+                crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+            END LOOP;
+            IF array_length(crit_parts, 1) > 0 THEN
+                all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
+            END IF;
+        END LOOP;
+        criteria_sql := CASE
+            WHEN array_length(all_parts, 1) > 0
+            THEN '(' || array_to_string(all_parts, ' OR ') || ')'
+            ELSE 'TRUE'
+        END;
+    ELSE
+        criteria_sql := 'TRUE';
+    END IF;
+
     -- Use dynamic SQL to query the prefixed table
     RETURN QUERY EXECUTE format(
             $q$
         SELECT * FROM %s
         WHERE
-            (%2$L::JSONB IS NULL OR data @> ANY (
-                SELECT jsonb_array_elements(%2$L)
-            )) AND
+            %2$s AND
             (%3$L IS NULL OR (
                     (transaction_id, global_id) %4$s= (
                         %5$L::BIGINT,
@@ -302,7 +343,7 @@ BEGIN
         LIMIT %9$L
         $q$,
             qualified_table_name,
-            criteria_array,
+            criteria_sql,
             after_position,
             op,
             tx_id,
