@@ -946,6 +946,59 @@ Multiple boundaries can share a schema; they are fully isolated by these prefixe
 - Independent event sequences and consistency guarantees per boundary
 - Flexible deployment: group related boundaries in one schema or spread them across many
 
+### Index Management
+
+Orisun allows you to create custom btree indexes on JSONB data fields for improved query performance. Unlike traditional event stores that create blanket GIN indexes, Orisun lets you create surgical, efficient indexes on only the fields you actually query.
+
+**Creating an Index:**
+
+```bash
+# Simple index on user_id
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary":"orders","name":"user_id","fields":[{"json_key":"user_id","value_type":"TEXT"}]}' \
+  localhost:5005 orisun.Admin/CreateIndex
+
+# Composite index on multiple fields
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{
+    "boundary": "orders",
+    "name": "cat_prio",
+    "fields": [
+      {"json_key": "category", "value_type": "TEXT"},
+      {"json_key": "priority", "value_type": "TEXT"}
+    ]
+  }' \
+  localhost:5005 orisun.Admin/CreateIndex
+
+# Partial index (only index specific event types)
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{
+    "boundary": "orders",
+    "name": "placed_amount",
+    "fields": [{"json_key": "amount", "value_type": "NUMERIC"}],
+    "conditions": [{"key": "eventType", "operator": "=", "value": "OrderPlaced"}],
+    "condition_combinator": "AND"
+  }' \
+  localhost:5005 orisun.Admin/CreateIndex
+```
+
+**Dropping an Index:**
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary": "orders", "name": "user_id"}' \
+  localhost:5005 orisun.Admin/DropIndex
+```
+
+**Why Custom Indexes?**
+
+- **Reduced Write Overhead**: Only index the fields you query, not every JSONB key
+- **Smaller Index Size**: Partial indexes exclude irrelevant events
+- **Better Query Performance**: Btree indexes are faster for equality lookups than GIN
+- **Flexible Design**: Create composite indexes for multi-field queries
+
+For more details, see the [Admin API Documentation](ADMIN_API.md).
+
 ## Configuration
 
 Orisun can be configured using environment variables:
@@ -1345,12 +1398,15 @@ The following benchmarks were conducted on an Apple M1 Pro (darwin-arm64) with P
 | **SaveEvents_Batch (10 events)** | ~5,960 events/sec | Batched writes via gRPC |
 | **DirectDatabase10K** | ~1,013 events/sec | Direct database writes (concurrent with granular locking) |
 | **DirectDatabase10KBatch** | high throughput | Direct database batch writes (bypasses gRPC layer) |
+| **ConsistencyCheck_NoIndex** | ~699 saves/sec | Version check with sequential scan (10K rows) |
+| **ConsistencyCheck_WithIndex** | ~745 saves/sec | Version check with btree index (10K rows) |
 
 ### Benchmark Scenarios
 
 - **SaveEvents_Burst**: High-throughput burst operations simulating traffic spikes
 - **DirectDatabase**: Direct database write operations bypassing the gRPC layer
 - **DirectDatabaseBatch**: Batch database writes showing maximum achievable throughput
+- **ConsistencyCheck**: Measures the impact of btree indexes on CCC version check queries. The benchmark pre-populates 10,000 events across 500 streams, then performs save operations with stream-based consistency checks. Results show indexed lookups are ~6% faster than sequential scans.
 
 ### Running Benchmarks
 
@@ -1362,6 +1418,9 @@ go test -bench=. -benchtime=3s -count=1 ./cmd/benchmark_test.go
 
 # Run specific benchmark
 go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./cmd/benchmark_test.go
+
+# Run index performance benchmarks
+go test -run='^$' -bench=BenchmarkConsistencyCheck -benchtime=5s ./postgres/...
 
 # Use the collection script
 ./collect_benchmarks.sh

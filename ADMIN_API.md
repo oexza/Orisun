@@ -309,6 +309,134 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
 
 ---
 
+### 8. CreateIndex
+
+Creates a btree index on JSONB data fields for improved query performance. Indexes are created
+concurrently and can be partial (filtered) or composite.
+
+**Request:**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+{
+  "boundary": "orders",
+  "name": "user_id",
+  "fields": [
+    {"json_key": "user_id", "value_type": "TEXT"}
+  ]
+}
+EOF
+```
+
+**Request Fields:**
+- `boundary` (string, required): Boundary name to create the index on
+- `name` (string, required): Index name (will be prefixed as `{boundary}_{name}_idx`)
+- `fields` (array of IndexField, required): Fields to include in the index
+  - `json_key` (string): Key path in the JSONB data column
+  - `value_type` (ValueType): Data type - TEXT, NUMERIC, BOOLEAN, or TIMESTAMPTZ
+- `conditions` (array of IndexCondition, optional): Partial index filter conditions
+  - `key` (string): JSONB key to filter on
+  - `operator` (string): Comparison operator (=, >, <, >=, <=)
+  - `value` (string): Value to compare against
+- `condition_combinator` (ConditionCombinator): How to combine conditions - AND or OR (default: AND)
+
+**Response:**
+```json
+{}
+```
+
+**Value Types:**
+- `TEXT` (0): String values
+- `NUMERIC` (1): Numeric values
+- `BOOLEAN` (2): Boolean values
+- `TIMESTAMPTZ` (3): Timestamp with timezone
+
+**Examples:**
+
+**Simple index on a text field:**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary":"orders","name":"user_id","fields":[{"json_key":"user_id","value_type":"TEXT"}]}' \
+  localhost:5005 orisun.Admin/CreateIndex
+```
+
+**Composite index on multiple fields:**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{
+    "boundary": "orders",
+    "name": "category_priority",
+    "fields": [
+      {"json_key": "category", "value_type": "TEXT"},
+      {"json_key": "priority", "value_type": "TEXT"}
+    ]
+  }' \
+  localhost:5005 orisun.Admin/CreateIndex
+```
+
+**Partial index (only index specific event types):**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{
+    "boundary": "orders",
+    "name": "placed_amount",
+    "fields": [{"json_key": "amount", "value_type": "NUMERIC"}],
+    "conditions": [{"key": "eventType", "operator": "=", "value": "OrderPlaced"}],
+    "condition_combinator": "AND"
+  }' \
+  localhost:5005 orisun.Admin/CreateIndex
+```
+
+**Error Cases:**
+- `INVALID_ARGUMENT`: Missing required fields, invalid index name
+- `INVALID_ARGUMENT`: Invalid operator or combinator
+- `NOT_FOUND`: Unknown boundary
+
+**Notes:**
+- Indexes are created with `CONCURRENTLY`, allowing continued database operations
+- Index names are automatically prefixed: `{boundary}_{name}_idx`
+- Use descriptive names to identify the indexed fields
+- Partial indexes are more efficient for filtering specific event subsets
+
+---
+
+### 9. DropIndex
+
+Drops an existing index created via CreateIndex.
+
+**Request:**
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary": "orders", "name": "user_id"}' \
+  localhost:5005 orisun.Admin/DropIndex
+```
+
+**Request Fields:**
+- `boundary` (string, required): Boundary name where the index exists
+- `name` (string, required): Index name (without the `{boundary}_` prefix or `_idx` suffix)
+
+**Response:**
+```json
+{}
+```
+
+**Example:**
+```bash
+# Drop the user_id index from orders boundary
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+  -d '{"boundary":"orders","name":"user_id"}' \
+  localhost:5005 orisun.Admin/DropIndex
+```
+
+**Error Cases:**
+- `INVALID_ARGUMENT`: Missing required fields
+- `NOT_FOUND`: Unknown boundary or index doesn't exist
+
+**Notes:**
+- Indexes are dropped with `CONCURRENTLY`, allowing continued database operations
+- If the index doesn't exist, the operation succeeds silently (IF EXISTS)
+
+---
+
 ## Common Workflows
 
 ### Creating and Managing Users
