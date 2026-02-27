@@ -948,7 +948,7 @@ Multiple boundaries can share a schema; they are fully isolated by these prefixe
 
 ### Index Management
 
-Orisun allows you to create custom btree indexes on JSONB data fields for improved query performance. Unlike traditional event stores that create blanket GIN indexes, Orisun lets you create surgical, efficient indexes on only the fields you actually query.
+Orisun allows you to create custom btree indexes on JSONB data fields for improved query performance. Orisun lets you create surgical, efficient indexes on only the fields you actually query. (Note this is an abstraction over PostgreSQL's indexing capabilities, not a custom index implementation.)
 
 **Creating an Index:**
 
