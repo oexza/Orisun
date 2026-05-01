@@ -324,12 +324,6 @@ func (s *EventStore) SubscribeToAllEvents(
 			}
 		}
 
-		//if streamIsSpecified {
-		//	getEventsReq.Stream = &GetStreamQuery{
-		//		Name: *stream,
-		//	}
-		//}
-
 		resp, err := s.getEventsFn.Get(gCtx, getEventsReq)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to get events during catch-up: %v", err)
@@ -837,9 +831,7 @@ func publishEventWithRetry(
 	subjectName string, preparePosition int64,
 	commitPosition int64, logger logging.Logger) {
 
-	messageIdOpts := jetstream.PublishOpt(
-		jetstream.WithMsgID(GetEventNatsMessageId(int64(preparePosition), int64(commitPosition))),
-	)
+	messageIdOpts := jetstream.WithMsgID(GetEventNatsMessageId(preparePosition, commitPosition))
 	retryOpts := jetstream.WithRetryAttempts(5)
 
 	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)

@@ -65,10 +65,10 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 		return orisun.Position{}, err
 	}
 
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return orisun.Position{}, fmt.Errorf("failed to set search path: %v", err)
-	}
+	//_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
+	//if err != nil {
+	//	return orisun.Position{}, fmt.Errorf("failed to set search path: %v", err)
+	//}
 	var transactionID int64
 	var globalID int64
 	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema, boundary), boundary).Scan(&transactionID, &globalID)
@@ -110,10 +110,10 @@ func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	if err != nil {
-		return fmt.Errorf("failed to set search path: %v", err)
-	}
+	//_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
+	//if err != nil {
+	//	return fmt.Errorf("failed to set search path: %v", err)
+	//}
 
 	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx,

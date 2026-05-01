@@ -28,11 +28,11 @@ import (
 )
 
 const insertEventsWithConsistency = `
-SELECT * FROM insert_events_with_consistency_v3($1::text, $2::text, $3::jsonb, $4::jsonb)
+SELECT * FROM %s.insert_events_with_consistency_v3($1::text, $2::text, $3::jsonb, $4::jsonb)
 `
 
 const selectMatchingEvents = `
-SELECT * FROM get_matching_events_v3($1::text, $2::text, $3::jsonb, $4::jsonb, $5, $6::INT)
+SELECT * FROM %s.get_matching_events_v3($1::text, $2::text, $3::jsonb, $4::jsonb, $5, $6::INT)
 `
 
 const setSearchPath = `
@@ -135,7 +135,7 @@ func (s *PostgresSaveEvents) Save(
 
 		row := tx.QueryRowContext(
 			ctx,
-			insertEventsWithConsistency,
+			fmt.Sprintf(insertEventsWithConsistency, schema),
 			boundary,
 			schema,
 			streamSubsetAsBytes,
@@ -234,7 +234,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// Prepare the query once
 	// query := fmt.Sprintf(selectMatchingEvents)
 	rows, err := tx.Query(
-		selectMatchingEvents,
+		fmt.Sprintf(selectMatchingEvents, schema),
 		req.Boundary,
 		schema,
 		paramsJSON,

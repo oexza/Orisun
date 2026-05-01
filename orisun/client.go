@@ -117,7 +117,6 @@ func (c *OrisunServer) SubscribeToEvents(
 		query,
 		handler,
 	)
-
 }
 
 // Helper function to parse int64 from string
