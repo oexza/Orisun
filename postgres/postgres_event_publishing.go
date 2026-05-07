@@ -28,6 +28,8 @@ type PostgresEventPublishing struct {
 	db                     *sql.DB
 	logger                 logging.Logger
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+	getQueries             map[string]string // boundary -> pre-formatted SELECT
+	insertQueries          map[string]string // boundary -> pre-formatted INSERT
 }
 
 func (s *PostgresEventPublishing) Schema(boundary string) (string, error) {
@@ -38,10 +40,18 @@ func (s *PostgresEventPublishing) Schema(boundary string) (string, error) {
 	return schema.Schema, nil
 }
 func NewPostgresEventPublishing(db *sql.DB, logger logging.Logger, boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresEventPublishing {
+	getQ := make(map[string]string, len(boundarySchemaMappings))
+	insQ := make(map[string]string, len(boundarySchemaMappings))
+	for boundary, m := range boundarySchemaMappings {
+		getQ[boundary] = fmt.Sprintf(getLastPublishedEventQuery, m.Schema, boundary)
+		insQ[boundary] = fmt.Sprintf(insertLastPublishedPosition, m.Schema, boundary)
+	}
 	return &PostgresEventPublishing{
 		db:                     db,
 		logger:                 logger,
 		boundarySchemaMappings: boundarySchemaMappings,
+		getQueries:             getQ,
+		insertQueries:          insQ,
 	}
 }
 
@@ -60,18 +70,14 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 		return orisun.Position{}, err
 	}
 
-	schema, err := s.Schema(boundary)
-	if err != nil {
-		return orisun.Position{}, err
+	query, ok := s.getQueries[boundary]
+	if !ok {
+		return orisun.Position{}, fmt.Errorf("no schema found for Boundary %s", boundary)
 	}
 
-	//_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	//if err != nil {
-	//	return orisun.Position{}, fmt.Errorf("failed to set search path: %v", err)
-	//}
 	var transactionID int64
 	var globalID int64
-	err = tx.QueryRowContext(ctx, fmt.Sprintf(getLastPublishedEventQuery, schema, boundary), boundary).Scan(&transactionID, &globalID)
+	err = tx.QueryRowContext(ctx, query, boundary).Scan(&transactionID, &globalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Return default position (0,0) if no rows found
@@ -105,19 +111,14 @@ func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 		return err
 	}
 
-	schema, err := s.Schema(boundaryOfInterest)
-	if err != nil {
-		return err
+	query, ok := s.insertQueries[boundaryOfInterest]
+	if !ok {
+		return fmt.Errorf("no schema found for Boundary %s", boundaryOfInterest)
 	}
-
-	//_, err = tx.ExecContext(ctx, fmt.Sprintf(setSearchPath, schema))
-	//if err != nil {
-	//	return fmt.Errorf("failed to set search path: %v", err)
-	//}
 
 	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx,
-		fmt.Sprintf(insertLastPublishedPosition, schema, boundaryOfInterest),
+		query,
 		boundaryOfInterest,
 		transactionId,
 		globalId,

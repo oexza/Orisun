@@ -102,6 +102,12 @@ func GetEventJetstreamSubjectName(boundary string, position *Position) string {
 	return GetEventsNatsJetstreamStreamStreamName(boundary) + "." + EventsSubjectName + "." + GetEventNatsMessageId(int64(position.PreparePosition), int64(position.CommitPosition))
 }
 
+type EventStreamConfig struct {
+	MaxBytes int64
+	MaxMsgs  int64
+	MaxAge   time.Duration
+}
+
 func NewEventStoreServer(
 	ctx context.Context,
 	js jetstream.JetStream,
@@ -109,8 +115,19 @@ func NewEventStoreServer(
 	getEventsFn EventsRetriever,
 	lockProvider LockProvider,
 	boundaries *[]string,
+	streamCfg EventStreamConfig,
 	logger logging.Logger,
 ) *EventStore {
+	if streamCfg.MaxAge <= 0 {
+		streamCfg.MaxAge = 5 * time.Minute
+	}
+	if streamCfg.MaxMsgs == 0 {
+		streamCfg.MaxMsgs = -1
+	}
+	if streamCfg.MaxBytes == 0 {
+		streamCfg.MaxBytes = -1
+	}
+
 	for _, boundary := range *boundaries {
 		streamName := GetEventsNatsJetstreamStreamStreamName(boundary)
 		info, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
@@ -118,9 +135,10 @@ func NewEventStoreServer(
 			Subjects: []string{
 				GetEventsSubjectName(boundary),
 			},
-			MaxMsgs: -1,
-			Storage: jetstream.MemoryStorage,
-			MaxAge:  time.Minute * 5,
+			MaxMsgs:  streamCfg.MaxMsgs,
+			MaxBytes: streamCfg.MaxBytes,
+			Storage:  jetstream.MemoryStorage,
+			MaxAge:   streamCfg.MaxAge,
 		})
 
 		if err != nil {
@@ -657,6 +675,11 @@ func InitializeEventStore(
 		getEvents,
 		lockProvider,
 		getBoundaryNames(config.GetBoundaries()),
+		EventStreamConfig{
+			MaxBytes: config.Nats.EventStreamMaxBytes,
+			MaxMsgs:  config.Nats.EventStreamMaxMsgs,
+			MaxAge:   config.Nats.EventStreamMaxAge,
+		},
 		logger,
 	)
 	logger.Info("EventStore initialized")

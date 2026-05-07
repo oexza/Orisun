@@ -47,6 +47,7 @@ func NewOrisunServer(
 		getEvents,
 		lockProvider,
 		&boundaryNames,
+		EventStreamConfig{},
 		logger,
 	)
 

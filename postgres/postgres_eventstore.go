@@ -43,6 +43,7 @@ type PostgresSaveEvents struct {
 	db                     *sql.DB
 	logger                 logging.Logger
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+	insertQueries          map[string]string // boundary -> pre-formatted insert SQL
 }
 
 func NewPostgresSaveEvents(
@@ -50,7 +51,16 @@ func NewPostgresSaveEvents(
 	db *sql.DB,
 	logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresSaveEvents {
-	return &PostgresSaveEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
+	queries := make(map[string]string, len(boundarySchemaMappings))
+	for boundary, m := range boundarySchemaMappings {
+		queries[boundary] = fmt.Sprintf(insertEventsWithConsistency, m.Schema)
+	}
+	return &PostgresSaveEvents{
+		db:                     db,
+		logger:                 logger,
+		boundarySchemaMappings: boundarySchemaMappings,
+		insertQueries:          queries,
+	}
 }
 
 func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
@@ -65,6 +75,7 @@ type PostgresGetEvents struct {
 	db                     *sql.DB
 	logger                 logging.Logger
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+	selectQueries          map[string]string // boundary -> pre-formatted select SQL
 }
 
 func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
@@ -77,7 +88,16 @@ func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
 
 func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresGetEvents {
-	return &PostgresGetEvents{db: db, logger: logger, boundarySchemaMappings: boundarySchemaMappings}
+	queries := make(map[string]string, len(boundarySchemaMappings))
+	for boundary, m := range boundarySchemaMappings {
+		queries[boundary] = fmt.Sprintf(selectMatchingEvents, m.Schema)
+	}
+	return &PostgresGetEvents{
+		db:                     db,
+		logger:                 logger,
+		boundarySchemaMappings: boundarySchemaMappings,
+		selectQueries:          queries,
+	}
 }
 
 func (s *PostgresSaveEvents) Save(
@@ -135,7 +155,7 @@ func (s *PostgresSaveEvents) Save(
 
 		row := tx.QueryRowContext(
 			ctx,
-			fmt.Sprintf(insertEventsWithConsistency, schema),
+			s.insertQueries[boundary],
 			boundary,
 			schema,
 			streamSubsetAsBytes,
@@ -231,10 +251,8 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// 	return nil, status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
 	// }
 
-	// Prepare the query once
-	// query := fmt.Sprintf(selectMatchingEvents)
 	rows, err := tx.Query(
-		fmt.Sprintf(selectMatchingEvents, schema),
+		s.selectQueries[req.Boundary],
 		req.Boundary,
 		schema,
 		paramsJSON,
