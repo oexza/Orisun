@@ -664,10 +664,20 @@ Orisun is configured via environment variables with the `ORISUN_` prefix:
 | `ORISUN_GRPC_MAX_CONCURRENT_STREAMS` | Max concurrent gRPC streams | 10000 | No |
 | `ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE` | Max receive message size (bytes) | 67108864 (64MB) | No |
 | `ORISUN_GRPC_MAX_SEND_MESSAGE_SIZE` | Max send message size (bytes) | 67108864 (64MB) | No |
+| `ORISUN_GRPC_INITIAL_WINDOW_SIZE` | Initial stream flow-control window (bytes) | 1048576 (1MB) | No |
+| `ORISUN_GRPC_INITIAL_CONN_WINDOW_SIZE` | Initial connection flow-control window (bytes) | 1048576 (1MB) | No |
+| `ORISUN_GRPC_WRITE_BUFFER_SIZE` | Per-conn write buffer (bytes) | 65536 (64KB) | No |
+| `ORISUN_GRPC_READ_BUFFER_SIZE` | Per-conn read buffer (bytes) | 65536 (64KB) | No |
+| `ORISUN_GRPC_KEEPALIVE_MIN_TIME` | Min interval between client keepalive pings | 5s | No |
+| `ORISUN_GRPC_KEEPALIVE_PERMIT_WITHOUT_STREAM` | Allow keepalive when no active streams | true | No |
 | `ORISUN_NATS_SERVER_NAME` | NATS server name | orisun-nats-2 | No |
 | `ORISUN_NATS_PORT` | NATS server port | 4224 | No |
 | `ORISUN_NATS_MAX_PAYLOAD` | Maximum NATS message payload size | 1048576 | No |
 | `ORISUN_NATS_STORE_DIR` | NATS storage directory | ./data/orisun/nats | No |
+| `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` | Per-boundary event stream memory cap (bytes) | 536870912 (512MB) | No |
+| `ORISUN_NATS_EVENT_STREAM_MAX_MSGS` | Per-boundary event stream message cap (-1 = unbounded) | -1 | No |
+| `ORISUN_NATS_EVENT_STREAM_MAX_AGE` | Event stream retention window (catch-up overlap) | 5m | No |
+| `ORISUN_NATS_PUBLISH_ASYNC_MAX_PENDING` | Max in-flight async publishes; tune above polling batch size | 8192 | No |
 | `ORISUN_NATS_CLUSTER_NAME` | NATS cluster name | orisun-nats-cluster | No |
 | `ORISUN_NATS_CLUSTER_HOST` | NATS cluster host | 0.0.0.0 | No |
 | `ORISUN_NATS_CLUSTER_PORT` | NATS cluster port | 6222 | No |
@@ -683,17 +693,45 @@ Orisun is configured via environment variables with the `ORISUN_` prefix:
 | `ORISUN_OTEL_SERVICE_NAME` | Service name for traces | orisun | No |
 | `ORISUN_PPROF_ENABLED` | Enable pprof profiling endpoint | false | No |
 | `ORISUN_PPROF_PORT` | pprof HTTP port | 6060 | No |
-| `ORISUN_PG_WRITE_MAX_OPEN_CONNS` | Write pool max open connections | 10 | No |
-| `ORISUN_PG_WRITE_MAX_IDLE_CONNS` | Write pool max idle connections | 3 | No |
-| `ORISUN_PG_READ_MAX_OPEN_CONNS` | Read pool max open connections | 10 | No |
-| `ORISUN_PG_READ_MAX_IDLE_CONNS` | Read pool max idle connections | 5 | No |
+| `ORISUN_PG_WRITE_MAX_OPEN_CONNS` | Write pool max open connections | 25 | No |
+| `ORISUN_PG_WRITE_MAX_IDLE_CONNS` | Write pool max idle connections | 10 | No |
+| `ORISUN_PG_WRITE_CONN_MAX_IDLE_TIME` | Write pool conn idle eviction window | 5m | No |
+| `ORISUN_PG_WRITE_CONN_MAX_LIFETIME` | Write pool conn rotation interval | 30m | No |
+| `ORISUN_PG_READ_MAX_OPEN_CONNS` | Read pool max open connections | 50 | No |
+| `ORISUN_PG_READ_MAX_IDLE_CONNS` | Read pool max idle connections | 25 | No |
+| `ORISUN_PG_READ_CONN_MAX_IDLE_TIME` | Read pool conn idle eviction window | 5m | No |
+| `ORISUN_PG_READ_CONN_MAX_LIFETIME` | Read pool conn rotation interval | 30m | No |
 | `ORISUN_PG_ADMIN_MAX_OPEN_CONNS` | Admin pool max open connections | 5 | No |
-| `ORISUN_PG_ADMIN_MAX_IDLE_CONNS` | Admin pool max idle connections | 1 | No |
+| `ORISUN_PG_ADMIN_MAX_IDLE_CONNS` | Admin pool max idle connections | 2 | No |
+| `ORISUN_PG_ADMIN_CONN_MAX_IDLE_TIME` | Admin pool conn idle eviction window | 5m | No |
+| `ORISUN_PG_ADMIN_CONN_MAX_LIFETIME` | Admin pool conn rotation interval | 30m | No |
 | `ORISUN_GRPC_TLS_ENABLED` | Enable TLS for gRPC | false | No |
 | `ORISUN_GRPC_TLS_CERT_FILE` | TLS certificate file path | /etc/orisun/tls/server.crt | No |
 | `ORISUN_GRPC_TLS_KEY_FILE` | TLS private key file path | /etc/orisun/tls/server.key | No |
 | `ORISUN_GRPC_TLS_CA_FILE` | CA certificate (for client auth) | /etc/orisun/tls/ca.crt | No |
 | `ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED` | Require client certificates | false | No |
+
+### Runtime Tuning
+
+Orisun honors the standard Go runtime knobs:
+
+- **`GOMAXPROCS`** — auto-set from cgroup CPU quota at startup (via `automaxprocs`). No manual override needed in containers; for bare-metal it falls back to `runtime.NumCPU()`.
+- **`GOMEMLIMIT`** — soft memory cap. Set in container/orchestrator manifest (e.g., `GOMEMLIMIT=2GiB`). Recommended: ~80% of pod memory limit.
+- **`GOGC`** — GC trigger ratio (default 100). Raise (e.g., 200) to trade memory for less GC overhead under high allocation rates.
+
+Effective values are logged at startup as `runtime: GOMAXPROCS=… GOMEMLIMIT=… GOGC=…`.
+
+### Wire Compression
+
+The server registers the gzip codec and auto-applies it on responses **only when the client advertises `gzip` in its `grpc-accept-encoding` header**. Older clients without gzip registered keep working uncompressed — no breaking change. To force compression on the client side, set `grpc.UseCompressor("gzip")` (or the equivalent in your language's gRPC SDK).
+
+### PgBouncer Compatibility
+
+Orisun's SQL functions are safe under PgBouncer **session mode** out of the box. For **transaction mode**:
+
+- The internal `insert_events_with_consistency_v3` and migration code use schema-qualified table refs (no session-leaking `SET search_path`).
+- Multi-statement transactions via the Go-side pool work normally.
+- The `pgx` driver runs with its default `cache_statement` mode — this **requires PgBouncer 1.21+ with `max_prepared_statements > 0`** for protocol-level prepared-statement support. If running an older PgBouncer in transaction mode, switch the driver to `cache_describe` or `simple_protocol` mode.
 
 ## Running Modes
 
