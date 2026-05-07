@@ -20,13 +20,21 @@ type AppConfig struct {
 	Boundaries string
 	boundaries []Boundary
 	Grpc       struct {
-		Port                 string
-		EnableReflection     bool
-		ConnectionTimeout    time.Duration
-		KeepAliveTime        time.Duration
-		KeepAliveTimeout     time.Duration
-		MaxConcurrentStreams uint32
-		TLS                  struct {
+		Port                         string
+		EnableReflection             bool
+		ConnectionTimeout            time.Duration
+		KeepAliveTime                time.Duration
+		KeepAliveTimeout             time.Duration
+		MaxConcurrentStreams         uint32
+		MaxReceiveMessageSize        int
+		MaxSendMessageSize           int
+		InitialWindowSize            int32
+		InitialConnWindowSize        int32
+		WriteBufferSize              int
+		ReadBufferSize               int
+		KeepaliveMinTime             time.Duration
+		KeepalivePermitWithoutStream bool
+		TLS                          struct {
 			Enabled            bool
 			CertFile           string
 			KeyFile            string

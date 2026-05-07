@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	c "github.com/oexza/Orisun/config"
+	"math/rand/v2"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -677,6 +677,34 @@ type EventPublishingTracker interface {
 	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
 }
 
+// Backoff implements capped exponential backoff with jitter.
+// Use for retry loops to avoid thundering-herd on shared resources (PG advisory locks, etc).
+type Backoff struct {
+	Base, Max time.Duration
+	cur       time.Duration
+}
+
+// Wait sleeps for the current interval (with up to 50% jitter), doubles it for next time
+// (capped at Max), and returns ctx.Err if cancelled.
+func (b *Backoff) Wait(ctx context.Context) error {
+	if b.cur <= 0 {
+		b.cur = b.Base
+	}
+	jitter := time.Duration(rand.Int64N(int64(b.cur)/2 + 1))
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(b.cur + jitter):
+	}
+	b.cur *= 2
+	if b.cur > b.Max {
+		b.cur = b.Max
+	}
+	return nil
+}
+
+func (b *Backoff) Reset() { b.cur = 0 }
+
 func StartEventPolling(
 	ctx context.Context,
 	config c.AppConfig,
@@ -689,32 +717,33 @@ func StartEventPolling(
 	for _, schema := range config.Postgres.GetSchemaMapping() {
 		boundaryCopy := schema
 		g.Go(func() error {
+			backoff := Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 			for {
 				select {
 				case <-gctx.Done():
 					return gctx.Err()
 				default:
-					// Try to acquire lock for this boundary
 					err := lockProvider.Lock(gctx, boundaryCopy.Boundary)
 					if err != nil {
-						// If lock acquisition fails, wait a bit and try again
 						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
+						if waitErr := backoff.Wait(gctx); waitErr != nil {
+							return waitErr
+						}
 						continue
 					}
-
+					backoff.Reset()
 					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
 
-					// Get last published position
 					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
 					if err != nil {
 						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
+						if waitErr := backoff.Wait(gctx); waitErr != nil {
+							return waitErr
+						}
 						continue
 					}
 					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
 
-					// Start polling - this will block until context is cancelled or error occurs
 					err = PollEventsFromDatabaseToNats(
 						gctx,
 						js,
@@ -729,17 +758,16 @@ func StartEventPolling(
 
 					if err != nil {
 						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
-						time.Sleep(5 * time.Second)
+						if waitErr := backoff.Wait(gctx); waitErr != nil {
+							return waitErr
+						}
 					}
-					// Loop will continue to try acquiring lock again
 				}
 			}
 		})
 	}
 	// Not waiting here; goroutines will be governed by ctx lifecycle.
 }
-
-var mutex sync.RWMutex
 
 func PollEventsFromDatabaseToNats(
 	ctx context.Context,
@@ -752,7 +780,10 @@ func PollEventsFromDatabaseToNats(
 	schema string,
 	logger logging.Logger,
 ) error {
-	// Start polling loop
+	const minPollInterval = 25 * time.Millisecond
+	const maxPollInterval = 2 * time.Second
+	idleBackoff := minPollInterval
+
 	for {
 		if ctx.Err() != nil {
 			logger.Error("Context cancelled, stopping polling")
@@ -777,69 +808,72 @@ func PollEventsFromDatabaseToNats(
 
 		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
 
-		for _, event := range resp.Events {
-			subjectName := GetEventJetstreamSubjectName(
-				boundary,
-				&Position{
-					CommitPosition:  event.Position.CommitPosition,
-					PreparePosition: event.Position.PreparePosition,
-				},
-			)
-			logger.Debugf("Subject name is: %s", subjectName)
-			eventData, err := json.Marshal(event)
-			if err != nil {
-				logger.Errorf("Failed to marshal event: %v", err)
-				panic(err)
-			}
-			publishEventWithRetry(
-				ctx,
-				js,
-				eventData,
-				subjectName,
-				event.Position.PreparePosition,
-				event.Position.CommitPosition,
-				logger,
-			)
-			lastPosition = event.Position
-		}
 		if len(resp.Events) > 0 {
-			mutex.Lock()
-			err = db.InsertLastPublishedEvent(
+			futures := make([]jetstream.PubAckFuture, 0, len(resp.Events))
+			for _, event := range resp.Events {
+				subjectName := GetEventJetstreamSubjectName(
+					boundary,
+					&Position{
+						CommitPosition:  event.Position.CommitPosition,
+						PreparePosition: event.Position.PreparePosition,
+					},
+				)
+				eventData, err := json.Marshal(event)
+				if err != nil {
+					return fmt.Errorf("marshal event: %w", err)
+				}
+				fut, err := js.PublishAsync(
+					subjectName,
+					eventData,
+					jetstream.WithMsgID(GetEventNatsMessageId(event.Position.PreparePosition, event.Position.CommitPosition)),
+					jetstream.WithRetryAttempts(5),
+				)
+				if err != nil {
+					return fmt.Errorf("publish async submit: %w", err)
+				}
+				futures = append(futures, fut)
+			}
+
+			select {
+			case <-js.PublishAsyncComplete():
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(30 * time.Second):
+				return fmt.Errorf("publish async timeout for boundary %s", boundary)
+			}
+
+			for _, f := range futures {
+				select {
+				case <-f.Ok():
+				case err := <-f.Err():
+					return fmt.Errorf("publish failed: %w", err)
+				}
+			}
+
+			lastPosition = resp.Events[len(resp.Events)-1].Position
+			if err := db.InsertLastPublishedEvent(
 				ctx,
 				boundary,
 				lastPosition.CommitPosition,
 				lastPosition.PreparePosition,
-			)
-			mutex.Unlock()
-			if err != nil {
-				panic(err)
+			); err != nil {
+				return fmt.Errorf("insert last published: %w", err)
 			}
 		}
 
 		if len(resp.Events) > 0 {
-			lastPosition = resp.Events[len(resp.Events)-1].Position
+			idleBackoff = minPollInterval
+			continue
 		}
-		logger.Debugf(":%v Sleeping.....", boundary)
-		time.Sleep(100 * time.Millisecond) // Polling interval
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(idleBackoff):
+		}
+		idleBackoff *= 2
+		if idleBackoff > maxPollInterval {
+			idleBackoff = maxPollInterval
+		}
 	}
-}
-
-func publishEventWithRetry(
-	ctx context.Context,
-	js jetstream.JetStream,
-	eventData []byte,
-	subjectName string, preparePosition int64,
-	commitPosition int64, logger logging.Logger) {
-
-	messageIdOpts := jetstream.WithMsgID(GetEventNatsMessageId(preparePosition, commitPosition))
-	retryOpts := jetstream.WithRetryAttempts(5)
-
-	_, err := js.Publish(ctx, subjectName, eventData, messageIdOpts, retryOpts)
-	if err == nil {
-		logger.Debugf("Successfully published event to jetstream")
-		return
-	}
-
-	logger.Errorf("Failed to publish event: %v, this should not happen.", err)
-	panic(err)
 }

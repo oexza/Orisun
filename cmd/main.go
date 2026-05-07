@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
@@ -389,6 +390,7 @@ func startUserProjector(
 			adminBoundary,
 			subscribeToEvents,
 		)
+		backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 		for {
 			select {
 			case <-groupCtx.Done():
@@ -398,11 +400,12 @@ func startUserProjector(
 
 				if err != nil {
 					logger.Debugf("Failed to start user projection (likely due to lock contention): %v - will retry", err)
-					time.Sleep(5 * time.Second)
+					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
+						return waitErr
+					}
 					continue
 				}
 				logger.Info("User projector started")
-				// Projector will run until context is cancelled or error occurs
 				return nil
 			}
 		}
@@ -421,6 +424,7 @@ func startAuthUserProjector(
 			subscribeToEvents,
 			adminBoundary,
 		)
+		backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 		for {
 			select {
 			case <-groupCtx.Done():
@@ -430,11 +434,12 @@ func startAuthUserProjector(
 
 				if err != nil {
 					logger.Debugf("Failed to start auth user projection (likely due to lock contention): %v - will retry", err)
-					time.Sleep(5 * time.Second)
+					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
+						return waitErr
+					}
 					continue
 				}
 				logger.Info("Auth user projector started")
-				// Projector will run until context is cancelled or error occurs
 				return nil
 			}
 		}
@@ -464,6 +469,7 @@ func startUserCountProjector(
 			updateProjectorPosition,
 			logger,
 		)
+		backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 		for {
 			select {
 			case <-groupCtx.Done():
@@ -473,11 +479,12 @@ func startUserCountProjector(
 
 				if err != nil {
 					logger.Debugf("Failed to start user count projection (likely due to lock contention): %v - will retry", err)
-					time.Sleep(5 * time.Second)
+					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
+						return waitErr
+					}
 					continue
 				}
 				logger.Info("User count projector started")
-				// Projector will run until context is cancelled or error occurs
 				return nil
 			}
 		}
@@ -509,6 +516,7 @@ func startEventCountProjector(
 				updateProjectorPosition,
 				logger,
 			)
+			backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 			for {
 				select {
 				case <-groupCtx.Done():
@@ -518,11 +526,12 @@ func startEventCountProjector(
 
 					if err != nil {
 						logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", b, err)
-						time.Sleep(5 * time.Second)
+						if waitErr := backoff.Wait(groupCtx); waitErr != nil {
+							return waitErr
+						}
 						continue
 					}
 					logger.Infof("Event count projector started for boundary %s", b)
-					// Projector will run until context is cancelled or error occurs
 					return nil
 				}
 			}
@@ -655,7 +664,17 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 			Time:    config.Grpc.KeepAliveTime,
 			Timeout: config.Grpc.KeepAliveTimeout,
 		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             config.Grpc.KeepaliveMinTime,
+			PermitWithoutStream: config.Grpc.KeepalivePermitWithoutStream,
+		}),
 		grpc.MaxConcurrentStreams(config.Grpc.MaxConcurrentStreams),
+		grpc.MaxRecvMsgSize(config.Grpc.MaxReceiveMessageSize),
+		grpc.MaxSendMsgSize(config.Grpc.MaxSendMessageSize),
+		grpc.InitialWindowSize(config.Grpc.InitialWindowSize),
+		grpc.InitialConnWindowSize(config.Grpc.InitialConnWindowSize),
+		grpc.WriteBufferSize(config.Grpc.WriteBufferSize),
+		grpc.ReadBufferSize(config.Grpc.ReadBufferSize),
 	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
