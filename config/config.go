@@ -136,15 +136,16 @@ func (p *PostgresDBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchem
 
 // nats
 type NatsConfig struct {
-	ServerName          string
-	Port                int
-	MaxPayload          int32
-	MaxConnections      int
-	StoreDir            string
-	EventStreamMaxBytes int64
-	EventStreamMaxMsgs  int64
-	EventStreamMaxAge   time.Duration
-	Cluster             NatsClusterConfig
+	ServerName             string
+	Port                   int
+	MaxPayload             int32
+	MaxConnections         int
+	StoreDir               string
+	EventStreamMaxBytes    int64
+	EventStreamMaxMsgs     int64
+	EventStreamMaxAge      time.Duration
+	PublishAsyncMaxPending int
+	Cluster                NatsClusterConfig
 }
 
 type NatsClusterConfig struct {

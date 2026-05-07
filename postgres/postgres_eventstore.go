@@ -240,7 +240,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	// s.logger.Debugf("direction: %v", req.Direction)
 	// s.logger.Debugf("count: %v", req.Count)
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
@@ -374,23 +374,61 @@ type PostgresAdminDB struct {
 	adminSchema            string
 	adminBoundary          string
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+
+	// Pre-formatted admin queries (fixed schema/boundary)
+	qListUsers          string
+	qGetProjectorPos    string
+	qUpsertProjectorPos string
+	qDeleteUser         string
+	qGetUserByUsername  string
+	qGetUserById        string
+	qUpsertUser         string
+	qGetUsersCount      string
+	qSaveUsersCount     string
+
+	// Per-boundary event count queries
+	qGetEventCount      map[string]string
+	qFallbackEventCount map[string]string
+	qSaveEventCount     map[string]string
 }
 
 func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string, boundary string, boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresAdminDB {
+	getEventCount := make(map[string]string, len(boundarySchemaMappings))
+	fallbackEventCount := make(map[string]string, len(boundarySchemaMappings))
+	saveEventCount := make(map[string]string, len(boundarySchemaMappings))
+	for b, m := range boundarySchemaMappings {
+		getEventCount[b] = fmt.Sprintf("SELECT event_count FROM %s.%s_events_count limit 1", m.Schema, b)
+		fallbackEventCount[b] = fmt.Sprintf("SELECT COUNT(*) FROM %s.%s_orisun_es_event", m.Schema, b)
+		saveEventCount[b] = fmt.Sprintf("INSERT INTO %s.%s_events_count (id, event_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET event_count = $2, updated_at = $4", m.Schema, b)
+	}
+
 	return &PostgresAdminDB{
 		db:                     db,
 		logger:                 logger,
 		adminSchema:            schema,
 		adminBoundary:          boundary,
 		boundarySchemaMappings: boundarySchemaMappings,
+
+		qListUsers:          fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users ORDER BY id", schema, boundary),
+		qGetProjectorPos:    fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.%s_projector_checkpoint where name = $1", schema, boundary),
+		qUpsertProjectorPos: fmt.Sprintf("INSERT INTO %s.%s_projector_checkpoint (id, name, commit_position, prepare_position) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET commit_position = $3, prepare_position = $4", schema, boundary),
+		qDeleteUser:         fmt.Sprintf("DELETE FROM %s.%s_users WHERE id = $1", schema, boundary),
+		qGetUserByUsername:  fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users where username = $1", schema, boundary),
+		qGetUserById:        fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users where id = $1", schema, boundary),
+		qUpsertUser:         fmt.Sprintf("INSERT INTO %s.%s_users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = $2, username = $3, password_hash = $4, roles = $5, updated_at = $6", schema, boundary),
+		qGetUsersCount:      fmt.Sprintf("SELECT user_count FROM %s.%s_users_count limit 1", schema, boundary),
+		qSaveUsersCount:     fmt.Sprintf("INSERT INTO %s.%s_users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", schema, boundary),
+
+		qGetEventCount:      getEventCount,
+		qFallbackEventCount: fallbackEventCount,
+		qSaveEventCount:     saveEventCount,
 	}
 }
 
 var userCache = map[string]*orisun.User{}
 
 func (s *PostgresAdminDB) ListAdminUsers() ([]*orisun.User, error) {
-	query := fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users ORDER BY id", s.adminSchema, s.adminBoundary)
-	rows, err := s.db.Query(query)
+	rows, err := s.db.Query(s.qListUsers)
 	if err != nil {
 		return nil, err
 	}
@@ -411,9 +449,8 @@ func (s *PostgresAdminDB) ListAdminUsers() ([]*orisun.User, error) {
 
 func (s *PostgresAdminDB) GetProjectorLastPosition(projectorName string) (*eventstore.Position, error) {
 	var commitPos, preparePos int64
-	query := fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.%s_projector_checkpoint where name = $1", s.adminSchema, s.adminBoundary)
 	err := s.db.QueryRow(
-		query,
+		s.qGetProjectorPos,
 		projectorName,
 	).Scan(&commitPos, &preparePos)
 	if err != nil && err != sql.ErrNoRows {
@@ -434,9 +471,8 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 		return err
 	}
 
-	query := fmt.Sprintf("INSERT INTO %s.%s_projector_checkpoint (id, name, commit_position, prepare_position) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET commit_position = $3, prepare_position = $4", p.adminSchema, p.adminBoundary)
 	if _, err := p.db.Exec(
-		query,
+		p.qUpsertProjectorPos,
 		id.String(),
 		name,
 		position.CommitPosition,
@@ -449,9 +485,8 @@ func (p *PostgresAdminDB) UpdateProjectorPosition(name string, position *eventst
 }
 
 func (p *PostgresAdminDB) DeleteUser(id string) error {
-	query := fmt.Sprintf("DELETE FROM %s.%s_users WHERE id = $1", p.adminSchema, p.adminBoundary)
 	_, err := p.db.Exec(
-		query,
+		p.qDeleteUser,
 		id,
 	)
 
@@ -483,8 +518,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error
 		return *user, nil
 	}
 
-	query := fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users where username = $1", s.adminSchema, s.adminBoundary)
-	rows, err := s.db.Query(query, username)
+	rows, err := s.db.Query(s.qGetUserByUsername, username)
 	if err != nil {
 		s.logger.Infof("User: %v", err)
 		return orisun.User{}, err
@@ -507,8 +541,7 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error
 }
 
 func (s *PostgresAdminDB) GetUserById(id string) (orisun.User, error) {
-	query := fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users where id = $1", s.adminSchema, s.adminBoundary)
-	rows, err := s.db.Query(query, id)
+	rows, err := s.db.Query(s.qGetUserById, id)
 	if err != nil {
 		s.logger.Debugf("User by ID: %v", err)
 		return orisun.User{}, err
@@ -536,9 +569,8 @@ func (s *PostgresAdminDB) UpsertUser(user orisun.User) error {
 	}
 	rolesStr := "{" + strings.Join(roleStrings, ",") + "}"
 
-	query := fmt.Sprintf("INSERT INTO %s.%s_users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = $2, username = $3, password_hash = $4, roles = $5, updated_at = $6", s.adminSchema, s.adminBoundary)
 	_, err := s.db.Exec(
-		query,
+		s.qUpsertUser,
 		user.Id,
 		user.Name,
 		user.Username,
@@ -558,8 +590,7 @@ func (s *PostgresAdminDB) UpsertUser(user orisun.User) error {
 }
 
 func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
-	query := fmt.Sprintf("SELECT user_count FROM %s.%s_users_count limit 1", s.adminSchema, s.adminBoundary)
-	rows, err := s.db.Query(query)
+	rows, err := s.db.Query(s.qGetUsersCount)
 	if err != nil {
 		s.logger.Debugf("User count: %v", err)
 		return 0, err
@@ -577,20 +608,16 @@ func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
 }
 
 func (s *PostgresAdminDB) GetEventsCount(boundary string) (int, error) {
-	schemaMapping, ok := s.boundarySchemaMappings[boundary]
+	q, ok := s.qGetEventCount[boundary]
 	if !ok {
 		return 0, fmt.Errorf("no schema mapping found for boundary: %s", boundary)
 	}
 
-	// First try to get the count from the events_count table
-	query := fmt.Sprintf("SELECT event_count FROM %s.%s_events_count limit 1", schemaMapping.Schema, boundary)
-	rows, err := s.db.Query(query)
+	rows, err := s.db.Query(q)
 	if err != nil {
 		s.logger.Debugf("Event count table query error: %v", err)
-		// If the table doesn't exist yet or there's another error, fall back to counting directly
-		fallbackQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s_orisun_es_event", schemaMapping.Schema, boundary)
 		var count int
-		err := s.db.QueryRow(fallbackQuery).Scan(&count)
+		err := s.db.QueryRow(s.qFallbackEventCount[boundary]).Scan(&count)
 		if err != nil {
 			s.logger.Errorf("Error getting events count for boundary %s: %v", boundary, err)
 			return 0, err
@@ -621,9 +648,8 @@ const (
 )
 
 func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
-	query := fmt.Sprintf("INSERT INTO %s.%s_users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", s.adminSchema, s.adminBoundary)
 	_, err := s.db.Exec(
-		query,
+		s.qSaveUsersCount,
 		userCountId,
 		strconv.FormatUint(uint64(users_count), 10),
 		time.Now().UTC(),
@@ -639,15 +665,12 @@ func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 }
 
 func (s *PostgresAdminDB) SaveEventCount(event_count int, boundary string) error {
-	// Get the schema mapping for the boundary
-	schemaMapping, ok := s.boundarySchemaMappings[boundary]
+	q, ok := s.qSaveEventCount[boundary]
 	if !ok {
 		return fmt.Errorf("no schema mapping found for boundary: %s", boundary)
 	}
-
-	query := fmt.Sprintf("INSERT INTO %s.%s_events_count (id, event_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET event_count = $2, updated_at = $4", schemaMapping.Schema, boundary)
 	_, err := s.db.Exec(
-		query,
+		q,
 		eventCountId,
 		strconv.Itoa(event_count),
 		time.Now().UTC(),

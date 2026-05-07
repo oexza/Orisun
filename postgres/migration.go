@@ -129,7 +129,7 @@ func executeSQLScripts(db *sql.DB, scripts embed.FS, schema string, ctx context.
 	defer tx.Rollback()
 
 	// Set search path for the transaction
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema)); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL search_path TO %s", schema)); err != nil {
 		return fmt.Errorf("failed to set search path: %w", err)
 	}
 
@@ -175,7 +175,7 @@ func initializeBoundaryTables(db *sql.DB, boundary string, schema string, isAdmi
 	defer tx.Rollback()
 
 	// Set search path to ensure PostgreSQL can find the tables
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema)); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL search_path TO %s", schema)); err != nil {
 		return fmt.Errorf("failed to set search path: %w", err)
 	}
 

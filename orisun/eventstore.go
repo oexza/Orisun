@@ -6,6 +6,7 @@ import (
 	c "github.com/oexza/Orisun/config"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/goccy/go-json"
@@ -619,39 +620,47 @@ func (s *EventStore) eventMatchesQueryCriteria(event *Event, criteria *Query) bo
 	}
 
 	unmarshaledData := map[string]any{}
-	json.Unmarshal([]byte(event.Data), &unmarshaledData)
+	if err := json.Unmarshal([]byte(event.Data), &unmarshaledData); err != nil {
+		return false
+	}
 
-	// For multiple criteria groups, ANY group matching is sufficient (OR logic)
+	// OR across criteria groups; AND within a group
 	for _, criteriaGroup := range criteria.Criteria {
 		allTagsMatch := true
-
-		// Within a group, ALL tags must match (AND logic)
 		for _, criteriaTag := range criteriaGroup.Tags {
-			tagFound := false
-
-			for key, eventTag := range unmarshaledData {
-				// Convert both to string for comparison
-				if key == criteriaTag.Key {
-					eventTagStr := fmt.Sprintf("%v", eventTag)
-					if eventTagStr == criteriaTag.Value {
-						tagFound = true
-						break
-					}
-				}
-			}
-			if !tagFound {
+			eventTag, ok := unmarshaledData[criteriaTag.Key]
+			if !ok || !eventTagEquals(eventTag, criteriaTag.Value) {
 				allTagsMatch = false
 				break
 			}
 		}
-		// If all tags in this group matched, we can return true
 		if allTagsMatch {
 			return true
 		}
 	}
-
-	// No criteria group fully matched
 	return false
+}
+
+// eventTagEquals compares a JSON-decoded value against the criteria's string form.
+// Avoids fmt.Sprintf reflection on the hot path for the common scalar cases.
+func eventTagEquals(v any, target string) bool {
+	switch x := v.(type) {
+	case string:
+		return x == target
+	case bool:
+		if x {
+			return target == "true"
+		}
+		return target == "false"
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64) == target
+	case json.Number:
+		return string(x) == target
+	case nil:
+		return target == "" || target == "null"
+	default:
+		return fmt.Sprintf("%v", v) == target
+	}
 }
 
 func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {

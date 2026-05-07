@@ -63,6 +63,8 @@ nats:
   eventStreamMaxBytes: ${ORISUN_NATS_EVENT_STREAM_MAX_BYTES:536870912}  # 512MB
   eventStreamMaxMsgs: ${ORISUN_NATS_EVENT_STREAM_MAX_MSGS:-1}
   eventStreamMaxAge: ${ORISUN_NATS_EVENT_STREAM_MAX_AGE:5m}
+  # Cap of in-flight PublishAsync acks. Should be >= polling batchSize to avoid stalls.
+  publishAsyncMaxPending: ${ORISUN_NATS_PUBLISH_ASYNC_MAX_PENDING:8192}
   cluster:
     name: ${ORISUN_NATS_CLUSTER_NAME:orisun-nats-cluster}
     host: ${ORISUN_NATS_CLUSTER_HOST:0.0.0.0}

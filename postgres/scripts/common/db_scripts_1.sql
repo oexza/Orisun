@@ -132,14 +132,12 @@ BEGIN
     expected_gid := (query -> 'expected_position' ->> 'global_id')::BIGINT;
     current_tx_id := pg_current_xact_id()::TEXT::BIGINT;
 
-    -- Build prefixed sequence name (plain name, will be escaped when used)
-    prefixed_seq_name := boundary_name || '_orisun_es_event_global_id_seq';
+    -- Build schema-qualified sequence reference for nextval (avoids SET search_path leak under pgbouncer txn-mode)
+    prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
 
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
-
-    EXECUTE format('SET search_path TO %I', schema);
 
     -- If criteria is present then we acquire granular locks for each criterion.
     -- This is to ensure that we don't block other insert operations
@@ -181,14 +179,14 @@ BEGIN
             ELSE 'TRUE'
         END;
 
-        -- version check - use dynamic SQL to query the prefixed table
+        -- version check - use dynamic SQL to query the prefixed table (schema-qualified)
         EXECUTE format('
             SELECT DISTINCT oe.transaction_id, oe.global_id
-            FROM %I_orisun_es_event oe
+            FROM %I.%I oe
             WHERE %s
             ORDER BY oe.transaction_id DESC, oe.global_id DESC
             LIMIT 1',
-                       boundary_name, criteria_sql
+                       schema, boundary_name || '_orisun_es_event', criteria_sql
                 ) INTO latest_tx_id, latest_gid;
 
         IF latest_tx_id IS NULL THEN
@@ -208,10 +206,10 @@ BEGIN
         END IF;
     END IF;
 
-    -- CTE-based insert pattern - use dynamic SQL for prefixed table and sequence
+    -- CTE-based insert pattern - schema-qualified table and sequence (pgbouncer txn-mode safe)
     EXECUTE format('
         WITH inserted_events AS (
-            INSERT INTO %I_orisun_es_event (
+            INSERT INTO %I.%I (
                                          transaction_id,
                                          event_id,
                                          global_id,
@@ -238,7 +236,8 @@ BEGIN
                            FROM inserted_events)
         SELECT max_seq_overall, $1, max_seq_overall
         FROM max_global_id',
-                   boundary_name,
+                   schema,
+                   boundary_name || '_orisun_es_event',
                    prefixed_seq_name
             ) USING current_tx_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
 

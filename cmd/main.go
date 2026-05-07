@@ -20,12 +20,14 @@ import (
 	"github.com/oexza/Orisun/orisun"
 	pb "github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
+	_ "go.uber.org/automaxprocs" // auto-set GOMAXPROCS from cgroup CPU limit
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 	logger "log"
@@ -35,6 +37,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -154,6 +157,13 @@ func main() {
 	// Initialize logger
 	AppLogger := l.InitializeDefaultLogger(config.Logging)
 	AppLogger.Debugf("config: %v", config)
+
+	// Log Go runtime tuning. GOMAXPROCS auto-set from cgroup via automaxprocs side-effect import.
+	// GOMEMLIMIT/GOGC honor the standard Go env vars; tune in container/orchestrator manifest.
+	memLimit := debug.SetMemoryLimit(-1)
+	gcPercent := debug.SetGCPercent(-1)
+	debug.SetGCPercent(gcPercent) // restore after read
+	AppLogger.Infof("runtime: GOMAXPROCS=%d GOMEMLIMIT=%d GOGC=%d", runtime.GOMAXPROCS(0), memLimit, gcPercent)
 
 	// Start pprof server if enabled
 	if config.Pprof.Enabled {
@@ -567,6 +577,42 @@ func recoveryInterceptor(logger l.Logger) grpc.UnaryServerInterceptor {
 	}
 }
 
+// clientAcceptsGzip returns true when the inbound RPC advertises gzip in grpc-accept-encoding.
+// Server only enables compression when the client explicitly supports it (older clients
+// without the gzip codec registered keep working uncompressed).
+func clientAcceptsGzip(ctx context.Context) bool {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	for _, ae := range md.Get("grpc-accept-encoding") {
+		for _, enc := range strings.Split(ae, ",") {
+			if strings.TrimSpace(enc) == "gzip" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func compressionUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if clientAcceptsGzip(ctx) {
+			_ = grpc.SetSendCompressor(ctx, "gzip")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func compressionStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if clientAcceptsGzip(ss.Context()) {
+			_ = grpc.SetSendCompressor(ss.Context(), "gzip")
+		}
+		return handler(srv, ss)
+	}
+}
+
 // loadTLSCredentials creates TLS credentials from the configured certificate files
 func loadTLSCredentials(config c.AppConfig, logger l.Logger) (credentials.TransportCredentials, error) {
 	// Load server certificate and key
@@ -650,11 +696,13 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	// Add interceptors and other options
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(
+			compressionUnaryInterceptor(),
 			admin.UnaryTracingInterceptor(logger),
 			admin.UnaryAuthInterceptor(authenticator, logger),
 			recoveryInterceptor(logger),
 		),
 		grpc.ChainStreamInterceptor(
+			compressionStreamInterceptor(),
 			admin.StreamTracingInterceptor(logger),
 			admin.StreamAuthInterceptor(authenticator, logger),
 			streamErrorInterceptor(logger),

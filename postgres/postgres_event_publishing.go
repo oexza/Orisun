@@ -63,7 +63,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	}
 	defer conn.Close() // Ensure connection is always closed
 
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{})
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted})
 	defer tx.Rollback()
 
 	if err != nil {

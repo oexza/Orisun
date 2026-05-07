@@ -22,7 +22,11 @@ func InitializeNATS(ctx context.Context, config c.NatsConfig, logger l.Logger) (
 	}
 
 	// Create JetStream context
-	js, err := jetstream.New(nc)
+	var jsOpts []jetstream.JetStreamOpt
+	if config.PublishAsyncMaxPending > 0 {
+		jsOpts = append(jsOpts, jetstream.WithPublishAsyncMaxPending(config.PublishAsyncMaxPending))
+	}
+	js, err := jetstream.New(nc, jsOpts...)
 	if err != nil {
 		logger.Fatalf("Failed to create JetStream context: %v", err)
 	}
