@@ -784,7 +784,6 @@ func StartEventPolling(
 						&lastPosition,
 						boundaryCopy.Boundary,
 						eventPublishingTracker,
-						boundaryCopy.Schema,
 						logger,
 					)
 
@@ -809,7 +808,6 @@ func PollEventsFromDatabaseToNats(
 	lastPosition *Position,
 	boundary string,
 	db EventPublishingTracker,
-	schema string,
 	logger logging.Logger,
 ) error {
 	const minPollInterval = 25 * time.Millisecond
