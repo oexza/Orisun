@@ -746,8 +746,8 @@ func StartEventPolling(
 	eventPublishingTracker EventPublishingTracker,
 	logger logging.Logger) {
 	g, gctx := errgroup.WithContext(ctx)
-	for _, schema := range config.Postgres.GetSchemaMapping() {
-		boundaryCopy := schema
+	for _, name := range config.GetBoundaryNames() {
+		boundary := name
 		g.Go(func() error {
 			backoff := Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
 			for {
@@ -755,26 +755,26 @@ func StartEventPolling(
 				case <-gctx.Done():
 					return gctx.Err()
 				default:
-					err := lockProvider.Lock(gctx, boundaryCopy.Boundary)
+					err := lockProvider.Lock(gctx, boundary)
 					if err != nil {
-						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
+						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary, err)
 						if waitErr := backoff.Wait(gctx); waitErr != nil {
 							return waitErr
 						}
 						continue
 					}
 					backoff.Reset()
-					logger.Infof("Successfully acquired polling lock for boundary %v", boundaryCopy.Boundary)
+					logger.Infof("Successfully acquired polling lock for boundary %v", boundary)
 
-					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(gctx, boundaryCopy.Boundary)
+					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(gctx, boundary)
 					if err != nil {
-						logger.Errorf("Failed to get last published position for boundary %s: %v", boundaryCopy.Boundary, err)
+						logger.Errorf("Failed to get last published position for boundary %s: %v", boundary, err)
 						if waitErr := backoff.Wait(gctx); waitErr != nil {
 							return waitErr
 						}
 						continue
 					}
-					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
+					logger.Infof("Last published position for boundary %v: %v", boundary, &lastPosition)
 
 					err = PollEventsFromDatabaseToNats(
 						gctx,
@@ -782,13 +782,13 @@ func StartEventPolling(
 						getEvents,
 						config.PollingPublisher.BatchSize,
 						&lastPosition,
-						boundaryCopy.Boundary,
+						boundary,
 						eventPublishingTracker,
 						logger,
 					)
 
 					if err != nil {
-						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundaryCopy.Boundary, err)
+						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary, err)
 						if waitErr := backoff.Wait(gctx); waitErr != nil {
 							return waitErr
 						}

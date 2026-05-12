@@ -83,6 +83,27 @@ Business Rules: Both accounts exist, Peter has sufficient funds
 - **Horizontal Scaling**: Add nodes dynamically for increased throughput and resilience
 - **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
 
+## Storage Backends
+
+Orisun supports two storage backends, chosen at startup via `ORISUN_BACKEND`:
+
+| Backend | Use Case | Multi-Node | Driver |
+| --- | --- | --- | --- |
+| `postgres` (default) | Production, clustered deployments, large datasets | Yes — cluster nodes coordinate via PG advisory locks | `pgx` |
+| `sqlite` | Embedded / single-node, dev, edge, low-ops | **No** — single-node only; rejected at startup if `ORISUN_NATS_CLUSTER_ENABLED=true` | `zombiezen.com/go/sqlite` (pure Go) |
+
+For SQLite, set `ORISUN_SQLITE_DIR` to the directory holding the per-boundary `{boundary}.db` files. The directory is created on startup if missing. Example:
+
+```bash
+ORISUN_BACKEND=sqlite \
+ORISUN_SQLITE_DIR=/var/lib/orisun/sqlite \
+ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+./orisun
+```
+
+The SQLite path uses WAL mode + `synchronous=NORMAL`, with one writer + N readers per boundary. Multi-row INSERT is used so a single `SaveEvents` call commits as one transaction; concurrent calls serialise at the boundary's write pool.
+
 ## Quick Start
 
 ### Option 1: Docker Compose (Recommended - 60 Seconds)

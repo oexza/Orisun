@@ -20,6 +20,7 @@ import (
 	"github.com/oexza/Orisun/orisun"
 	pb "github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
+	sqlitebackend "github.com/oexza/Orisun/sqlite"
 	_ "go.uber.org/automaxprocs" // auto-set GOMAXPROCS from cgroup CPU limit
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -185,8 +186,33 @@ func main() {
 	defer nc.Close()
 	defer ns.Shutdown()
 
-	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
+	// Initialize database backend
+	var (
+		saveEvents      orisun.EventsSaver
+		getEvents       orisun.EventsRetriever
+		lockProvider    orisun.LockProvider
+		adminDB         common.DB
+		eventPublishing orisun.EventPublishingTracker
+	)
+	switch config.BackendType() {
+	case "postgres":
+		AppLogger.Infof("storage backend: postgres (host=%s port=%s db=%s schemas=%q)",
+			config.Postgres.Host, config.Postgres.Port, config.Postgres.Name, config.Postgres.Schemas)
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing = pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
+		AppLogger.Infof("storage backend ready: postgres")
+	case "sqlite":
+		AppLogger.Infof("storage backend: sqlite (dir=%s, %d boundaries)",
+			config.Sqlite.Dir, len(config.GetBoundaryNames()))
+		var sqliteErr error
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, sqliteErr =
+			sqlitebackend.InitializeSqliteDatabase(ctx, config.Sqlite, config.Admin, config.GetBoundaryNames(), js, AppLogger)
+		if sqliteErr != nil {
+			AppLogger.Fatalf("sqlite backend init: %v", sqliteErr)
+		}
+		AppLogger.Infof("storage backend ready: sqlite (dir=%s)", config.Sqlite.Dir)
+	default:
+		AppLogger.Fatalf("unknown backend %q (expected 'postgres' or 'sqlite')", config.BackendType())
+	}
 
 	// Initialize EventStore
 	eventStore := pb.InitializeEventStore(

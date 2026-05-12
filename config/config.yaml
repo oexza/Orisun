@@ -1,3 +1,13 @@
+# Storage backend selector. Values: "postgres" (default) or "sqlite".
+# sqlite is single-node only — incompatible with ORISUN_NATS_CLUSTER_ENABLED=true.
+backend:
+  type: ${ORISUN_BACKEND:sqlite}
+
+# SQLite backend settings (used when backend.type=sqlite).
+# Each boundary gets its own file at {dir}/{boundary}.db.
+sqlite:
+  dir: ${ORISUN_SQLITE_DIR:./data/orisun/sqlite}
+
 postgres:
   user: ${ORISUN_PG_USER:postgres}
   name: ${ORISUN_PG_NAME:orisun}
