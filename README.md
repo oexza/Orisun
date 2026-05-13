@@ -433,7 +433,7 @@ EOF
 - **PostgreSQL 13+**: Current production storage backend (pluggable architecture supports future backends like SQLite and FoundationDB)
 - **NATS JetStream**: Embedded real-time event streaming, no external broker required
 - **gRPC**: Client-server communication with reflection enabled by default
-- **Go 1.26.2+**: High-performance server implementation
+- **Go 1.26.3+**: High-performance server implementation
 
 ### Data Flow
 
@@ -927,7 +927,7 @@ go test -run='^$' -bench=BenchmarkConsistencyCheck -benchtime=5s ./postgres/...
 ## Building from Source
 
 ### Prerequisites
-- Go 1.26.2+
+- Go 1.26.3+
 - Make
 
 ```bash
