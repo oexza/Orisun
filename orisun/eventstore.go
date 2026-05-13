@@ -832,14 +832,22 @@ func PollEventsFromDatabaseToNats(
 		}
 		resp, err := eventStore.Get(ctx, req)
 		if err != nil {
-			// return fmt.Errorf("failed to get events: %v", err)
-			logger.Fatalf("Failed to get events: %v", err)
+			logger.Errorf("Failed to get events for boundary %s: %v (retrying)", boundary, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idleBackoff):
+			}
+			idleBackoff *= 2
+			if idleBackoff > maxPollInterval {
+				idleBackoff = maxPollInterval
+			}
+			continue
 		}
 
 		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
 
 		if len(resp.Events) > 0 {
-			futures := make([]jetstream.PubAckFuture, 0, len(resp.Events))
 			for _, event := range resp.Events {
 				subjectName := GetEventJetstreamSubjectName(
 					boundary,
@@ -852,46 +860,38 @@ func PollEventsFromDatabaseToNats(
 				if err != nil {
 					return fmt.Errorf("marshal event: %w", err)
 				}
-				fut, err := js.PublishAsync(
-					subjectName,
-					eventData,
-					jetstream.WithMsgID(GetEventNatsMessageId(event.Position.PreparePosition, event.Position.CommitPosition)),
-					jetstream.WithRetryAttempts(5),
-				)
-				if err != nil {
-					return fmt.Errorf("publish async submit: %w", err)
+				for {
+					_, err = js.Publish(
+						ctx,
+						subjectName,
+						eventData,
+						jetstream.WithMsgID(GetEventNatsMessageId(event.Position.PreparePosition, event.Position.CommitPosition)),
+						jetstream.WithRetryAttempts(5),
+					)
+					if err == nil {
+						break
+					}
+					logger.Errorf("Failed to publish event to NATS for boundary %s: %v (retrying)", boundary, err)
+					select {
+					case <-ctx.Done():
+						return fmt.Errorf("publish event: context cancelled: %w", ctx.Err())
+					case <-time.After(idleBackoff):
+					}
+					idleBackoff *= 2
+					if idleBackoff > maxPollInterval {
+						idleBackoff = maxPollInterval
+					}
 				}
-				futures = append(futures, fut)
-			}
-
-			select {
-			case <-js.PublishAsyncComplete():
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(30 * time.Second):
-				return fmt.Errorf("publish async timeout for boundary %s", boundary)
-			}
-
-			for _, f := range futures {
-				select {
-				case <-f.Ok():
-				case err := <-f.Err():
-					return fmt.Errorf("publish failed: %w", err)
+				if err := db.InsertLastPublishedEvent(
+					ctx,
+					boundary,
+					event.Position.CommitPosition,
+					event.Position.PreparePosition,
+				); err != nil {
+					return fmt.Errorf("insert last published: %w", err)
 				}
 			}
-
 			lastPosition = resp.Events[len(resp.Events)-1].Position
-			if err := db.InsertLastPublishedEvent(
-				ctx,
-				boundary,
-				lastPosition.CommitPosition,
-				lastPosition.PreparePosition,
-			); err != nil {
-				return fmt.Errorf("insert last published: %w", err)
-			}
-		}
-
-		if len(resp.Events) > 0 {
 			idleBackoff = minPollInterval
 			continue
 		}

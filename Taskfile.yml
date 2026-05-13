@@ -1,11 +1,12 @@
 version: "3"
 
 env:
-  NATS_PORT: 4222
+  ORISUN_NATS_PORT: 4222
   STATIC_DIR: "web/static"
   ORISUN_LOGGING_LEVEL: INFO
   ORISUN_PG_SSLMODE: "disable"
   ORISUN_NATS_STORE_DIR: "./data/orisun/nats"
+  ORISUN_GRPC_PORT: 5006
 
 tasks:
   tools:
