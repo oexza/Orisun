@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"github.com/common-nighthawk/go-figure"
 	"github.com/goccy/go-json"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oexza/Orisun/admin"
@@ -158,6 +159,12 @@ func main() {
 	// Initialize logger
 	AppLogger := l.InitializeDefaultLogger(config.Logging)
 	AppLogger.Debugf("config: %v", config)
+
+	// Create a new figure with the "slant" font
+	myFigure := figure.NewColorFigure("Orisun", "isometric1", "cyan", true)
+
+	// Print the ASCII art to the console
+	AppLogger.Infof("\n%s", myFigure.String())
 
 	// Log Go runtime tuning. GOMAXPROCS auto-set from cgroup via automaxprocs side-effect import.
 	// GOMEMLIMIT/GOGC honor the standard Go env vars; tune in container/orchestrator manifest.
