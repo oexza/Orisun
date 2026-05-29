@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	changepassword "github.com/oexza/Orisun/admin/slices/change_password"
 	createuser "github.com/oexza/Orisun/admin/slices/create_user"
@@ -33,8 +32,6 @@ type AdminServiceServer struct {
 	saveEvents    SaveEventsFunc
 	listAdminUser ListAdminUsersFunc
 	authenticator *Authenticator
-	createIndex   CreateIndexFunc
-	dropIndex     DropIndexFunc
 }
 
 // GetEventsFunc is the function signature for getting events
@@ -46,12 +43,6 @@ type SaveEventsFunc func(ctx context.Context, req *orisun.SaveEventsRequest) (*o
 // ListAdminUsersFunc is the function signature for listing admin users
 type ListAdminUsersFunc func() ([]*orisun.User, error)
 
-// CreateIndexFunc is the function signature for creating a boundary index
-type CreateIndexFunc func(ctx context.Context, boundary, name string, fields []orisun.BoundaryIndexField, conditions []orisun.BoundaryIndexCondition, combinator string) error
-
-// DropIndexFunc is the function signature for dropping a boundary index
-type DropIndexFunc func(ctx context.Context, boundary, name string) error
-
 // NewGRPCAdminServer creates a new AdminServiceServer
 func NewGRPCAdminServer(
 	logger l.Logger,
@@ -60,8 +51,6 @@ func NewGRPCAdminServer(
 	saveEvents SaveEventsFunc,
 	listAdminUsers ListAdminUsersFunc,
 	authenticator *Authenticator,
-	createIndex CreateIndexFunc,
-	dropIndex DropIndexFunc,
 ) *AdminServiceServer {
 	return &AdminServiceServer{
 		logger:        logger,
@@ -70,8 +59,6 @@ func NewGRPCAdminServer(
 		saveEvents:    saveEvents,
 		listAdminUser: listAdminUsers,
 		authenticator: authenticator,
-		createIndex:   createIndex,
-		dropIndex:     dropIndex,
 	}
 }
 
@@ -240,61 +227,6 @@ func (s *AdminServiceServer) GetEventCount(ctx context.Context, req *orisun.GetE
 	}
 
 	return &orisun.GetEventCountResponse{Count: count}, nil
-}
-
-// CreateIndex creates a boundary-specific btree index on the data JSONB column
-func (s *AdminServiceServer) CreateIndex(ctx context.Context, req *orisun.CreateIndexRequest) (*orisun.CreateIndexResponse, error) {
-	if req.Boundary == "" || req.Name == "" || len(req.Fields) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "boundary, name, and at least one field are required")
-	}
-	for _, f := range req.Fields {
-		if f.JsonKey == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "each field must have a json_key")
-		}
-	}
-	for _, c := range req.Conditions {
-		if c.Key == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "each condition must have a key")
-		}
-	}
-
-	fields := make([]orisun.BoundaryIndexField, len(req.Fields))
-	for i, f := range req.Fields {
-		fields[i] = orisun.BoundaryIndexField{
-			JsonKey:   f.JsonKey,
-			ValueType: strings.ToLower(f.ValueType.String()),
-		}
-	}
-
-	conditions := make([]orisun.BoundaryIndexCondition, len(req.Conditions))
-	for i, c := range req.Conditions {
-		conditions[i] = orisun.BoundaryIndexCondition{
-			Key:      c.Key,
-			Operator: c.Operator,
-			Value:    c.Value,
-		}
-	}
-
-	combinator := orisun.IndexCombinatorAND
-	if req.ConditionCombinator == orisun.ConditionCombinator_OR {
-		combinator = orisun.IndexCombinatorOR
-	}
-
-	if err := s.createIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
-	}
-	return &orisun.CreateIndexResponse{}, nil
-}
-
-// DropIndex drops a boundary-specific index
-func (s *AdminServiceServer) DropIndex(ctx context.Context, req *orisun.DropIndexRequest) (*orisun.DropIndexResponse, error) {
-	if req.Boundary == "" || req.Name == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "boundary and name are required")
-	}
-	if err := s.dropIndex(ctx, req.Boundary, req.Name); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to drop index: %v", err)
-	}
-	return &orisun.DropIndexResponse{}, nil
 }
 
 // Helper methods

@@ -497,20 +497,20 @@ Criteria queries match JSON payload values. PostgreSQL uses JSONB expressions li
 data->>'account_holder' = 'alice'
 ```
 
-Without an index, criteria reads and CCC consistency checks scan the full boundary event table. In production, create indexes for every JSON field used in `criteria.tags`. Orisun creates backend-appropriate indexes through the same Admin API: PostgreSQL uses JSONB expression indexes, and SQLite uses JSON expression indexes.
+Without an index, criteria reads and CCC consistency checks scan the full boundary event table. In production, create indexes for every JSON field used in `criteria.tags`. Index management is exposed on the EventStore gRPC service, not the Admin service. PostgreSQL uses JSONB expression indexes, and SQLite uses JSON expression indexes.
 
 Create a simple index:
 
 ```bash
 grpcurl -H "$AUTH" \
   -d '{"boundary":"orders","name":"user_id","fields":[{"json_key":"user_id","value_type":"TEXT"}]}' \
-  localhost:5005 orisun.Admin/CreateIndex
+  localhost:5005 orisun.EventStore/CreateIndex
 ```
 
 Create a composite index:
 
 ```bash
-grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 {
   "boundary": "orders",
   "name": "category_priority",
@@ -525,7 +525,7 @@ EOF
 Create a partial index:
 
 ```bash
-grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 {
   "boundary": "orders",
   "name": "placed_amount",
@@ -541,7 +541,7 @@ Drop an index:
 ```bash
 grpcurl -H "$AUTH" \
   -d '{"boundary":"orders","name":"user_id"}' \
-  localhost:5005 orisun.Admin/DropIndex
+  localhost:5005 orisun.EventStore/DropIndex
 ```
 
 See [ADMIN_API.md](ADMIN_API.md) for the full admin API.

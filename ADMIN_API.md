@@ -309,14 +309,17 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
 
 ---
 
-### 8. CreateIndex
+### Index Management
+
+Index management moved out of the Admin service. Use `orisun.EventStore/CreateIndex`
+and `orisun.EventStore/DropIndex` with admin credentials.
 
 Creates a btree index on JSONB data fields for improved query performance. Indexes are created
 concurrently and can be partial (filtered) or composite.
 
 **Request:**
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 {
   "boundary": "orders",
   "name": "user_id",
@@ -356,7 +359,7 @@ EOF
 ```bash
 grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
   -d '{"boundary":"orders","name":"user_id","fields":[{"json_key":"user_id","value_type":"TEXT"}]}' \
-  localhost:5005 orisun.Admin/CreateIndex
+  localhost:5005 orisun.EventStore/CreateIndex
 ```
 
 **Composite index on multiple fields:**
@@ -370,7 +373,7 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
       {"json_key": "priority", "value_type": "TEXT"}
     ]
   }' \
-  localhost:5005 orisun.Admin/CreateIndex
+  localhost:5005 orisun.EventStore/CreateIndex
 ```
 
 **Partial index (only index specific event types):**
@@ -383,7 +386,7 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
     "conditions": [{"key": "eventType", "operator": "=", "value": "OrderPlaced"}],
     "condition_combinator": "AND"
   }' \
-  localhost:5005 orisun.Admin/CreateIndex
+  localhost:5005 orisun.EventStore/CreateIndex
 ```
 
 **Error Cases:**
@@ -399,7 +402,7 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
 
 ---
 
-### 9. DropIndex
+### DropIndex
 
 Drops an existing index created via CreateIndex.
 
@@ -407,7 +410,7 @@ Drops an existing index created via CreateIndex.
 ```bash
 grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
   -d '{"boundary": "orders", "name": "user_id"}' \
-  localhost:5005 orisun.Admin/DropIndex
+  localhost:5005 orisun.EventStore/DropIndex
 ```
 
 **Request Fields:**
@@ -424,7 +427,7 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
 # Drop the user_id index from orders boundary
 grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
   -d '{"boundary":"orders","name":"user_id"}' \
-  localhost:5005 orisun.Admin/DropIndex
+  localhost:5005 orisun.EventStore/DropIndex
 ```
 
 **Error Cases:**

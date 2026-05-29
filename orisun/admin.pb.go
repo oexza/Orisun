@@ -781,7 +781,7 @@ var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
 	"\n" +
-	"\vadmin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x10eventstore.proto\"\xe0\x01\n" +
+	"\vadmin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
 	"\tAdminUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -823,7 +823,7 @@ const file_admin_proto_rawDesc = "" +
 	"\x14GetEventCountRequest\x12\x1a\n" +
 	"\bboundary\x18\x01 \x01(\tR\bboundary\"-\n" +
 	"\x15GetEventCountResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x03R\x05count2\xa7\x05\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count2\x9d\x04\n" +
 	"\x05Admin\x12C\n" +
 	"\n" +
 	"CreateUser\x12\x19.orisun.CreateUserRequest\x1a\x1a.orisun.CreateUserResponse\x12C\n" +
@@ -833,9 +833,7 @@ const file_admin_proto_rawDesc = "" +
 	"\tListUsers\x12\x18.orisun.ListUsersRequest\x1a\x19.orisun.ListUsersResponse\x12^\n" +
 	"\x13ValidateCredentials\x12\".orisun.ValidateCredentialsRequest\x1a#.orisun.ValidateCredentialsResponse\x12I\n" +
 	"\fGetUserCount\x12\x1b.orisun.GetUserCountRequest\x1a\x1c.orisun.GetUserCountResponse\x12L\n" +
-	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponse\x12F\n" +
-	"\vCreateIndex\x12\x1a.orisun.CreateIndexRequest\x1a\x1b.orisun.CreateIndexResponse\x12@\n" +
-	"\tDropIndex\x12\x18.orisun.DropIndexRequest\x1a\x19.orisun.DropIndexResponseB2\n" +
+	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponseB2\n" +
 	"\x10com.orisun.adminZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
 
 var (
@@ -868,10 +866,6 @@ var file_admin_proto_goTypes = []any{
 	(*GetEventCountRequest)(nil),        // 13: orisun.GetEventCountRequest
 	(*GetEventCountResponse)(nil),       // 14: orisun.GetEventCountResponse
 	(*timestamppb.Timestamp)(nil),       // 15: google.protobuf.Timestamp
-	(*CreateIndexRequest)(nil),          // 16: orisun.CreateIndexRequest
-	(*DropIndexRequest)(nil),            // 17: orisun.DropIndexRequest
-	(*CreateIndexResponse)(nil),         // 18: orisun.CreateIndexResponse
-	(*DropIndexResponse)(nil),           // 19: orisun.DropIndexResponse
 }
 var file_admin_proto_depIdxs = []int32{
 	15, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
@@ -886,19 +880,15 @@ var file_admin_proto_depIdxs = []int32{
 	9,  // 9: orisun.Admin.ValidateCredentials:input_type -> orisun.ValidateCredentialsRequest
 	11, // 10: orisun.Admin.GetUserCount:input_type -> orisun.GetUserCountRequest
 	13, // 11: orisun.Admin.GetEventCount:input_type -> orisun.GetEventCountRequest
-	16, // 12: orisun.Admin.CreateIndex:input_type -> orisun.CreateIndexRequest
-	17, // 13: orisun.Admin.DropIndex:input_type -> orisun.DropIndexRequest
-	2,  // 14: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
-	4,  // 15: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
-	6,  // 16: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
-	8,  // 17: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
-	10, // 18: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
-	12, // 19: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
-	14, // 20: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
-	18, // 21: orisun.Admin.CreateIndex:output_type -> orisun.CreateIndexResponse
-	19, // 22: orisun.Admin.DropIndex:output_type -> orisun.DropIndexResponse
-	14, // [14:23] is the sub-list for method output_type
-	5,  // [5:14] is the sub-list for method input_type
+	2,  // 12: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
+	4,  // 13: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
+	6,  // 14: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
+	8,  // 15: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
+	10, // 16: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
+	12, // 17: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
+	14, // 18: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
@@ -909,7 +899,6 @@ func file_admin_proto_init() {
 	if File_admin_proto != nil {
 		return
 	}
-	file_eventstore_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
