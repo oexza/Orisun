@@ -77,7 +77,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   orisun:
-    image: orexza/orisun:latest
+    image: orexza/orisun:pg
     environment:
       ORISUN_PG_HOST: postgres
       ORISUN_PG_USER: postgres
@@ -122,7 +122,7 @@ Create `docker-compose.yml`:
 ```yaml
 services:
   orisun:
-    image: orexza/orisun:latest
+    image: orexza/orisun:sqlite
     environment:
       ORISUN_BACKEND: sqlite
       ORISUN_SQLITE_DIR: /var/lib/orisun/sqlite
@@ -798,7 +798,7 @@ go test ./...
 go build ./...
 go fmt ./...
 go vet ./...
-go run cmd/main.go
+go run ./cmd
 ```
 
 `go test ./...` includes PostgreSQL Testcontainers coverage and SQLite end-to-end coverage. Docker must be available for the full integration suite.
@@ -808,6 +808,9 @@ Taskfile helpers:
 ```bash
 task tools
 task build
+task build:pg
+task build:sqlite
+task run:sqlite
 task live
 task debug
 ```
@@ -832,6 +835,17 @@ go test -run='^$' -bench=BenchmarkConsistencyCheck -benchtime=5s ./postgres/...
 ```
 
 ### Docker
+
+Published images use one repository with flavor tags:
+
+| Tag | Backend |
+| --- | --- |
+| `orexza/orisun:latest` | All backends |
+| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:sqlite` | SQLite only |
+| `orexza/orisun:<version>` | All backends for a release version |
+| `orexza/orisun:<version>-pg` | PostgreSQL-only release version |
+| `orexza/orisun:<version>-sqlite` | SQLite-only release version |
 
 Build locally:
 

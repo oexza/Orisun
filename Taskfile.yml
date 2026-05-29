@@ -1,129 +1,102 @@
 version: "3"
 
+vars:
+  BIN_DIR: tmp/bin
+
 env:
-  STATIC_DIR: "web/static"
   ORISUN_LOGGING_LEVEL: INFO
-  ORISUN_PG_SSLMODE: "disable"
-  ORISUN_NATS_STORE_DIR: "./data/orisun/nats"
-  ORISUN_BACKEND: "sqlite"
-  ORISUN_NATS_PORT: 4222
-  ORISUN_GRPC_PORT: 5006
+  ORISUN_PG_SSLMODE: disable
+  ORISUN_NATS_STORE_DIR: ./data/orisun/nats
+  ORISUN_SQLITE_DIR: ./data/orisun/sqlite
 
 tasks:
   tools:
+    desc: Install local development tools
     cmds:
-      - go install github.com/a-h/templ/cmd/templ@latest
       - go install github.com/air-verse/air@latest
       - go install github.com/go-delve/delve/cmd/dlv@1.25.2
-      - go install github.com/go-task/task/v3/cmd/task@latest
-
-  # The `build:` tasks below are used together for production builds of a project
-  build:templ:
-    cmds:
-      - templ generate
-    sources:
-      - "**/*.templ"
-    generates:
-      - "**/*_templ.go"
-
-  build:styles:
-    cmds:
-      - pnpm exec tailwindcss -c tailwind.config.js -i web/styles/styles.css -o $STATIC_DIR/index.css
-    sources:
-      - "./web/**/*.html"
-      - "./web/**/*.ts"
-      - "./web/**/*.templ"
-      - "./web/**/*.go"
-    generates:
-      - "{{.STATIC_DIR}}/index.js"
-
-  build:esbuild:
-    cmds:
-      - pnpm exec esbuild web/libs/datastar/index.ts --bundle --outdir=$STATIC_DIR
-    sources:
-      - "web/libs/datastar/index.ts"
-    generates:
-      - "{{.STATIC_DIR}}/index.js"
-
-  build:lit-html:
-    cmds:
-      - pnpm -r --filter=lit-html build
-    sources:
-      - "web/libs/lit-html/src/**/*.ts"
-    generates:
-      - "{{.STATIC_DIR}}/lit-html*"
 
   build:
+    desc: Build the all-backends server
     cmds:
-      - go build -tags dev -o tmp/bin/main ./cmd
-    deps:
-#      - build:lit-html
-#      - build:templ
-#      - build:esbuild
-#      - build:styles
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/orisun ./cmd
 
-  # Use this task to debug with the delve debugger
-  debug:
+  build:pg:
+    desc: Build the PostgreSQL-only server
     cmds:
-      - dlv exec ./tmp/bin/main --check-go-version=false
-    deps:
-      - build
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/orisun-pg ./cmd/orisun-pg
 
-  # The `live:` tasks below are used together for development builds and will live-reload the entire project
-  live:templ:
+  build:sqlite:
+    desc: Build the SQLite-only server
     cmds:
-      - templ generate --watch --proxy="http://localhost:8080" --open-browser=false
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/orisun-sqlite ./cmd/orisun-sqlite
 
-  live:styles:
+  build:release:
+    desc: Build release binaries for the current platform
     cmds:
-      - pnpm exec tailwindcss -c tailwind.config.js -i web/styles/styles.css -o $STATIC_DIR/index.css --watch
+      - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev all
+      - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev pg
+      - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev sqlite
 
-  live:esbuild:
+  run:
+    desc: Run the all-backends server
+    deps: [build]
     cmds:
-      - pnpm exec esbuild web/libs/datastar/index.ts --sourcemap --bundle --outdir=$STATIC_DIR --watch
+      - ./{{.BIN_DIR}}/orisun
 
-  live:lit-html:
+  run:pg:
+    desc: Run the PostgreSQL-only server
+    deps: [build:pg]
+    env:
+      ORISUN_BACKEND: postgres
     cmds:
-      - pnpm -r --filter=lit-html build:dev
+      - ./{{.BIN_DIR}}/orisun-pg
 
-  live:server:
+  run:sqlite:
+    desc: Run the SQLite-only server
+    deps: [build:sqlite]
+    env:
+      ORISUN_BACKEND: sqlite
     cmds:
-      - |
-        air  \
-         -build.cmd "go build -tags dev -o tmp/bin/main ./cmd" \
-         -build.bin "tmp/bin/main" \
-         -build.delay "100" \
-         -build.exclude_dir "data,node_modules,web/libs/datastar/node_modules,web/libs/lit-html/node_modules" \
-         -build.include_ext "go" \
-         -build.stop_on_error "false" \
-         -build.send_interrupt "true" \
-         -build.kill_delay "200" \
-         -misc.clean_on_exit "true"
+      - ./{{.BIN_DIR}}/orisun-sqlite
 
-  live:reload:
+  live:
+    desc: Run the all-backends server with Go live reload
     cmds:
       - |
         air \
-        -build.cmd "templ generate --notify-proxy" \
-        -build.bin "true" \
-        -build.delay "300" \
-        -build.exclude_dir "" \
-        -build.include_dir "$STATIC_DIR" \
-        -build.include_ext "js,css" \
-        -build.send_interrupt "true" \
-        -build.kill_delay "200"
+          -build.cmd "go build -o {{.BIN_DIR}}/orisun ./cmd" \
+          -build.bin "{{.BIN_DIR}}/orisun" \
+          -build.delay "100" \
+          -build.exclude_dir "build,data,node_modules,tmp,clients" \
+          -build.include_ext "go" \
+          -build.stop_on_error "false" \
+          -build.send_interrupt "true" \
+          -build.kill_delay "200" \
+          -misc.clean_on_exit "true"
 
-  live:
-    deps:
-      - live:templ
-      # - live:styles
-      # - live:lit-html
-      # - live:esbuild
-      - live:server
-      - live:reload
-
-  run:
+  debug:
+    desc: Debug the all-backends server with Delve
+    deps: [build]
     cmds:
-      - ./bin/cmd/main
-    deps:
-      - build
+      - dlv exec ./{{.BIN_DIR}}/orisun --check-go-version=false
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  check:
+    desc: Run formatting, vet, and tests
+    cmds:
+      - gofmt -w $(git ls-files '*.go')
+      - go vet ./...
+      - go test ./...

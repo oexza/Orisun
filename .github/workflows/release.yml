@@ -258,6 +258,15 @@ jobs:
 
           ### Windows
           Download the appropriate binary from the assets below.
+
+          ### Docker
+          \`\`\`bash
+          docker pull orexza/orisun:${VERSION}
+          docker pull orexza/orisun:${VERSION}-pg
+          docker pull orexza/orisun:${VERSION}-sqlite
+          \`\`\`
+
+          Channel tags are also available: \`latest\`, \`pg\`, and \`sqlite\`.
           EOF
 
           echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
@@ -273,7 +282,7 @@ jobs:
           prerelease: false
 
   docker-release:
-    name: Build and Push Docker Images
+    name: Build and Push Docker Image (${{ matrix.flavor }})
     needs: validate
     runs-on: ubuntu-latest
     if: ${{ !inputs.docker_only || always() }}
@@ -283,11 +292,14 @@ jobs:
       matrix:
         include:
           - flavor: all
-            image: orisun
+            channel_tag: latest
+            version_suffix: ''
           - flavor: pg
-            image: orisun-pg
+            channel_tag: pg
+            version_suffix: -pg
           - flavor: sqlite
-            image: orisun-sqlite
+            channel_tag: sqlite
+            version_suffix: -sqlite
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -329,7 +341,7 @@ jobs:
             BUILD_TIME=${{ steps.docker_meta.outputs.build_time }}
             GIT_COMMIT=${{ steps.docker_meta.outputs.git_commit }}
           tags: |
-            ghcr.io/oexza/${{ matrix.image }}:latest
-            ghcr.io/oexza/${{ matrix.image }}:${{ needs.validate.outputs.version }}
-            orexza/${{ matrix.image }}:latest
-            orexza/${{ matrix.image }}:${{ needs.validate.outputs.version }}
+            ghcr.io/oexza/orisun:${{ matrix.channel_tag }}
+            ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
+            orexza/orisun:${{ matrix.channel_tag }}
+            orexza/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
