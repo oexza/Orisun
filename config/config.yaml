@@ -36,6 +36,7 @@ postgres:
   adminMaxIdleConns: ${ORISUN_PG_ADMIN_MAX_IDLE_CONNS:2}
   adminConnMaxIdleTime: ${ORISUN_PG_ADMIN_CONN_MAX_IDLE_TIME:5m}
   adminConnMaxLifetime: ${ORISUN_PG_ADMIN_CONN_MAX_LIFETIME:30m}
+  listenEnabled: ${ORISUN_PG_LISTEN_ENABLED:true}
 
 boundaries: ${ORISUN_BOUNDARIES:`[{"name":"orisun_test_1","description":"boundary1"},{"name":"orisun_test_2","description":"boundary2"},{"name":"orisun_admin","description":"boundary3"}]`}
 
@@ -73,7 +74,7 @@ nats:
   eventStreamMaxBytes: ${ORISUN_NATS_EVENT_STREAM_MAX_BYTES:536870912}  # 512MB
   eventStreamMaxMsgs: ${ORISUN_NATS_EVENT_STREAM_MAX_MSGS:-1}
   eventStreamMaxAge: ${ORISUN_NATS_EVENT_STREAM_MAX_AGE:5m}
-  # Cap of in-flight PublishAsync acks. Should be >= polling batchSize to avoid stalls.
+  # Cap of in-flight PublishAsync acks for async publish paths.
   publishAsyncMaxPending: ${ORISUN_NATS_PUBLISH_ASYNC_MAX_PENDING:8192}
   cluster:
     name: ${ORISUN_NATS_CLUSTER_NAME:orisun-nats-cluster}

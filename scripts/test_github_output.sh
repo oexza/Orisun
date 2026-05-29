@@ -1,50 +1,46 @@
 #!/bin/bash
 
-# This script tests the GitHub Actions multiline output format locally
+# This script tests the GitHub Actions output used for release notes.
 
 set -e
 
-# Create a temporary file to simulate GITHUB_OUTPUT
-TEMP_OUTPUT_FILE=$(mktemp)
+TEMP_DIR=$(mktemp -d)
+GITHUB_OUTPUT="$TEMP_DIR/github_output"
+touch "$GITHUB_OUTPUT"
 
-# Function to generate changelog in GitHub Actions format
-generate_changelog_github_format() {
-  PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-  
-  if [ -z "$PREVIOUS_TAG" ]; then
-    echo "changelog=Initial release" >> "$TEMP_OUTPUT_FILE"
-  else
-    echo "changelog<<EOF" >> "$TEMP_OUTPUT_FILE"
-    git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> "$TEMP_OUTPUT_FILE"
-    echo "" >> "$TEMP_OUTPUT_FILE"
-    echo "EOF" >> "$TEMP_OUTPUT_FILE"
-  fi
-}
+RELEASE_NOTES_FILE="$TEMP_DIR/release-notes.md"
+VERSION=${1:-0.0.0}
 
-# Run the changelog generation
-echo "Testing GitHub Actions multiline output format..."
-echo "==========================================="
+cat > "$RELEASE_NOTES_FILE" <<EOF
+## Orisun v${VERSION}
 
-generate_changelog_github_format
+Test release notes.
+EOF
+
+echo "path=$RELEASE_NOTES_FILE" >> "$GITHUB_OUTPUT"
 
 echo "Content of simulated GITHUB_OUTPUT file:"
 echo "------------------------------------------"
-cat "$TEMP_OUTPUT_FILE"
+cat "$GITHUB_OUTPUT"
 
 echo ""
-echo "Extracting the changelog value:"
+echo "Release notes:"
+echo "------------------------------------------"
+cat "$RELEASE_NOTES_FILE"
+
+echo ""
+echo "Validating format:"
 echo "------------------------------------------"
 
-# Extract the changelog value from the output file
-if grep -q "changelog=Initial release" "$TEMP_OUTPUT_FILE"; then
-  echo "Initial release"
+if grep -q "^path=$RELEASE_NOTES_FILE$" "$GITHUB_OUTPUT"; then
+  echo "✅ Release notes path output detected"
 else
-  # Extract content between the delimiters
-  sed -n '/^changelog<<EOF$/,/^EOF$/p' "$TEMP_OUTPUT_FILE" | sed '1d;$d'
+  echo "❌ Invalid release notes path output"
+  rm -rf "$TEMP_DIR"
+  exit 1
 fi
 
-# Clean up
-rm "$TEMP_OUTPUT_FILE"
+rm -rf "$TEMP_DIR"
 
 echo ""
 echo "==========================================="

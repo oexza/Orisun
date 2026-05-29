@@ -201,6 +201,89 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Contains(t, resp.Events[0].Metadata, "tags")
 }
 
+func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
+
+	ctx := t.Context()
+	txOlder, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer txOlder.Rollback()
+
+	olderID := uuid.NewString()
+	insertEventInTx(t, txOlder, olderID, "OlderOpenTransaction")
+
+	txYounger, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	youngerID := uuid.NewString()
+	insertEventInTx(t, txYounger, youngerID, "YoungerCommittedTransaction")
+	require.NoError(t, txYounger.Commit())
+
+	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+		Boundary:  "test_boundary",
+		Direction: orisun.Direction_ASC,
+		Count:     10,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Events, "younger committed transactions must not publish while an older transaction is still open")
+
+	require.NoError(t, txOlder.Commit())
+
+	require.Eventually(t, func() bool {
+		resp, err = getEvents.Get(ctx, &orisun.GetEventsRequest{
+			Boundary:  "test_boundary",
+			Direction: orisun.Direction_ASC,
+			Count:     10,
+		})
+		return err == nil && len(resp.Events) == 2
+	}, 5*time.Second, 50*time.Millisecond)
+
+	require.Equal(t, olderID, resp.Events[0].EventId)
+	require.Equal(t, youngerID, resp.Events[1].EventId)
+}
+
+func insertEventInTx(t *testing.T, tx *sql.Tx, eventID, eventType string) {
+	t.Helper()
+
+	eventsJSON := fmt.Sprintf(
+		`[{"event_id":%q,"event_type":%q,"data":{"eventType":%q},"metadata":{}}]`,
+		eventID,
+		eventType,
+		eventType,
+	)
+
+	var newGlobalID, latestTransactionID, latestGlobalID int64
+	err := tx.QueryRowContext(
+		t.Context(),
+		`SELECT * FROM public.insert_events_with_consistency_v3($1::text, $2::text, $3::jsonb, $4::jsonb)`,
+		"test_boundary",
+		"public",
+		[]byte(`{}`),
+		[]byte(eventsJSON),
+	).Scan(&newGlobalID, &latestTransactionID, &latestGlobalID)
+	require.NoError(t, err)
+}
+
 func TestSave200EventsOneByOne(t *testing.T) {
 	container, err := setupTestContainer(t)
 	require.NoError(t, err)

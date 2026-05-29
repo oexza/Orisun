@@ -80,11 +80,7 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 	err = tx.QueryRowContext(ctx, query, boundary).Scan(&transactionID, &globalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// Return default position (0,0) if no rows found
-			return orisun.Position{
-				CommitPosition:  0,
-				PreparePosition: 0,
-			}, nil
+			return orisun.NotExistsPosition(), nil
 		}
 		return orisun.Position{}, err
 	}

@@ -31,7 +31,8 @@ func main() {
 	// Initialize database connection
 	config.Postgres.User = "postgres"
 	config.Postgres.Password = "password@1"
-	saveEvents, getEvents, lockProvider, _, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
+	config.Postgres.ListenEnabled = false
+	saveEvents, getEvents, lockProvider, _, eventPublishing, _ := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
 
 	// Initialize EventStore
 	_ = orisun.InitializeEventStore(
@@ -45,7 +46,9 @@ func main() {
 	)
 
 	// Start polling events from the event store and publish them to NATS jetstream
-	orisun.StartEventPolling(ctx, config, lockProvider, getEvents, jetStream, eventPublishing, logger)
+	orisun.StartEventPolling(ctx, config, lockProvider, getEvents, jetStream, eventPublishing, func(boundary string) orisun.EventSignal {
+		return orisun.NewPollingSignal(25 * time.Millisecond)
+	}, logger)
 
 	// Create Orisun server instance for our examples
 	orisunServer, err := orisun.NewOrisunServer(
