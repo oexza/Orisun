@@ -46,7 +46,7 @@ type AdminClient interface {
 	// Statistics
 	GetUserCount(ctx context.Context, in *GetUserCountRequest, opts ...grpc.CallOption) (*GetUserCountResponse, error)
 	GetEventCount(ctx context.Context, in *GetEventCountRequest, opts ...grpc.CallOption) (*GetEventCountResponse, error)
-	// Index Management
+	// Index Management. Prefer EventStore.CreateIndex and EventStore.DropIndex for new clients.
 	CreateIndex(ctx context.Context, in *CreateIndexRequest, opts ...grpc.CallOption) (*CreateIndexResponse, error)
 	DropIndex(ctx context.Context, in *DropIndexRequest, opts ...grpc.CallOption) (*DropIndexResponse, error)
 }
@@ -165,7 +165,7 @@ type AdminServer interface {
 	// Statistics
 	GetUserCount(context.Context, *GetUserCountRequest) (*GetUserCountResponse, error)
 	GetEventCount(context.Context, *GetEventCountRequest) (*GetEventCountResponse, error)
-	// Index Management
+	// Index Management. Prefer EventStore.CreateIndex and EventStore.DropIndex for new clients.
 	CreateIndex(context.Context, *CreateIndexRequest) (*CreateIndexResponse, error)
 	DropIndex(context.Context, *DropIndexRequest) (*DropIndexResponse, error)
 	mustEmbedUnimplementedAdminServer()

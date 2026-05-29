@@ -781,7 +781,18 @@ func start(ctx context.Context) (*embeddedsqlite.Store, error) {
 }
 ```
 
-Both embedded stores expose the same high-level `SaveEvents`, `GetEvents`, and `SubscribeToEvents` methods through `orisun.OrisunServer`.
+Both embedded stores expose the same high-level `SaveEvents`, `GetEvents`, and `SubscribeToEvents` methods through `orisun.OrisunServer`. They also expose boundary index management without requiring the admin gRPC service:
+
+```go
+err := store.CreateBoundaryIndex(
+	ctx,
+	"orders",
+	"customer_id",
+	[]orisun.BoundaryIndexField{{JsonKey: "customer_id", ValueType: "text"}},
+	nil,
+	orisun.IndexCombinatorAND,
+)
+```
 
 ## Development
 

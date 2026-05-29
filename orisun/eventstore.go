@@ -60,6 +60,7 @@ type EventStore struct {
 	saveEventsFn EventsSaver
 	getEventsFn  EventsRetriever
 	lockProvider LockProvider
+	indexManager BoundaryIndexManager
 	logger       logging.Logger
 }
 
@@ -115,6 +116,7 @@ func NewEventStoreServer(
 	saveEventsFn EventsSaver,
 	getEventsFn EventsRetriever,
 	lockProvider LockProvider,
+	indexManager BoundaryIndexManager,
 	boundaries *[]string,
 	streamCfg EventStreamConfig,
 	logger logging.Logger,
@@ -153,6 +155,7 @@ func NewEventStoreServer(
 		saveEventsFn: saveEventsFn,
 		getEventsFn:  getEventsFn,
 		lockProvider: lockProvider,
+		indexManager: indexManager,
 		logger:       logger,
 	}
 }
@@ -194,6 +197,67 @@ func authorizeRequest(ctx context.Context, roles []Role) error {
 func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResponse, err error) {
 	s.logger.Debugf("Ping called")
 	return &PingResponse{}, nil
+}
+
+func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (*CreateIndexResponse, error) {
+	if err := authorizeRequest(ctx, []Role{RoleAdmin}); err != nil {
+		return nil, err
+	}
+	if s.indexManager == nil {
+		return nil, status.Errorf(codes.Unimplemented, "index management is not configured")
+	}
+	if req.Boundary == "" || req.Name == "" || len(req.Fields) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "boundary, name, and at least one field are required")
+	}
+
+	fields := make([]BoundaryIndexField, len(req.Fields))
+	for i, f := range req.Fields {
+		if f.JsonKey == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "each field must have a json_key")
+		}
+		fields[i] = BoundaryIndexField{
+			JsonKey:   f.JsonKey,
+			ValueType: strings.ToLower(f.ValueType.String()),
+		}
+	}
+
+	conditions := make([]BoundaryIndexCondition, len(req.Conditions))
+	for i, c := range req.Conditions {
+		if c.Key == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "each condition must have a key")
+		}
+		conditions[i] = BoundaryIndexCondition{
+			Key:      c.Key,
+			Operator: c.Operator,
+			Value:    c.Value,
+		}
+	}
+
+	combinator := IndexCombinatorAND
+	if req.ConditionCombinator == ConditionCombinator_OR {
+		combinator = IndexCombinatorOR
+	}
+
+	if err := s.indexManager.CreateBoundaryIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
+	}
+	return &CreateIndexResponse{}, nil
+}
+
+func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*DropIndexResponse, error) {
+	if err := authorizeRequest(ctx, []Role{RoleAdmin}); err != nil {
+		return nil, err
+	}
+	if s.indexManager == nil {
+		return nil, status.Errorf(codes.Unimplemented, "index management is not configured")
+	}
+	if req.Boundary == "" || req.Name == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "boundary and name are required")
+	}
+	if err := s.indexManager.DropBoundaryIndex(ctx, req.Boundary, req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to drop index: %v", err)
+	}
+	return &DropIndexResponse{}, nil
 }
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
@@ -673,6 +737,7 @@ func InitializeEventStore(
 	saveEvents EventsSaver,
 	getEvents EventsRetriever,
 	lockProvider LockProvider,
+	indexManager BoundaryIndexManager,
 	js jetstream.JetStream,
 	logger logging.Logger) *EventStore {
 
@@ -683,6 +748,7 @@ func InitializeEventStore(
 		saveEvents,
 		getEvents,
 		lockProvider,
+		indexManager,
 		getBoundaryNames(config.GetBoundaries()),
 		EventStreamConfig{
 			MaxBytes: config.Nats.EventStreamMaxBytes,

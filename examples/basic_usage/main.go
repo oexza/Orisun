@@ -32,7 +32,7 @@ func main() {
 	config.Postgres.User = "postgres"
 	config.Postgres.Password = "password@1"
 	config.Postgres.ListenEnabled = false
-	saveEvents, getEvents, lockProvider, _, eventPublishing, _ := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, _ := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
 
 	// Initialize EventStore
 	_ = orisun.InitializeEventStore(
@@ -41,6 +41,7 @@ func main() {
 		saveEvents,
 		getEvents,
 		lockProvider,
+		adminDB,
 		jetStream,
 		logger,
 	)

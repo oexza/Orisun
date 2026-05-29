@@ -7,21 +7,11 @@ import (
 	"net/http"
 )
 
-type IndexField struct {
-	JsonKey   string // key inside data payload, e.g. "user_id", "eventType"
-	ValueType string // "text" | "numeric" | "boolean" | "timestamptz"
-}
+type IndexField = orisun.BoundaryIndexField
+type IndexCondition = orisun.BoundaryIndexCondition
 
-type IndexCondition struct {
-	Key      string // key inside data payload
-	Operator string // "=" | ">" | "<" | ">=" | "<="
-	Value    string
-}
-
-const (
-	CombinatorAND = "AND"
-	CombinatorOR  = "OR"
-)
+const CombinatorAND = orisun.IndexCombinatorAND
+const CombinatorOR = orisun.IndexCombinatorOR
 
 type DB interface {
 	ListAdminUsers() ([]*orisun.User, error)
@@ -35,8 +25,7 @@ type DB interface {
 	SaveUsersCount(uint32) error
 	GetEventsCount(boundary string) (int, error)
 	SaveEventCount(int, string) error
-	CreateBoundaryIndex(ctx context.Context, boundary, name string, fields []IndexField, conditions []IndexCondition, combinator string) error
-	DropBoundaryIndex(ctx context.Context, boundary, name string) error
+	orisun.BoundaryIndexManager
 }
 
 type SaveEventsType = func(ctx context.Context, in *orisun.SaveEventsRequest) (resp *orisun.WriteResult, err error)

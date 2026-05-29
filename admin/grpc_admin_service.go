@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	changepassword "github.com/oexza/Orisun/admin/slices/change_password"
-	common "github.com/oexza/Orisun/admin/slices/common"
 	createuser "github.com/oexza/Orisun/admin/slices/create_user"
 	deleteuser "github.com/oexza/Orisun/admin/slices/delete_user"
 	l "github.com/oexza/Orisun/logging"
@@ -48,7 +47,7 @@ type SaveEventsFunc func(ctx context.Context, req *orisun.SaveEventsRequest) (*o
 type ListAdminUsersFunc func() ([]*orisun.User, error)
 
 // CreateIndexFunc is the function signature for creating a boundary index
-type CreateIndexFunc func(ctx context.Context, boundary, name string, fields []common.IndexField, conditions []common.IndexCondition, combinator string) error
+type CreateIndexFunc func(ctx context.Context, boundary, name string, fields []orisun.BoundaryIndexField, conditions []orisun.BoundaryIndexCondition, combinator string) error
 
 // DropIndexFunc is the function signature for dropping a boundary index
 type DropIndexFunc func(ctx context.Context, boundary, name string) error
@@ -259,26 +258,26 @@ func (s *AdminServiceServer) CreateIndex(ctx context.Context, req *orisun.Create
 		}
 	}
 
-	fields := make([]common.IndexField, len(req.Fields))
+	fields := make([]orisun.BoundaryIndexField, len(req.Fields))
 	for i, f := range req.Fields {
-		fields[i] = common.IndexField{
+		fields[i] = orisun.BoundaryIndexField{
 			JsonKey:   f.JsonKey,
 			ValueType: strings.ToLower(f.ValueType.String()),
 		}
 	}
 
-	conditions := make([]common.IndexCondition, len(req.Conditions))
+	conditions := make([]orisun.BoundaryIndexCondition, len(req.Conditions))
 	for i, c := range req.Conditions {
-		conditions[i] = common.IndexCondition{
+		conditions[i] = orisun.BoundaryIndexCondition{
 			Key:      c.Key,
 			Operator: c.Operator,
 			Value:    c.Value,
 		}
 	}
 
-	combinator := common.CombinatorAND
+	combinator := orisun.IndexCombinatorAND
 	if req.ConditionCombinator == orisun.ConditionCombinator_OR {
-		combinator = common.CombinatorOR
+		combinator = orisun.IndexCombinatorOR
 	}
 
 	if err := s.createIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {

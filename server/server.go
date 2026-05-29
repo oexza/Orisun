@@ -203,6 +203,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		backend.SaveEvents,
 		backend.GetEvents,
 		backend.LockProvider,
+		backend.AdminDB,
 		js,
 		AppLogger,
 	)

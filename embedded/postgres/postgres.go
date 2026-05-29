@@ -14,10 +14,11 @@ import (
 type Store struct {
 	*orisun.OrisunServer
 
-	cancel     context.CancelFunc
-	natsServer interface{ Shutdown() }
-	natsConn   interface{ Close() }
-	closePG    func(context.Context)
+	indexManager orisun.BoundaryIndexManager
+	cancel       context.CancelFunc
+	natsServer   interface{ Shutdown() }
+	natsConn     interface{ Close() }
+	closePG      func(context.Context)
 }
 
 func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, error) {
@@ -25,7 +26,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 	runCtx, cancel := context.WithCancel(ctx)
 
 	js, nc, ns := natsruntime.InitializeNATS(runCtx, config.Nats, logger)
-	saveEvents, getEvents, lockProvider, _, eventPublishing, pgListener := pg.InitializePostgresDatabase(runCtx, config.Postgres, config.Admin, js, logger)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(runCtx, config.Postgres, config.Admin, js, logger)
 
 	store, err := orisun.NewOrisunServer(runCtx, saveEvents, getEvents, lockProvider, js, config.GetBoundaryNames(), logger)
 	if err != nil {
@@ -63,11 +64,20 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 
 	return &Store{
 		OrisunServer: store,
+		indexManager: adminDB,
 		cancel:       cancel,
 		natsServer:   ns,
 		natsConn:     nc,
 		closePG:      closePG,
 	}, nil
+}
+
+func (s *Store) CreateBoundaryIndex(ctx context.Context, boundary, name string, fields []orisun.BoundaryIndexField, conditions []orisun.BoundaryIndexCondition, combinator string) error {
+	return s.indexManager.CreateBoundaryIndex(ctx, boundary, name, fields, conditions, combinator)
+}
+
+func (s *Store) DropBoundaryIndex(ctx context.Context, boundary, name string) error {
+	return s.indexManager.DropBoundaryIndex(ctx, boundary, name)
 }
 
 func (s *Store) Close(ctx context.Context) {

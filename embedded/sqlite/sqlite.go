@@ -15,9 +15,10 @@ import (
 type Store struct {
 	*orisun.OrisunServer
 
-	cancel     context.CancelFunc
-	natsServer interface{ Shutdown() }
-	natsConn   interface{ Close() }
+	indexManager orisun.BoundaryIndexManager
+	cancel       context.CancelFunc
+	natsServer   interface{ Shutdown() }
+	natsConn     interface{ Close() }
 }
 
 func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, error) {
@@ -31,7 +32,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 
 	runCtx, cancel := context.WithCancel(ctx)
 	js, nc, ns := natsruntime.InitializeNATS(runCtx, config.Nats, logger)
-	saveEvents, getEvents, lockProvider, _, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
 		runCtx,
 		config.Sqlite,
 		config.Admin,
@@ -61,10 +62,19 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 
 	return &Store{
 		OrisunServer: store,
+		indexManager: adminDB,
 		cancel:       cancel,
 		natsServer:   ns,
 		natsConn:     nc,
 	}, nil
+}
+
+func (s *Store) CreateBoundaryIndex(ctx context.Context, boundary, name string, fields []orisun.BoundaryIndexField, conditions []orisun.BoundaryIndexCondition, combinator string) error {
+	return s.indexManager.CreateBoundaryIndex(ctx, boundary, name, fields, conditions, combinator)
+}
+
+func (s *Store) DropBoundaryIndex(ctx context.Context, boundary, name string) error {
+	return s.indexManager.DropBoundaryIndex(ctx, boundary, name)
 }
 
 func (s *Store) Close() {

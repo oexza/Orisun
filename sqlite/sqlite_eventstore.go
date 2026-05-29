@@ -668,8 +668,8 @@ func (a *SqliteAdminDB) SaveEventCount(count int, boundary string) error {
 func (a *SqliteAdminDB) CreateBoundaryIndex(
 	ctx context.Context,
 	boundary, name string,
-	fields []common.IndexField,
-	conditions []common.IndexCondition,
+	fields []eventstore.BoundaryIndexField,
+	conditions []eventstore.BoundaryIndexCondition,
 	combinator string,
 ) error {
 	pool, ok := a.pools[boundary]
@@ -702,9 +702,9 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	var whereClause string
 	if len(conditions) > 0 {
 		validOps := map[string]bool{"=": true, ">": true, "<": true, ">=": true, "<=": true}
-		validCombinators := map[string]bool{common.CombinatorAND: true, common.CombinatorOR: true}
+		validCombinators := map[string]bool{eventstore.IndexCombinatorAND: true, eventstore.IndexCombinatorOR: true}
 		if combinator == "" {
-			combinator = common.CombinatorAND
+			combinator = eventstore.IndexCombinatorAND
 		}
 		if !validCombinators[combinator] {
 			return fmt.Errorf("invalid combinator %q: must be AND or OR", combinator)
