@@ -21,7 +21,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(360px, 0.82fr);
   gap: 4rem;
   align-items: center;
-  min-height: calc(100svh - var(--ifm-navbar-height));
+  min-height: calc(86svh - var(--ifm-navbar-height));
   padding-top: 5rem;
   padding-bottom: 4rem;
 }
@@ -69,6 +69,42 @@
 
 .actions {
   margin-top: 2.35rem;
+}
+
+.heroFacts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  max-width: 760px;
+  margin: 3rem 0 0;
+  border: 1px solid rgb(236 244 240 / 16%);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: rgb(236 244 240 / 16%);
+}
+
+.heroFacts div {
+  padding: 1rem;
+  background: rgb(11 17 16 / 72%);
+}
+
+.heroFacts dt,
+.heroFacts dd {
+  margin: 0;
+}
+
+.heroFacts dt {
+  color: rgb(236 244 240 / 58%);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.heroFacts dd {
+  margin-top: 0.35rem;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 750;
 }
 
 .heroPanel {
@@ -170,6 +206,28 @@
   max-width: 810px;
 }
 
+.splitHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(320px, 0.58fr);
+  gap: 3rem;
+  align-items: end;
+}
+
+.splitHeader h2 {
+  margin: 0.5rem 0 0;
+  color: var(--ifm-heading-color);
+  font-size: 3.65rem;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.splitHeader p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
 .sectionHeader h2 {
   margin: 0.5rem 0 0;
   color: var(--ifm-heading-color);
@@ -193,7 +251,8 @@
 
 .featureGrid,
 .backendGrid,
-.flowGrid {
+.flowGrid,
+.useCaseGrid {
   display: grid;
   gap: 1rem;
   margin-top: 2.5rem;
@@ -211,10 +270,14 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.useCaseGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .featureCard,
 .backendCard,
 .flowStep,
-.docGroup {
+.useCaseCard {
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 0.5rem;
   background: var(--ifm-background-surface-color);
@@ -223,7 +286,7 @@
 
 .featureCard,
 .flowStep,
-.docGroup {
+.useCaseCard {
   padding: 1.5rem;
 }
 
@@ -236,20 +299,22 @@
 
 .featureCard h3,
 .flowStep h3,
-.docGroup h3 {
+.useCaseCard h3 {
   margin-top: 0.55rem;
 }
 
 .featureCard p,
 .backendCard p,
 .flowStep p,
-.docCard p {
+.docCard p,
+.useCaseCard p {
   margin-bottom: 0;
   color: var(--ifm-color-emphasis-700);
 }
 
 .backendSection,
-.docsSection {
+.docsSection,
+.fitSection {
   background: #f0f4ef;
 }
 
@@ -338,6 +403,7 @@
 }
 
 .docGroup h3 {
+  margin-top: 0;
   margin-bottom: 0.25rem;
   color: #10201d;
 }
@@ -361,13 +427,72 @@
   line-height: 1.55;
 }
 
+.ctaSection {
+  padding: 4rem 0;
+  background: #0b1110;
+  color: #ecf4f0;
+}
+
+.ctaInner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2rem;
+  align-items: center;
+}
+
+.ctaInner h2 {
+  max-width: 820px;
+  margin: 0.5rem 0 0;
+  color: #fff;
+  font-size: 3rem;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+:global([data-theme='dark']) .signalBand,
+:global([data-theme='dark']) .backendSection,
+:global([data-theme='dark']) .docsSection,
+:global([data-theme='dark']) .fitSection {
+  background: #0d1513;
+}
+
+:global([data-theme='dark']) .signalGrid {
+  background: rgb(236 244 240 / 12%);
+}
+
+:global([data-theme='dark']) .signalGrid div,
+:global([data-theme='dark']) .docCard {
+  background: #101816;
+}
+
+:global([data-theme='dark']) .signalGrid strong,
+:global([data-theme='dark']) .docGroup h3,
+:global([data-theme='dark']) .docCard span {
+  color: #ecf4f0;
+}
+
+:global([data-theme='dark']) .docCard {
+  border-color: rgb(236 244 240 / 14%);
+}
+
 @media (max-width: 996px) {
   .heroInner,
   .featureGrid,
   .backendGrid,
   .flowGrid,
+  .useCaseGrid,
   .docGroups,
-  .signalGrid {
+  .signalGrid,
+  .heroFacts,
+  .splitHeader,
+  .ctaInner {
     grid-template-columns: 1fr;
   }
 
@@ -382,6 +507,15 @@
 
   .sectionHeader h2 {
     font-size: 3.2rem;
+  }
+
+  .splitHeader h2,
+  .ctaInner h2 {
+    font-size: 2.8rem;
+  }
+
+  .ctaActions {
+    justify-content: flex-start;
   }
 }
 
@@ -404,8 +538,17 @@
     font-size: 2.55rem;
   }
 
+  .splitHeader h2,
+  .ctaInner h2 {
+    font-size: 2.35rem;
+  }
+
   .actions :global(.button) {
     width: 100%;
+  }
+
+  .ctaActions {
+    display: grid;
   }
 }
 

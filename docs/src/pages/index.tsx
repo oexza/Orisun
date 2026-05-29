@@ -8,6 +8,12 @@ import styles from './index.module.css';
 type LinkItem = readonly [title: string, href: string, description: string];
 type FlowStep = readonly [number: string, title: string, description: string];
 
+const heroFacts = [
+  ['Storage', 'PostgreSQL or SQLite'],
+  ['Consistency', 'JSON-scoped optimistic writes'],
+  ['Delivery', 'Catch-up plus live JetStream'],
+];
+
 const guarantees = [
   {
     label: 'Consistency',
@@ -49,6 +55,24 @@ const flow: FlowStep[] = [
   ['2', 'Save atomically', 'Commit only if the selected context is still at the expected position.'],
   ['3', 'Publish in order', 'Drain committed events from durable checkpoints into embedded JetStream.'],
   ['4', 'Project safely', 'Catch up from storage, then consume live events with idempotent checkpoints.'],
+];
+
+const useCases = [
+  {
+    title: 'Embedded event store',
+    description:
+      'Link Orisun into a Go service when event storage should live inside the same process and deployment unit.',
+  },
+  {
+    title: 'Standalone event service',
+    description:
+      'Run Orisun as a small gRPC service when multiple applications or languages need the same event API.',
+  },
+  {
+    title: 'Reliable projectors',
+    description:
+      'Build read models from catch-up subscriptions that recover from downtime without depending only on broker retention.',
+  },
 ];
 
 const docGroups: {title: string; links: LinkItem[]}[] = [
@@ -111,6 +135,14 @@ export default function Home(): ReactNode {
                 Docker Hub
               </Link>
             </div>
+            <dl className={styles.heroFacts}>
+              {heroFacts.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
           <aside className={styles.heroPanel} aria-label="Orisun architecture overview">
             <div className={styles.diagramFrame}>
@@ -165,6 +197,30 @@ export default function Home(): ReactNode {
                   <span>{feature.label}</span>
                   <h3>{feature.title}</h3>
                   <p>{feature.description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className={clsx('section', styles.fitSection)}>
+          <div className="container">
+            <div className={styles.splitHeader}>
+              <div>
+                <span className={styles.eyebrow}>Where it fits</span>
+                <h2>Use Orisun when correctness depends on the event log, not just message delivery.</h2>
+              </div>
+              <p>
+                Orisun is for systems where commands need to read event history, make a business
+                decision, commit exactly the events for that decision, and publish the committed log
+                in order.
+              </p>
+            </div>
+            <div className={styles.useCaseGrid}>
+              {useCases.map((item) => (
+                <article className={styles.useCaseCard} key={item.title}>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
                 </article>
               ))}
             </div>
@@ -244,6 +300,23 @@ export default function Home(): ReactNode {
                   ))}
                 </section>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.ctaSection}>
+          <div className={clsx('container', styles.ctaInner)}>
+            <div>
+              <span className={styles.eyebrow}>Get moving</span>
+              <h2>Start with SQLite locally, then keep the same API for PostgreSQL.</h2>
+            </div>
+            <div className={styles.ctaActions}>
+              <Link className="button button--primary button--lg" to="/docs/tutorial">
+                Follow the tutorial
+              </Link>
+              <Link className="button button--secondary button--lg" to="/docs/embedding/go">
+                Embed in Go
+              </Link>
             </div>
           </div>
         </section>
