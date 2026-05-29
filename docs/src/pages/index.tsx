@@ -2,6 +2,7 @@ import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import clsx from 'clsx';
+import type {ReactNode} from 'react';
 import styles from './index.module.css';
 
 type LinkItem = readonly [title: string, href: string, description: string];
@@ -76,7 +77,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
   },
 ];
 
-export default function Home(): JSX.Element {
+export default function Home(): ReactNode {
   const diagramUrl = useBaseUrl('/img/orisun-flow.svg');
 
   return (
