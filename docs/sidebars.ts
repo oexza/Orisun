@@ -1,0 +1,44 @@
+import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
+
+const sidebars: SidebarsConfig = {
+  docs: [
+    'getting-started',
+    {
+      type: 'category',
+      label: 'Concepts',
+      collapsed: false,
+      items: [
+        'concepts/command-context-consistency',
+        'concepts/storage-backends',
+        'concepts/delivery-guarantees',
+        'concepts/indexing',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'API',
+      collapsed: false,
+      items: ['api/eventstore', 'api/admin', 'api/clients'],
+    },
+    {
+      type: 'category',
+      label: 'Operations',
+      collapsed: false,
+      items: ['operations/configuration', 'operations/deployment', 'operations/troubleshooting'],
+    },
+    {
+      type: 'category',
+      label: 'Embedding',
+      collapsed: false,
+      items: ['embedding/go'],
+    },
+    {
+      type: 'category',
+      label: 'Project',
+      collapsed: false,
+      items: ['project/development', 'project/releases'],
+    },
+  ],
+};
+
+export default sidebars;

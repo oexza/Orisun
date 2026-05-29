@@ -1,17 +1,18 @@
-version: '3.8'
-
 services:
-  orisun: 
-    image: oexza/orisun:latest
+  orisun:
+    image: orexza/orisun:pg
     ports:
-      - "8992:8991"  # Admin port
-      - "5006:5005"  # gRPC port
+      - "8991:8991"
+      - "5005:5005"
     environment:
       - ORISUN_PG_USER=postgres
       - ORISUN_PG_NAME=orisun
       - ORISUN_PG_PASSWORD=password@1
       - ORISUN_PG_HOST=postgres
       - ORISUN_PG_PORT=5432
+      - ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
+      - 'ORISUN_BOUNDARIES=[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]'
+      - ORISUN_ADMIN_BOUNDARY=orisun_admin
       - ORISUN_NATS_STORE_DIR=/var/lib/orisun/data
       - ORISUN_LOGGING_LEVEL=INFO
       - ORISUN_ADMIN_USERNAME=admin
