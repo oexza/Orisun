@@ -15,7 +15,9 @@ import (
 
 // AppConfig represents the application configuration
 type AppConfig struct {
+	Backend  BackendConfig
 	Postgres PostgresDBConfig
+	Sqlite   SqliteConfig
 	// Boundaries []Boundary `mapstructure:"boundaries"`
 	Boundaries string
 	boundaries []Boundary
@@ -73,6 +75,17 @@ type AppConfig struct {
 type LoggingConfig struct {
 	Enabled bool
 	Level   string // e.g., "debug", "info", "warn", "error"
+}
+
+// BackendConfig selects the storage driver. Values: "postgres" (default) or "sqlite".
+type BackendConfig struct {
+	Type string
+}
+
+// SqliteConfig holds settings for the embedded SQLite backend.
+// Each boundary gets its own file at {Dir}/{boundary}.db.
+type SqliteConfig struct {
+	Dir string
 }
 
 // admin
@@ -222,7 +235,29 @@ func (c *AppConfig) GetBoundaryNames() []string {
 	return boundariesArray
 }
 
+// BackendType returns the configured backend, defaulting to "postgres" if unset.
+func (c *AppConfig) BackendType() string {
+	if c.Backend.Type == "" {
+		return "postgres"
+	}
+	return c.Backend.Type
+}
+
 func validateConfig(config AppConfig) error {
+	switch config.Backend.Type {
+	case "", "postgres":
+		// ok
+	case "sqlite":
+		if config.Nats.Cluster.Enabled {
+			return fmt.Errorf("sqlite backend does not support NATS clustering (single-node only); set ORISUN_NATS_CLUSTER_ENABLED=false")
+		}
+		if config.Sqlite.Dir == "" {
+			return fmt.Errorf("sqlite backend requires ORISUN_SQLITE_DIR")
+		}
+	default:
+		return fmt.Errorf("unknown backend type %q (expected 'postgres' or 'sqlite')", config.Backend.Type)
+	}
+
 	isAdminBoundaryDefined := false
 	for _, boundary := range config.boundaries {
 		if boundary.Name == config.Admin.Boundary {

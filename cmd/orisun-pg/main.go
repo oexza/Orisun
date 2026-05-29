@@ -1,0 +1,67 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	logger "log"
+	"runtime"
+	"time"
+
+	"github.com/common-nighthawk/go-figure"
+	"github.com/nats-io/nats.go/jetstream"
+	c "github.com/oexza/Orisun/config"
+	l "github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
+	pg "github.com/oexza/Orisun/postgres"
+	"github.com/oexza/Orisun/server"
+)
+
+func main() {
+	defer logger.Println("PostgreSQL server shutting down")
+	fmt.Printf("Starting Orisun PostgreSQL %s (Go %s)\n", orisun.GetVersion(), runtime.Version())
+
+	config := c.InitializeConfig()
+	if config.Backend.Type != "" && config.Backend.Type != "postgres" {
+		logger.Fatalf("orisun-pg only supports ORISUN_BACKEND=postgres, got %q", config.Backend.Type)
+	}
+	config.Backend.Type = "postgres"
+
+	appLogger := l.InitializeDefaultLogger(config.Logging)
+	myFigure := figure.NewColorFigure("Orisun PG", "isometric1", "cyan", true)
+	appLogger.Infof("\n%s", myFigure.String())
+
+	server.Run(context.Background(), config, appLogger, initializeBackend)
+}
+
+func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, logger)
+	backend := server.Backend{
+		SaveEvents:      saveEvents,
+		GetEvents:       getEvents,
+		LockProvider:    lockProvider,
+		AdminDB:         adminDB,
+		EventPublishing: eventPublishing,
+	}
+	if pgListener == nil {
+		return backend, nil
+	}
+
+	var stopListener context.CancelFunc
+	backend.Start = func(parent context.Context) {
+		listenerCtx, cancel := context.WithCancel(parent)
+		stopListener = cancel
+		go pgListener.Start(listenerCtx)
+	}
+	backend.Close = func(ctx context.Context) {
+		if stopListener != nil {
+			stopListener()
+		}
+		waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer waitCancel()
+		pgListener.Close(waitCtx)
+	}
+	backend.SignalProvider = func(boundary string) orisun.EventSignal {
+		return pgListener.Signal(boundary, 30*time.Second)
+	}
+	return backend, nil
+}

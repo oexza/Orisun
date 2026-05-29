@@ -37,6 +37,10 @@ type E2ETestSuite struct {
 	postgresPort      string
 	grpcPort          string
 	adminPort         string
+	natsPort          string
+	natsStoreDir      string
+	sqliteDir         string
+	backend           string
 }
 
 func setupE2ETest(t *testing.T) *E2ETestSuite {
@@ -45,6 +49,8 @@ func setupE2ETest(t *testing.T) *E2ETestSuite {
 		ctx:       ctx,
 		grpcPort:  "15005", // Use different port to avoid conflicts
 		adminPort: "18991",
+		natsPort:  "14224",
+		backend:   "postgres",
 	}
 
 	// Start PostgreSQL container
@@ -79,6 +85,27 @@ func setupE2ETest(t *testing.T) *E2ETestSuite {
 	suite.waitForGRPCServer(t)
 
 	// Create gRPC client
+	suite.createGRPCClient(t)
+
+	return suite
+}
+
+func setupSQLiteE2ETest(t *testing.T) *E2ETestSuite {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	suite := &E2ETestSuite{
+		ctx:          ctx,
+		grpcPort:     "15007",
+		adminPort:    "18993",
+		natsPort:     "14226",
+		natsStoreDir: filepath.Join(tempDir, "nats"),
+		sqliteDir:    filepath.Join(tempDir, "sqlite"),
+		backend:      "sqlite",
+	}
+
+	suite.buildBinary(t)
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
 	suite.createGRPCClient(t)
 
 	return suite
@@ -124,6 +151,7 @@ func (s *E2ETestSuite) buildBinary(t *testing.T) {
 func (s *E2ETestSuite) startBinary(t *testing.T) {
 	// Set environment variables for the binary
 	env := []string{
+		fmt.Sprintf("ORISUN_BACKEND=%s", s.backend),
 		fmt.Sprintf("ORISUN_PG_HOST=%s", s.postgresHost),
 		fmt.Sprintf("ORISUN_PG_PORT=%s", s.postgresPort),
 		"ORISUN_PG_USER=postgres",
@@ -133,7 +161,7 @@ func (s *E2ETestSuite) startBinary(t *testing.T) {
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
 		"ORISUN_GRPC_ENABLE_REFLECTION=true",
-		"ORISUN_NATS_PORT=14224", // Use different NATS port
+		fmt.Sprintf("ORISUN_NATS_PORT=%s", s.natsPort),
 		"ORISUN_NATS_CLUSTER_PORT=16222",
 		"ORISUN_NATS_CLUSTER_ENABLED=false",
 		"ORISUN_LOGGING_LEVEL=INFO",
@@ -142,9 +170,14 @@ func (s *E2ETestSuite) startBinary(t *testing.T) {
 		"ORISUN_ADMIN_BOUNDARY=orisun_admin",
 		"ORISUN_BOUNDARIES=[{\"name\":\"orisun_test_1\",\"description\":\"boundary1\"},{\"name\":\"orisun_test_2\",\"description\":\"boundary2\"},{\"name\":\"orisun_admin\",\"description\":\"boundary3\"}]",
 	}
+	if s.sqliteDir != "" {
+		env = append(env, fmt.Sprintf("ORISUN_SQLITE_DIR=%s", s.sqliteDir))
+	}
+	if s.natsStoreDir != "" {
+		env = append(env, fmt.Sprintf("ORISUN_NATS_STORE_DIR=%s", s.natsStoreDir))
+	}
 
-	// Add current environment variables
-	env = append(env, os.Environ()...)
+	env = append(os.Environ(), env...)
 
 	// Start the binary
 	s.binaryCmd = exec.Command(s.binaryPath)
@@ -289,6 +322,52 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 	secondEvent := getResp.Events[1]
 	assert.Equal(t, "TestEvent2", secondEvent.EventType)
 	assert.Contains(t, string(secondEvent.Data), "Hello World 2")
+}
+
+func TestE2E_SQLite_SaveAndGetEvents(t *testing.T) {
+	suite := setupSQLiteE2ETest(t)
+	defer suite.teardown(t)
+
+	ctx := createAuthenticatedContext("admin", "changeit")
+	position := orisun.NotExistsPosition()
+	saveReq := &pb.SaveEventsRequest{
+		Boundary: "orisun_test_1",
+		Query: &pb.SaveQuery{
+			ExpectedPosition: &position,
+		},
+		Events: []*pb.EventToSave{
+			{
+				EventId:   uuid.New().String(),
+				EventType: "SQLiteTestEvent",
+				Data:      `{"message": "Hello SQLite"}`,
+				Metadata:  `{"source": "sqlite-e2e-test"}`,
+			},
+		},
+	}
+
+	saveResp, err := suite.eventStoreClient.SaveEvents(ctx, saveReq)
+	require.NoError(t, err)
+	require.NotNil(t, saveResp.LogPosition)
+	assert.GreaterOrEqual(t, saveResp.LogPosition.PreparePosition, int64(1))
+
+	getResp, err := suite.eventStoreClient.GetEvents(ctx, &pb.GetEventsRequest{
+		Boundary:  "orisun_test_1",
+		Count:     10,
+		Direction: pb.Direction_ASC,
+		Query: &pb.Query{
+			Criteria: []*pb.Criterion{
+				{
+					Tags: []*pb.Tag{
+						{Key: "message", Value: "Hello SQLite"},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, getResp.Events, 1)
+	assert.Equal(t, "SQLiteTestEvent", getResp.Events[0].EventType)
+	assert.Contains(t, getResp.Events[0].Data, "Hello SQLite")
 }
 
 func TestE2E_OptimisticConcurrency(t *testing.T) {

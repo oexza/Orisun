@@ -31,6 +31,7 @@ import (
 )
 
 type BenchmarkSetup struct {
+	backend           string // "postgres" or "sqlite", from ORISUN_BENCH_BACKEND
 	postgresContainer testcontainers.Container
 	binaryPath        string
 	binaryCmd         *exec.Cmd
@@ -40,8 +41,19 @@ type BenchmarkSetup struct {
 	cancel            context.CancelFunc
 	postgresHost      string
 	postgresPort      string
+	sqliteDir         string
 	grpcPort          string
 	adminPort         string
+}
+
+// benchBackend reads ORISUN_BENCH_BACKEND, defaulting to "postgres".
+// Set ORISUN_BENCH_BACKEND=sqlite to run gRPC benchmarks against the sqlite backend.
+func benchBackend() string {
+	v := os.Getenv("ORISUN_BENCH_BACKEND")
+	if v == "" {
+		return "postgres"
+	}
+	return v
 }
 
 func setupBenchmark(b *testing.B) *BenchmarkSetup {
@@ -50,10 +62,22 @@ func setupBenchmark(b *testing.B) *BenchmarkSetup {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	setup := &BenchmarkSetup{
+		backend:   benchBackend(),
 		ctx:       ctx,
 		cancel:    cancel,
 		grpcPort:  "15006", // Use different port for benchmarks
 		adminPort: "18992",
+	}
+
+	b.Logf("benchmark backend: %s", setup.backend)
+
+	if setup.backend == "sqlite" {
+		setup.sqliteDir = b.TempDir()
+		setup.buildBinary(b)
+		setup.startBinary(b)
+		setup.waitForGRPCServer(b)
+		setup.createGRPCClient(b)
+		return setup
 	}
 
 	// Start PostgreSQL container with optimized configuration
@@ -163,20 +187,9 @@ func (s *BenchmarkSetup) buildBinary(b *testing.B) {
 }
 
 func (s *BenchmarkSetup) startBinary(b *testing.B) {
-	// Set environment variables for the binary
+	// Common env (boundaries, NATS, gRPC, admin) shared across backends
 	env := []string{
-		fmt.Sprintf("ORISUN_PG_HOST=%s", s.postgresHost),
-		fmt.Sprintf("ORISUN_PG_PORT=%s", s.postgresPort),
-		"ORISUN_PG_USER=postgres",
-		"ORISUN_PG_PASSWORD=postgres",
-		"ORISUN_PG_NAME=orisun",
-		"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin,subscribe_boundary:public",
-		// Increase connection pool limits for benchmark performance
-		"ORISUN_PG_WRITE_MAX_OPEN_CONNS=200", // Increased from 20 to 100
-		"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",  // Increased from 3 to 20
-		"ORISUN_PG_READ_MAX_OPEN_CONNS=10",   // Increased from 10 to 50
-		"ORISUN_PG_READ_MAX_IDLE_CONNS=5",    // Increased from 5 to 10
-		// Enable pprof for profiling during benchmarks
+		fmt.Sprintf("ORISUN_BACKEND=%s", s.backend),
 		"ORISUN_PPROF_ENABLED=true",
 		"ORISUN_PPROF_PORT=6060",
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
@@ -190,6 +203,28 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=benchmark_admin",
 		"ORISUN_BOUNDARIES=[{\"name\":\"benchmark_test\",\"description\":\"benchmark boundary\"},{\"name\":\"benchmark_admin\",\"description\":\"admin boundary\"},{\"name\":\"subscribe_boundary\",\"description\":\"subscription benchmark boundary\"}]",
+	}
+
+	switch s.backend {
+	case "postgres":
+		env = append(env,
+			fmt.Sprintf("ORISUN_PG_HOST=%s", s.postgresHost),
+			fmt.Sprintf("ORISUN_PG_PORT=%s", s.postgresPort),
+			"ORISUN_PG_USER=postgres",
+			"ORISUN_PG_PASSWORD=postgres",
+			"ORISUN_PG_NAME=orisun",
+			"ORISUN_PG_SCHEMAS=benchmark_test:public,benchmark_admin:admin,subscribe_boundary:public",
+			"ORISUN_PG_WRITE_MAX_OPEN_CONNS=200",
+			"ORISUN_PG_WRITE_MAX_IDLE_CONNS=20",
+			"ORISUN_PG_READ_MAX_OPEN_CONNS=10",
+			"ORISUN_PG_READ_MAX_IDLE_CONNS=5",
+		)
+	case "sqlite":
+		env = append(env,
+			fmt.Sprintf("ORISUN_SQLITE_DIR=%s", s.sqliteDir),
+		)
+	default:
+		b.Fatalf("unknown benchmark backend: %s", s.backend)
 	}
 
 	// Add current environment variables
@@ -317,13 +352,15 @@ func (s *BenchmarkSetup) cleanup(b *testing.B) {
 		}
 	}
 
-	// Stop PostgreSQL container
+	// Stop PostgreSQL container (only when PG backend was used)
 	if s.postgresContainer != nil {
 		err := s.postgresContainer.Terminate(s.ctx)
 		if err != nil {
 			b.Logf("Failed to terminate postgres container: %v", err)
 		}
 	}
+
+	// SQLite tempdir is auto-cleaned by t.TempDir; nothing to do here.
 
 	s.cancel()
 }

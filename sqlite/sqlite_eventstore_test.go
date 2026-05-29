@@ -1,0 +1,243 @@
+package sqlite
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/oexza/Orisun/logging"
+	eventstore "github.com/oexza/Orisun/orisun"
+)
+
+func newTestPools(t *testing.T) (map[string]*BoundaryPools, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	const boundary = "test"
+	logger, _ := logging.ZapLogger("error")
+	_ = logger
+	bp, err := OpenBoundaryPools(context.Background(), dir, boundary, boundary)
+	if err != nil {
+		t.Fatalf("open pools: %v", err)
+	}
+	pools := map[string]*BoundaryPools{boundary: bp}
+	return pools, func() { _ = bp.Close() }
+}
+
+func mustEvent(t *testing.T, eventType string, data, meta map[string]any) eventstore.EventWithMapTags {
+	t.Helper()
+	return eventstore.EventWithMapTags{
+		EventId:   uuid.NewString(),
+		EventType: eventType,
+		Data:      data,
+		Metadata:  meta,
+	}
+}
+
+func TestSave_RoundTrip(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+
+	ctx := context.Background()
+	events := []eventstore.EventWithMapTags{
+		mustEvent(t, "Foo", map[string]any{"k": "v1"}, map[string]any{}),
+		mustEvent(t, "Bar", map[string]any{"k": "v2"}, map[string]any{}),
+	}
+
+	tx, gid, err := saver.Save(ctx, events, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if tx == "" || gid <= 0 {
+		t.Fatalf("expected non-zero tx/gid, got tx=%q gid=%d", tx, gid)
+	}
+
+	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     100,
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(resp.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(resp.Events))
+	}
+	// Both events in the batch should share transaction_id == max global_id
+	if resp.Events[0].Position.CommitPosition != resp.Events[1].Position.CommitPosition {
+		t.Errorf("expected shared tx_id within batch, got %d vs %d",
+			resp.Events[0].Position.CommitPosition, resp.Events[1].Position.CommitPosition)
+	}
+	if resp.Events[1].Position.PreparePosition != gid {
+		t.Errorf("last event global_id should equal returned gid: got %d, want %d",
+			resp.Events[1].Position.PreparePosition, gid)
+	}
+}
+
+func TestSave_RejectsEmpty(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	_, _, err := saver.Save(context.Background(), nil, "test", nil, nil)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestSave_RejectsUnknownBoundary(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	_, _, err := saver.Save(context.Background(),
+		[]eventstore.EventWithMapTags{mustEvent(t, "X", map[string]any{}, map[string]any{})},
+		"missing", nil, nil)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestSave_CCCViolation(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	saver := NewSqliteSaveEvents(pools, logger)
+	ctx := context.Background()
+
+	// First write — establishes a position matching criteria {"agg":"a1"}
+	criteria := &eventstore.Query{
+		Criteria: []*eventstore.Criterion{
+			{Tags: []*eventstore.Tag{{Key: "agg", Value: "a1"}}},
+		},
+	}
+	_, gid, err := saver.Save(ctx,
+		[]eventstore.EventWithMapTags{mustEvent(t, "Created", map[string]any{"agg": "a1"}, map[string]any{})},
+		"test", nil, criteria)
+	if err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+
+	// Second write with a stale expectedPosition (-1,-1 / nil) should fail.
+	_, _, err = saver.Save(ctx,
+		[]eventstore.EventWithMapTags{mustEvent(t, "Updated", map[string]any{"agg": "a1"}, map[string]any{})},
+		"test", nil, criteria)
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("expected AlreadyExists, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "OptimisticConcurrencyException") {
+		t.Errorf("expected OptimisticConcurrencyException in error message, got %v", err)
+	}
+
+	// Third write with correct expectedPosition (the gid we got back) should succeed.
+	expected := &eventstore.Position{CommitPosition: gid, PreparePosition: gid}
+	_, _, err = saver.Save(ctx,
+		[]eventstore.EventWithMapTags{mustEvent(t, "Updated", map[string]any{"agg": "a1"}, map[string]any{})},
+		"test", expected, criteria)
+	if err != nil {
+		t.Fatalf("expected success with correct expected position, got: %v", err)
+	}
+}
+
+func TestGet_FilterByCriteria(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	ctx := context.Background()
+
+	_, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
+		mustEvent(t, "A", map[string]any{"agg": "1"}, map[string]any{}),
+		mustEvent(t, "A", map[string]any{"agg": "2"}, map[string]any{}),
+		mustEvent(t, "A", map[string]any{"agg": "1"}, map[string]any{}),
+	}, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     100,
+		Query: &eventstore.Query{
+			Criteria: []*eventstore.Criterion{
+				{Tags: []*eventstore.Tag{{Key: "agg", Value: "1"}}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(resp.Events) != 2 {
+		t.Fatalf("expected 2 matching events, got %d", len(resp.Events))
+	}
+}
+
+func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	tracker := NewSqliteEventPublishing(pools, logger)
+
+	pos, err := tracker.GetLastPublishedEventPosition(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("get last published position: %v", err)
+	}
+	want := eventstore.NotExistsPosition()
+	if pos.CommitPosition != want.CommitPosition || pos.PreparePosition != want.PreparePosition {
+		t.Fatalf("expected not-exists position, got commit=%d prepare=%d", pos.CommitPosition, pos.PreparePosition)
+	}
+}
+
+func TestBuildCriteriaSQL(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    []map[string]any
+		wantArgs int
+	}{
+		{"empty", nil, 0},
+		{"single criterion", []map[string]any{{"k": "v"}}, 1},
+		{"multi-key AND", []map[string]any{{"a": "1", "b": "2"}}, 2},
+		{"multi-criterion OR", []map[string]any{{"a": "1"}, {"b": "2"}}, 2},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sql, args := buildCriteriaSQL(c.input)
+			if len(args) != c.wantArgs {
+				t.Errorf("wantArgs=%d gotArgs=%d, sql=%q", c.wantArgs, len(args), sql)
+			}
+			// Multi-criterion case must contain OR; single-criterion multi-key must contain AND.
+			if c.name == "multi-criterion OR" && !strings.Contains(sql, " OR ") {
+				t.Errorf("expected OR in %q", sql)
+			}
+			if c.name == "multi-key AND" && !strings.Contains(sql, " AND ") {
+				t.Errorf("expected AND in %q", sql)
+			}
+		})
+	}
+}
+
+func TestJSONPathLiteralEscapes(t *testing.T) {
+	cases := map[string]string{
+		`simple`:       `'$."simple"'`,
+		`with"quote`:   `'$."with""quote"'`,
+		`with'apos`:    `'$."with''apos"'`,
+		`both"and'mix`: `'$."both""and''mix"'`,
+	}
+	for in, want := range cases {
+		got := jsonPathLiteral(in)
+		if got != want {
+			t.Errorf("jsonPathLiteral(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

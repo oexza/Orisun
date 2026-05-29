@@ -29,6 +29,7 @@ type ClusterTestSuite struct {
 	nodes             []*ClusterNode
 	postgresHost      string
 	postgresPort      string
+	tempDir           string
 }
 
 type ClusterNode struct {
@@ -45,7 +46,8 @@ type ClusterNode struct {
 func setupClusterTest(t *testing.T) *ClusterTestSuite {
 	ctx := context.Background()
 	suite := &ClusterTestSuite{
-		ctx: ctx,
+		ctx:     ctx,
+		tempDir: t.TempDir(),
 	}
 
 	// Start PostgreSQL container
@@ -112,7 +114,7 @@ func (s *ClusterTestSuite) buildBinary(t *testing.T, nodeIndex int) {
 	targetArch := runtime.GOARCH
 
 	// Create build directory if it doesn't exist
-	buildDir := "./build"
+	buildDir := filepath.Join(s.tempDir, "build")
 	err := os.MkdirAll(buildDir, 0755)
 	require.NoError(t, err)
 
@@ -146,6 +148,7 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 
 	// Set environment variables
 	env := []string{
+		"ORISUN_BACKEND=postgres",
 		fmt.Sprintf("ORISUN_PG_HOST=%s", s.postgresHost),
 		fmt.Sprintf("ORISUN_PG_PORT=%s", s.postgresPort),
 		"ORISUN_PG_USER=postgres",
@@ -161,7 +164,7 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 		"ORISUN_NATS_CLUSTER_NAME=orisun-nats-cluster", // All nodes must use same cluster name
 		fmt.Sprintf("ORISUN_NATS_CLUSTER_ROUTES=%s", routes),
 		fmt.Sprintf("ORISUN_NATS_SERVER_NAME=orisun-nats-%d", nodeIndex),
-		fmt.Sprintf("ORISUN_NATS_STORE_DIR=./data/orisun/nats/node-%d", nodeIndex), // Each node needs unique store directory
+		fmt.Sprintf("ORISUN_NATS_STORE_DIR=%s", filepath.Join(s.tempDir, fmt.Sprintf("nats-node-%d", nodeIndex))), // Each node needs unique store directory
 		"ORISUN_LOGGING_LEVEL=DEBUG",
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
@@ -175,9 +178,9 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 
 	// Capture output for debugging
 	// Create log files for each node to separate their output
-	stdoutFile, err := os.Create(fmt.Sprintf("node-%d-stdout.log", nodeIndex))
+	stdoutFile, err := os.Create(filepath.Join(s.tempDir, fmt.Sprintf("node-%d-stdout.log", nodeIndex)))
 	require.NoError(t, err)
-	stderrFile, err2 := os.Create(fmt.Sprintf("node-%d-stderr.log", nodeIndex))
+	stderrFile, err2 := os.Create(filepath.Join(s.tempDir, fmt.Sprintf("node-%d-stderr.log", nodeIndex)))
 	require.NoError(t, err2)
 	node.binaryCmd.Stdout = stdoutFile
 	node.binaryCmd.Stderr = stderrFile
@@ -195,9 +198,15 @@ func (s *ClusterTestSuite) waitForGRPCServer(t *testing.T, nodeIndex int) {
 	node := s.nodes[nodeIndex]
 	address := fmt.Sprintf("127.0.0.1:%s", node.grpcPort)
 
-	// Wait for the gRPC server to be ready
 	for range 30 {
-		conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		conn, err := grpc.DialContext(
+			dialCtx,
+			address,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+		)
+		cancel()
 		if err == nil {
 			conn.Close()
 			t.Logf("Node %d gRPC server is ready on %s", nodeIndex, address)
@@ -329,14 +338,22 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	require.NoError(t, err, "Failed to query current position")
 
 	// Determine the expected position based on existing events
-	var expectedPosition pb.Position
+	var expectedPosition *pb.Position
 	if len(currentResp.Events) > 0 {
 		// Use the position of the most recent event
-		expectedPosition = *currentResp.Events[0].Position
-		t.Logf("Found existing events in orisun_test_1, current position: %v", expectedPosition)
+		currentPosition := currentResp.Events[0].Position
+		expectedPosition = &pb.Position{
+			CommitPosition:  currentPosition.CommitPosition,
+			PreparePosition: currentPosition.PreparePosition,
+		}
+		t.Logf("Found existing events in orisun_test_1, current position: commit=%d prepare=%d", expectedPosition.CommitPosition, expectedPosition.PreparePosition)
 	} else {
 		// No events exist, use NotExistsPosition
-		expectedPosition = pb.NotExistsPosition()
+		notExists := pb.NotExistsPosition()
+		expectedPosition = &pb.Position{
+			CommitPosition:  notExists.CommitPosition,
+			PreparePosition: notExists.PreparePosition,
+		}
 		t.Logf("No existing events in orisun_test_1, using NotExistsPosition")
 	}
 
@@ -359,7 +376,7 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	// Save all events in a single request with the correct expected position
 	req := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Query:    &pb.SaveQuery{ExpectedPosition: &expectedPosition},
+		Query:    &pb.SaveQuery{ExpectedPosition: expectedPosition},
 		Events:   eventsToSave,
 	}
 

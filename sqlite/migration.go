@@ -1,0 +1,85 @@
+package sqlite
+
+import (
+	"fmt"
+
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
+)
+
+// Common per-boundary tables: event log, id sequence counter, last-published cursor,
+// events_count cache, projector_checkpoint.
+const commonDDL = `
+CREATE TABLE IF NOT EXISTS orisun_es_event (
+    transaction_id INTEGER NOT NULL,
+    global_id      INTEGER PRIMARY KEY,
+    event_id       TEXT    NOT NULL,
+    event_type     TEXT    NOT NULL CHECK (event_type <> ''),
+    data           TEXT    NOT NULL CHECK (json_valid(data)),
+    metadata       TEXT,
+    date_created   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_order_covering
+    ON orisun_es_event (transaction_id DESC, global_id DESC);
+
+CREATE TABLE IF NOT EXISTS orisun_es_seq (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    next_id INTEGER NOT NULL DEFAULT 1
+);
+INSERT OR IGNORE INTO orisun_es_seq (id, next_id) VALUES (1, 1);
+
+CREATE TABLE IF NOT EXISTS orisun_last_published_event_position (
+    boundary       TEXT    PRIMARY KEY,
+    transaction_id INTEGER NOT NULL DEFAULT 0,
+    global_id      INTEGER NOT NULL DEFAULT 0,
+    date_created   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    date_updated   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS events_count (
+    id          TEXT PRIMARY KEY,
+    event_count TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS projector_checkpoint (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL UNIQUE,
+    commit_position  INTEGER NOT NULL,
+    prepare_position INTEGER NOT NULL
+);
+`
+
+// Admin-only tables, created only inside the admin boundary's database.
+const adminDDL = `
+CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    roles         TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS users_count (
+    id         TEXT PRIMARY KEY,
+    user_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+`
+
+func applyMigrations(conn *sqlite.Conn, isAdminBoundary bool) error {
+	if err := sqlitex.ExecuteScript(conn, commonDDL, nil); err != nil {
+		return fmt.Errorf("common ddl: %w", err)
+	}
+	if isAdminBoundary {
+		if err := sqlitex.ExecuteScript(conn, adminDDL, nil); err != nil {
+			return fmt.Errorf("admin ddl: %w", err)
+		}
+	}
+	return nil
+}
