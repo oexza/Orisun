@@ -105,6 +105,7 @@ type PostgresDBConfig struct {
 	AdminMaxIdleConns    int
 	AdminConnMaxIdleTime time.Duration
 	AdminConnMaxLifetime time.Duration
+	ListenEnabled        bool
 }
 
 type BoundaryToPostgresSchemaMapping struct {

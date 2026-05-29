@@ -789,7 +789,7 @@ func InitializePostgresDatabase(
 	adminConfig config.AdminConfig,
 	js jetstream.JetStream,
 	logger logging.Logger,
-) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker) {
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, *PGNotifyListener) {
 	// Create database connection string
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -866,6 +866,21 @@ func InitializePostgresDatabase(
 
 	postgesBoundarySchemaMappings := postgresDBConfig.GetSchemaMapping()
 
+	// Create PG LISTEN/NOTIFY listener if enabled.
+	var pgListener *PGNotifyListener
+	if postgresDBConfig.ListenEnabled {
+		var listenErr error
+		pgListener, listenErr = NewPGNotifyListener(ctx, connStr, postgesBoundarySchemaMappings, logger)
+		if listenErr != nil {
+			logger.Warnf("PG LISTEN disabled (connection failed): %v — falling back to polling", listenErr)
+			pgListener = nil
+		} else {
+			logger.Info("PG LISTEN/NOTIFY listener created")
+		}
+	} else {
+		logger.Info("PG LISTEN disabled by configuration — using polling fallback")
+	}
+
 	// First, create all unique schemas
 	uniqueSchemas := make(map[string]struct{})
 	for _, mapping := range postgesBoundarySchemaMappings {
@@ -919,5 +934,5 @@ func InitializePostgresDatabase(
 		postgesBoundarySchemaMappings,
 	)
 
-	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing
+	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener
 }

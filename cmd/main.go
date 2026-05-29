@@ -193,7 +193,7 @@ func main() {
 	defer ns.Shutdown()
 
 	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
 
 	// Initialize EventStore
 	eventStore := pb.InitializeEventStore(
@@ -206,8 +206,26 @@ func main() {
 		AppLogger,
 	)
 
-	// Start polling events from the event store and publish them to NATS jetstream
-	pb.StartEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, AppLogger)
+	// Start PG LISTEN/NOTIFY listener and event publishing
+	var signalProvider func(string) orisun.EventSignal
+	if pgListener != nil {
+		listenerCtx, stopListener := context.WithCancel(ctx)
+		go pgListener.Start(listenerCtx)
+		defer func() {
+			stopListener()
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer waitCancel()
+			pgListener.Close(waitCtx)
+		}()
+		signalProvider = func(boundary string) orisun.EventSignal {
+			return pgListener.Signal(boundary, 30*time.Second)
+		}
+	} else {
+		signalProvider = func(boundary string) orisun.EventSignal {
+			return orisun.NewPollingSignal(1 * time.Second)
+		}
+	}
+	pb.StartEventPolling(ctx, config, lockProvider, getEvents, js, eventPublishing, signalProvider, AppLogger)
 
 	// Start projectors
 	pubsubStreamName := "ORISUN-ADMIN"

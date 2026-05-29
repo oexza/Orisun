@@ -241,6 +241,8 @@ BEGIN
                    prefixed_seq_name
             ) USING current_tx_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
 
+    PERFORM pg_notify('orisun_events_' || md5(boundary_name), new_global_id::text);
+
     RETURN QUERY SELECT new_global_id, latest_transaction_id, latest_global_id;
 END;
 $$;
@@ -331,6 +333,7 @@ BEGIN
         SELECT * FROM %s
         WHERE
             %2$s AND
+            (%8$L != 'ASC' OR transaction_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())) AND
             (%3$L IS NULL OR (
                     (transaction_id, global_id) %4$s= (
                         %5$L::BIGINT,
@@ -348,7 +351,7 @@ BEGIN
             tx_id,
             global_id,
             CASE
-                WHEN after_position IS NOT NULL AND sort_dir != 'DESC' THEN
+                WHEN after_position IS NOT NULL AND sort_dir != 'DESC' AND tx_id::BIGINT >= 0 THEN
                     format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', tx_id)
                 ELSE
                     ''

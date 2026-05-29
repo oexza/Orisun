@@ -709,6 +709,33 @@ type EventPublishingTracker interface {
 	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
 }
 
+// EventSignal provides notification that new events may be available for publishing.
+type EventSignal interface {
+	Wait(ctx context.Context) error
+	Stop()
+}
+
+type PollingSignal struct {
+	ticker *time.Ticker
+}
+
+func NewPollingSignal(interval time.Duration) *PollingSignal {
+	return &PollingSignal{ticker: time.NewTicker(interval)}
+}
+
+func (s *PollingSignal) Wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ticker.C:
+		return nil
+	}
+}
+
+func (s *PollingSignal) Stop() {
+	s.ticker.Stop()
+}
+
 // Backoff implements capped exponential backoff with jitter.
 // Use for retry loops to avoid thundering-herd on shared resources (PG advisory locks, etc).
 type Backoff struct {
@@ -744,6 +771,7 @@ func StartEventPolling(
 	getEvents EventsRetriever,
 	js jetstream.JetStream,
 	eventPublishingTracker EventPublishingTracker,
+	signalProvider func(string) EventSignal,
 	logger logging.Logger) {
 	g, gctx := errgroup.WithContext(ctx)
 	for _, schema := range config.Postgres.GetSchemaMapping() {
@@ -776,7 +804,7 @@ func StartEventPolling(
 					}
 					logger.Infof("Last published position for boundary %v: %v", boundaryCopy.Boundary, &lastPosition)
 
-					err = PollEventsFromDatabaseToNats(
+					err = publishEventsLoop(
 						gctx,
 						js,
 						getEvents,
@@ -784,6 +812,7 @@ func StartEventPolling(
 						&lastPosition,
 						boundaryCopy.Boundary,
 						eventPublishingTracker,
+						signalProvider(boundaryCopy.Boundary),
 						logger,
 					)
 
@@ -800,7 +829,7 @@ func StartEventPolling(
 	// Not waiting here; goroutines will be governed by ctx lifecycle.
 }
 
-func PollEventsFromDatabaseToNats(
+func publishEventsLoop(
 	ctx context.Context,
 	js jetstream.JetStream,
 	eventStore EventsRetriever,
@@ -808,47 +837,79 @@ func PollEventsFromDatabaseToNats(
 	lastPosition *Position,
 	boundary string,
 	db EventPublishingTracker,
+	signal EventSignal,
 	logger logging.Logger,
 ) error {
-	const minPollInterval = 25 * time.Millisecond
-	const maxPollInterval = 2 * time.Second
-	idleBackoff := minPollInterval
+	const readRetryBase = 100 * time.Millisecond
+	const readRetryMax = 2 * time.Second
+	const publishRetryBase = 100 * time.Millisecond
+	const publishRetryMax = 2 * time.Second
+
+	defer signal.Stop()
+	readBackoff := readRetryBase
 
 	for {
 		if ctx.Err() != nil {
-			logger.Error("Context cancelled, stopping polling")
 			return ctx.Err()
 		}
 
-		logger.Debugf("Polling for boundary: %v", boundary)
-		req := &GetEventsRequest{
-			FromPosition: &Position{
-				CommitPosition:  lastPosition.CommitPosition,
-				PreparePosition: lastPosition.PreparePosition + 1, // we start from the next position since the underlying database is assumed to be position inclusive in its query handling.
-			},
-			Count:     batchSize,
-			Direction: Direction_ASC,
-			Boundary:  boundary,
-		}
-		resp, err := eventStore.Get(ctx, req)
-		if err != nil {
-			logger.Errorf("Failed to get events for boundary %s: %v (retrying)", boundary, err)
-			select {
-			case <-ctx.Done():
+		// Drain all pending events from DB in order. We drain BEFORE waiting on
+		// the signal so events already persisted at startup (or committed while
+		// the publisher was down) are published immediately rather than waiting
+		// for the next NOTIFY / catch-up tick.
+		for {
+			if ctx.Err() != nil {
 				return ctx.Err()
-			case <-time.After(idleBackoff):
 			}
-			idleBackoff *= 2
-			if idleBackoff > maxPollInterval {
-				idleBackoff = maxPollInterval
+
+			req := &GetEventsRequest{
+				FromPosition: &Position{
+					CommitPosition:  lastPosition.CommitPosition,
+					PreparePosition: lastPosition.PreparePosition + 1,
+				},
+				Count:     batchSize,
+				Direction: Direction_ASC,
+				Boundary:  boundary,
 			}
-			continue
-		}
+			resp, err := eventStore.Get(ctx, req)
+			if err != nil {
+				logger.Errorf("Failed to get events for boundary %s: %v", boundary, err)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(readBackoff):
+				}
+				readBackoff *= 2
+				if readBackoff > readRetryMax {
+					readBackoff = readRetryMax
+				}
+				continue
+			}
+			readBackoff = readRetryBase
 
-		logger.Debugf("Got %d events for boundary %v", len(resp.Events), boundary)
+			if len(resp.Events) == 0 {
+				break
+			}
 
-		if len(resp.Events) > 0 {
+			if err := validatePublishBatch(resp.Events, lastPosition); err != nil {
+				return err
+			}
+
 			for _, event := range resp.Events {
+				if event.Position == nil {
+					return fmt.Errorf("event %s has nil position", event.EventId)
+				}
+				if !positionAfter(event.Position, lastPosition) {
+					return fmt.Errorf(
+						"event %s position (%d, %d) is not after cursor (%d, %d)",
+						event.EventId,
+						event.Position.CommitPosition,
+						event.Position.PreparePosition,
+						lastPosition.CommitPosition,
+						lastPosition.PreparePosition,
+					)
+				}
+
 				subjectName := GetEventJetstreamSubjectName(
 					boundary,
 					&Position{
@@ -860,6 +921,8 @@ func PollEventsFromDatabaseToNats(
 				if err != nil {
 					return fmt.Errorf("marshal event: %w", err)
 				}
+
+				publishBackoff := publishRetryBase
 				for {
 					_, err = js.Publish(
 						ctx,
@@ -875,13 +938,14 @@ func PollEventsFromDatabaseToNats(
 					select {
 					case <-ctx.Done():
 						return fmt.Errorf("publish event: context cancelled: %w", ctx.Err())
-					case <-time.After(idleBackoff):
+					case <-time.After(publishBackoff):
 					}
-					idleBackoff *= 2
-					if idleBackoff > maxPollInterval {
-						idleBackoff = maxPollInterval
+					publishBackoff *= 2
+					if publishBackoff > publishRetryMax {
+						publishBackoff = publishRetryMax
 					}
 				}
+
 				if err := db.InsertLastPublishedEvent(
 					ctx,
 					boundary,
@@ -890,20 +954,45 @@ func PollEventsFromDatabaseToNats(
 				); err != nil {
 					return fmt.Errorf("insert last published: %w", err)
 				}
+				lastPosition = event.Position
 			}
-			lastPosition = resp.Events[len(resp.Events)-1].Position
-			idleBackoff = minPollInterval
-			continue
 		}
 
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(idleBackoff):
-		}
-		idleBackoff *= 2
-		if idleBackoff > maxPollInterval {
-			idleBackoff = maxPollInterval
+		// Wait for the next signal (NOTIFY, catch-up tick, or poll) before
+		// draining again.
+		if err := signal.Wait(ctx); err != nil {
+			return err
 		}
 	}
+}
+
+func positionAfter(pos, cursor *Position) bool {
+	if pos == nil || cursor == nil {
+		return false
+	}
+	if pos.CommitPosition != cursor.CommitPosition {
+		return pos.CommitPosition > cursor.CommitPosition
+	}
+	return pos.PreparePosition > cursor.PreparePosition
+}
+
+func validatePublishBatch(events []*Event, cursor *Position) error {
+	validationCursor := cursor
+	for _, event := range events {
+		if event.Position == nil {
+			return fmt.Errorf("event %s has nil position", event.EventId)
+		}
+		if !positionAfter(event.Position, validationCursor) {
+			return fmt.Errorf(
+				"event %s position (%d, %d) is not after cursor (%d, %d)",
+				event.EventId,
+				event.Position.CommitPosition,
+				event.Position.PreparePosition,
+				validationCursor.CommitPosition,
+				validationCursor.PreparePosition,
+			)
+		}
+		validationCursor = event.Position
+	}
+	return nil
 }

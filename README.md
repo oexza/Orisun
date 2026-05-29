@@ -1,96 +1,45 @@
-# Orisun - The batteries included event store.
+# Orisun
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 
-## Table of Contents
+Orisun is a batteries-included event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
 
-- [Introduction](#introduction)
-  - [What is Command Context Consistency?](#what-is-command-context-consistency)
-  - [Key Features](#key-features)
+It stores events transactionally in PostgreSQL, publishes them through embedded NATS JetStream, and implements **Command Context Consistency (CCC)**: each command defines its own consistency context by querying event data, then saves only if that context has not changed.
+
+## Why Orisun
+
+- **Content-based consistency**: query events by JSON payload fields instead of pre-defining streams or aggregate roots.
+- **Durable source of truth**: PostgreSQL stores the event log, positions, checkpoints, indexes, and admin state.
+- **Real-time delivery included**: embedded NATS JetStream handles live subscriptions and catch-up delivery.
+- **No-miss publishing**: publisher checkpoints and stable-prefix reads prevent skipped events even when notifications are missed.
+- **Sequential per-boundary publishing**: events publish in ascending `(transaction_id, global_id)` order.
+- **Production controls**: explicit JSONB indexes, gRPC auth/TLS options, OpenTelemetry, pprof, clustering, and PgBouncer guidance.
+
+## Contents
+
 - [Quick Start](#quick-start)
-  - [Docker Compose](#option-1-docker-compose-recommended---60-seconds)
-  - [Download Binary](#option-2-download-binary)
-  - [Docker Standalone](#option-3-docker-standalone)
-- [Getting Started Guide](#getting-started-guide)
-  - [Your First Event](#your-first-event)
-  - [Querying Events](#querying-events)
-  - [Subscribing to Events](#subscribing-to-events)
-  - [Command Context Consistency in Practice](#command-context-consistency-in-practice)
-- [Architecture Overview](#architecture-overview)
-- [Boundaries and Schemas](#boundaries-and-schemas)
-- [Index Management](#index-management)
-- [Clients](#clients)
-- [Admin API](#admin-api)
+- [Core Model](#core-model)
+- [Using The API](#using-the-api)
+- [Delivery Guarantees](#delivery-guarantees)
+- [Architecture](#architecture)
+- [Boundaries And Schemas](#boundaries-and-schemas)
+- [Indexing](#indexing)
 - [Configuration](#configuration)
-- [Running Modes](#running-modes)
-  - [Standalone Mode](#standalone-mode)
-  - [Clustered Mode](#clustered-mode)
-- [TLS Configuration](#tls-configuration)
-- [Error Handling](#error-handling)
-- [Performance](#performance)
-- [Building from Source](#building-from-source)
+- [Operations](#operations)
+- [Clients](#clients)
 - [Development](#development)
-- [License](#license)
-
-## Introduction
-
-Orisun is a batteries-included event store designed for modern event-driven applications. It combines pluggable storage backends (currently PostgreSQL, with SQLite and FoundationDB planned) with NATS JetStream's real-time streaming capabilities to deliver a complete event sourcing solution that's both powerful and easy to use.
-
-### What is Command Context Consistency?
-
-Orisun implements **Command Context Consistency (CCC)**—a conceptually simple approach to ensuring data consistency in event-sourced systems without the complexity of streams, aggregates, or predefined tags.
-
-In CCC, each command defines its **context** as the set of events relevant to checking its business rules. The context is determined by querying events based on their **data content**, not by stream ID or aggregate root.
-
-**Example: Money Transfer**
-```
-Command: transferMoney("Peter", "Janine", 10)
-Context: All events where payload references Peter or Janine
-  - accountOpened, moneyDeposited, moneyWithdrawn, moneyTransferred, etc.
-Context Model: { accountBalances: [{holder: "Peter", balance: 100}, {holder: "Janine", balance: 50}] }
-Business Rules: Both accounts exist, Peter has sufficient funds
-```
-
-**Two-Phase Consistency:**
-1. **Check**: Build context model from queried events, validate business rules
-2. **Record**: Before saving, re-run query to ensure context hasn't changed (optimistic locking)
-
-**Key Advantages:**
-- **No Aggregate/Stream Lock-in**: Query events by payload content, not pre-defined streams
-- **Command-Specific Contexts**: Each command sees only the events relevant to its rules
-- **Simple Mental Model**: Like RDBMS queries + optimistic locking, but for events
-
-### Key Features
-
-#### Core Event Sourcing
-- **Reliable Event Storage**: PostgreSQL backend with full ACID compliance and transaction guarantees
-- **Zero Message Loss**: Guaranteed event delivery with immediate error propagation on subscription failures
-- **Optimistic Concurrency**: Boundary-based versioning with expected position checks
-- **Content-Based Querying**: Filter events by JSONB data payload — no pre-defined streams required
-- **Real-time Subscriptions**: Subscribe to event changes as they happen with catch-up subscriptions
-
-#### Built-in Infrastructure
-- **Embedded NATS JetStream**: Real-time event streaming without external dependencies
-- **Multi-tenant Architecture**: Isolated boundaries with separate database schemas
-- **Explicit Index Management**: Create targeted btree indexes on the JSONB fields you query — required for production performance
-- **Admin gRPC Service**: User management, system administration, and index management via gRPC
-- **OpenTelemetry Tracing**: Built-in distributed tracing for observability
-
-#### Production Ready
-- **Clustered Deployment**: High availability with automatic failover and distributed locking
-- **Horizontal Scaling**: Add nodes dynamically for increased throughput and resilience
-- **Zero-Downtime Failover**: Seamless takeover when nodes go down or become unavailable
 
 ## Quick Start
 
-### Option 1: Docker Compose (Recommended - 60 Seconds)
-The fastest way to get started with Orisun:
+### Docker Compose
 
-1. **Create `docker-compose.yml`:**
+Create `docker-compose.yml`:
+
 ```yaml
-version: '3.8'
+version: "3.8"
+
 services:
   postgres:
     image: postgres:17.5-alpine3.22
@@ -113,8 +62,8 @@ services:
       ORISUN_ADMIN_USERNAME: admin
       ORISUN_ADMIN_PASSWORD: changeit
     ports:
-      - "5005:5005"  # gRPC API
-      - "8991:8991"  # Admin HTTP API
+      - "5005:5005"
+      - "8991:8991"
     volumes:
       - orisun-data:/var/lib/orisun/data
     depends_on:
@@ -126,61 +75,85 @@ volumes:
   orisun-data:
 ```
 
-2. **Start everything:**
+Start Orisun:
+
 ```bash
 docker-compose up -d
 ```
 
-3. **Verify Orisun is running:**
+Verify the gRPC API:
+
 ```bash
-# List services (default admin credentials: admin/changeit)
 grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
 ```
 
-### Option 2: Download Binary
+Default credentials are `admin:changeit`.
 
-1. **Download** from [Releases](https://github.com/oexza/Orisun/releases)
-2. **Run with PostgreSQL** (replace placeholders):
+### Binary
+
+Download a release binary and run it against PostgreSQL:
 
 ```bash
 ORISUN_PG_HOST=localhost \
+ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
 ORISUN_PG_NAME=your_database \
 ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
+ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test"},{"name":"orisun_admin","description":"admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ./orisun-darwin-arm64
-# gRPC API: localhost:5005 (default credentials: admin/changeit)
 ```
 
-Platforms available: `darwin-arm64`, `linux-amd64`, `linux-arm64`
+## Core Model
 
-### Option 3: Docker Standalone
+### Command Context Consistency
 
-Run Orisun with Docker (requires external PostgreSQL):
+Traditional event stores often ask you to choose an aggregate stream up front. Orisun takes a different path: a command defines the events it cares about by querying the event payload.
 
-```bash
-docker run -d \
-  --name orisun \
-  -p 5005:5005 \
-  -p 8991:8991 \
-  -e ORISUN_PG_HOST=host.docker.internal \
-  -e ORISUN_PG_USER=postgres \
-  -e ORISUN_PG_PASSWORD=your_password \
-  -e ORISUN_PG_NAME=your_database \
-  -e ORISUN_ADMIN_USERNAME=admin \
-  -e ORISUN_ADMIN_PASSWORD=changeit \
-  orexza/orisun:latest
-# gRPC API: localhost:5005 (default credentials: admin/changeit)
+Example: a money transfer command can define its context as all events where `account_holder` is Alice or Bob:
+
+```json
+{
+  "criteria": [
+    {"tags": [{"key": "account_holder", "value": "alice"}]},
+    {"tags": [{"key": "account_holder", "value": "bob"}]}
+  ]
+}
 ```
 
-## Getting Started Guide
+The command flow is:
 
-This guide walks you through the core operations of Orisun: storing events, querying them, and subscribing to updates.
+1. **Check**: query matching events and build the command's context model.
+2. **Decide**: validate business rules in your application.
+3. **Record**: save events with the same context query and expected position.
+4. **Retry on conflict**: if the context changed, Orisun returns `ALREADY_EXISTS`.
 
-### Your First Event
+This gives commands the consistency scope they actually need without forcing unrelated events into the same aggregate.
+
+### Positions
+
+Every event has a durable position:
+
+| Field | Meaning |
+|---|---|
+| `transaction_id` | PostgreSQL transaction ID for the batch |
+| `global_id` | Monotonic per-boundary event position |
+
+Use `{-1, -1}` as the "before first event" position.
+
+## Using The API
+
+All examples use the default basic auth header:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+AUTH='Authorization: Basic YWRtaW46Y2hhbmdlaXQ='
+```
+
+### Save An Event
+
+```bash
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
   "query": {
@@ -193,42 +166,35 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
     {
       "event_id": "user-001",
       "event_type": "UserRegistered",
-      "data": "{\"email\": \"alice@example.com\", \"username\": \"alice\", \"full_name\": \"Alice Smith\"}",
-      "metadata": "{\"source\": \"web_signup\", \"ip\": \"192.168.1.100\"}"
+      "data": "{\"email\":\"alice@example.com\",\"username\":\"alice\"}",
+      "metadata": "{\"source\":\"signup\"}"
     }
   ]
 }
 EOF
 ```
 
-**Fields:**
-- **boundary**: The bounded context for this event
-- **expected_position**: `{-1, -1}` means starting fresh with no previous events
-- **event_id**: Unique identifier (use UUIDs in production)
-- **event_type**: Event classification string
-- **data**: Event payload as JSON (the actual domain data)
-- **metadata**: Auxiliary information (source, timestamps, etc.)
+Response:
 
-**Response:**
 ```json
 {
   "new_global_id": 0,
-  "latest_transaction_id": 1234567890123456,
+  "latest_transaction_id": 123456789,
   "latest_global_id": 0
 }
 ```
 
-### Saving Multiple Events
+### Save A Batch
 
-You can save multiple events atomically. Set `expected_position` to the position returned from the previous write:
+Batches are atomic. Events in one batch share the same transaction position and receive increasing global IDs.
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "orisun_test_1",
   "query": {
     "expected_position": {
-      "transaction_id": 0,
+      "transaction_id": 123456789,
       "global_id": 0
     }
   },
@@ -236,26 +202,26 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
     {
       "event_id": "profile-001",
       "event_type": "UserProfileCompleted",
-      "data": "{\"user_id\": \"user-001\", \"phone\": \"+1234567890\"}",
-      "metadata": "{\"completed_at\": \"2024-01-20T10:30:00Z\"}"
+      "data": "{\"user_id\":\"user-001\",\"phone\":\"+1234567890\"}",
+      "metadata": "{}"
     },
     {
       "event_id": "email-001",
       "event_type": "EmailVerified",
-      "data": "{\"user_id\": \"user-001\", \"email\": \"alice@example.com\"}",
-      "metadata": "{\"verified_at\": \"2024-01-20T10:31:00Z\"}"
+      "data": "{\"user_id\":\"user-001\",\"email\":\"alice@example.com\"}",
+      "metadata": "{}"
     }
   ]
 }
 EOF
 ```
 
-### Querying Events
+### Query Events
 
-Query all events from the beginning:
+Read from the beginning:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 {
   "boundary": "orisun_test_1",
   "count": 100,
@@ -264,15 +230,15 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 EOF
 ```
 
-Query events after a specific position (pagination):
+Page from a position:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 {
   "boundary": "orisun_test_1",
-  "after_position": {
-    "transaction_id": 0,
-    "global_id": 1
+  "from_position": {
+    "transaction_id": 123456789,
+    "global_id": 0
   },
   "count": 100,
   "direction": "ASC"
@@ -280,19 +246,15 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 EOF
 ```
 
-Query events by content (JSONB containment):
+Query by JSON payload fields:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 {
   "boundary": "orisun_test_1",
   "query": {
     "criteria": [
-      {
-        "tags": [
-          {"key": "username", "value": "alice"}
-        ]
-      }
+      {"tags": [{"key": "username", "value": "alice"}]}
     ]
   },
   "count": 100,
@@ -301,16 +263,16 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 EOF
 ```
 
-> **Performance note:** Criteria queries match events by JSONB key/value. Without an index on the queried field, this performs a full table scan. See [Index Management](#index-management).
+Criteria entries are combined with OR. Tags within one criterion are combined with AND.
 
-### Subscribing to Events
+### Subscribe
 
-Subscribe from the beginning and stream new events in real-time:
+Catch-up subscriptions replay stored events, then switch to live NATS delivery:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
 {
-  "subscriber_name": "my-subscriber",
+  "subscriber_name": "user-events",
   "boundary": "orisun_test_1",
   "after_position": {
     "transaction_id": -1,
@@ -320,12 +282,12 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
 EOF
 ```
 
-Subscribe to filtered events (e.g., specific event types):
+Filtered subscription:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
 {
-  "subscriber_name": "user-events-subscriber",
+  "subscriber_name": "registrations",
   "boundary": "orisun_test_1",
   "after_position": {
     "transaction_id": -1,
@@ -333,647 +295,394 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisu
   },
   "query": {
     "criteria": [
-      {
-        "tags": [{"key": "event_type", "value": "UserRegistered"}]
-      },
-      {
-        "tags": [{"key": "event_type", "value": "UserProfileCompleted"}]
-      }
+      {"tags": [{"key": "eventType", "value": "UserRegistered"}]}
     ]
   }
 }
 EOF
 ```
 
-Multiple criteria entries are combined with OR — this subscription receives `UserRegistered` OR `UserProfileCompleted` events.
+## Delivery Guarantees
 
-### Command Context Consistency in Practice
+PostgreSQL is the durable source of truth. NATS JetStream is the real-time delivery layer.
 
-Here's a banking money transfer using CCC's two-phase approach:
+`LISTEN/NOTIFY` is only a wake-up signal. If a notification is missed, correctness is still preserved by the PostgreSQL checkpoint and periodic catch-up polling.
+
+Per boundary:
+
+| Guarantee | How Orisun enforces it |
+|---|---|
+| No skipped events | The publisher stores the last published `(transaction_id, global_id)` in PostgreSQL and always resumes from the next position. |
+| Sequential publishing | The publisher drains events in ascending `(transaction_id, global_id)` order and rejects non-advancing batches before publishing. |
+| Stable committed prefix | ASC reads only expose transactions older than the current snapshot `xmin`, so a younger committed transaction cannot jump ahead of an older open transaction. |
+| Single active publisher | Clustered nodes acquire a distributed lock per boundary. Failover resumes from the persisted checkpoint. |
+
+Publishing is **at-least-once** at the boundary between NATS publish and checkpoint update. If NATS accepts an event and the checkpoint write fails, the event can be republished. Consumers should deduplicate by `event_id` or NATS message ID.
+
+## Architecture
+
+```text
+Client
+  |
+  | gRPC
+  v
+Orisun
+  |
+  | transactional write + CCC check
+  v
+PostgreSQL event log
+  |
+  | pg_notify wake-up, checkpointed drain
+  v
+Embedded NATS JetStream
+  |
+  | live + catch-up subscriptions
+  v
+Subscribers
+```
+
+Main packages:
+
+| Path | Responsibility |
+|---|---|
+| `cmd/` | Server entry point, integration tests, benchmarks |
+| `orisun/` | Core API, publisher loop, streams, generated protobuf bindings |
+| `postgres/` | PostgreSQL event store, migrations, admin DB, listener |
+| `nats/` | Embedded NATS and JetStream setup |
+| `admin/` | Auth, admin gRPC service, projections |
+| `config/` | Environment-backed configuration |
+| `clients/node/` | TypeScript client package |
+| `proto/` | Protobuf source |
+
+Supported production backend today: PostgreSQL. SQLite code exists as a stub and is not production-ready.
+
+## Boundaries And Schemas
+
+A **boundary** is a logical domain. Boundaries are isolated even when they share the same PostgreSQL schema because each boundary uses prefixed tables.
+
+Example:
 
 ```bash
-# Phase 1 — Check: query the context (all events involving alice or bob)
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
-{
-  "boundary": "banking",
-  "query": {
-    "criteria": [
-      {"tags": [{"key": "account_holder", "value": "alice"}]},
-      {"tags": [{"key": "account_holder", "value": "bob"}]}
-    ]
-  },
-  "count": 1000,
-  "direction": "DESC"
-}
-EOF
-```
-
-Build your context model from the results:
-```json
-[
-  {"account_holder": "alice", "balance": 1000},
-  {"account_holder": "bob", "balance": 500}
-]
-```
-
-Check business rules: both accounts exist, Alice has sufficient funds ✓
-
-```bash
-# Phase 2 — Record: save with the query criteria to detect concurrent changes
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
-{
-  "boundary": "banking",
-  "query": {
-    "expected_position": {
-      "transaction_id": 123,
-      "global_id": 456
-    },
-    "criteria": [
-      {"tags": [{"key": "account_holder", "value": "alice"}]},
-      {"tags": [{"key": "account_holder", "value": "bob"}]}
-    ]
-  },
-  "events": [
-    {
-      "event_id": "transfer-001",
-      "event_type": "MoneyTransferred",
-      "data": "{\"from\": \"alice\", \"to\": \"bob\", \"amount\": 100, \"reference\": \"rent\"}",
-      "metadata": "{\"timestamp\": \"2024-01-20T11:00:00Z\"}"
-    }
-  ]
-}
-EOF
-```
-
-**What happens:**
-1. Orisun re-runs the criteria query to check for new alice/bob events
-2. If the position matches (no concurrent changes), the transfer is saved
-3. If the context changed, you get `ALREADY_EXISTS` — re-run Phase 1 and retry
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Orisun Event Store                       │
-├──────────────────────┬──────────────────────────────────────┤
-│   Storage Layer      │         NATS JetStream               │
-│   (Pluggable)        │         (Streaming)                  │
-├──────────────────────┼──────────────────────────────────────┤
-│ • PostgreSQL         │ • Real-time Pub/Sub                  │
-│ • ACID Transactions  │ • Catch-up Subscriptions             │
-│ • Event Storage      │ • Durable Streams                    │
-│ • Rich Querying      │ • Clustering Support                 │
-└──────────────────────┴──────────────────────────────────────┘
-│          Admin & Observability (gRPC)                       │
-│ • User Management  • Index Management  • OpenTelemetry      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Stack:**
-- **PostgreSQL 13+**: Current production storage backend (pluggable architecture supports future backends like SQLite and FoundationDB)
-- **NATS JetStream**: Embedded real-time event streaming, no external broker required
-- **gRPC**: Client-server communication with reflection enabled by default
-- **Go 1.26.3+**: High-performance server implementation
-
-### Data Flow
-
-**Write Path:**
-1. Client sends events via gRPC
-2. Events are stored transactionally in PostgreSQL (CCC consistency check runs here)
-3. Events are published to NATS JetStream
-4. Subscribers receive events in real-time
-
-**Read Path:**
-1. Clients query events by boundary, data content, or global position
-2. Real-time subscriptions receive new events as they arrive
-3. Catch-up subscriptions replay historical events then switch to live
-
-**Clustering:**
-- Multiple nodes coordinate via PostgreSQL distributed locks
-- Each boundary is processed by exactly one node at a time
-- Automatic failover when nodes go down
-
-## Boundaries and Schemas
-
-In Orisun, a **boundary** is a logical domain — it does not map one-to-one with a PostgreSQL schema. Multiple boundaries can share the same schema, with isolation achieved via boundary-prefixed tables (e.g., `orders_orisun_es_event`, `payments_orisun_es_event`).
-
-`ORISUN_PG_SCHEMAS` maps each boundary name to a schema:
-
-```
 ORISUN_PG_SCHEMAS=orders:public,payments:public,admin:admin
 ```
 
-Here, `orders` and `payments` both live in the `public` schema but are fully isolated by their table prefixes.
+Creates tables like:
 
-Boundaries must be pre-configured at startup:
-
-```bash
-ORISUN_PG_SCHEMAS=orders:public,payments:public,admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orders","description":"Order domain"},{"name":"payments","description":"Payment domain"},{"name":"admin","description":"Admin boundary"}]' \
-ORISUN_ADMIN_BOUNDARY=admin \
-ORISUN_PG_HOST=localhost \
-[... other config ...] \
-orisun-darwin-arm64
+```text
+public.orders_orisun_es_event
+public.payments_orisun_es_event
+admin.admin_orisun_es_event
 ```
 
-At startup, Orisun:
-1. Validates and creates configured schemas if they don't exist
-2. Calls `initialize_boundary_tables(boundary, schema)` for each boundary, creating its prefixed tables
-3. Rejects all requests to unconfigured boundaries
+Each boundary has:
 
-Each boundary maintains these tables within its schema:
-- `{boundary}_orisun_es_event` — event storage
-- `{boundary}_orisun_es_event_global_id_seq` — global ID sequence
-- `{boundary}_orisun_last_published_event_position` — publisher tracking
-- `{boundary}_projector_checkpoint` — projector state
+| Table | Purpose |
+|---|---|
+| `{boundary}_orisun_es_event` | Event log |
+| `{boundary}_orisun_es_event_global_id_seq` | Per-boundary global ID sequence |
+| `{boundary}_orisun_last_published_event_position` | NATS publisher checkpoint |
+| `{boundary}_projector_checkpoint` | Projector checkpoint state |
 
-## Index Management
+Configured boundaries must match `ORISUN_BOUNDARIES`; requests to unknown boundaries are rejected.
 
-> **This is critical for production deployments.**
->
-> Orisun's CCC criteria queries match events by JSONB key/value content. Without explicit indexes on the fields you query, every criteria-based read or write performs a **full table scan**. As your event log grows, unindexed queries will become the primary bottleneck — query latency will scale linearly with table size.
->
-> **Rule of thumb: create a btree index for every distinct JSON key you use in `criteria.tags`.**
+## Indexing
 
-Orisun provides `CreateIndex` and `DropIndex` Admin RPCs that create PostgreSQL btree partial indexes on JSONB event data fields. This is an abstraction over PostgreSQL's indexing capabilities, not a custom implementation.
+Criteria queries match JSONB payload values with expressions like:
 
-### Creating Indexes
+```sql
+data->>'account_holder' = 'alice'
+```
 
-**Simple index on a single field:**
+Without an index, criteria reads and CCC consistency checks scan the full boundary event table. In production, create btree indexes for every JSON field used in `criteria.tags`.
+
+Create a simple index:
+
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
+grpcurl -H "$AUTH" \
   -d '{"boundary":"orders","name":"user_id","fields":[{"json_key":"user_id","value_type":"TEXT"}]}' \
   localhost:5005 orisun.Admin/CreateIndex
 ```
 
-**Composite index on multiple fields:**
+Create a composite index:
+
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{
-    "boundary": "orders",
-    "name": "cat_prio",
-    "fields": [
-      {"json_key": "category", "value_type": "TEXT"},
-      {"json_key": "priority", "value_type": "TEXT"}
-    ]
-  }' \
-  localhost:5005 orisun.Admin/CreateIndex
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+{
+  "boundary": "orders",
+  "name": "category_priority",
+  "fields": [
+    {"json_key": "category", "value_type": "TEXT"},
+    {"json_key": "priority", "value_type": "TEXT"}
+  ]
+}
+EOF
 ```
 
-**Partial index (only index a specific event type):**
+Create a partial index:
+
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{
-    "boundary": "orders",
-    "name": "placed_amount",
-    "fields": [{"json_key": "amount", "value_type": "NUMERIC"}],
-    "conditions": [{"key": "eventType", "operator": "=", "value": "OrderPlaced"}],
-    "condition_combinator": "AND"
-  }' \
-  localhost:5005 orisun.Admin/CreateIndex
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateIndex <<EOF
+{
+  "boundary": "orders",
+  "name": "placed_amount",
+  "fields": [{"json_key": "amount", "value_type": "NUMERIC"}],
+  "conditions": [{"key": "eventType", "operator": "=", "value": "OrderPlaced"}],
+  "condition_combinator": "AND"
+}
+EOF
 ```
 
-Partial indexes are smaller and faster — use them when you only query a field in the context of a specific event type.
-
-### Dropping an Index
+Drop an index:
 
 ```bash
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"boundary": "orders", "name": "user_id"}' \
+grpcurl -H "$AUTH" \
+  -d '{"boundary":"orders","name":"user_id"}' \
   localhost:5005 orisun.Admin/DropIndex
 ```
 
-### Index Naming
-
-Indexes are named `{boundary}_{name}_idx`. Use `DropIndex` with the same `boundary` + `name` you used at creation.
-
-### When to Index
-
-| You query by | Create index on |
-|---|---|
-| `{"key": "account_holder", "value": "..."}` | `account_holder` |
-| `{"key": "event_type", "value": "..."}` | `event_type` |
-| `{"key": "order_id", "value": "..."}` | `order_id` |
-| Multiple fields together | Composite index |
-| A field only within one event type | Partial index with condition |
-
-For complete index API documentation, see [ADMIN_API.md](ADMIN_API.md).
-
-## Clients
-
-Orisun provides official client libraries maintained as separate repositories:
-
-| Language | Package | Repository |
-|----------|---------|------------|
-| Go | `github.com/oexza/orisun-client-go` | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
-| Java | `com.orisunlabs:orisun-java-client:0.0.1` | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
-| Node.js | `@orisun/eventstore-client` | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
-
-All clients reference the shared proto definitions from [orisun-proto](https://github.com/oexza/orisun-proto).
-
-**Installation:**
-```bash
-# Go
-go get github.com/oexza/orisun-client-go
-
-# Node.js
-npm install @orisun/eventstore-client
-```
-```groovy
-// Java (Gradle)
-implementation 'com.orisunlabs:orisun-java-client:0.0.1'
-```
-
-### Generating Custom Clients
-
-For other languages, generate clients from the [orisun-proto](https://github.com/oexza/orisun-proto) repository:
-
-```bash
-# Python
-pip install grpcio-tools
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. eventstore.proto
-
-# C# — add to .csproj:
-# <Protobuf Include="eventstore.proto" GrpcServices="Client" />
-```
-
-## Admin API
-
-All Admin calls require the same basic auth header. See [ADMIN_API.md](ADMIN_API.md) for the full reference.
-
-**Quick examples:**
-
-```bash
-# Create a new user
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"name":"Jane Doe","username":"janedoe","password":"securePass123","roles":["user"]}' \
-  localhost:5005 orisun.Admin/CreateUser
-
-# List all users
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  localhost:5005 orisun.Admin/ListUsers
-
-# Validate credentials
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"username":"janedoe","password":"securePass123"}' \
-  localhost:5005 orisun.Admin/ValidateCredentials
-
-# Change password
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"user_id":"user-id-here","current_password":"oldPass","new_password":"newPass"}' \
-  localhost:5005 orisun.Admin/ChangePassword
-
-# Delete user
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"user_id":"user-id-here"}' \
-  localhost:5005 orisun.Admin/DeleteUser
-
-# Get event count for a boundary
-grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" \
-  -d '{"boundary":"orisun_test_1"}' \
-  localhost:5005 orisun.Admin/GetEventCount
-```
-
-**Available Admin operations:**
-- `CreateUser`, `ListUsers`, `ValidateCredentials`, `ChangePassword`, `DeleteUser`, `GetUserCount`, `GetEventCount`
-- `CreateIndex`, `DropIndex` — see [Index Management](#index-management)
+See [ADMIN_API.md](ADMIN_API.md) for the full admin API.
 
 ## Configuration
 
-Orisun is configured via environment variables with the `ORISUN_` prefix:
+Orisun reads environment variables with the `ORISUN_` prefix.
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `ORISUN_PG_HOST` | PostgreSQL host | localhost | Yes |
-| `ORISUN_PG_PORT` | PostgreSQL port | 5434 | Yes |
-| `ORISUN_PG_USER` | PostgreSQL username | postgres | Yes |
-| `ORISUN_PG_PASSWORD` | PostgreSQL password | postgres | Yes |
-| `ORISUN_PG_NAME` | PostgreSQL database name | orisun | Yes |
-| `ORISUN_PG_SSLMODE` | PostgreSQL SSL mode | disable | No |
-| `ORISUN_PG_SCHEMAS` | Comma-separated `boundary:schema` mappings | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Yes |
-| `ORISUN_BOUNDARIES` | JSON array of boundary definitions | `[{"name":"orisun_test_1","description":"boundary1"},...]` | Yes |
-| `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin operations | orisun_admin | Yes |
-| `ORISUN_ADMIN_USERNAME` | Default admin username | admin | No |
-| `ORISUN_ADMIN_PASSWORD` | Default admin password | changeit | No |
-| `ORISUN_ADMIN_PORT` | Admin HTTP service port | 8991 | No |
-| `ORISUN_GRPC_PORT` | gRPC server port | 5005 | No |
-| `ORISUN_GRPC_ENABLE_REFLECTION` | Enable gRPC reflection | true | No |
-| `ORISUN_GRPC_CONNECTION_TIMEOUT` | gRPC connection timeout | 60s | No |
-| `ORISUN_GRPC_KEEP_ALIVE_TIME` | gRPC keep-alive interval | 30s | No |
-| `ORISUN_GRPC_KEEP_ALIVE_TIMEOUT` | gRPC keep-alive timeout | 5s | No |
-| `ORISUN_GRPC_MAX_CONCURRENT_STREAMS` | Max concurrent gRPC streams | 10000 | No |
-| `ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE` | Max receive message size (bytes) | 67108864 (64MB) | No |
-| `ORISUN_GRPC_MAX_SEND_MESSAGE_SIZE` | Max send message size (bytes) | 67108864 (64MB) | No |
-| `ORISUN_GRPC_INITIAL_WINDOW_SIZE` | Initial stream flow-control window (bytes) | 1048576 (1MB) | No |
-| `ORISUN_GRPC_INITIAL_CONN_WINDOW_SIZE` | Initial connection flow-control window (bytes) | 1048576 (1MB) | No |
-| `ORISUN_GRPC_WRITE_BUFFER_SIZE` | Per-conn write buffer (bytes) | 65536 (64KB) | No |
-| `ORISUN_GRPC_READ_BUFFER_SIZE` | Per-conn read buffer (bytes) | 65536 (64KB) | No |
-| `ORISUN_GRPC_KEEPALIVE_MIN_TIME` | Min interval between client keepalive pings | 5s | No |
-| `ORISUN_GRPC_KEEPALIVE_PERMIT_WITHOUT_STREAM` | Allow keepalive when no active streams | true | No |
-| `ORISUN_NATS_SERVER_NAME` | NATS server name | orisun-nats-2 | No |
-| `ORISUN_NATS_PORT` | NATS server port | 4224 | No |
-| `ORISUN_NATS_MAX_PAYLOAD` | Maximum NATS message payload size | 1048576 | No |
-| `ORISUN_NATS_STORE_DIR` | NATS storage directory | ./data/orisun/nats | No |
-| `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` | Per-boundary event stream memory cap (bytes) | 536870912 (512MB) | No |
-| `ORISUN_NATS_EVENT_STREAM_MAX_MSGS` | Per-boundary event stream message cap (-1 = unbounded) | -1 | No |
-| `ORISUN_NATS_EVENT_STREAM_MAX_AGE` | Event stream retention window (catch-up overlap) | 5m | No |
-| `ORISUN_NATS_PUBLISH_ASYNC_MAX_PENDING` | Max in-flight async publishes; tune above polling batch size | 8192 | No |
-| `ORISUN_NATS_CLUSTER_NAME` | NATS cluster name | orisun-nats-cluster | No |
-| `ORISUN_NATS_CLUSTER_HOST` | NATS cluster host | 0.0.0.0 | No |
-| `ORISUN_NATS_CLUSTER_PORT` | NATS cluster port | 6222 | No |
-| `ORISUN_NATS_CLUSTER_USERNAME` | NATS cluster username | nats | No |
-| `ORISUN_NATS_CLUSTER_PASSWORD` | NATS cluster password | password@1 | No |
-| `ORISUN_NATS_CLUSTER_ENABLED` | Enable NATS clustering | false | No |
-| `ORISUN_NATS_CLUSTER_TIMEOUT` | NATS cluster operation timeout | 1800s | No |
-| `ORISUN_NATS_CLUSTER_ROUTES` | Comma-separated cluster routes | `nats://0.0.0.0:6223,nats://0.0.0.0:6224` | No |
-| `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` | Batch size for event polling | 1000 | No |
-| `ORISUN_LOGGING_LEVEL` | Logging level (DEBUG, INFO, WARN, ERROR) | INFO | No |
-| `ORISUN_OTEL_ENABLED` | Enable OpenTelemetry tracing | true | No |
-| `ORISUN_OTEL_ENDPOINT` | OTLP gRPC endpoint for tracing | localhost:4317 | No |
-| `ORISUN_OTEL_SERVICE_NAME` | Service name for traces | orisun | No |
-| `ORISUN_PPROF_ENABLED` | Enable pprof profiling endpoint | false | No |
-| `ORISUN_PPROF_PORT` | pprof HTTP port | 6060 | No |
-| `ORISUN_PG_WRITE_MAX_OPEN_CONNS` | Write pool max open connections | 25 | No |
-| `ORISUN_PG_WRITE_MAX_IDLE_CONNS` | Write pool max idle connections | 10 | No |
-| `ORISUN_PG_WRITE_CONN_MAX_IDLE_TIME` | Write pool conn idle eviction window | 5m | No |
-| `ORISUN_PG_WRITE_CONN_MAX_LIFETIME` | Write pool conn rotation interval | 30m | No |
-| `ORISUN_PG_READ_MAX_OPEN_CONNS` | Read pool max open connections | 50 | No |
-| `ORISUN_PG_READ_MAX_IDLE_CONNS` | Read pool max idle connections | 25 | No |
-| `ORISUN_PG_READ_CONN_MAX_IDLE_TIME` | Read pool conn idle eviction window | 5m | No |
-| `ORISUN_PG_READ_CONN_MAX_LIFETIME` | Read pool conn rotation interval | 30m | No |
-| `ORISUN_PG_ADMIN_MAX_OPEN_CONNS` | Admin pool max open connections | 5 | No |
-| `ORISUN_PG_ADMIN_MAX_IDLE_CONNS` | Admin pool max idle connections | 2 | No |
-| `ORISUN_PG_ADMIN_CONN_MAX_IDLE_TIME` | Admin pool conn idle eviction window | 5m | No |
-| `ORISUN_PG_ADMIN_CONN_MAX_LIFETIME` | Admin pool conn rotation interval | 30m | No |
-| `ORISUN_GRPC_TLS_ENABLED` | Enable TLS for gRPC | false | No |
-| `ORISUN_GRPC_TLS_CERT_FILE` | TLS certificate file path | /etc/orisun/tls/server.crt | No |
-| `ORISUN_GRPC_TLS_KEY_FILE` | TLS private key file path | /etc/orisun/tls/server.key | No |
-| `ORISUN_GRPC_TLS_CA_FILE` | CA certificate (for client auth) | /etc/orisun/tls/ca.crt | No |
-| `ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED` | Require client certificates | false | No |
+### Required Production Settings
 
-### Runtime Tuning
+| Variable | Description |
+|---|---|
+| `ORISUN_PG_HOST` | PostgreSQL host |
+| `ORISUN_PG_PORT` | PostgreSQL port |
+| `ORISUN_PG_USER` | PostgreSQL user |
+| `ORISUN_PG_PASSWORD` | PostgreSQL password |
+| `ORISUN_PG_NAME` | PostgreSQL database |
+| `ORISUN_PG_SCHEMAS` | Comma-separated `boundary:schema` mappings |
+| `ORISUN_BOUNDARIES` | JSON array of boundary definitions |
+| `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state |
 
-Orisun honors the standard Go runtime knobs:
+### Common Settings
 
-- **`GOMAXPROCS`** — auto-set from cgroup CPU quota at startup (via `automaxprocs`). No manual override needed in containers; for bare-metal it falls back to `runtime.NumCPU()`.
-- **`GOMEMLIMIT`** — soft memory cap. Set in container/orchestrator manifest (e.g., `GOMEMLIMIT=2GiB`). Recommended: ~80% of pod memory limit.
-- **`GOGC`** — GC trigger ratio (default 100). Raise (e.g., 200) to trade memory for less GC overhead under high allocation rates.
+| Variable | Default | Description |
+|---|---:|---|
+| `ORISUN_GRPC_PORT` | `5005` | gRPC API port |
+| `ORISUN_ADMIN_PORT` | `8991` | Admin HTTP port |
+| `ORISUN_ADMIN_USERNAME` | `admin` | Default admin username |
+| `ORISUN_ADMIN_PASSWORD` | `changeit` | Default admin password |
+| `ORISUN_LOGGING_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `ORISUN_PG_LISTEN_ENABLED` | `true` | Use PostgreSQL `LISTEN/NOTIFY` for publisher wake-ups |
+| `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` | `1000` | Max events drained per publisher read batch |
+| `ORISUN_NATS_PORT` | `4224` | Embedded NATS client port |
+| `ORISUN_NATS_STORE_DIR` | `./data/orisun/nats` | NATS data directory |
+| `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` | `536870912` | Per-boundary event stream memory cap |
+| `ORISUN_NATS_EVENT_STREAM_MAX_MSGS` | `-1` | Per-boundary event stream message cap |
+| `ORISUN_NATS_EVENT_STREAM_MAX_AGE` | `5m` | Retention overlap for catch-up subscribers |
+| `ORISUN_OTEL_ENABLED` | `true` | Enable OpenTelemetry |
+| `ORISUN_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
+| `ORISUN_PPROF_ENABLED` | `false` | Enable pprof |
+| `ORISUN_PPROF_PORT` | `6060` | pprof port |
 
-Effective values are logged at startup as `runtime: GOMAXPROCS=… GOMEMLIMIT=… GOGC=…`.
+### PostgreSQL Pool Settings
 
-### Wire Compression
+| Variable | Default |
+|---|---:|
+| `ORISUN_PG_WRITE_MAX_OPEN_CONNS` | `25` |
+| `ORISUN_PG_WRITE_MAX_IDLE_CONNS` | `10` |
+| `ORISUN_PG_WRITE_CONN_MAX_IDLE_TIME` | `5m` |
+| `ORISUN_PG_WRITE_CONN_MAX_LIFETIME` | `30m` |
+| `ORISUN_PG_READ_MAX_OPEN_CONNS` | `50` |
+| `ORISUN_PG_READ_MAX_IDLE_CONNS` | `25` |
+| `ORISUN_PG_READ_CONN_MAX_IDLE_TIME` | `5m` |
+| `ORISUN_PG_READ_CONN_MAX_LIFETIME` | `30m` |
+| `ORISUN_PG_ADMIN_MAX_OPEN_CONNS` | `5` |
+| `ORISUN_PG_ADMIN_MAX_IDLE_CONNS` | `2` |
+| `ORISUN_PG_ADMIN_CONN_MAX_IDLE_TIME` | `5m` |
+| `ORISUN_PG_ADMIN_CONN_MAX_LIFETIME` | `30m` |
 
-The server registers the gzip codec and auto-applies it on responses **only when the client advertises `gzip` in its `grpc-accept-encoding` header**. Older clients without gzip registered keep working uncompressed — no breaking change. To force compression on the client side, set `grpc.UseCompressor("gzip")` (or the equivalent in your language's gRPC SDK).
+### TLS Settings
 
-### PgBouncer Compatibility
+| Variable | Default |
+|---|---|
+| `ORISUN_GRPC_TLS_ENABLED` | `false` |
+| `ORISUN_GRPC_TLS_CERT_FILE` | `/etc/orisun/tls/server.crt` |
+| `ORISUN_GRPC_TLS_KEY_FILE` | `/etc/orisun/tls/server.key` |
+| `ORISUN_GRPC_TLS_CA_FILE` | `/etc/orisun/tls/ca.crt` |
+| `ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED` | `false` |
 
-Orisun's SQL functions are safe under PgBouncer **session mode** out of the box. For **transaction mode**:
+### Cluster Settings
 
-- The internal `insert_events_with_consistency_v3` and migration code use schema-qualified table refs (no session-leaking `SET search_path`).
-- Multi-statement transactions via the Go-side pool work normally.
-- The `pgx` driver runs with its default `cache_statement` mode — this **requires PgBouncer 1.21+ with `max_prepared_statements > 0`** for protocol-level prepared-statement support. If running an older PgBouncer in transaction mode, switch the driver to `cache_describe` or `simple_protocol` mode.
+| Variable | Default |
+|---|---|
+| `ORISUN_NATS_CLUSTER_ENABLED` | `false` |
+| `ORISUN_NATS_CLUSTER_NAME` | `orisun-nats-cluster` |
+| `ORISUN_NATS_CLUSTER_HOST` | `0.0.0.0` |
+| `ORISUN_NATS_CLUSTER_PORT` | `6222` |
+| `ORISUN_NATS_CLUSTER_ROUTES` | `nats://0.0.0.0:6223,nats://0.0.0.0:6224` |
+| `ORISUN_NATS_CLUSTER_USERNAME` | `nats` |
+| `ORISUN_NATS_CLUSTER_PASSWORD` | `password@1` |
+| `ORISUN_NATS_CLUSTER_TIMEOUT` | `1800s` |
 
-## Running Modes
+## Operations
 
 ### Standalone Mode
+
+Use one Orisun node with PostgreSQL:
 
 ```bash
 ORISUN_PG_HOST=localhost \
 ORISUN_PG_PORT=5432 \
 ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD=your_password \
-ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_admin","description":"admin boundary"}]' \
-ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_GRPC_PORT=5005 \
-ORISUN_NATS_PORT=4222 \
-./orisun-darwin-arm64
+ORISUN_PG_NAME=orisun \
+ORISUN_PG_SCHEMAS=orders:public,admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orders","description":"orders"},{"name":"admin","description":"admin"}]' \
+ORISUN_ADMIN_BOUNDARY=admin \
+./orisun-linux-amd64
 ```
 
 ### Clustered Mode
 
-For high availability and horizontal scaling. Requires minimum 3 nodes for NATS JetStream quorum.
+Clustered mode uses embedded NATS clustering and one active publisher per boundary.
 
-**Node 1:**
-```bash
-ORISUN_PG_HOST=your-postgres-host \
-ORISUN_PG_PORT=5432 \
-ORISUN_PG_USER=postgres \
-ORISUN_PG_PASSWORD=your_password \
-ORISUN_PG_NAME=your_database \
-ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test boundary"},{"name":"orisun_test_2","description":"test boundary 2"},{"name":"orisun_admin","description":"admin boundary"}]' \
-ORISUN_ADMIN_BOUNDARY=orisun_admin \
-ORISUN_GRPC_PORT=5005 \
-ORISUN_NATS_PORT=4222 \
-ORISUN_NATS_CLUSTER_ENABLED=true \
-ORISUN_NATS_CLUSTER_NAME=orisun-cluster \
-ORISUN_NATS_CLUSTER_HOST=node1.example.com \
-ORISUN_NATS_CLUSTER_PORT=6222 \
-ORISUN_NATS_CLUSTER_USERNAME=nats \
-ORISUN_NATS_CLUSTER_PASSWORD=secure_cluster_password \
-ORISUN_NATS_CLUSTER_ROUTES='nats://node2.example.com:6222,nats://node3.example.com:6222' \
-ORISUN_NATS_SERVER_NAME=orisun-node-1 \
-ORISUN_NATS_STORE_DIR=./data/node1/nats \
-./orisun-linux-amd64
-```
+Minimum recommendation: three nodes for JetStream quorum.
 
-**Nodes 2 and 3** use the same configuration with these values changed:
+Each node should share:
 
-| Variable | Node 2 | Node 3 |
-|---|---|---|
-| `ORISUN_GRPC_PORT` | 5006 | 5007 |
-| `ORISUN_NATS_PORT` | 4223 | 4224 |
-| `ORISUN_NATS_CLUSTER_HOST` | node2.example.com | node3.example.com |
-| `ORISUN_NATS_CLUSTER_ROUTES` | node1,node3 | node1,node2 |
-| `ORISUN_NATS_SERVER_NAME` | orisun-node-2 | orisun-node-3 |
-| `ORISUN_NATS_STORE_DIR` | ./data/node2/nats | ./data/node3/nats |
+- PostgreSQL database and schemas
+- `ORISUN_BOUNDARIES`
+- `ORISUN_PG_SCHEMAS`
+- `ORISUN_NATS_CLUSTER_NAME`
+- NATS cluster credentials
 
-**Cluster behavior:**
-- Each boundary is processed by exactly one node at a time (distributed lock)
-- When a node goes down, others automatically pick up its boundaries within 5–10 seconds
-- All nodes can handle read/write operations independently
-- Use client-side load balancing — all official clients support multi-server and DNS-based load balancing
+Each node should have unique:
 
-**Expected log messages:**
-- `"Successfully acquired lock for boundary: <name>"` — this node is processing the boundary
-- `"Failed to acquire lock for boundary: <name>"` — another node holds it (normal)
-- `"Failed to start user projection (likely due to lock contention)"` — will retry automatically
+- `ORISUN_GRPC_PORT`
+- `ORISUN_NATS_PORT`
+- `ORISUN_NATS_CLUSTER_HOST`
+- `ORISUN_NATS_SERVER_NAME`
+- `ORISUN_NATS_STORE_DIR`
 
-**Kubernetes:**
-Use ConfigMaps for environment configuration, HPA for scaling, network policies for inter-pod security, and resource limits/requests per pod.
+Expected publisher behavior:
 
-## TLS Configuration
+- A node logs successful lock acquisition when it owns a boundary.
+- Other nodes may log lock contention. That is normal.
+- If the owner exits, another node resumes from the PostgreSQL checkpoint.
 
-TLS is disabled by default. Enable for production:
+### PgBouncer
 
-```bash
-ORISUN_GRPC_TLS_ENABLED=true \
-ORISUN_GRPC_TLS_CERT_FILE=/path/to/server.crt \
-ORISUN_GRPC_TLS_KEY_FILE=/path/to/server.key \
-./orisun-darwin-arm64
-```
+Session mode works out of the box.
 
-### Generating Self-Signed Certificates
+For transaction mode:
 
-```bash
-openssl genrsa -out server.key 2048
-openssl req -new -key server.key -out server.csr -subj "/CN=orisun.local/O=Orisun/C=US"
-openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
-```
+- SQL functions use schema-qualified table references.
+- The Go-side pool uses multi-statement transactions normally.
+- The `pgx` driver default statement cache requires PgBouncer 1.21+ with `max_prepared_statements > 0`.
+- Older PgBouncer deployments should use `cache_describe` or simple protocol mode.
 
-### TLS with Client Authentication
+### Runtime Tuning
 
-```bash
-# Generate CA
-openssl genrsa -out ca.key 2048
-openssl req -new -x509 -days 365 -key ca.key -out ca.crt -subj "/CN=OrisunCA/O=Orisun/C=US"
+Orisun honors standard Go runtime settings:
 
-# Generate server certificate signed by CA
-openssl genrsa -out server.key 2048
-openssl req -new -key server.key -out server.csr -subj "/CN=orisun.local/O=Orisun/C=US"
-openssl x509 -req -days 365 -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt
+| Variable | Recommendation |
+|---|---|
+| `GOMAXPROCS` | Auto-set from cgroup CPU quota through `automaxprocs` |
+| `GOMEMLIMIT` | Set to about 80 percent of container memory |
+| `GOGC` | Tune upward for lower GC frequency if memory allows |
 
-# Generate client certificate
-openssl genrsa -out client.key 2048
-openssl req -new -key client.key -out client.csr -subj "/CN=client/O=OrisunClient/C=US"
-openssl x509 -req -days 365 -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt
-
-# Start with mutual TLS
-ORISUN_GRPC_TLS_ENABLED=true \
-ORISUN_GRPC_TLS_CERT_FILE=/path/to/server.crt \
-ORISUN_GRPC_TLS_KEY_FILE=/path/to/server.key \
-ORISUN_GRPC_TLS_CA_FILE=/path/to/ca.crt \
-ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED=true \
-./orisun-darwin-arm64
-```
-
-### Connecting with TLS
-
-```bash
-# Skip server verification (testing only)
-grpcurl -insecure -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
-
-# With CA verification
-grpcurl -cacert /path/to/ca.crt -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
-
-# With client certificate
-grpcurl -cacert /path/to/ca.crt -cert /path/to/client.crt -key /path/to/client.key \
-  -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
-```
-
-**Docker Compose with TLS:**
-```yaml
-services:
-  orisun:
-    image: oexza/orisun:latest
-    environment:
-      ORISUN_GRPC_TLS_ENABLED: "true"
-      ORISUN_GRPC_TLS_CERT_FILE: /etc/orisun/tls/server.crt
-      ORISUN_GRPC_TLS_KEY_FILE: /etc/orisun/tls/server.key
-    volumes:
-      - ./tls:/etc/orisun/tls:ro
-    ports:
-      - "5005:5005"
-```
-
-## Error Handling
-
-### Common Error Responses
-- `ALREADY_EXISTS`: CCC consistency violation — concurrent modification detected; re-fetch context and retry
-- `INVALID_ARGUMENT`: Missing or invalid required fields
-- `INTERNAL`: Database or system error — check server logs
-- `NOT_FOUND`: Requested stream or consumer doesn't exist
+Effective values are logged at startup.
 
 ### Troubleshooting
 
-1. **Connection issues** — verify PostgreSQL settings, check NATS port availability, confirm firewall rules for cluster port 6222
-2. **Slow queries / performance degradation** — the most common cause is missing indexes; see [Index Management](#index-management)
-3. **Schema issues** — ensure schemas are configured, check PostgreSQL user permissions, validate `ORISUN_BOUNDARIES` JSON
-4. **Cluster lock failures** — `"Failed to acquire lock"` is normal when another node holds the lock; watch for it persisting without any node acquiring
-5. **Split brain** — ensure minimum 3 nodes for JetStream quorum
+| Symptom | Check |
+|---|---|
+| Cannot connect | PostgreSQL host/port, gRPC port, firewall, Docker networking |
+| `ALREADY_EXISTS` | Expected CCC conflict; re-query context and retry |
+| Slow criteria queries | Missing JSONB btree indexes |
+| Publisher lag | PostgreSQL listener health, NATS health, boundary lock ownership |
+| Duplicate delivery | Expected after publish/checkpoint failure; deduplicate by `event_id` |
+| Cluster instability | NATS quorum, routes, unique ports, persistent store dirs |
 
-## Performance
+## Clients
 
-Orisun is designed for high-performance event processing. The following benchmarks were run on Apple M1 Pro (darwin-arm64) with PostgreSQL in Docker:
+Official client libraries are maintained separately:
 
-| Benchmark | Result | Description |
-|-----------|--------|-------------|
-| **SaveEvents_Batch (10 events)** | ~5,960 events/sec | Batched writes via gRPC |
-| **DirectDatabase10K** | ~1,013 events/sec | Direct database writes (concurrent with granular locking) |
-| **DirectDatabase10KBatch** | high throughput | Direct database batch writes (bypasses gRPC layer) |
-| **ConsistencyCheck_NoIndex** | ~699 saves/sec | CCC version check with sequential scan (10K rows) |
-| **ConsistencyCheck_WithIndex** | ~745 saves/sec | CCC version check with btree index (10K rows) |
+| Language | Package | Repository |
+|---|---|---|
+| Go | `github.com/oexza/orisun-client-go` | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
+| Java | `com.orisunlabs:orisun-java-client:0.0.1` | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
+| Node.js | `@orisun/eventstore-client` | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
 
-The `ConsistencyCheck` benchmarks pre-populate 10,000 events across 500 streams and measure save throughput. These numbers reflect a small dataset — at larger scale the gap between indexed and unindexed queries grows significantly. **Always define indexes on the fields you query in production.**
-
-### Running Benchmarks
-
-```bash
-# All benchmarks
-go test -bench=. -benchtime=3s -count=1 ./cmd/benchmark_test.go
-
-# Specific benchmark
-go test -bench=BenchmarkSaveEvents_Single -benchtime=5s ./cmd/benchmark_test.go
-
-# Index performance benchmarks
-go test -run='^$' -bench=BenchmarkConsistencyCheck -benchtime=5s ./postgres/...
-
-# Use the collection script
-./collect_benchmarks.sh
-```
-
-## Building from Source
-
-### Prerequisites
-- Go 1.26.3+
-- Make
+Install:
 
 ```bash
-git clone https://github.com/oexza/orisun.git
-cd orisun
-
-# Build for current platform
-./build.sh
-
-# Cross-compile
-./build.sh linux amd64     # Linux x86_64
-./build.sh darwin arm64    # macOS Apple Silicon
-./build.sh windows amd64   # Windows x86_64
+go get github.com/oexza/orisun-client-go
+npm install @orisun/eventstore-client
 ```
+
+Generate custom clients from the proto files in `proto/` or from the shared proto repository.
 
 ## Development
 
-### Setup
-1. Fork and clone: `git clone https://github.com/YOUR_USERNAME/orisun.git`
-2. Install dependencies: `go mod download`
-3. Create a feature branch: `git checkout -b feature/amazing-feature`
-4. Make your changes and run tests: `go test ./...`
-5. Commit and push, then open a Pull Request
+### Requirements
 
-### Building the Docker Image
+- Go 1.26.3+
+- Docker for integration tests
+- `task` for optional development workflows
+
+### Common Commands
+
+```bash
+go test ./...
+go build ./...
+go fmt ./...
+go vet ./...
+go run cmd/main.go
+```
+
+Taskfile helpers:
+
+```bash
+task tools
+task build
+task live
+task debug
+```
+
+Build release binaries:
+
+```bash
+./build.sh
+./build.sh linux amd64
+./build.sh darwin arm64
+./build.sh windows amd64
+```
+
+Run benchmarks:
+
+```bash
+go test -bench=. -benchtime=3s ./cmd/benchmark_test.go
+go test -run='^$' -bench=BenchmarkConsistencyCheck -benchtime=5s ./postgres/...
+./collect_benchmarks.sh
+```
+
+### Docker
+
+Build locally:
 
 ```bash
 docker build -t orisun:local .
-
-# With version info
-docker build \
-  --build-arg VERSION=1.0.0 \
-  --build-arg TARGET_OS=linux \
-  --build-arg TARGET_ARCH=amd64 \
-  -t orisun:local .
 ```
 
-### Code Style
-- Follow Go best practices and style guide
-- Write meaningful commit messages
-- Include tests for new features
-- Update documentation as needed
+Run the local Docker smoke test:
 
-### Community Guidelines
-- Report bugs and security issues responsibly
-- Participate in discussions and reviews constructively
+```bash
+./scripts/test_docker.sh
+```
+
+## Security Notes
+
+- Change `ORISUN_ADMIN_PASSWORD` before production use.
+- Enable gRPC TLS in production-facing deployments.
+- Protect PostgreSQL credentials and NATS cluster credentials.
+- Use network policy/firewall rules for NATS cluster routes and PostgreSQL.
 
 ## License
 
