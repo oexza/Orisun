@@ -338,14 +338,22 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	require.NoError(t, err, "Failed to query current position")
 
 	// Determine the expected position based on existing events
-	var expectedPosition pb.Position
+	var expectedPosition *pb.Position
 	if len(currentResp.Events) > 0 {
 		// Use the position of the most recent event
-		expectedPosition = *currentResp.Events[0].Position
-		t.Logf("Found existing events in orisun_test_1, current position: %v", expectedPosition)
+		currentPosition := currentResp.Events[0].Position
+		expectedPosition = &pb.Position{
+			CommitPosition:  currentPosition.CommitPosition,
+			PreparePosition: currentPosition.PreparePosition,
+		}
+		t.Logf("Found existing events in orisun_test_1, current position: commit=%d prepare=%d", expectedPosition.CommitPosition, expectedPosition.PreparePosition)
 	} else {
 		// No events exist, use NotExistsPosition
-		expectedPosition = pb.NotExistsPosition()
+		notExists := pb.NotExistsPosition()
+		expectedPosition = &pb.Position{
+			CommitPosition:  notExists.CommitPosition,
+			PreparePosition: notExists.PreparePosition,
+		}
 		t.Logf("No existing events in orisun_test_1, using NotExistsPosition")
 	}
 
@@ -368,7 +376,7 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 	// Save all events in a single request with the correct expected position
 	req := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
-		Query:    &pb.SaveQuery{ExpectedPosition: &expectedPosition},
+		Query:    &pb.SaveQuery{ExpectedPosition: expectedPosition},
 		Events:   eventsToSave,
 	}
 

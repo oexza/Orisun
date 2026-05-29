@@ -195,7 +195,7 @@ func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
 	}
 	want := eventstore.NotExistsPosition()
 	if pos.CommitPosition != want.CommitPosition || pos.PreparePosition != want.PreparePosition {
-		t.Fatalf("expected not-exists position, got %+v", pos)
+		t.Fatalf("expected not-exists position, got commit=%d prepare=%d", pos.CommitPosition, pos.PreparePosition)
 	}
 }
 

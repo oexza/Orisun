@@ -67,4 +67,10 @@ jobs:
         run: go build -v ./...
 
       - name: Build Docker image
-        run: docker build -t orisun:test .
+        run: docker build -t orisun:test --build-arg FLAVOR=all .
+
+      - name: Build PostgreSQL-only Docker image
+        run: docker build -t orisun-pg:test --build-arg FLAVOR=pg .
+
+      - name: Build SQLite-only Docker image
+        run: docker build -t orisun-sqlite:test --build-arg FLAVOR=sqlite .

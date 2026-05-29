@@ -64,14 +64,81 @@ jobs:
         include:
           - os: linux
             arch: amd64
+            flavor: all
+            package: ./cmd
+            binary: orisun
           - os: linux
             arch: arm64
+            flavor: all
+            package: ./cmd
+            binary: orisun
           - os: darwin
             arch: amd64
+            flavor: all
+            package: ./cmd
+            binary: orisun
           - os: darwin
             arch: arm64
+            flavor: all
+            package: ./cmd
+            binary: orisun
           - os: windows
             arch: amd64
+            flavor: all
+            package: ./cmd
+            binary: orisun
+            extension: .exe
+          - os: linux
+            arch: amd64
+            flavor: pg
+            package: ./cmd/orisun-pg
+            binary: orisun-pg
+          - os: linux
+            arch: arm64
+            flavor: pg
+            package: ./cmd/orisun-pg
+            binary: orisun-pg
+          - os: darwin
+            arch: amd64
+            flavor: pg
+            package: ./cmd/orisun-pg
+            binary: orisun-pg
+          - os: darwin
+            arch: arm64
+            flavor: pg
+            package: ./cmd/orisun-pg
+            binary: orisun-pg
+          - os: windows
+            arch: amd64
+            flavor: pg
+            package: ./cmd/orisun-pg
+            binary: orisun-pg
+            extension: .exe
+          - os: linux
+            arch: amd64
+            flavor: sqlite
+            package: ./cmd/orisun-sqlite
+            binary: orisun-sqlite
+          - os: linux
+            arch: arm64
+            flavor: sqlite
+            package: ./cmd/orisun-sqlite
+            binary: orisun-sqlite
+          - os: darwin
+            arch: amd64
+            flavor: sqlite
+            package: ./cmd/orisun-sqlite
+            binary: orisun-sqlite
+          - os: darwin
+            arch: arm64
+            flavor: sqlite
+            package: ./cmd/orisun-sqlite
+            binary: orisun-sqlite
+          - os: windows
+            arch: amd64
+            flavor: sqlite
+            package: ./cmd/orisun-sqlite
+            binary: orisun-sqlite
             extension: .exe
     steps:
       - name: Checkout code
@@ -87,15 +154,15 @@ jobs:
         run: |
           mkdir -p build
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build \
-            -ldflags="-w -s -X 'orisun/common.Version=${{ env.VERSION }}' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=${GITHUB_SHA::8}'" \
-            -o build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }} \
-            ./cmd
+            -ldflags="-w -s -X 'orisun/common.Version=v${{ needs.validate.outputs.version }}' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=${GITHUB_SHA::8}'" \
+            -o build/${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }} \
+            ${{ matrix.package }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: orisun-${{ matrix.os }}-${{ matrix.arch }}
-          path: build/orisun-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
+          name: ${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: build/${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }}
           if-no-files-found: error
 
 
@@ -161,22 +228,30 @@ jobs:
 
           ### Linux
           \`\`\`bash
-          # For amd64
+          # All-backends binary for amd64
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-amd64 -o orisun
           chmod +x orisun
 
-          # For arm64
+          # All-backends binary for arm64
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-arm64 -o orisun
           chmod +x orisun
+
+          # PostgreSQL-only binary
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-pg-linux-amd64 -o orisun-pg
+          chmod +x orisun-pg
+
+          # SQLite-only binary
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64 -o orisun-sqlite
+          chmod +x orisun-sqlite
           \`\`\`
 
           ### macOS
           \`\`\`bash
-          # For amd64
+          # All-backends binary for amd64
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-amd64 -o orisun
           chmod +x orisun
 
-          # For arm64 (Apple Silicon)
+          # All-backends binary for arm64 (Apple Silicon)
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-arm64 -o orisun
           chmod +x orisun
           \`\`\`
@@ -204,6 +279,15 @@ jobs:
     if: ${{ !inputs.docker_only || always() }}
     permissions:
       packages: write
+    strategy:
+      matrix:
+        include:
+          - flavor: all
+            image: orisun
+          - flavor: pg
+            image: orisun-pg
+          - flavor: sqlite
+            image: orisun-sqlite
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -235,10 +319,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ needs.validate.outputs.version }}
+            FLAVOR=${{ matrix.flavor }}
             BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             GIT_COMMIT=${GITHUB_SHA::8}
           tags: |
-            ghcr.io/oexza/orisun:latest
-            ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }}
-            orexza/orisun:latest
-            orexza/orisun:${{ needs.validate.outputs.version }}
+            ghcr.io/oexza/${{ matrix.image }}:latest
+            ghcr.io/oexza/${{ matrix.image }}:${{ needs.validate.outputs.version }}
+            orexza/${{ matrix.image }}:latest
+            orexza/${{ matrix.image }}:${{ needs.validate.outputs.version }}

@@ -15,7 +15,7 @@ It stores events transactionally in PostgreSQL or SQLite, publishes them through
 - **Real-time delivery included**: embedded NATS JetStream handles live subscriptions and catch-up delivery.
 - **No-miss publishing**: publisher checkpoints and ordered catch-up reads prevent skipped events even when wake-up signals are missed.
 - **Sequential per-boundary publishing**: events publish in ascending `(transaction_id, global_id)` order.
-- **Production controls**: explicit JSONB indexes, gRPC auth/TLS options, OpenTelemetry, pprof, clustering, and PgBouncer guidance.
+- **Production controls**: explicit indexes, gRPC auth/TLS options, OpenTelemetry, pprof, PostgreSQL clustering, and PgBouncer guidance.
 
 ## Contents
 
@@ -29,6 +29,7 @@ It stores events transactionally in PostgreSQL or SQLite, publishes them through
 - [Configuration](#configuration)
 - [Operations](#operations)
 - [Clients](#clients)
+- [Embedding](#embedding)
 - [Development](#development)
 
 ## Storage Backends
@@ -38,7 +39,7 @@ Orisun supports two storage backends, chosen at startup via `ORISUN_BACKEND`:
 | Backend | Use Case | Multi-Node | Driver |
 | --- | --- | --- | --- |
 | `postgres` (default) | Production, clustered deployments, large datasets | Yes — cluster nodes coordinate via PG advisory locks | `pgx` |
-| `sqlite` | Embedded / single-node, dev, edge, low-ops | **No** — single-node only; rejected at startup if `ORISUN_NATS_CLUSTER_ENABLED=true` | `zombiezen.com/go/sqlite` (pure Go) |
+| `sqlite` | Embedded, single-node production, dev, edge, low-ops | **No** — single-node only; rejected at startup if `ORISUN_NATS_CLUSTER_ENABLED=true` | `zombiezen.com/go/sqlite` (pure Go) |
 
 For SQLite, set `ORISUN_SQLITE_DIR` to the directory holding the per-boundary `{boundary}.db` files. The directory is created on startup if missing. Example:
 
@@ -50,17 +51,19 @@ ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ./orisun
 ```
 
-The SQLite path uses WAL mode + `synchronous=NORMAL`, with one writer + N readers per boundary. Multi-row INSERT is used so a single `SaveEvents` call commits as one transaction; concurrent calls serialise at the boundary's write pool.
+The SQLite backend is a complete single-node implementation, not a development-only fallback. It includes the event log, admin state, index metadata, publisher checkpoints, projector checkpoints, JSON criteria queries, and the same CCC save semantics as PostgreSQL.
+
+SQLite writes use WAL mode + `synchronous=NORMAL`, with one writer + N readers per boundary. A single `SaveEvents` call commits as one transaction, assigns stable global IDs, updates the transaction position, and wakes the publisher immediately after commit. Concurrent saves serialize through the boundary write pool, so committed SQLite events are published in the same ascending `(transaction_id, global_id)` order used by PostgreSQL.
+
+The publisher checkpoint is stored in SQLite and catch-up reads always resume from the next durable position. Wake-up signals are only hints; if a signal is lost, periodic polling still drains the committed log. This means SQLite deployments keep the same no-skipped-events and sequential publishing guarantees as PostgreSQL on a single Orisun node.
 
 ## Quick Start
 
-### Docker Compose
+### Docker Compose With PostgreSQL
 
-Create `docker-compose.yml`:
+PostgreSQL is the default backend and the right choice for multi-node Orisun clusters. Create `docker-compose.yml`:
 
 ```yaml
-version: "3.8"
-
 services:
   postgres:
     image: postgres:17.5-alpine3.22
@@ -99,7 +102,7 @@ volumes:
 Start Orisun:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 Verify the gRPC API:
@@ -110,7 +113,50 @@ grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
 
 Default credentials are `admin:changeit`.
 
-### Binary
+### Docker Compose With SQLite
+
+SQLite is the simplest production-capable single-node setup. It does not need a separate database container.
+
+Create `docker-compose.yml`:
+
+```yaml
+services:
+  orisun:
+    image: orexza/orisun:latest
+    environment:
+      ORISUN_BACKEND: sqlite
+      ORISUN_SQLITE_DIR: /var/lib/orisun/sqlite
+      ORISUN_NATS_CLUSTER_ENABLED: "false"
+      ORISUN_BOUNDARIES: '[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_USERNAME: admin
+      ORISUN_ADMIN_PASSWORD: changeit
+    ports:
+      - "5005:5005"
+      - "8991:8991"
+    volumes:
+      - orisun-data:/var/lib/orisun
+    restart: unless-stopped
+
+volumes:
+  orisun-data:
+```
+
+Start Orisun:
+
+```bash
+docker compose up -d
+```
+
+Verify the gRPC API:
+
+```bash
+grpcurl -H "Authorization: Basic YWRtaW46Y2hhbmdlaXQ=" localhost:5005 list
+```
+
+Default credentials are `admin:changeit`.
+
+### Binary With PostgreSQL
 
 Download a release binary and run it against PostgreSQL:
 
@@ -124,6 +170,35 @@ ORISUN_PG_SCHEMAS="orisun_test_1:public,orisun_admin:admin" \
 ORISUN_BOUNDARIES='[{"name":"orisun_test_1","description":"test"},{"name":"orisun_admin","description":"admin"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ./orisun-darwin-arm64
+```
+
+For a deployment artifact that contains only the PostgreSQL backend, build the PG-only command:
+
+```bash
+./build.sh linux amd64 dev pg
+./build/orisun-pg-linux-amd64
+```
+
+### Binary With SQLite
+
+Run the same binary without PostgreSQL:
+
+```bash
+ORISUN_BACKEND=sqlite \
+ORISUN_SQLITE_DIR=/var/lib/orisun/sqlite \
+ORISUN_NATS_CLUSTER_ENABLED=false \
+ORISUN_BOUNDARIES='[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+ORISUN_ADMIN_USERNAME=admin \
+ORISUN_ADMIN_PASSWORD=changeit \
+./orisun-darwin-arm64
+```
+
+For a deployment artifact that contains only the SQLite backend, build the SQLite-only command:
+
+```bash
+./build.sh linux amd64 dev sqlite
+./build/orisun-sqlite-linux-amd64
 ```
 
 ## Core Model
@@ -336,7 +411,7 @@ Per boundary:
 | No skipped events | The publisher stores the last published `(transaction_id, global_id)` in the selected backend and always resumes from the next position. |
 | Sequential publishing | The publisher drains events in ascending `(transaction_id, global_id)` order and rejects non-advancing batches before publishing. |
 | Stable committed prefix | PostgreSQL ASC reads only expose transactions older than the current snapshot `xmin`; SQLite uses a single writer per boundary, so commits are already serialized. |
-| Single active publisher | Nodes acquire a lock per boundary. Clustered PostgreSQL nodes fail over from the persisted checkpoint; SQLite is single-node only. |
+| Single active publisher | Clustered PostgreSQL nodes acquire a lock per boundary and fail over from the persisted checkpoint. SQLite runs one Orisun writer node, so there is only one publisher per boundary. |
 
 Publishing is **at-least-once** at the boundary between NATS publish and checkpoint update. If NATS accepts an event and the checkpoint write fails, the event can be republished. Consumers should deduplicate by `event_id` or NATS message ID.
 
@@ -353,7 +428,7 @@ Orisun
   v
 PostgreSQL or SQLite event log
   |
-  | pg_notify or polling wake-up, checkpointed drain
+  | pg_notify, SQLite signal, or polling wake-up; checkpointed drain
   v
 Embedded NATS JetStream
   |
@@ -367,15 +442,23 @@ Main packages:
 | Path | Responsibility |
 |---|---|
 | `cmd/` | Server entry point, integration tests, benchmarks |
+| `cmd/orisun-pg/` | PostgreSQL-only server binary |
+| `cmd/orisun-sqlite/` | SQLite-only server binary |
+| `embedded/postgres/` | In-process PostgreSQL embedding package |
+| `embedded/sqlite/` | In-process SQLite embedding package |
 | `orisun/` | Core API, publisher loop, streams, generated protobuf bindings |
 | `postgres/` | PostgreSQL event store, migrations, admin DB, listener |
+| `sqlite/` | SQLite event store, admin DB, indexes, publisher checkpoints |
 | `nats/` | Embedded NATS and JetStream setup |
 | `admin/` | Auth, admin gRPC service, projections |
 | `config/` | Environment-backed configuration |
+| `server/` | Backend-neutral server bootstrap for command binaries |
 | `clients/node/` | TypeScript client package |
 | `proto/` | Protobuf source |
 
-Backend support: PostgreSQL is the production and clustering backend. SQLite is supported for embedded or single-node deployments and is intentionally rejected when NATS clustering is enabled.
+Backend support: PostgreSQL is the production multi-node clustering backend. SQLite is the production single-node backend and is intentionally rejected when NATS clustering is enabled, because SQLite must have exactly one active writer.
+
+Backend-specific commands and embedding packages keep deployments small and explicit. `cmd/orisun-pg` imports `postgres` but not `sqlite`; `cmd/orisun-sqlite` imports `sqlite` but not `postgres`. The root `cmd` binary remains the all-backends entry point.
 
 ## Boundaries And Schemas
 
@@ -408,13 +491,13 @@ Configured boundaries must match `ORISUN_BOUNDARIES`; requests to unknown bounda
 
 ## Indexing
 
-Criteria queries match JSONB payload values with expressions like:
+Criteria queries match JSON payload values. PostgreSQL uses JSONB expressions like:
 
 ```sql
 data->>'account_holder' = 'alice'
 ```
 
-Without an index, criteria reads and CCC consistency checks scan the full boundary event table. In production, create btree indexes for every JSON field used in `criteria.tags`.
+Without an index, criteria reads and CCC consistency checks scan the full boundary event table. In production, create indexes for every JSON field used in `criteria.tags`. Orisun creates backend-appropriate indexes through the same Admin API: PostgreSQL uses JSONB expression indexes, and SQLite uses JSON expression indexes.
 
 Create a simple index:
 
@@ -481,7 +564,7 @@ Orisun reads environment variables with the `ORISUN_` prefix.
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions |
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state |
 
-For SQLite deployments, replace the PostgreSQL connection variables with `ORISUN_SQLITE_DIR`. SQLite remains single-node; leave `ORISUN_NATS_CLUSTER_ENABLED=false`.
+For SQLite deployments, replace the PostgreSQL connection variables with `ORISUN_SQLITE_DIR`. SQLite is production-ready for single-node operation; leave `ORISUN_NATS_CLUSTER_ENABLED=false`.
 
 ### Common Settings
 
@@ -563,7 +646,7 @@ ORISUN_ADMIN_BOUNDARY=admin \
 ./orisun-linux-amd64
 ```
 
-For embedded deployments, use SQLite instead:
+For embedded, edge, or low-ops single-node production deployments, use SQLite instead:
 
 ```bash
 ORISUN_BACKEND=sqlite \
@@ -631,8 +714,8 @@ Effective values are logged at startup.
 |---|---|
 | Cannot connect | PostgreSQL host/port, gRPC port, firewall, Docker networking |
 | `ALREADY_EXISTS` | Expected CCC conflict; re-query context and retry |
-| Slow criteria queries | Missing JSONB btree indexes |
-| Publisher lag | PostgreSQL listener health, NATS health, boundary lock ownership |
+| Slow criteria queries | Missing JSON field indexes for the selected backend |
+| Publisher lag | PostgreSQL listener health, SQLite signal/polling health, NATS health, boundary lock ownership |
 | Duplicate delivery | Expected after publish/checkpoint failure; deduplicate by `event_id` |
 | Cluster instability | NATS quorum, routes, unique ports, persistent store dirs |
 
@@ -655,6 +738,51 @@ npm install @orisun/eventstore-client
 
 Generate custom clients from the proto files in `proto/` or from the shared proto repository.
 
+## Embedding
+
+Go services can embed Orisun directly instead of running the gRPC server as a separate process.
+
+PostgreSQL embedding imports only the PostgreSQL backend:
+
+```go
+import (
+	"context"
+
+	embeddedpg "github.com/oexza/Orisun/embedded/postgres"
+	"github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
+)
+
+func start(ctx context.Context) (*embeddedpg.Store, error) {
+	cfg := config.InitializeConfig()
+	cfg.Backend.Type = "postgres"
+	logger := logging.InitializeDefaultLogger(cfg.Logging)
+	return embeddedpg.Start(ctx, cfg, logger)
+}
+```
+
+SQLite embedding imports only the SQLite backend:
+
+```go
+import (
+	"context"
+
+	embeddedsqlite "github.com/oexza/Orisun/embedded/sqlite"
+	"github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
+)
+
+func start(ctx context.Context) (*embeddedsqlite.Store, error) {
+	cfg := config.InitializeConfig()
+	cfg.Backend.Type = "sqlite"
+	cfg.Nats.Cluster.Enabled = false
+	logger := logging.InitializeDefaultLogger(cfg.Logging)
+	return embeddedsqlite.Start(ctx, cfg, logger)
+}
+```
+
+Both embedded stores expose the same high-level `SaveEvents`, `GetEvents`, and `SubscribeToEvents` methods through `orisun.OrisunServer`.
+
 ## Development
 
 ### Requirements
@@ -673,6 +801,8 @@ go vet ./...
 go run cmd/main.go
 ```
 
+`go test ./...` includes PostgreSQL Testcontainers coverage and SQLite end-to-end coverage. Docker must be available for the full integration suite.
+
 Taskfile helpers:
 
 ```bash
@@ -689,6 +819,8 @@ Build release binaries:
 ./build.sh linux amd64
 ./build.sh darwin arm64
 ./build.sh windows amd64
+./build.sh linux amd64 dev pg
+./build.sh linux amd64 dev sqlite
 ```
 
 Run benchmarks:

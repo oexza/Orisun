@@ -89,8 +89,10 @@ func prepopulateStreams(
 			}
 		}
 
-		final := pos
-		positions[sIdx] = &final
+		positions[sIdx] = &orisun.Position{
+			CommitPosition:  pos.CommitPosition,
+			PreparePosition: pos.PreparePosition,
+		}
 	}
 
 	return streamIds, positions

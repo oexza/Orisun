@@ -69,28 +69,27 @@ func ChangePassword(
 	// Use goroutines to fetch events concurrently with errgroup for cancellation
 	var userCreated, userDeleted, passwordChanged *orisun.GetEventsResponse
 
-	// Create a common request template
-	baseRequest := orisun.GetEventsRequest{
-		Boundary:  boundary,
-		Count:     1,
-		Direction: orisun.Direction_DESC,
+	newUserEventRequest := func(eventType string) *orisun.GetEventsRequest {
+		return &orisun.GetEventsRequest{
+			Boundary:  boundary,
+			Count:     1,
+			Direction: orisun.Direction_DESC,
+			Query: &orisun.Query{
+				Criteria: []*orisun.Criterion{
+					{
+						Tags: []*orisun.Tag{
+							{Key: "user_id", Value: currentUserId},
+							{Key: "eventType", Value: eventType},
+						},
+					},
+				},
+			},
+		}
 	}
 
 	// Fetch UserCreated event
-	// Create a true copy of the base request, then take its address for getEvents
-	reqCopy := baseRequest
-	reqCopy.Query = &orisun.Query{
-		Criteria: []*orisun.Criterion{
-			{
-				Tags: []*orisun.Tag{
-					{Key: "user_id", Value: currentUserId},
-					{Key: "eventType", Value: admin_events.EventTypeUserCreated},
-				},
-			},
-		},
-	}
 	var err error
-	userCreated, err = getEvents(ctx, &reqCopy)
+	userCreated, err = getEvents(ctx, newUserEventRequest(admin_events.EventTypeUserCreated))
 	if err != nil {
 		return err
 	}
@@ -100,18 +99,7 @@ func ChangePassword(
 
 	g.Go(func() error {
 		// UserDeleted
-		req := baseRequest
-		req.Query = &orisun.Query{
-			Criteria: []*orisun.Criterion{
-				{
-					Tags: []*orisun.Tag{
-						{Key: "user_id", Value: currentUserId},
-						{Key: "eventType", Value: admin_events.EventTypeUserDeleted},
-					},
-				},
-			},
-		}
-		resp, err := getEvents(gctx, &req)
+		resp, err := getEvents(gctx, newUserEventRequest(admin_events.EventTypeUserDeleted))
 		if err != nil {
 			return err
 		}
@@ -121,18 +109,7 @@ func ChangePassword(
 
 	g.Go(func() error {
 		// PasswordChanged
-		req := baseRequest
-		req.Query = &orisun.Query{
-			Criteria: []*orisun.Criterion{
-				{
-					Tags: []*orisun.Tag{
-						{Key: "user_id", Value: currentUserId},
-						{Key: "eventType", Value: admin_events.EventTypeUserPasswordChanged},
-					},
-				},
-			},
-		}
-		resp, err := getEvents(gctx, &req)
+		resp, err := getEvents(gctx, newUserEventRequest(admin_events.EventTypeUserPasswordChanged))
 		if err != nil {
 			return err
 		}

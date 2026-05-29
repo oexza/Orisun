@@ -19,8 +19,11 @@ ARG TARGETARCH
 
 # Build arguments for version information
 ARG VERSION=dev
+ARG BUILD_TIME
+ARG GIT_COMMIT
 ARG TARGET_OS=linux
 ARG TARGET_ARCH=amd64
+ARG FLAVOR=all
 
 # Use target platform if available, otherwise use build args
 RUN echo "Building for platform: $TARGETPLATFORM (OS: $TARGETOS, ARCH: $TARGETARCH)"
@@ -32,15 +35,21 @@ RUN chmod +x ./build.sh && mkdir -p ./build
 # Use TARGETOS/TARGETARCH if available, otherwise fall back to TARGET_OS/TARGET_ARCH
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
-    echo "Building with OS: $FINAL_OS, ARCH: $FINAL_ARCH" && \
-    ./build.sh $FINAL_OS $FINAL_ARCH ${VERSION}
+    echo "Building flavor: $FLAVOR with OS: $FINAL_OS, ARCH: $FINAL_ARCH" && \
+    BUILD_TIME=${BUILD_TIME} GIT_COMMIT=${GIT_COMMIT} ./build.sh $FINAL_OS $FINAL_ARCH ${VERSION} ${FLAVOR}
 
 # Verify the binary was created and list all files in build directory
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
+    case "$FLAVOR" in \
+      all) BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" ;; \
+      pg|postgres) BINARY_NAME="orisun-pg-$FINAL_OS-$FINAL_ARCH" ;; \
+      sqlite) BINARY_NAME="orisun-sqlite-$FINAL_OS-$FINAL_ARCH" ;; \
+      *) echo "Unknown FLAVOR=$FLAVOR" && exit 1 ;; \
+    esac && \
     ls -la ./build/ && \
-    test -f ./build/orisun-$FINAL_OS-$FINAL_ARCH && \
-    echo "Binary orisun-$FINAL_OS-$FINAL_ARCH exists and is executable"
+    test -f "./build/$BINARY_NAME" && \
+    echo "Binary $BINARY_NAME exists and is executable"
 
 # Use a minimal Alpine image for the final container
 FROM alpine:3.18
@@ -57,12 +66,18 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG TARGET_OS=linux
 ARG TARGET_ARCH=amd64
+ARG FLAVOR=all
 
 # Copy the binary from the builder stage with dynamic architecture detection
 COPY --from=builder /app/build/ /tmp/build/
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
-    BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" && \
+    case "$FLAVOR" in \
+      all) BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" ;; \
+      pg|postgres) BINARY_NAME="orisun-pg-$FINAL_OS-$FINAL_ARCH" ;; \
+      sqlite) BINARY_NAME="orisun-sqlite-$FINAL_OS-$FINAL_ARCH" ;; \
+      *) echo "Unknown FLAVOR=$FLAVOR" && exit 1 ;; \
+    esac && \
     echo "Looking for binary: $BINARY_NAME" && \
     ls -la /tmp/build/ && \
     if [ -f "/tmp/build/$BINARY_NAME" ]; then \
