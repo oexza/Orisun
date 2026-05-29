@@ -1,11 +1,11 @@
 ---
 title: Configuration
-description: Environment variables for Orisun servers and Docker images.
+description: Environment variables for Orisun binaries, containers, and embedded deployments.
 ---
 
 Orisun reads environment variables with the `ORISUN_` prefix.
 
-Configuration is shared across release binaries, Docker images, and embedded deployments that call `config.InitializeConfig()`.
+Configuration is shared across release binaries, Docker images, and embedded deployments that call `config.InitializeConfig()`. If you run the binary directly, set these variables in your shell, process supervisor, service manager, or platform secret store.
 
 ## Required settings
 

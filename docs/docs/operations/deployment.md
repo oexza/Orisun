@@ -3,6 +3,65 @@ title: Deployment
 description: Run Orisun as SQLite, PostgreSQL, or a PostgreSQL-backed cluster.
 ---
 
+Orisun can run as a standalone release binary, a Docker image, or an embedded Go package. The same `ORISUN_` environment variables configure each mode; choose the packaging model that fits your platform.
+
+## Binary deployments
+
+Use the release binary when you want Orisun supervised like any other server process. This is a good fit for systemd, Nomad, Kubernetes containers built from your own base image, VM deployments, and PaaS platforms that run a command directly.
+
+Release assets are backend-specific:
+
+| Binary | Use when |
+| --- | --- |
+| `orisun-<os>-<arch>` | You want one binary with all backends compiled in. |
+| `orisun-pg-<os>-<arch>` | The deployment only uses PostgreSQL. |
+| `orisun-sqlite-<os>-<arch>` | The deployment only uses SQLite. |
+
+For direct binary deployment:
+
+- run the process under a supervisor that restarts it on failure
+- persist `ORISUN_NATS_STORE_DIR`
+- persist `ORISUN_SQLITE_DIR` when using SQLite
+- inject secrets through the platform's secret manager
+- expose `ORISUN_GRPC_PORT` only to trusted clients unless TLS and auth policy are configured
+
+Example systemd unit:
+
+```ini
+[Unit]
+Description=Orisun event store
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=orisun
+Group=orisun
+EnvironmentFile=/etc/orisun/orisun.env
+ExecStart=/usr/local/bin/orisun-sqlite
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The environment file contains the same settings shown in [Getting Started](../getting-started).
+
+## Container deployments
+
+Use the published Docker images when your platform already standardizes on containers, or when you want the simplest way to run the official release artifact.
+
+The image tags mirror the binary flavors:
+
+| Image | Backend |
+| --- | --- |
+| `orexza/orisun:latest` | all backends |
+| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:sqlite` | SQLite only |
+
+Persist the same directories you would persist for a binary deployment. Containers do not change the storage model.
+
 ## Standalone SQLite
 
 SQLite is the simplest production-capable single-node setup. It does not need a separate database container.

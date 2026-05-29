@@ -38,13 +38,13 @@ const guarantees = [
 const backends = [
   {
     name: 'SQLite',
-    href: '/docs/getting-started#start-with-sqlite',
+    href: '/docs/getting-started#run-sqlite-from-a-binary',
     summary: 'Single-node production, embedded apps, local development, and low-ops services.',
     details: ['event log', 'admin state', 'indexes', 'publisher checkpoints'],
   },
   {
     name: 'PostgreSQL',
-    href: '/docs/getting-started#start-with-postgresql',
+    href: '/docs/getting-started#run-postgresql-from-a-binary',
     summary: 'Multi-node Orisun deployments backed by database-managed storage and operational tooling.',
     details: ['cluster locks', 'schemas', 'PgBouncer-friendly config', 'shared storage'],
   },
@@ -79,7 +79,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
   {
     title: 'Start',
     links: [
-      ['Getting Started', '/docs/getting-started', 'Run SQLite or PostgreSQL with Docker Compose.'],
+      ['Getting Started', '/docs/getting-started', 'Run SQLite or PostgreSQL as a binary, container, or embedded store.'],
       ['Tutorial', '/docs/tutorial', 'Build a ledger with CCC, indexes, and a live projector.'],
     ],
   },
@@ -126,7 +126,7 @@ export default function Home(): ReactNode {
             </p>
             <div className={styles.actions}>
               <Link className="button button--primary button--lg" to="/docs/getting-started">
-                Start with Docker
+                Start locally
               </Link>
               <Link className="button button--secondary button--lg" to="/docs/api/eventstore">
                 Read the API
@@ -154,7 +154,7 @@ export default function Home(): ReactNode {
                 <span />
                 <span />
               </div>
-              <pre>{`$ docker run orexza/orisun:sqlite
+              <pre>{`$ ./orisun-sqlite
 > gRPC listening on :5005
 > publisher checkpoint restored
 > events draining sequentially`}</pre>
@@ -308,7 +308,7 @@ export default function Home(): ReactNode {
           <div className={clsx('container', styles.ctaInner)}>
             <div>
               <span className={styles.eyebrow}>Get moving</span>
-              <h2>Start with SQLite locally, then keep the same API for PostgreSQL.</h2>
+              <h2>Start with a binary or container, then keep the same API as you scale.</h2>
             </div>
             <div className={styles.ctaActions}>
               <Link className="button button--primary button--lg" to="/docs/tutorial">

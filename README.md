@@ -19,7 +19,27 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 ## Quick Start
 
-SQLite single-node:
+Download a release binary from [GitHub Releases](https://github.com/oexza/Orisun/releases), or build one locally:
+
+```bash
+./build.sh linux amd64 dev sqlite
+```
+
+SQLite single-node with a binary:
+
+```bash
+mkdir -p ./data/orisun/sqlite ./data/orisun/nats
+
+ORISUN_BACKEND=sqlite \
+ORISUN_SQLITE_DIR=./data/orisun/sqlite \
+ORISUN_NATS_STORE_DIR=./data/orisun/nats \
+ORISUN_NATS_CLUSTER_ENABLED=false \
+ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+./build/orisun-sqlite-linux-amd64
+```
+
+The same server can also run from Docker:
 
 ```bash
 docker run --rm \
@@ -34,13 +54,24 @@ docker run --rm \
   orexza/orisun:sqlite
 ```
 
-PostgreSQL:
+PostgreSQL with a binary:
 
 ```bash
-docker compose up -d
+./build.sh linux amd64 dev pg
+
+ORISUN_BACKEND=postgres \
+ORISUN_PG_HOST=localhost \
+ORISUN_PG_PORT=5432 \
+ORISUN_PG_USER=postgres \
+ORISUN_PG_PASSWORD='password@1' \
+ORISUN_PG_NAME=orisun \
+ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin \
+ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+./build/orisun-pg-linux-amd64
 ```
 
-See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-started) for complete Docker Compose files for both backends.
+See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-started) for binary and Docker setup for both backends.
 
 ## Artifacts
 
@@ -54,6 +85,14 @@ See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-star
 | Go client | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
 | Node.js client | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
 | Java client | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
+
+Release binaries are attached to each GitHub release:
+
+| Asset pattern | Backend |
+| --- | --- |
+| `orisun-<os>-<arch>` | All backends |
+| `orisun-pg-<os>-<arch>` | PostgreSQL only |
+| `orisun-sqlite-<os>-<arch>` | SQLite only |
 
 Docker tags use one repository with flavor tags:
 

@@ -32,6 +32,22 @@ Before tagging:
 3. Confirm release notes describe user-facing behavior, migrations, and image tags.
 4. Create the annotated tag with `scripts/release.sh`.
 
+## Binary Assets
+
+Each release publishes standalone binaries for Linux, macOS, and Windows. Use these when deploying Orisun directly as a process instead of through Docker.
+
+| Asset pattern | Backend |
+| --- | --- |
+| `orisun-<os>-<arch>` | All backends |
+| `orisun-pg-<os>-<arch>` | PostgreSQL only |
+| `orisun-sqlite-<os>-<arch>` | SQLite only |
+
+Linux and macOS binaries should be marked executable after download:
+
+```bash
+chmod +x ./orisun-sqlite
+```
+
 ## Docker Tags
 
 | Tag | Backend |
