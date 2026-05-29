@@ -36,7 +36,7 @@ RUN chmod +x ./build.sh && mkdir -p ./build
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
     echo "Building flavor: $FLAVOR with OS: $FINAL_OS, ARCH: $FINAL_ARCH" && \
-    BUILD_TIME=${BUILD_TIME} GIT_COMMIT=${GIT_COMMIT} ./build.sh $FINAL_OS $FINAL_ARCH ${VERSION} ${FLAVOR}
+    BUILD_TIME="${BUILD_TIME}" GIT_COMMIT="${GIT_COMMIT}" ./build.sh "$FINAL_OS" "$FINAL_ARCH" "${VERSION}" "${FLAVOR}"
 
 # Verify the binary was created and list all files in build directory
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
