@@ -691,7 +691,7 @@ Attach curated release notes to the GitHub release:
 ./scripts/release.sh 1.2.3 --notes release-notes.md
 ```
 
-The release script stores the notes in the annotated git tag. The GitHub release workflow uses notes in this order:
+The release script stores the notes verbatim in the annotated git tag, including markdown headings. The GitHub release workflow uses notes in this order:
 
 1. Manual `release_notes` input from `workflow_dispatch`
 2. Annotated tag message from `scripts/release.sh --notes`

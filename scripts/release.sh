@@ -14,6 +14,7 @@ Examples:
 
 Notes:
   When --notes is provided, the file becomes the annotated tag message.
+  Markdown headings are preserved exactly in the tag message.
   The GitHub release workflow uses that tag message as the release notes.
 EOF
 }
@@ -94,7 +95,7 @@ git pull origin main
 # Create and push the tag
 echo "Creating tag v$VERSION..."
 if [ -n "$NOTES_FILE" ]; then
-    git tag -a "v$VERSION" -F "$NOTES_FILE"
+    git tag -a "v$VERSION" --cleanup=verbatim -F "$NOTES_FILE"
 else
     git tag -a "v$VERSION" -m "Release v$VERSION"
 fi

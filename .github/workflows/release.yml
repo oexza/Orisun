@@ -137,6 +137,7 @@ jobs:
           if [ -n "$MANUAL_NOTES" ]; then
             printf "%s\n" "$MANUAL_NOTES" >> release-notes.md
           elif [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            git fetch --force origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
             TAG_NOTES=$(git tag -l "v${VERSION}" --format='%(contents)' | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d')
             if [ -n "$TAG_NOTES" ] && [ "$TAG_NOTES" != "Release v${VERSION}" ]; then
               printf "%s\n" "$TAG_NOTES" >> release-notes.md
