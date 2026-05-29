@@ -15,6 +15,10 @@ on:
         required: false
         type: boolean
         default: false
+      release_notes:
+        description: 'Optional release notes markdown. Falls back to tag annotation or commit log.'
+        required: false
+        type: string
 
 jobs:
   validate:
@@ -116,54 +120,77 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate changelog
-        id: changelog
+      - name: Generate release notes
+        id: release_notes
+        env:
+          RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
         run: |
+          VERSION="${{ needs.validate.outputs.version }}"
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREVIOUS_TAG" ]; then
-            echo "changelog=Initial release" >> $GITHUB_OUTPUT
-          else
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+
+          cat > release-notes.md <<EOF
+          ## Orisun v${VERSION}
+
+          EOF
+
+          MANUAL_NOTES="$RELEASE_NOTES_INPUT"
+          if [ -n "$MANUAL_NOTES" ]; then
+            printf "%s\n" "$MANUAL_NOTES" >> release-notes.md
+          elif [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            TAG_NOTES=$(git tag -l "v${VERSION}" --format='%(contents)' | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d')
+            if [ -n "$TAG_NOTES" ] && [ "$TAG_NOTES" != "Release v${VERSION}" ]; then
+              printf "%s\n" "$TAG_NOTES" >> release-notes.md
+            fi
           fi
+
+          if [ "$(wc -l < release-notes.md | tr -d ' ')" -le 2 ]; then
+            if [ -z "$PREVIOUS_TAG" ]; then
+              echo "Initial release" >> release-notes.md
+            else
+              echo "## Changes" >> release-notes.md
+              echo "" >> release-notes.md
+              git log --pretty=format:"* %s (%h)" "$PREVIOUS_TAG"..HEAD >> release-notes.md
+              echo "" >> release-notes.md
+            fi
+          fi
+
+          cat >> release-notes.md <<EOF
+
+          ## Installation
+
+          ### Linux
+          \`\`\`bash
+          # For amd64
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-amd64 -o orisun
+          chmod +x orisun
+
+          # For arm64
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-arm64 -o orisun
+          chmod +x orisun
+          \`\`\`
+
+          ### macOS
+          \`\`\`bash
+          # For amd64
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-amd64 -o orisun
+          chmod +x orisun
+
+          # For arm64 (Apple Silicon)
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-arm64 -o orisun
+          chmod +x orisun
+          \`\`\`
+
+          ### Windows
+          Download the appropriate binary from the assets below.
+          EOF
+
+          echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: Release v${{ needs.validate.outputs.version }}
-          body: |
-            ## Orisun v${{ needs.validate.outputs.version }}
-
-            ${{ steps.changelog.outputs.changelog }}
-
-            ## Installation
-
-            ### Linux
-            ```bash
-            # For amd64
-            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-amd64 -o orisun
-            chmod +x orisun
-
-            # For arm64
-            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-linux-arm64 -o orisun
-            chmod +x orisun
-            ```
-
-            ### macOS
-            ```bash
-            # For amd64
-            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-amd64 -o orisun
-            chmod +x orisun
-
-            # For arm64 (Apple Silicon)
-            curl -L https://github.com/oexza/Orisun/releases/download/v${{ needs.validate.outputs.version }}/orisun-darwin-arm64 -o orisun
-            chmod +x orisun
-            ```
-
-            ### Windows
-            Download the appropriate binary from the assets below.
+          body_path: ${{ steps.release_notes.outputs.path }}
           files: |
             artifacts/**/*
           draft: false

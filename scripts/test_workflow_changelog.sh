@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script tests the exact GitHub Actions workflow changelog generation step
+# This script tests the release-notes selection used by the GitHub Actions workflow.
 
 set -e
 
@@ -8,52 +8,63 @@ set -e
 TEMP_OUTPUT_FILE=$(mktemp)
 echo "Using temporary file: $TEMP_OUTPUT_FILE"
 
+VERSION=${1:-0.0.0}
+RELEASE_NOTES_INPUT=${RELEASE_NOTES_INPUT:-}
+
 # Get the previous tag
 PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 echo "Previous tag: '$PREVIOUS_TAG'"
+echo "Version: '$VERSION'"
 
-# Test the exact workflow syntax
-echo "Testing the exact workflow syntax..."
+echo "Testing release notes generation..."
 echo "==========================================="
 
-# This is the exact code from the workflow
-if [ -z "$PREVIOUS_TAG" ]; then
-  echo "changelog=Initial release" >> "$TEMP_OUTPUT_FILE"
+cat > release-notes.md <<EOF
+## Orisun v${VERSION}
+
+EOF
+
+if [ -n "$RELEASE_NOTES_INPUT" ]; then
+  printf "%s\n" "$RELEASE_NOTES_INPUT" >> release-notes.md
 else
-  echo "changelog<<EOF" >> "$TEMP_OUTPUT_FILE"
-  echo "Changes since $PREVIOUS_TAG:" >> "$TEMP_OUTPUT_FILE"
-  echo "" >> "$TEMP_OUTPUT_FILE"
-  git log --pretty=format:"* %s (%h)" "$PREVIOUS_TAG"..HEAD >> "$TEMP_OUTPUT_FILE"
-  echo "" >> "$TEMP_OUTPUT_FILE"
-  echo "EOF" >> "$TEMP_OUTPUT_FILE"
+  TAG_NOTES=$(git tag -l "v${VERSION}" --format='%(contents)' | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d')
+  if [ -n "$TAG_NOTES" ] && [ "$TAG_NOTES" != "Release v${VERSION}" ]; then
+    printf "%s\n" "$TAG_NOTES" >> release-notes.md
+  fi
 fi
 
-echo "Content of simulated GITHUB_OUTPUT file:"
+if [ "$(wc -l < release-notes.md | tr -d ' ')" -le 2 ]; then
+  if [ -z "$PREVIOUS_TAG" ]; then
+    echo "Initial release" >> release-notes.md
+  else
+    echo "## Changes" >> release-notes.md
+    echo "" >> release-notes.md
+    git log --pretty=format:"* %s (%h)" "$PREVIOUS_TAG"..HEAD >> release-notes.md
+    echo "" >> release-notes.md
+  fi
+fi
+
+echo "path=release-notes.md" >> "$TEMP_OUTPUT_FILE"
+
+echo "Generated release notes:"
 echo "------------------------------------------"
-cat "$TEMP_OUTPUT_FILE"
+cat release-notes.md
 
 echo ""
 echo "Validating format:"
 echo "------------------------------------------"
 
-# Check if the format is valid
-if grep -q "^changelog=" "$TEMP_OUTPUT_FILE"; then
-  echo "✅ Simple format detected (Initial release)"
-elif grep -q "^changelog<<EOF" "$TEMP_OUTPUT_FILE" && grep -q "^EOF$" "$TEMP_OUTPUT_FILE"; then
-  echo "✅ Multiline format with proper delimiters detected"
+if grep -q "^path=release-notes.md$" "$TEMP_OUTPUT_FILE" && grep -q "^## Orisun v${VERSION}$" release-notes.md; then
+  echo "✅ Release notes file generated"
 else
   echo "❌ Invalid format detected"
-  echo "The format doesn't match GitHub Actions requirements"
+  exit 1
 fi
 
 # Clean up
 rm "$TEMP_OUTPUT_FILE"
+rm release-notes.md
 
 echo ""
 echo "==========================================="
 echo "Test completed!"
-
-echo ""
-echo "Recommendation for GitHub Actions:"
-echo "Make sure the EOF delimiter is on its own line with no leading or trailing spaces"
-echo "Make sure there's a newline before the EOF delimiter"
