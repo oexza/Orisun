@@ -6,14 +6,14 @@
 
 Orisun is a batteries-included event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
 
-It stores events transactionally in PostgreSQL, publishes them through embedded NATS JetStream, and implements **Command Context Consistency (CCC)**: each command defines its own consistency context by querying event data, then saves only if that context has not changed.
+It stores events transactionally in PostgreSQL or SQLite, publishes them through embedded NATS JetStream, and implements **Command Context Consistency (CCC)**: each command defines its own consistency context by querying event data, then saves only if that context has not changed.
 
 ## Why Orisun
 
 - **Content-based consistency**: query events by JSON payload fields instead of pre-defining streams or aggregate roots.
-- **Durable source of truth**: PostgreSQL stores the event log, positions, checkpoints, indexes, and admin state.
+- **Durable source of truth**: PostgreSQL or SQLite stores the event log, positions, checkpoints, indexes, and admin state.
 - **Real-time delivery included**: embedded NATS JetStream handles live subscriptions and catch-up delivery.
-- **No-miss publishing**: publisher checkpoints and stable-prefix reads prevent skipped events even when notifications are missed.
+- **No-miss publishing**: publisher checkpoints and ordered catch-up reads prevent skipped events even when wake-up signals are missed.
 - **Sequential per-boundary publishing**: events publish in ascending `(transaction_id, global_id)` order.
 - **Production controls**: explicit JSONB indexes, gRPC auth/TLS options, OpenTelemetry, pprof, clustering, and PgBouncer guidance.
 
@@ -158,7 +158,7 @@ Every event has a durable position:
 
 | Field | Meaning |
 |---|---|
-| `transaction_id` | PostgreSQL transaction ID for the batch |
+| `transaction_id` | Backend commit position for the batch |
 | `global_id` | Monotonic per-boundary event position |
 
 Use `{-1, -1}` as the "before first event" position.
@@ -325,18 +325,18 @@ EOF
 
 ## Delivery Guarantees
 
-PostgreSQL is the durable source of truth. NATS JetStream is the real-time delivery layer.
+PostgreSQL or SQLite is the durable source of truth. NATS JetStream is the real-time delivery layer.
 
-`LISTEN/NOTIFY` is only a wake-up signal. If a notification is missed, correctness is still preserved by the PostgreSQL checkpoint and periodic catch-up polling.
+`LISTEN/NOTIFY` and polling are only wake-up signals. If a notification is missed, correctness is still preserved by the durable publisher checkpoint and periodic catch-up polling.
 
 Per boundary:
 
 | Guarantee | How Orisun enforces it |
 |---|---|
-| No skipped events | The publisher stores the last published `(transaction_id, global_id)` in PostgreSQL and always resumes from the next position. |
+| No skipped events | The publisher stores the last published `(transaction_id, global_id)` in the selected backend and always resumes from the next position. |
 | Sequential publishing | The publisher drains events in ascending `(transaction_id, global_id)` order and rejects non-advancing batches before publishing. |
-| Stable committed prefix | ASC reads only expose transactions older than the current snapshot `xmin`, so a younger committed transaction cannot jump ahead of an older open transaction. |
-| Single active publisher | Clustered nodes acquire a distributed lock per boundary. Failover resumes from the persisted checkpoint. |
+| Stable committed prefix | PostgreSQL ASC reads only expose transactions older than the current snapshot `xmin`; SQLite uses a single writer per boundary, so commits are already serialized. |
+| Single active publisher | Nodes acquire a lock per boundary. Clustered PostgreSQL nodes fail over from the persisted checkpoint; SQLite is single-node only. |
 
 Publishing is **at-least-once** at the boundary between NATS publish and checkpoint update. If NATS accepts an event and the checkpoint write fails, the event can be republished. Consumers should deduplicate by `event_id` or NATS message ID.
 
@@ -351,9 +351,9 @@ Orisun
   |
   | transactional write + CCC check
   v
-PostgreSQL event log
+PostgreSQL or SQLite event log
   |
-  | pg_notify wake-up, checkpointed drain
+  | pg_notify or polling wake-up, checkpointed drain
   v
 Embedded NATS JetStream
   |
@@ -375,7 +375,7 @@ Main packages:
 | `clients/node/` | TypeScript client package |
 | `proto/` | Protobuf source |
 
-Supported production backend today: PostgreSQL. SQLite code exists as a stub and is not production-ready.
+Backend support: PostgreSQL is the production and clustering backend. SQLite is supported for embedded or single-node deployments and is intentionally rejected when NATS clustering is enabled.
 
 ## Boundaries And Schemas
 
@@ -471,6 +471,7 @@ Orisun reads environment variables with the `ORISUN_` prefix.
 
 | Variable | Description |
 |---|---|
+| `ORISUN_BACKEND` | `postgres` or `sqlite`; defaults to `postgres` |
 | `ORISUN_PG_HOST` | PostgreSQL host |
 | `ORISUN_PG_PORT` | PostgreSQL port |
 | `ORISUN_PG_USER` | PostgreSQL user |
@@ -479,6 +480,8 @@ Orisun reads environment variables with the `ORISUN_` prefix.
 | `ORISUN_PG_SCHEMAS` | Comma-separated `boundary:schema` mappings |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions |
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state |
+
+For SQLite deployments, replace the PostgreSQL connection variables with `ORISUN_SQLITE_DIR`. SQLite remains single-node; leave `ORISUN_NATS_CLUSTER_ENABLED=false`.
 
 ### Common Settings
 
@@ -489,6 +492,7 @@ Orisun reads environment variables with the `ORISUN_` prefix.
 | `ORISUN_ADMIN_USERNAME` | `admin` | Default admin username |
 | `ORISUN_ADMIN_PASSWORD` | `changeit` | Default admin password |
 | `ORISUN_LOGGING_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory for per-boundary SQLite files when `ORISUN_BACKEND=sqlite` |
 | `ORISUN_PG_LISTEN_ENABLED` | `true` | Use PostgreSQL `LISTEN/NOTIFY` for publisher wake-ups |
 | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` | `1000` | Max events drained per publisher read batch |
 | `ORISUN_NATS_PORT` | `4224` | Embedded NATS client port |
@@ -559,9 +563,20 @@ ORISUN_ADMIN_BOUNDARY=admin \
 ./orisun-linux-amd64
 ```
 
+For embedded deployments, use SQLite instead:
+
+```bash
+ORISUN_BACKEND=sqlite \
+ORISUN_SQLITE_DIR=/var/lib/orisun/sqlite \
+ORISUN_NATS_CLUSTER_ENABLED=false \
+ORISUN_BOUNDARIES='[{"name":"orders","description":"orders"},{"name":"admin","description":"admin"}]' \
+ORISUN_ADMIN_BOUNDARY=admin \
+./orisun-linux-amd64
+```
+
 ### Clustered Mode
 
-Clustered mode uses embedded NATS clustering and one active publisher per boundary.
+Clustered mode uses PostgreSQL, embedded NATS clustering, and one active publisher per boundary. SQLite is rejected at startup when NATS clustering is enabled.
 
 Minimum recommendation: three nodes for JetStream quorum.
 

@@ -183,6 +183,22 @@ func TestGet_FilterByCriteria(t *testing.T) {
 	}
 }
 
+func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	tracker := NewSqliteEventPublishing(pools, logger)
+
+	pos, err := tracker.GetLastPublishedEventPosition(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("get last published position: %v", err)
+	}
+	want := eventstore.NotExistsPosition()
+	if pos.CommitPosition != want.CommitPosition || pos.PreparePosition != want.PreparePosition {
+		t.Fatalf("expected not-exists position, got %+v", pos)
+	}
+}
+
 func TestBuildCriteriaSQL(t *testing.T) {
 	cases := []struct {
 		name     string

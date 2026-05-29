@@ -829,6 +829,11 @@ func InitializeSqliteDatabase(
 	admin := NewSqliteAdminDB(pools, adminCfg.Boundary, logger)
 	publishing := NewSqliteEventPublishing(pools, logger)
 
+	go func() {
+		<-ctx.Done()
+		closeAll(pools)
+	}()
+
 	return saver, getter, lockProvider, admin, publishing, nil
 }
 

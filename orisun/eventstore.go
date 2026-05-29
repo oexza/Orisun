@@ -812,7 +812,7 @@ func StartEventPolling(
 						&lastPosition,
 						boundary,
 						eventPublishingTracker,
-						signalProvider(boundaryCopy.Boundary),
+						signalProvider(boundary),
 						logger,
 					)
 

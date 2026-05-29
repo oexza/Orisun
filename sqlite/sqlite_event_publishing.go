@@ -34,11 +34,13 @@ func (p *SqliteEventPublishing) GetLastPublishedEventPosition(ctx context.Contex
 	defer pool.Read.Put(conn)
 
 	var commit, prepare int64
+	found := false
 	err = sqlitex.Execute(conn,
 		"SELECT transaction_id, global_id FROM orisun_last_published_event_position WHERE boundary = ?",
 		&sqlitex.ExecOptions{
 			Args: []any{boundary},
 			ResultFunc: func(stmt *sqlite.Stmt) error {
+				found = true
 				commit = stmt.ColumnInt64(0)
 				prepare = stmt.ColumnInt64(1)
 				return nil
@@ -46,6 +48,9 @@ func (p *SqliteEventPublishing) GetLastPublishedEventPosition(ctx context.Contex
 		})
 	if err != nil {
 		return eventstore.Position{}, err
+	}
+	if !found {
+		return eventstore.NotExistsPosition(), nil
 	}
 	return eventstore.Position{CommitPosition: commit, PreparePosition: prepare}, nil
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/oexza/Orisun/orisun"
 	pb "github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
+	sqlitebackend "github.com/oexza/Orisun/sqlite"
 	_ "go.uber.org/automaxprocs" // auto-set GOMAXPROCS from cgroup CPU limit
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -192,8 +193,34 @@ func main() {
 	defer nc.Close()
 	defer ns.Shutdown()
 
-	// Initialize database
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
+	var (
+		saveEvents      orisun.EventsSaver
+		getEvents       orisun.EventsRetriever
+		lockProvider    orisun.LockProvider
+		adminDB         common.DB
+		eventPublishing orisun.EventPublishingTracker
+		pgListener      *pg.PGNotifyListener
+	)
+
+	switch config.BackendType() {
+	case "postgres":
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener = pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, AppLogger)
+	case "sqlite":
+		var err error
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err = sqlitebackend.InitializeSqliteDatabase(
+			ctx,
+			config.Sqlite,
+			config.Admin,
+			config.GetBoundaryNames(),
+			js,
+			AppLogger,
+		)
+		if err != nil {
+			AppLogger.Fatalf("Failed to initialize SQLite database: %v", err)
+		}
+	default:
+		AppLogger.Fatalf("Unsupported backend: %s", config.BackendType())
+	}
 
 	// Initialize EventStore
 	eventStore := pb.InitializeEventStore(
