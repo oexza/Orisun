@@ -45,7 +45,20 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 EOF
 ```
 
+## Field value types
+
+`value_type` controls how Orisun casts the JSON key in the index expression. Queries that compare the same key use the matching cast.
+
+| Value | Backend cast |
+| --- | --- |
+| `TEXT` | Text (default). |
+| `NUMERIC` | Numeric, for range and ordering predicates. |
+| `BOOLEAN` | Boolean. |
+| `TIMESTAMPTZ` | Timestamp with time zone. |
+
 ## Partial Index
+
+A partial index covers only events that match its `conditions`, keeping the index small and focused on one event category.
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
@@ -62,6 +75,8 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 }
 EOF
 ```
+
+Each condition `operator` must be one of `=`, `>`, `<`, `>=`, or `<=`; any other value is rejected. `condition_combinator` is `AND` by default, or `OR` when any condition may match.
 
 ## Drop An Index
 

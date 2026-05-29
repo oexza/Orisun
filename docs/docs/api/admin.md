@@ -65,6 +65,16 @@ Required fields:
 grpcurl -H "$AUTH" localhost:5005 orisun.Admin/ListUsers
 ```
 
+## DeleteUser
+
+```bash
+grpcurl -H "$AUTH" \
+  -d '{"user_id":"550e8400-e29b-41d4-a716-446655440000"}' \
+  localhost:5005 orisun.Admin/DeleteUser
+```
+
+Authenticated users cannot delete their own account.
+
 ## ChangePassword
 
 ```bash
@@ -78,6 +88,22 @@ EOF
 ```
 
 Users can only change their own password.
+
+## ValidateCredentials
+
+```bash
+grpcurl -H "$AUTH" \
+  -d '{"username":"ops","password":"change-this"}' \
+  localhost:5005 orisun.Admin/ValidateCredentials
+```
+
+The response includes `success` and, when validation succeeds, the matching user.
+
+## GetUserCount
+
+```bash
+grpcurl -H "$AUTH" localhost:5005 orisun.Admin/GetUserCount
+```
 
 ## GetEventCount
 

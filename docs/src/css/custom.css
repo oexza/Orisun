@@ -11,7 +11,7 @@
   --ifm-font-family-base: Inter, ui-sans-serif, system-ui, sans-serif;
   --ifm-font-family-monospace: SFMono-Regular, Consolas, Liberation Mono, monospace;
   --ifm-heading-font-weight: 850;
-  --ifm-card-border-radius: 0.65rem;
+  --ifm-card-border-radius: 0.5rem;
   --ifm-global-radius: 0.5rem;
   --ifm-code-font-size: 0.9rem;
   --docusaurus-highlighted-code-line-bg: rgb(14 125 105 / 10%);
@@ -70,9 +70,9 @@ html {
 }
 
 .theme-code-block {
-  border-radius: 0.65rem;
+  border-radius: 0.5rem;
 }
 
 .alert {
-  border-radius: 0.65rem;
+  border-radius: 0.5rem;
 }

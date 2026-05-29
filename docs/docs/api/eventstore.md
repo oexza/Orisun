@@ -149,6 +149,25 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 EOF
 ```
 
+`GetEvents` returns matching events with their committed position and creation time:
+
+```json
+{
+  "events": [
+    {
+      "event_id": "order-001",
+      "event_type": "OrderPlaced",
+      "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
+      "metadata": "{\"source\":\"checkout\"}",
+      "position": {"commit_position": 1, "prepare_position": 0},
+      "date_created": "2026-05-30T12:00:00Z"
+    }
+  ]
+}
+```
+
+`Event` adds `position` and `date_created` to the fields supplied at write time. `CatchUpSubscribeToEvents` delivers the same event shape.
+
 ## CatchUpSubscribeToEvents
 
 Catch-up subscriptions replay stored events, then switch to live JetStream delivery.
@@ -190,6 +209,14 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvent
 EOF
 ```
 
+## Ping
+
+`Ping` is an authenticated liveness check that takes no arguments:
+
+```bash
+grpcurl -H "$AUTH" -d '{}' localhost:5005 orisun.EventStore/Ping
+```
+
 ## CreateIndex
 
 ```bash
@@ -203,6 +230,8 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 }
 EOF
 ```
+
+`value_type` is `TEXT`, `NUMERIC`, `BOOLEAN`, or `TIMESTAMPTZ`. Add `conditions` for a partial index. Each condition `operator` must be one of `=`, `>`, `<`, `>=`, or `<=`. See [Indexing](../concepts/indexing) for composite and partial index examples.
 
 ## DropIndex
 

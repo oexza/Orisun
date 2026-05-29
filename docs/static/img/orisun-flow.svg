@@ -1,21 +1,19 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="1200" height="630" fill="#0B1110"/>
-  <rect x="66" y="68" width="1068" height="494" rx="32" fill="#10201D" stroke="#24413A" stroke-width="2"/>
-  <g opacity="0.18">
-    <circle cx="1000" cy="122" r="190" fill="#0E7D69"/>
-    <circle cx="210" cy="536" r="150" fill="#C7872D"/>
-  </g>
+  <rect x="66" y="68" width="1068" height="494" rx="8" fill="#10201D" stroke="#24413A" stroke-width="2"/>
+  <path d="M66 206H1134" stroke="#24413A" stroke-width="2"/>
+  <path d="M66 422H1134" stroke="#24413A" stroke-width="2"/>
   <text x="102" y="142" fill="#ECF4F0" font-family="Inter, Arial, sans-serif" font-size="54" font-weight="800">Orisun</text>
   <text x="104" y="182" fill="#A8BDB5" font-family="Inter, Arial, sans-serif" font-size="22">transactional events, consistency checks, embedded delivery</text>
   <g transform="translate(102 260)">
-    <rect width="190" height="100" rx="18" fill="#F8FAF7"/>
+    <rect width="190" height="100" rx="8" fill="#F8FAF7"/>
     <text x="36" y="42" fill="#10201D" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">Command</text>
     <text x="36" y="70" fill="#52625D" font-family="Inter, Arial, sans-serif" font-size="16">gRPC request</text>
   </g>
   <path d="M312 310H438" stroke="#0E7D69" stroke-width="10" stroke-linecap="round"/>
   <path d="M420 292L448 310L420 328" stroke="#0E7D69" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
   <g transform="translate(468 230)">
-    <rect width="264" height="160" rx="22" fill="#0E7D69"/>
+    <rect width="264" height="160" rx="8" fill="#0E7D69"/>
     <text x="54" y="62" fill="#F6FFFB" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="900">Orisun</text>
     <text x="54" y="96" fill="#D5FFF2" font-family="Inter, Arial, sans-serif" font-size="17">CCC + checkpoints</text>
     <text x="54" y="124" fill="#D5FFF2" font-family="Inter, Arial, sans-serif" font-size="17">publisher loop</text>
@@ -25,13 +23,13 @@
   <path d="M760 338H886" stroke="#CA6347" stroke-width="10" stroke-linecap="round"/>
   <path d="M868 320L896 338L868 356" stroke="#CA6347" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
   <g transform="translate(916 230)">
-    <rect width="180" height="74" rx="18" fill="#C7872D"/>
+    <rect width="180" height="74" rx="8" fill="#C7872D"/>
     <text x="34" y="44" fill="#1F1608" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="900">Storage</text>
-    <rect y="96" width="180" height="74" rx="18" fill="#CA6347"/>
+    <rect y="96" width="180" height="74" rx="8" fill="#CA6347"/>
     <text x="30" y="140" fill="#FFF7F4" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="900">JetStream</text>
   </g>
   <g transform="translate(264 450)">
-    <rect width="672" height="54" rx="14" fill="#162A26" stroke="#24413A"/>
+    <rect width="672" height="54" rx="8" fill="#162A26" stroke="#24413A"/>
     <text x="28" y="35" fill="#ECF4F0" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">No skipped committed events. Sequential publishing per boundary.</text>
   </g>
 </svg>

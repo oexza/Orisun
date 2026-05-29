@@ -51,6 +51,7 @@ const config: Config = {
       },
       items: [
         {to: '/docs/getting-started', label: 'Docs', position: 'left'},
+        {to: '/docs/tutorial', label: 'Tutorial', position: 'left'},
         {to: '/docs/api/eventstore', label: 'API', position: 'left'},
         {to: '/docs/operations/configuration', label: 'Operations', position: 'left'},
         {href: 'https://github.com/oexza/Orisun/releases', label: 'Releases', position: 'right'},
@@ -65,6 +66,7 @@ const config: Config = {
           title: 'Docs',
           items: [
             {label: 'Getting Started', to: '/docs/getting-started'},
+            {label: 'Tutorial', to: '/docs/tutorial'},
             {label: 'Concepts', to: '/docs/concepts/command-context-consistency'},
             {label: 'EventStore API', to: '/docs/api/eventstore'},
             {label: 'Embedding', to: '/docs/embedding/go'},
