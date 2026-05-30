@@ -9,6 +9,8 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
+This guide starts a standalone server. If you want Orisun inside a Go process, go to [Go Embedding](./embedding/go).
+
 ## Before you start
 
 You need:
@@ -24,6 +26,14 @@ The examples use:
 | --- | --- |
 | `orders` | application events |
 | `orisun_admin` | users, credentials, and admin projections |
+
+## Choose how to run
+
+| Runtime | Use when | Start here |
+| --- | --- | --- |
+| Release binary | You want to deploy Orisun directly as a server process. | [Install a binary](#install-a-binary) |
+| Docker image | You want a packaged container or Docker Compose for local setup. | [Run SQLite with Docker](#run-sqlite-with-docker) |
+| Embedded Go package | You want Orisun inside your service process. | [Go Embedding](./embedding/go) |
 
 ## Choose a backend
 

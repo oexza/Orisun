@@ -50,10 +50,10 @@ const config: Config = {
         src: 'img/orisun-flow.svg',
       },
       items: [
-        {to: '/docs/getting-started', label: 'Docs', position: 'left'},
+        {to: '/docs', label: 'Docs', position: 'left'},
         {to: '/docs/tutorial', label: 'Tutorial', position: 'left'},
         {to: '/docs/api/eventstore', label: 'API', position: 'left'},
-        {to: '/docs/operations/configuration', label: 'Operations', position: 'left'},
+        {to: '/docs/operations/deployment', label: 'Operations', position: 'left'},
         {href: 'https://github.com/oexza/Orisun/releases', label: 'Releases', position: 'right'},
         {href: 'https://hub.docker.com/r/orexza/orisun', label: 'Docker', position: 'right'},
         {href: 'https://github.com/oexza/Orisun', label: 'GitHub', position: 'right'},
@@ -65,6 +65,7 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
+            {label: 'Overview', to: '/docs'},
             {label: 'Getting Started', to: '/docs/getting-started'},
             {label: 'Tutorial', to: '/docs/tutorial'},
             {label: 'Concepts', to: '/docs/concepts/command-context-consistency'},
@@ -78,6 +79,7 @@ const config: Config = {
             {label: 'Configuration', to: '/docs/operations/configuration'},
             {label: 'Security', to: '/docs/operations/security'},
             {label: 'Deployment', to: '/docs/operations/deployment'},
+            {label: 'Observability', to: '/docs/operations/observability'},
             {label: 'Troubleshooting', to: '/docs/operations/troubleshooting'},
           ],
         },

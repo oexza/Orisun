@@ -79,6 +79,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
   {
     title: 'Start',
     links: [
+      ['Overview', '/docs', 'Understand where Orisun fits and which path to take.'],
       ['Getting Started', '/docs/getting-started', 'Run SQLite or PostgreSQL as a binary, container, or embedded store.'],
       ['Tutorial', '/docs/tutorial', 'Build a ledger with CCC, indexes, and a live projector.'],
     ],
@@ -96,7 +97,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
     links: [
       ['EventStore API', '/docs/api/eventstore', 'Save, query, subscribe, and manage indexes over gRPC.'],
       ['Go embedding', '/docs/embedding/go', 'Run Orisun inside a Go service with one backend package.'],
-      ['Operations', '/docs/operations/configuration', 'Configure auth, TLS, storage, NATS, and telemetry.'],
+      ['Operations', '/docs/operations/deployment', 'Deploy binaries or containers, then configure auth, TLS, storage, and telemetry.'],
     ],
   },
 ];
