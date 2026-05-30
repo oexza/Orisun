@@ -45,7 +45,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateUser <<EOF
   "name": "Ops User",
   "username": "ops",
   "password": "change-this",
-  "roles": ["admin"]
+  "roles": ["OPERATIONS"]
 }
 EOF
 ```
@@ -57,7 +57,11 @@ Required fields:
 | `name` | Human-readable name. |
 | `username` | Unique login username. |
 | `password` | Initial password. |
-| `roles` | Role list, for example `["admin"]`. |
+| `roles` | Role list. Valid values are `ADMIN` and `OPERATIONS`. |
+
+:::warning
+Roles are matched exactly and are case-sensitive. Use the uppercase values `ADMIN` and `OPERATIONS`; a value like `admin` is stored verbatim and never satisfies a role check, so the user is authenticated but authorized for nothing role-gated. See [Security & Authorization](../operations/security).
+:::
 
 ## ListUsers
 

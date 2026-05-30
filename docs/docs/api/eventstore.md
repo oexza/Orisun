@@ -168,6 +168,17 @@ EOF
 
 `Event` adds `position` and `date_created` to the fields supplied at write time. `CatchUpSubscribeToEvents` delivers the same event shape.
 
+### Paging through a boundary
+
+`GetEvents` returns one bounded page (`count`, server-capped at 10000). To walk the whole log or a criteria set, page forward:
+
+1. First call uses `from_position` `{-1, -1}` to start at the beginning.
+2. Process the page, then take the `position` of the last event.
+3. Pass it as `from_position` on the next call.
+4. Stop when a page returns fewer events than `count`.
+
+Keep the consumer idempotent and deduplicate by `event_id` rather than assuming exactly-once paging. The position model behind `from_position` and `direction` is described in [Positions and Ordering](../concepts/positions).
+
 ## CatchUpSubscribeToEvents
 
 Catch-up subscriptions replay stored events, then switch to live JetStream delivery.

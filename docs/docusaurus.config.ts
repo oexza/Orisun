@@ -76,6 +76,7 @@ const config: Config = {
           title: 'Operations',
           items: [
             {label: 'Configuration', to: '/docs/operations/configuration'},
+            {label: 'Security', to: '/docs/operations/security'},
             {label: 'Deployment', to: '/docs/operations/deployment'},
             {label: 'Troubleshooting', to: '/docs/operations/troubleshooting'},
           ],

@@ -1,0 +1,57 @@
+---
+title: Positions and Ordering
+description: How Orisun numbers committed events and how to use positions for consistency and paging.
+---
+
+Every committed event has a durable **position**. Positions are how Orisun expresses ordering, optimistic concurrency, and read paging. Understanding them makes the rest of the API predictable.
+
+## The position pair
+
+A position has two fields:
+
+| Field | Backed by | Meaning |
+| --- | --- | --- |
+| `commit_position` | `transaction_id` | Groups events committed together. Every event saved in one `SaveEvents` batch shares the same `commit_position`. |
+| `prepare_position` | `global_id` | The per-boundary monotonic sequence of the individual event. Unique and strictly increasing within a boundary. |
+
+Ordering within a boundary is the tuple `(commit_position, prepare_position)`, ascending. Positions are per boundary — they are not comparable across boundaries.
+
+## The before-first position
+
+Use `{-1, -1}` to mean "before any event exists":
+
+```json
+{"commit_position": -1, "prepare_position": -1}
+```
+
+- As `expected_position` in `SaveEvents`, it asserts the consistency context is still empty.
+- As `from_position` in `GetEvents` or `after_position` in a subscription, it means "start from the very beginning".
+
+## Batch semantics
+
+`SaveEvents` is atomic. For a batch of N events:
+
+- all N share one `commit_position`,
+- each gets an increasing `prepare_position`,
+- the `WriteResult.log_position` returns the position of the batch, which is the value you pass as the next `expected_position`.
+
+This is why a single account, processed one command at a time, advances its `commit_position` by one per command while `prepare_position` tracks the global event sequence.
+
+## Positions and consistency
+
+[Command Context Consistency](./command-context-consistency) uses positions as the optimistic-lock token. You read a context, remember the position of its last event, and pass that as `expected_position` on the next write. If any newer event matched the context, the save is rejected with `ALREADY_EXISTS`.
+
+## Positions and paging
+
+`GetEvents` reads a bounded page. To walk a boundary or a criteria set, page forward using the position of the last event you received:
+
+1. Call `GetEvents` with `from_position` (`{-1, -1}` for the first page) and a `count`.
+2. Process the returned events.
+3. Use the `position` of the last event as the `from_position` for the next call.
+4. Stop when a page returns fewer events than `count`.
+
+Reads return a stable committed prefix, so a page never contains events that a later page should have ordered before it. Because delivery and paging boundaries can overlap a position, keep consumers idempotent and deduplicate by `event_id` rather than assuming each event is seen exactly once.
+
+## Subscriptions
+
+`CatchUpSubscribeToEvents` takes an `after_position`. It replays stored events ordered by position, then transitions to live delivery. A projector should persist the position of the last event it durably processed and resume from that position on restart. See [Delivery Guarantees](./delivery-guarantees).

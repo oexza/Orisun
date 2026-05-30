@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'concepts/command-context-consistency',
+        'concepts/positions',
         'concepts/storage-backends',
         'concepts/delivery-guarantees',
         'concepts/indexing',
@@ -25,7 +26,13 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Operations',
       collapsed: false,
-      items: ['operations/configuration', 'operations/deployment', 'operations/troubleshooting'],
+      items: [
+        'operations/configuration',
+        'operations/security',
+        'operations/deployment',
+        'operations/observability',
+        'operations/troubleshooting',
+      ],
     },
     {
       type: 'category',

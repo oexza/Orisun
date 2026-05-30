@@ -141,6 +141,22 @@ For transaction mode:
 
 Effective values are logged at startup.
 
+## Limits and sizing
+
+| Limit | Value | Notes |
+| --- | --- | --- |
+| gRPC request message size | 4 MB (gRPC default) | Caps a single `SaveEvents` request, so it bounds batch size × event payload. Split very large batches. |
+| Event `data` / `metadata` | JSON string per field | No separate field cap; the whole request must fit the message-size limit above. |
+| Publisher read batch | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` (default 1000) | Events drained per publisher read cycle. Raise for high write volume, lower to smooth memory. |
+| `GetEvents` page | `count` per request, server-capped at 10000 | Page with `from_position`; see [Positions and Ordering](../concepts/positions#positions-and-paging). |
+| Live retention (per boundary) | `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` (512 MB), `_MAX_MSGS`, `_MAX_AGE` (5m) | In-memory live buffer only. Size for your slowest subscriber, not for durability. |
+
+Sizing guidance:
+
+- Keep batches comfortably under 4 MB. For bulk imports, chunk into many ordered `SaveEvents` calls.
+- Set retention age above the slowest subscriber's expected lag and above the catch-up handover grace (~10s).
+- Subscribers that routinely fall out of the live window are served from durable storage; this is correct but increases read load. Scale retention or subscriber throughput accordingly.
+
 ## Security Checklist
 
 - Change `ORISUN_ADMIN_PASSWORD` before production use.
