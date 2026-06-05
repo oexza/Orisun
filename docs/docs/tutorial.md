@@ -61,6 +61,8 @@ EOF
 
 `subsetQuery` declares the consistency context: all events tagged `account_id = acct-1`. The save succeeds only if no matching event exists after `{-1, -1}`. Note the committed `log_position` in the response. It is the expected position for the next command.
 
+The stored event data also includes `eventType` from the caller-supplied `event_type`, so later queries and indexes can filter by event type without adding it to each `data` JSON payload.
+
 ## 2. Credit the account
 
 ```bash

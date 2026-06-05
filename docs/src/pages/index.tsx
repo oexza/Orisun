@@ -75,11 +75,53 @@ const useCases = [
   },
 ];
 
+const quickPaths: {
+  step: string;
+  title: string;
+  href: string;
+  description: string;
+  meta: string;
+  action: string;
+}[] = [
+  {
+    step: '01',
+    title: 'Try it locally',
+    href: '/docs/start-here',
+    description: 'Start SQLite, verify gRPC, and save the first event before choosing deeper docs.',
+    meta: '5-minute path',
+    action: 'Start',
+  },
+  {
+    step: '02',
+    title: 'Embed in Go',
+    href: '/docs/embedding/go',
+    description: 'Run Orisun in your service process and choose embedded or caller-owned NATS.',
+    meta: 'in-process store',
+    action: 'Embed',
+  },
+  {
+    step: '03',
+    title: 'Model consistency',
+    href: '/docs/concepts/command-context-consistency',
+    description: 'Learn how commands protect business invariants with event-content queries.',
+    meta: 'CCC concepts',
+    action: 'Learn',
+  },
+  {
+    step: '04',
+    title: 'Operate a node',
+    href: '/docs/operations/configuration',
+    description: 'Configure storage, auth, TLS, NATS, telemetry, and deployment settings.',
+    meta: 'production setup',
+    action: 'Configure',
+  },
+];
+
 const docGroups: {title: string; links: LinkItem[]}[] = [
   {
     title: 'Start',
     links: [
-      ['Overview', '/docs', 'Understand where Orisun fits and which path to take.'],
+      ['Start Here', '/docs/start-here', 'Pick the right path for local setup, embedding, APIs, or operations.'],
       ['Getting Started', '/docs/getting-started', 'Run SQLite or PostgreSQL as a binary, container, or embedded store.'],
       ['Tutorial', '/docs/tutorial', 'Build a ledger with CCC, indexes, and a live projector.'],
     ],
@@ -115,7 +157,7 @@ export default function Home(): ReactNode {
         <div className={clsx('container', styles.heroInner)}>
           <div className={styles.heroCopy}>
             <div className={styles.badges}>
-              <span className={styles.badge}>v0.2.10</span>
+              <span className={styles.badge}>v0.2.13</span>
               <span className={styles.badge}>PostgreSQL + SQLite</span>
               <span className={styles.badge}>gRPC + JetStream</span>
             </div>
@@ -126,8 +168,8 @@ export default function Home(): ReactNode {
               asking teams to assemble a broker, publisher, and event log by hand.
             </p>
             <div className={styles.actions}>
-              <Link className="button button--primary button--lg" to="/docs/getting-started">
-                Start locally
+              <Link className="button button--primary button--lg" to="/docs/start-here">
+                Start here
               </Link>
               <Link className="button button--secondary button--lg" to="/docs/api/eventstore">
                 Read the API
@@ -148,6 +190,13 @@ export default function Home(): ReactNode {
           <aside className={styles.heroPanel} aria-label="Orisun architecture overview">
             <div className={styles.diagramFrame}>
               <img src={diagramUrl} alt="Orisun command, storage, and JetStream delivery flow" />
+            </div>
+            <div className={styles.heroRoute}>
+              <div>
+                <span>Recommended first read</span>
+                <strong>Start Here</strong>
+              </div>
+              <Link to="/docs/start-here">Choose path</Link>
             </div>
             <div className={styles.terminal}>
               <div className={styles.terminalTop}>
@@ -178,6 +227,34 @@ export default function Home(): ReactNode {
             <div>
               <strong>Same APIs</strong>
               <span>SQLite and PostgreSQL expose the same gRPC surface.</span>
+            </div>
+          </div>
+        </section>
+
+        <section className={clsx('section', styles.pathSection)}>
+          <div className="container">
+            <div className={styles.splitHeader}>
+              <div>
+                <span className={styles.eyebrow}>Docs path</span>
+                <h2>Choose the shortest route to the work you are doing.</h2>
+              </div>
+              <p>
+                Start from task paths first, then go deeper into consistency, backends, APIs,
+                embedding, and operations once the first loop is working.
+              </p>
+            </div>
+            <div className={styles.pathGrid}>
+              {quickPaths.map((path) => (
+                <Link className={styles.pathCard} to={path.href} key={path.title}>
+                  <div className={styles.pathCardTop}>
+                    <span className={styles.pathStep}>{path.step}</span>
+                    <span className={styles.pathMeta}>{path.meta}</span>
+                  </div>
+                  <h3>{path.title}</h3>
+                  <p>{path.description}</p>
+                  <span className={styles.pathAction}>{path.action}</span>
+                </Link>
+              ))}
             </div>
           </div>
         </section>

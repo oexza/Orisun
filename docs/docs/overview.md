@@ -42,7 +42,12 @@ Choose another tool when you only need transient messaging or a general-purpose 
 
 ## Start here
 
+If you are new to the project, start with [Start Here](/docs/start-here). It routes you by task: local setup, Go embedding, consistency modeling, API integration, production configuration, or troubleshooting.
+
+Common next steps:
+
 - Run a server with [Getting Started](/docs/getting-started).
 - Build the end-to-end ledger in the [Tutorial](/docs/tutorial).
 - Understand write consistency in [Command Context Consistency](/docs/concepts/command-context-consistency).
 - Review operational setup in [Deployment](/docs/operations/deployment).
+- Embed Orisun in a Go service with [Go Embedding](/docs/embedding/go).

@@ -1,6 +1,6 @@
 {
   "name": "orisun-docs",
-  "version": "0.2.10",
+  "version": "0.2.13",
   "private": true,
   "packageManager": "bun@1.3.13",
   "scripts": {

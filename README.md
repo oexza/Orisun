@@ -8,6 +8,8 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 **Full documentation:** [oexza.github.io/Orisun](https://oexza.github.io/Orisun/)
 
+**Start here:** [choose the right docs path](https://oexza.github.io/Orisun/docs/start-here)
+
 ## What It Provides
 
 - Transactional event storage on PostgreSQL or SQLite.
@@ -78,6 +80,7 @@ See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-star
 | Artifact | Location |
 | --- | --- |
 | Documentation | [GitHub Pages](https://oexza.github.io/Orisun/) |
+| Start here | [Choose the right docs path](https://oexza.github.io/Orisun/docs/start-here) |
 | Setup guide | [SQLite and PostgreSQL setup](https://oexza.github.io/Orisun/docs/getting-started) |
 | API guide | [EventStore and Admin API](https://oexza.github.io/Orisun/docs/api/eventstore) |
 | Releases | [github.com/oexza/Orisun/releases](https://github.com/oexza/Orisun/releases) |

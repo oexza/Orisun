@@ -9,6 +9,8 @@ Create a normal release from `main`:
 ./scripts/release.sh 1.2.3
 ```
 
+The script is the release path for this repository. It validates the tree, creates the annotated tag, pushes it, and lets the GitHub release workflow publish binaries, Docker images, and the GitHub release.
+
 Attach curated release notes to the GitHub release:
 
 ```bash
@@ -30,7 +32,10 @@ Before tagging:
 1. Run the Go test suite.
 2. Build the docs site with `bun run build` from `docs/`.
 3. Confirm release notes describe user-facing behavior, migrations, and image tags.
-4. Create the annotated tag with `scripts/release.sh`.
+4. Create and push the annotated tag with `scripts/release.sh`.
+5. Confirm the GitHub Actions release workflow completed and the GitHub release exists.
+
+Do not create release tags manually unless you are repairing a failed release and understand which script checks you are bypassing.
 
 ## Binary Assets
 

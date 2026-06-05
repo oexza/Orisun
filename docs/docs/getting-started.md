@@ -27,6 +27,17 @@ The examples use:
 | `orders` | application events |
 | `orisun_admin` | users, credentials, and admin projections |
 
+## Fastest local path
+
+Use SQLite first when you want the shortest feedback loop:
+
+1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/oexza/Orisun/releases).
+2. Start it with the [SQLite binary example](#run-sqlite-from-a-binary).
+3. Verify the server with [grpcurl](#verify-the-api).
+4. Save the first event with [Save your first event](#save-your-first-event).
+
+You can move to PostgreSQL later without changing the EventStore API.
+
 ## Choose how to run
 
 | Runtime | Use when | Start here |
@@ -43,6 +54,20 @@ The examples use:
 | PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` |
 
 Both backends expose the same EventStore and Admin gRPC APIs.
+
+## Choose NATS mode
+
+Orisun starts embedded NATS JetStream by default. That is the simplest path for local development, standalone binaries, containers, and embedded Go services.
+
+If you already operate a JetStream-enabled NATS server, set `ORISUN_NATS_URL`:
+
+```bash
+ORISUN_NATS_URL=nats://localhost:4222
+```
+
+Embedded Go callers can also use Orisun's in-process NATS connection and JetStream handles directly, or pass caller-owned NATS handles. See [Go Embedding](./embedding/go#postgresql-embedding).
+
+SQLite is single-node only. Keep `ORISUN_NATS_CLUSTER_ENABLED=false` for SQLite deployments.
 
 ### When to choose SQLite
 
@@ -65,7 +90,7 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 For example, on Linux amd64:
 
 ```bash
-VERSION=x.y.z
+VERSION=0.2.13
 
 curl -L \
   "https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \
@@ -259,6 +284,8 @@ The response contains the committed log position:
   }
 }
 ```
+
+Orisun stores `event_type` in event `data` as the canonical `eventType` JSON key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
 
 ## Release artifacts
 
