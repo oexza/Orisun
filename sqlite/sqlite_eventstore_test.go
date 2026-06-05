@@ -85,6 +85,39 @@ func TestSave_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSave_RejectsBatchLargerThanSqliteLimit(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	ctx := context.Background()
+
+	batchSize := sqliteMaxEventsPerInsert + 1
+	events := make([]eventstore.EventWithMapTags, batchSize)
+	for i := range events {
+		events[i] = mustEvent(t, "Chunked", map[string]any{"seq": i}, map[string]any{})
+	}
+
+	_, _, err := saver.Save(ctx, events, "test", nil, nil)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+
+	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     10,
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(resp.Events) != 0 {
+		t.Fatalf("expected no events after rejected batch, got %d", len(resp.Events))
+	}
+}
+
 func TestSave_AddsEventTypeToData(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
@@ -235,6 +268,75 @@ func TestGet_FilterByCriteria(t *testing.T) {
 	}
 }
 
+func TestGet_OrderAndFromPosition(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		if _, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
+			mustEvent(t, "Ordered", map[string]any{"index": i}, map[string]any{}),
+		}, "test", nil, nil); err != nil {
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+
+	respAsc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     10,
+	})
+	if err != nil {
+		t.Fatalf("get asc: %v", err)
+	}
+	respDesc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_DESC,
+		Count:     10,
+	})
+	if err != nil {
+		t.Fatalf("get desc: %v", err)
+	}
+	if len(respAsc.Events) != 5 || len(respDesc.Events) != 5 {
+		t.Fatalf("expected 5 asc and desc events, got %d and %d", len(respAsc.Events), len(respDesc.Events))
+	}
+	for i := range respAsc.Events {
+		if respAsc.Events[i].EventId != respDesc.Events[4-i].EventId {
+			t.Fatalf("desc order mismatch at %d", i)
+		}
+	}
+
+	from := respAsc.Events[2].Position
+	respFromAsc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:     "test",
+		Direction:    eventstore.Direction_ASC,
+		Count:        10,
+		FromPosition: from,
+	})
+	if err != nil {
+		t.Fatalf("get from asc: %v", err)
+	}
+	if len(respFromAsc.Events) != 3 || respFromAsc.Events[0].EventId != respAsc.Events[2].EventId {
+		t.Fatalf("expected inclusive ASC page from third event, got %d events", len(respFromAsc.Events))
+	}
+
+	respFromDesc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:     "test",
+		Direction:    eventstore.Direction_DESC,
+		Count:        10,
+		FromPosition: from,
+	})
+	if err != nil {
+		t.Fatalf("get from desc: %v", err)
+	}
+	if len(respFromDesc.Events) != 3 || respFromDesc.Events[0].EventId != respAsc.Events[2].EventId {
+		t.Fatalf("expected inclusive DESC page from third event, got %d events", len(respFromDesc.Events))
+	}
+}
+
 func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
@@ -368,6 +470,84 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 	if strings.Contains(sql, "CAST(") {
 		t.Fatalf("expected untyped criteria SQL after dropping index, got %q", sql)
 	}
+}
+
+func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	admin := NewSqliteAdminDB(pools, "test", logger)
+	ctx := context.Background()
+
+	t.Run("composite index", func(t *testing.T) {
+		if err := admin.CreateBoundaryIndex(ctx, "test", "cat_prio", []eventstore.BoundaryIndexField{
+			{JsonKey: "category", ValueType: "text"},
+			{JsonKey: "priority", ValueType: "text"},
+		}, nil, ""); err != nil {
+			t.Fatalf("create composite index: %v", err)
+		}
+		if err := admin.DropBoundaryIndex(ctx, "test", "cat_prio"); err != nil {
+			t.Fatalf("drop composite index: %v", err)
+		}
+	})
+
+	t.Run("partial index", func(t *testing.T) {
+		if err := admin.CreateBoundaryIndex(ctx, "test", "placed_amount", []eventstore.BoundaryIndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "eventType", Operator: "=", Value: "OrderPlaced"},
+		}, eventstore.IndexCombinatorAND); err != nil {
+			t.Fatalf("create partial index: %v", err)
+		}
+		if err := admin.DropBoundaryIndex(ctx, "test", "placed_amount"); err != nil {
+			t.Fatalf("drop partial index: %v", err)
+		}
+	})
+
+	t.Run("unknown boundary", func(t *testing.T) {
+		err := admin.CreateBoundaryIndex(ctx, "missing", "idx", []eventstore.BoundaryIndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, nil, "")
+		if err == nil || !strings.Contains(err.Error(), "unknown boundary") {
+			t.Fatalf("expected unknown boundary error, got %v", err)
+		}
+	})
+
+	t.Run("no fields", func(t *testing.T) {
+		err := admin.CreateBoundaryIndex(ctx, "test", "empty", nil, nil, "")
+		if err == nil || !strings.Contains(err.Error(), "at least one field") {
+			t.Fatalf("expected no fields error, got %v", err)
+		}
+	})
+
+	t.Run("invalid operator", func(t *testing.T) {
+		err := admin.CreateBoundaryIndex(ctx, "test", "bad_op", []eventstore.BoundaryIndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "eventType", Operator: "LIKE", Value: "Order%"},
+		}, "")
+		if err == nil || !strings.Contains(err.Error(), "invalid operator") {
+			t.Fatalf("expected invalid operator error, got %v", err)
+		}
+	})
+
+	t.Run("invalid combinator", func(t *testing.T) {
+		err := admin.CreateBoundaryIndex(ctx, "test", "bad_comb", []eventstore.BoundaryIndexField{
+			{JsonKey: "id", ValueType: "text"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "eventType", Operator: "=", Value: "Placed"},
+		}, "XOR")
+		if err == nil || !strings.Contains(err.Error(), "invalid combinator") {
+			t.Fatalf("expected invalid combinator error, got %v", err)
+		}
+	})
+
+	t.Run("drop unknown boundary", func(t *testing.T) {
+		err := admin.DropBoundaryIndex(ctx, "missing", "idx")
+		if err == nil || !strings.Contains(err.Error(), "unknown boundary") {
+			t.Fatalf("expected unknown boundary error, got %v", err)
+		}
+	})
 }
 
 func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {

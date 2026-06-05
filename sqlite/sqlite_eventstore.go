@@ -150,6 +150,12 @@ type SqliteSaveEvents struct {
 	notifier *SqliteEventNotifier
 }
 
+const (
+	sqliteInsertParamsPerEvent = 6
+	sqliteMaxInsertParams      = 999
+	sqliteMaxEventsPerInsert   = sqliteMaxInsertParams / sqliteInsertParamsPerEvent
+)
+
 func NewSqliteSaveEvents(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteSaveEvents {
 	return &SqliteSaveEvents{pools: pools, logger: logger}
 }
@@ -163,6 +169,9 @@ func (s *SqliteSaveEvents) Save(
 ) (transactionID string, globalID int64, err error) {
 	if len(events) == 0 {
 		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+	}
+	if len(events) > sqliteMaxEventsPerInsert {
+		return "", 0, status.Errorf(codes.InvalidArgument, "sqlite save batch cannot exceed %d events, got %d", sqliteMaxEventsPerInsert, len(events))
 	}
 	pool, ok := s.pools[boundary]
 	if !ok {
@@ -241,7 +250,14 @@ func (s *SqliteSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "allocate ids: %v", err)
 	}
 
-	// Multi-row INSERT — all events share transaction_id = lastID.
+	if err = insertEventBatch(conn, events, firstID, lastID); err != nil {
+		return "", 0, status.Errorf(codes.Internal, "insert events: %v", err)
+	}
+
+	return strconv.FormatInt(lastID, 10), lastID, nil
+}
+
+func insertEventBatch(conn *sqlite.Conn, events []eventstore.EventWithMapTags, firstID, transactionID int64) error {
 	var sb strings.Builder
 	sb.Grow(64 + len(events)*48)
 	sb.WriteString("INSERT INTO orisun_es_event (transaction_id, global_id, event_id, event_type, data, metadata) VALUES ")
@@ -255,24 +271,18 @@ func (s *SqliteSaveEvents) Save(
 
 		dataJSON, mErr := normalizeJSON(e.Data)
 		if mErr != nil {
-			err = status.Errorf(codes.Internal, "marshal event data: %v", mErr)
-			return "", 0, err
+			return fmt.Errorf("marshal event data: %w", mErr)
 		}
 		metaJSON, mErr := normalizeJSON(e.Metadata)
 		if mErr != nil {
-			err = status.Errorf(codes.Internal, "marshal event metadata: %v", mErr)
-			return "", 0, err
+			return fmt.Errorf("marshal event metadata: %w", mErr)
 		}
 		insertArgs = append(insertArgs,
-			lastID, gid, e.EventId, e.EventType, dataJSON, metaJSON,
+			transactionID, gid, e.EventId, e.EventType, dataJSON, metaJSON,
 		)
 	}
 
-	if err = sqlitex.Execute(conn, sb.String(), &sqlitex.ExecOptions{Args: insertArgs}); err != nil {
-		return "", 0, status.Errorf(codes.Internal, "insert events: %v", err)
-	}
-
-	return strconv.FormatInt(lastID, 10), lastID, nil
+	return sqlitex.Execute(conn, sb.String(), &sqlitex.ExecOptions{Args: insertArgs})
 }
 
 // ---------------------------------------------------------------------------
