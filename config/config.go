@@ -150,6 +150,7 @@ func (p *PostgresDBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchem
 
 // nats
 type NatsConfig struct {
+	URL                    string
 	ServerName             string
 	Port                   int
 	MaxPayload             int32

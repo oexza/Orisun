@@ -64,6 +64,8 @@ grpc:
     caFile: ${ORISUN_GRPC_TLS_CA_FILE:/etc/orisun/tls/ca.crt}               # Optional: for client certificate authentication
     clientAuthRequired: ${ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED:false}      # Require client certificates
 nats:
+  # When set, Orisun connects to this JetStream-enabled NATS server instead of starting embedded NATS.
+  url: ${ORISUN_NATS_URL:}
   serverName: ${ORISUN_NATS_SERVER_NAME:orisun-nats-2}
   port: ${ORISUN_NATS_PORT:4224}
   maxPayload: ${ORISUN_NATS_MAX_PAYLOAD:1048576}

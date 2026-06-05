@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/oexza/Orisun/config"
 	l "github.com/oexza/Orisun/logging"
 	natsruntime "github.com/oexza/Orisun/nats"
@@ -17,11 +19,34 @@ type Store struct {
 
 	indexManager orisun.BoundaryIndexManager
 	cancel       context.CancelFunc
-	natsServer   interface{ Shutdown() }
-	natsConn     interface{ Close() }
+	natsRuntime  *natsruntime.Runtime
 }
 
-func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, error) {
+type StartOption func(*startOptions)
+
+type startOptions struct {
+	natsOptions []natsruntime.Option
+}
+
+func WithNATSURL(url string, opts ...natsgo.Option) StartOption {
+	return func(o *startOptions) {
+		o.natsOptions = append(o.natsOptions, natsruntime.WithURL(url, opts...))
+	}
+}
+
+func WithNATSConnection(conn *natsgo.Conn, opts ...jetstream.JetStreamOpt) StartOption {
+	return func(o *startOptions) {
+		o.natsOptions = append(o.natsOptions, natsruntime.WithConnection(conn, opts...))
+	}
+}
+
+func WithJetStream(js jetstream.JetStream) StartOption {
+	return func(o *startOptions) {
+		o.natsOptions = append(o.natsOptions, natsruntime.WithJetStream(js))
+	}
+}
+
+func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...StartOption) (*Store, error) {
 	config.Backend.Type = "sqlite"
 	if config.Nats.Cluster.Enabled {
 		return nil, fmt.Errorf("embedded sqlite does not support NATS clustering")
@@ -31,7 +56,17 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	js, nc, ns := natsruntime.InitializeNATS(runCtx, config.Nats, logger)
+	startOpts := startOptions{}
+	for _, apply := range opts {
+		apply(&startOpts)
+	}
+
+	natsRuntime, err := natsruntime.Start(runCtx, config.Nats, logger, startOpts.natsOptions...)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	js := natsRuntime.JetStream
 	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
 		runCtx,
 		config.Sqlite,
@@ -42,16 +77,14 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 	)
 	if err != nil {
 		cancel()
-		nc.Close()
-		ns.Shutdown()
+		natsRuntime.Close()
 		return nil, err
 	}
 
 	store, err := orisun.NewOrisunServer(runCtx, saveEvents, getEvents, lockProvider, js, config.GetBoundaryNames(), logger)
 	if err != nil {
 		cancel()
-		nc.Close()
-		ns.Shutdown()
+		natsRuntime.Close()
 		return nil, err
 	}
 
@@ -64,8 +97,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger) (*Store, er
 		OrisunServer: store,
 		indexManager: adminDB,
 		cancel:       cancel,
-		natsServer:   ns,
-		natsConn:     nc,
+		natsRuntime:  natsRuntime,
 	}, nil
 }
 
@@ -77,6 +109,20 @@ func (s *Store) DropBoundaryIndex(ctx context.Context, boundary, name string) er
 	return s.indexManager.DropBoundaryIndex(ctx, boundary, name)
 }
 
+func (s *Store) NATSConnection() *natsgo.Conn {
+	if s == nil || s.natsRuntime == nil {
+		return nil
+	}
+	return s.natsRuntime.Conn
+}
+
+func (s *Store) JetStream() jetstream.JetStream {
+	if s == nil || s.natsRuntime == nil {
+		return nil
+	}
+	return s.natsRuntime.JetStream
+}
+
 func (s *Store) Close() {
 	if s == nil {
 		return
@@ -84,10 +130,7 @@ func (s *Store) Close() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.natsConn != nil {
-		s.natsConn.Close()
-	}
-	if s.natsServer != nil {
-		s.natsServer.Shutdown()
+	if s.natsRuntime != nil {
+		s.natsRuntime.Close()
 	}
 }

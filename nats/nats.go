@@ -2,37 +2,155 @@ package nats
 
 import (
 	"context"
+	"fmt"
+
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
+	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/oexza/Orisun/config"
 	l "github.com/oexza/Orisun/logging"
 	"net/url"
+	"strings"
 	"time"
 )
 
-func InitializeNATS(ctx context.Context, config c.NatsConfig, logger l.Logger) (jetstream.JetStream, *nats.Conn, *server.Server) {
-	natsOptions := createNATSOptions(config, logger)
-	natsServer := startNATSServer(natsOptions, config.Cluster.Timeout, logger)
-
-	// Connect to NATS
-	nc, err := nats.Connect("", nats.InProcessServer(natsServer))
+func InitializeNATS(ctx context.Context, config c.NatsConfig, logger l.Logger) (jetstream.JetStream, *natsgo.Conn, *server.Server) {
+	runtime, err := Start(ctx, config, logger)
 	if err != nil {
-		logger.Fatalf("Failed to connect to NATS: %v", err)
+		logger.Fatalf("Failed to initialize NATS: %v", err)
+	}
+	return runtime.JetStream, runtime.Conn, runtime.Server
+}
+
+type Runtime struct {
+	JetStream jetstream.JetStream
+	Conn      *natsgo.Conn
+	Server    *server.Server
+
+	ownsConn bool
+}
+
+func (r *Runtime) Close() {
+	if r == nil {
+		return
+	}
+	if r.Conn != nil && r.ownsConn {
+		r.Conn.Close()
+	}
+	if r.Server != nil {
+		r.Server.Shutdown()
+	}
+}
+
+type Option func(*options)
+
+type options struct {
+	url         string
+	conn        *natsgo.Conn
+	jetStream   jetstream.JetStream
+	connectOpts []natsgo.Option
+	jsOpts      []jetstream.JetStreamOpt
+}
+
+func WithURL(url string, opts ...natsgo.Option) Option {
+	return func(o *options) {
+		o.url = url
+		o.connectOpts = append(o.connectOpts, opts...)
+	}
+}
+
+func WithConnection(conn *natsgo.Conn, opts ...jetstream.JetStreamOpt) Option {
+	return func(o *options) {
+		o.conn = conn
+		o.jsOpts = append(o.jsOpts, opts...)
+	}
+}
+
+func WithJetStream(js jetstream.JetStream) Option {
+	return func(o *options) {
+		o.jetStream = js
+	}
+}
+
+func WithConnectOptions(opts ...natsgo.Option) Option {
+	return func(o *options) {
+		o.connectOpts = append(o.connectOpts, opts...)
+	}
+}
+
+func WithJetStreamOptions(opts ...jetstream.JetStreamOpt) Option {
+	return func(o *options) {
+		o.jsOpts = append(o.jsOpts, opts...)
+	}
+}
+
+func Start(ctx context.Context, config c.NatsConfig, logger l.Logger, runtimeOpts ...Option) (*Runtime, error) {
+	opts := options{url: config.URL}
+	for _, apply := range runtimeOpts {
+		apply(&opts)
 	}
 
-	// Create JetStream context
-	var jsOpts []jetstream.JetStreamOpt
 	if config.PublishAsyncMaxPending > 0 {
-		jsOpts = append(jsOpts, jetstream.WithPublishAsyncMaxPending(config.PublishAsyncMaxPending))
+		opts.jsOpts = append(opts.jsOpts, jetstream.WithPublishAsyncMaxPending(config.PublishAsyncMaxPending))
 	}
-	js, err := jetstream.New(nc, jsOpts...)
+
+	if opts.jetStream != nil {
+		return &Runtime{JetStream: opts.jetStream}, nil
+	}
+
+	if opts.conn != nil {
+		js, err := jetstream.New(opts.conn, opts.jsOpts...)
+		if err != nil {
+			return nil, err
+		}
+		if err := waitForJetStream(ctx, js, logger); err != nil {
+			return nil, err
+		}
+		return &Runtime{JetStream: js, Conn: opts.conn}, nil
+	}
+
+	if strings.TrimSpace(opts.url) != "" {
+		nc, err := natsgo.Connect(opts.url, opts.connectOpts...)
+		if err != nil {
+			return nil, err
+		}
+		js, err := jetstream.New(nc, opts.jsOpts...)
+		if err != nil {
+			nc.Close()
+			return nil, err
+		}
+		if err := waitForJetStream(ctx, js, logger); err != nil {
+			nc.Close()
+			return nil, err
+		}
+		logger.Info("Connected to external NATS at ", opts.url)
+		return &Runtime{JetStream: js, Conn: nc, ownsConn: true}, nil
+	}
+
+	natsOptions := createNATSOptions(config, logger)
+	natsServer, err := startNATSServer(natsOptions, natsStartupTimeout(config.Cluster.Timeout), logger)
 	if err != nil {
-		logger.Fatalf("Failed to create JetStream context: %v", err)
+		return nil, err
 	}
-	// time.Sleep(30 * time.Second)
-	waitForJetStream(ctx, js, logger)
-	return js, nc, natsServer
+
+	nc, err := natsgo.Connect("", natsgo.InProcessServer(natsServer))
+	if err != nil {
+		natsServer.Shutdown()
+		return nil, err
+	}
+
+	js, err := jetstream.New(nc, opts.jsOpts...)
+	if err != nil {
+		nc.Close()
+		natsServer.Shutdown()
+		return nil, err
+	}
+	if err := waitForJetStream(ctx, js, logger); err != nil {
+		nc.Close()
+		natsServer.Shutdown()
+		return nil, err
+	}
+	return &Runtime{JetStream: js, Conn: nc, Server: natsServer, ownsConn: true}, nil
 }
 
 func createNATSOptions(config c.NatsConfig, logger l.Logger) server.Options {
@@ -66,29 +184,40 @@ func createNATSOptions(config c.NatsConfig, logger l.Logger) server.Options {
 	return options
 }
 
-func startNATSServer(options server.Options, timeout time.Duration, logger l.Logger) *server.Server {
+func startNATSServer(options server.Options, timeout time.Duration, logger l.Logger) (*server.Server, error) {
 	natsServer, err := server.NewServer(&options)
 	if err != nil {
-		logger.Fatalf("Failed to create NATS server: %v", err)
+		return nil, err
 	}
 
 	natsServer.ConfigureLogger()
 	go natsServer.Start()
 	if !natsServer.ReadyForConnections(timeout) {
-		logger.Fatal("NATS server failed to start")
+		natsServer.Shutdown()
+		return nil, fmt.Errorf("NATS server failed to start")
 	}
 	logger.Info("NATS server started on ", natsServer.ClientURL())
 
-	return natsServer
+	return natsServer, nil
 }
 
-func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logger) {
-	jetStreamTestDone := make(chan struct{})
+func natsStartupTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 30 * time.Second
+	}
+	return timeout
+}
+
+func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logger) error {
+	jetStreamTestDone := make(chan error, 1)
 
 	go func() {
-		defer close(jetStreamTestDone)
-
 		for {
+			if err := ctx.Err(); err != nil {
+				jetStreamTestDone <- err
+				return
+			}
+
 			streamName := "test_jetstream"
 			_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 				Name: streamName,
@@ -101,24 +230,41 @@ func waitForJetStream(ctx context.Context, js jetstream.JetStream, logger l.Logg
 
 			if err != nil {
 				logger.Warnf("failed to add stream: %v %v", streamName, err)
-				time.Sleep(5 * time.Second)
-				continue
+				select {
+				case <-ctx.Done():
+					jetStreamTestDone <- ctx.Err()
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
 			}
 
 			r, err := js.Publish(ctx, streamName+".test", []byte("test"))
 			if err != nil {
 				logger.Warnf("Failed to publish to JetStream, retrying in 5 second: %v", err)
-				time.Sleep(5 * time.Second)
+				select {
+				case <-ctx.Done():
+					jetStreamTestDone <- ctx.Err()
+					return
+				case <-time.After(5 * time.Second):
+				}
 			} else {
 				logger.Infof("Published to JetStream: %v", r)
+				jetStreamTestDone <- nil
 				break
 			}
 		}
 	}()
 
 	select {
-	case <-jetStreamTestDone:
+	case err := <-jetStreamTestDone:
+		if err != nil {
+			return err
+		}
 		logger.Info("JetStream system is available")
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

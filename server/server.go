@@ -181,9 +181,12 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	defer cancel()
 
 	// Initialize NATS
-	js, nc, ns := nats2.InitializeNATS(ctx, config.Nats, AppLogger)
-	defer nc.Close()
-	defer ns.Shutdown()
+	natsRuntime, err := nats2.Start(ctx, config.Nats, AppLogger)
+	if err != nil {
+		AppLogger.Fatalf("Failed to initialize NATS: %v", err)
+	}
+	defer natsRuntime.Close()
+	js := natsRuntime.JetStream
 
 	backend, err := initializeBackend(ctx, config, js, AppLogger)
 	if err != nil {

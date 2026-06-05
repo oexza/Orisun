@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"github.com/google/uuid"
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"time"
 
 	c "github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/nats"
 	"github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
 )
@@ -23,10 +24,16 @@ func main() {
 
 	logger := logging.InitializeDefaultLogger(config.Logging)
 
-	// you can bring your own nats
-	jetStream, conn, server := nats.InitializeNATS(ctx, config.Nats, logger)
+	// Bring your own JetStream-enabled NATS server.
+	conn, err := natsgo.Connect("nats://localhost:4222")
+	if err != nil {
+		logger.Fatalf("Failed to connect to NATS: %v", err)
+	}
 	defer conn.Close()
-	defer server.Shutdown()
+	jetStream, err := jetstream.New(conn)
+	if err != nil {
+		logger.Fatalf("Failed to create JetStream context: %v", err)
+	}
 
 	// Initialize database connection
 	config.Postgres.User = "postgres"

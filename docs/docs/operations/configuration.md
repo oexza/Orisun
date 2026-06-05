@@ -78,6 +78,7 @@ ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `ORISUN_NATS_URL` | empty | External JetStream-enabled NATS URL. When set, Orisun connects to it instead of starting embedded NATS. |
 | `ORISUN_NATS_PORT` | `4224` | Embedded NATS client port. |
 | `ORISUN_NATS_STORE_DIR` | `./data/orisun/nats` | NATS data directory. |
 | `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` | `536870912` | Per-boundary event stream memory cap. |

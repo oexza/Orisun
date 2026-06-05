@@ -32,6 +32,32 @@ func start(ctx context.Context) (*embeddedpg.Store, error) {
 }
 ```
 
+By default, embedded stores start embedded NATS JetStream in the same process.
+Use the store's NATS handles when your host process wants direct access without connecting to a NATS URL:
+
+```go
+nc := store.NATSConnection()
+js := store.JetStream()
+```
+
+To use an existing JetStream-enabled NATS server instead:
+
+```go
+store, err := embeddedpg.Start(
+	ctx,
+	cfg,
+	logger,
+	embeddedpg.WithNATSURL("nats://localhost:4222"),
+)
+```
+
+If your service already owns a NATS connection or JetStream handle, pass it directly:
+
+```go
+store, err := embeddedpg.Start(ctx, cfg, logger, embeddedpg.WithNATSConnection(conn))
+store, err = embeddedpg.Start(ctx, cfg, logger, embeddedpg.WithJetStream(js))
+```
+
 ## SQLite Embedding
 
 ```go
@@ -51,6 +77,19 @@ func start(ctx context.Context) (*embeddedsqlite.Store, error) {
 	return embeddedsqlite.Start(ctx, cfg, logger)
 }
 ```
+
+SQLite embedding supports the same NATS options:
+
+```go
+store, err := embeddedsqlite.Start(
+	ctx,
+	cfg,
+	logger,
+	embeddedsqlite.WithNATSURL("nats://localhost:4222"),
+)
+```
+
+SQLite remains single-node only. Keep `cfg.Nats.Cluster.Enabled = false`.
 
 ## Embedded Index Management
 
@@ -81,4 +120,4 @@ Embedded stores expose the same high-level behavior as the server:
 
 ## Shutdown
 
-Call the store's close method during service shutdown so database pools, NATS resources, and background loops can stop cleanly.
+Call the store's close method during service shutdown so database pools, NATS resources, and background loops can stop cleanly. Orisun closes NATS resources it creates, but it does not close caller-owned connections or JetStream handles passed with `WithNATSConnection` or `WithJetStream`.
