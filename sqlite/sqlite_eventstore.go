@@ -150,6 +150,13 @@ type SqliteSaveEvents struct {
 	notifier *SqliteEventNotifier
 }
 
+type sqliteEventToInsert struct {
+	EventID      string
+	EventType    string
+	DataJSON     string
+	MetadataJSON string
+}
+
 const (
 	sqliteInsertParamsPerEvent = 6
 	sqliteMaxInsertParams      = 999
@@ -180,6 +187,10 @@ func (s *SqliteSaveEvents) Save(
 	events, err = eventstore.NormalizeEventsForSave(events)
 	if err != nil {
 		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
+	}
+	eventsToInsert, err := normalizeEventsForSqliteInsert(events)
+	if err != nil {
+		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
 	}
 
 	conn, takeErr := pool.Write.Take(ctx)
@@ -250,14 +261,35 @@ func (s *SqliteSaveEvents) Save(
 		return "", 0, status.Errorf(codes.Internal, "allocate ids: %v", err)
 	}
 
-	if err = insertEventBatch(conn, events, firstID, lastID); err != nil {
+	if err = insertEventBatch(conn, eventsToInsert, firstID, lastID); err != nil {
 		return "", 0, status.Errorf(codes.Internal, "insert events: %v", err)
 	}
 
 	return strconv.FormatInt(lastID, 10), lastID, nil
 }
 
-func insertEventBatch(conn *sqlite.Conn, events []eventstore.EventWithMapTags, firstID, transactionID int64) error {
+func normalizeEventsForSqliteInsert(events []eventstore.EventWithMapTags) ([]sqliteEventToInsert, error) {
+	out := make([]sqliteEventToInsert, len(events))
+	for i, event := range events {
+		dataJSON, err := normalizeJSON(event.Data)
+		if err != nil {
+			return nil, fmt.Errorf("event %d data: %w", i, err)
+		}
+		metadataJSON, err := normalizeJSON(event.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("event %d metadata: %w", i, err)
+		}
+		out[i] = sqliteEventToInsert{
+			EventID:      event.EventId,
+			EventType:    event.EventType,
+			DataJSON:     dataJSON,
+			MetadataJSON: metadataJSON,
+		}
+	}
+	return out, nil
+}
+
+func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, transactionID int64) error {
 	var sb strings.Builder
 	sb.Grow(64 + len(events)*48)
 	sb.WriteString("INSERT INTO orisun_es_event (transaction_id, global_id, event_id, event_type, data, metadata) VALUES ")
@@ -268,17 +300,8 @@ func insertEventBatch(conn *sqlite.Conn, events []eventstore.EventWithMapTags, f
 		}
 		sb.WriteString("(?, ?, ?, ?, ?, ?)")
 		gid := firstID + int64(i)
-
-		dataJSON, mErr := normalizeJSON(e.Data)
-		if mErr != nil {
-			return fmt.Errorf("marshal event data: %w", mErr)
-		}
-		metaJSON, mErr := normalizeJSON(e.Metadata)
-		if mErr != nil {
-			return fmt.Errorf("marshal event metadata: %w", mErr)
-		}
 		insertArgs = append(insertArgs,
-			transactionID, gid, e.EventId, e.EventType, dataJSON, metaJSON,
+			transactionID, gid, e.EventID, e.EventType, e.DataJSON, e.MetadataJSON,
 		)
 	}
 
@@ -904,11 +927,17 @@ func normalizeJSON(v any) (string, error) {
 		if s == "" {
 			return "{}", nil
 		}
+		if !json.Valid([]byte(s)) {
+			return "", fmt.Errorf("invalid JSON")
+		}
 		return s, nil
 	}
 	if b, ok := v.([]byte); ok {
 		if len(b) == 0 {
 			return "{}", nil
+		}
+		if !json.Valid(b) {
+			return "", fmt.Errorf("invalid JSON")
 		}
 		return string(b), nil
 	}

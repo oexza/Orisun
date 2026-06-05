@@ -192,6 +192,37 @@ func TestSave_RejectsUnknownBoundary(t *testing.T) {
 	}
 }
 
+func TestSave_RejectsInvalidJSONStrings(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	saver := NewSqliteSaveEvents(pools, logger)
+
+	_, _, err := saver.Save(context.Background(),
+		[]eventstore.EventWithMapTags{{
+			EventId:   uuid.NewString(),
+			EventType: "BadData",
+			Data:      `{"broken":`,
+			Metadata:  map[string]any{},
+		}},
+		"test", nil, nil)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument for invalid data JSON, got %v", err)
+	}
+
+	_, _, err = saver.Save(context.Background(),
+		[]eventstore.EventWithMapTags{{
+			EventId:   uuid.NewString(),
+			EventType: "BadMetadata",
+			Data:      map[string]any{},
+			Metadata:  []byte(`{"broken":`),
+		}},
+		"test", nil, nil)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument for invalid metadata JSON, got %v", err)
+	}
+}
+
 func TestSave_CCCViolation(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
