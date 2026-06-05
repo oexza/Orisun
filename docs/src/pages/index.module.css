@@ -69,6 +69,22 @@
   font-weight: 800;
 }
 
+.releaseBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+}
+
+.releaseBadge:hover {
+  opacity: 0.86;
+}
+
+.releaseBadge img {
+  display: block;
+  width: auto;
+  height: 20px;
+}
+
 .actions {
   margin-top: 2.35rem;
 }

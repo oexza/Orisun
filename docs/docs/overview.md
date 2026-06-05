@@ -5,6 +5,8 @@ description: What Orisun is, when to use it, and where to start.
 slug: /
 ---
 
+[![Latest Release](https://img.shields.io/github/v/release/oexza/Orisun?label=release)](https://github.com/oexza/Orisun/releases/latest)
+
 Orisun is an event store for applications that need durable history, content-based consistency checks, and live delivery from the same system.
 
 It stores the event log in PostgreSQL or SQLite, uses Command Context Consistency to protect writes against stale decisions, and publishes committed events through embedded NATS JetStream for catch-up and live subscriptions.

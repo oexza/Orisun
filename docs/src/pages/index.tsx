@@ -157,7 +157,16 @@ export default function Home(): ReactNode {
         <div className={clsx('container', styles.heroInner)}>
           <div className={styles.heroCopy}>
             <div className={styles.badges}>
-              <span className={styles.badge}>v0.2.13</span>
+              <a
+                className={styles.releaseBadge}
+                href="https://github.com/oexza/Orisun/releases/latest"
+                aria-label="Latest Orisun release"
+              >
+                <img
+                  src="https://img.shields.io/github/v/release/oexza/Orisun?label=release"
+                  alt="Latest release"
+                />
+              </a>
               <span className={styles.badge}>PostgreSQL + SQLite</span>
               <span className={styles.badge}>gRPC + JetStream</span>
             </div>
