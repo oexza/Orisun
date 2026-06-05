@@ -9,7 +9,7 @@ Create a normal release from `main`:
 ./scripts/release.sh 1.2.3
 ```
 
-The script is the release path for this repository. It validates the tree, creates the annotated tag, pushes it, and lets the GitHub release workflow publish binaries, Docker images, and the GitHub release.
+The script is the release path for this repository. It validates the tree, creates the annotated tag, pushes it, asks the Go module proxy and pkg.go.dev to fetch the new version, and lets the GitHub release workflow publish binaries, Docker images, and the GitHub release.
 
 Attach curated release notes to the GitHub release:
 
@@ -18,6 +18,10 @@ Attach curated release notes to the GitHub release:
 ```
 
 The release script stores notes verbatim in the annotated git tag, including markdown headings.
+
+If proxy.golang.org or pkg.go.dev is unavailable, rerun the release script only if
+the tag was not pushed. After a successful tag push, the Go index sync is
+best-effort and can be skipped with `SKIP_GO_INDEX_SYNC=1`.
 
 The GitHub release workflow uses release notes in this order:
 
@@ -33,7 +37,8 @@ Before tagging:
 2. Build the docs site with `bun run build` from `docs/`.
 3. Confirm release notes describe user-facing behavior, migrations, and image tags.
 4. Create and push the annotated tag with `scripts/release.sh`.
-5. Confirm the GitHub Actions release workflow completed and the GitHub release exists.
+5. Confirm pkg.go.dev has rendered the new version.
+6. Confirm the GitHub Actions release workflow completed and the GitHub release exists.
 
 Do not create release tags manually unless you are repairing a failed release and understand which script checks you are bypassing.
 
