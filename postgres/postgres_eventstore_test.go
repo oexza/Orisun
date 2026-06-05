@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-json"
 	common "github.com/oexza/Orisun/admin/slices/common"
 	config "github.com/oexza/Orisun/config"
 	logging "github.com/oexza/Orisun/logging"
@@ -795,7 +796,10 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 
 	for i, event := range resp.Events {
 		expectedIndex := i + 2
-		assert.Contains(t, event.Data, fmt.Sprintf("{\"index\": %d}", expectedIndex))
+		var data map[string]any
+		require.NoError(t, json.Unmarshal([]byte(event.Data), &data))
+		assert.Equal(t, float64(expectedIndex), data["index"])
+		assert.Equal(t, "TestEvent", data["eventType"])
 	}
 }
 

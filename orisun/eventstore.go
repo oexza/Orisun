@@ -167,6 +167,63 @@ type EventWithMapTags struct {
 	Metadata  any    `json:"metadata"`
 }
 
+func NormalizeEventsForSave(events []EventWithMapTags) ([]EventWithMapTags, error) {
+	normalized := make([]EventWithMapTags, len(events))
+	for i, event := range events {
+		data, err := normalizeEventData(event.Data, event.EventType)
+		if err != nil {
+			return nil, err
+		}
+		normalized[i] = EventWithMapTags{
+			EventId:   event.EventId,
+			EventType: event.EventType,
+			Data:      data,
+			Metadata:  event.Metadata,
+		}
+	}
+	return normalized, nil
+}
+
+func normalizeEventsForSave(events []EventWithMapTags) ([]EventWithMapTags, error) {
+	return NormalizeEventsForSave(events)
+}
+
+func normalizeEventData(data any, eventType string) (map[string]any, error) {
+	var dataMap map[string]any
+
+	switch value := data.(type) {
+	case nil:
+		dataMap = map[string]any{}
+	case map[string]any:
+		dataMap = make(map[string]any, len(value)+1)
+		for k, v := range value {
+			dataMap[k] = v
+		}
+	case string:
+		if err := json.Unmarshal([]byte(value), &dataMap); err != nil {
+			return nil, err
+		}
+	case []byte:
+		if err := json.Unmarshal(value, &dataMap); err != nil {
+			return nil, err
+		}
+	default:
+		dataBytes, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(dataBytes, &dataMap); err != nil {
+			return nil, err
+		}
+	}
+
+	if dataMap == nil {
+		dataMap = map[string]any{}
+	}
+	dataMap["eventType"] = eventType
+	return dataMap, nil
+}
+
 func authorizeRequest(ctx context.Context, roles []Role) error {
 	// Check if the user has the necessary permissions to perform the query
 	user := ctx.Value(UserContextKey)
@@ -281,12 +338,12 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 
 	eventsForMarshaling := make([]EventWithMapTags, len(req.Events))
 	for i, event := range req.Events {
-		var dataMap, metadataMap map[string]any
+		var metadataMap map[string]any
 
-		if err = json.Unmarshal([]byte(event.Data), &dataMap); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in data field: %v", err)
+		dataMap, normalizeErr := normalizeEventData(event.Data, event.EventType)
+		if normalizeErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in data field: %v", normalizeErr)
 		}
-		dataMap["eventType"] = event.EventType
 
 		if err = json.Unmarshal([]byte(event.Metadata), &metadataMap); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)

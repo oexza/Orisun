@@ -116,6 +116,10 @@ func (s *PostgresSaveEvents) Save(
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
+	events, err = eventstore.NormalizeEventsForSave(events)
+	if err != nil {
+		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
+	}
 
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {

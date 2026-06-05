@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -78,6 +79,54 @@ func TestSave_RoundTrip(t *testing.T) {
 	if resp.Events[1].Position.PreparePosition != gid {
 		t.Errorf("last event global_id should equal returned gid: got %d, want %d",
 			resp.Events[1].Position.PreparePosition, gid)
+	}
+}
+
+func TestSave_AddsEventTypeToData(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	ctx := context.Background()
+
+	_, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
+		mustEvent(t, "OrderPlaced", map[string]any{
+			"order_id":  "order-1",
+			"eventType": "stale",
+		}, map[string]any{}),
+	}, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     100,
+		Query: &eventstore.Query{
+			Criteria: []*eventstore.Criterion{
+				{Tags: []*eventstore.Tag{{Key: "eventType", Value: "OrderPlaced"}}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 matching event, got %d", len(resp.Events))
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal([]byte(resp.Events[0].Data), &data); err != nil {
+		t.Fatalf("unmarshal data: %v", err)
+	}
+	if data["eventType"] != "OrderPlaced" {
+		t.Fatalf("expected canonical eventType in data, got %v", data["eventType"])
+	}
+	if data["order_id"] != "order-1" {
+		t.Fatalf("expected original data to be preserved, got %v", data["order_id"])
 	}
 }
 

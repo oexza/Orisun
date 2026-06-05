@@ -123,6 +123,10 @@ func (s *SqliteSaveEvents) Save(
 	if !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
+	events, err = eventstore.NormalizeEventsForSave(events)
+	if err != nil {
+		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
+	}
 
 	conn, takeErr := pool.Write.Take(ctx)
 	if takeErr != nil {
