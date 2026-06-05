@@ -62,7 +62,7 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		}
 		return backend, nil
 	case "sqlite":
-		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
 			ctx,
 			config.Sqlite,
 			config.Admin,
@@ -79,6 +79,7 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 			LockProvider:    lockProvider,
 			AdminDB:         adminDB,
 			EventPublishing: eventPublishing,
+			SignalProvider:  signalProvider,
 		}, nil
 	default:
 		return server.Backend{}, fmt.Errorf("unsupported backend: %s", config.BackendType())

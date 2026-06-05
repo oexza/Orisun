@@ -50,6 +50,15 @@ CREATE TABLE IF NOT EXISTS projector_checkpoint (
     commit_position  INTEGER NOT NULL,
     prepare_position INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS orisun_boundary_index_metadata (
+    name         TEXT PRIMARY KEY,
+    fields       TEXT NOT NULL CHECK (json_valid(fields)),
+    conditions   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(conditions)),
+    combinator   TEXT NOT NULL DEFAULT 'AND',
+    date_created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    date_updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 `
 
 // Admin-only tables, created only inside the admin boundary's database.

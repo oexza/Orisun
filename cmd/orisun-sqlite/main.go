@@ -39,7 +39,7 @@ func main() {
 }
 
 func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
 		ctx,
 		config.Sqlite,
 		config.Admin,
@@ -56,5 +56,6 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		LockProvider:    lockProvider,
 		AdminDB:         adminDB,
 		EventPublishing: eventPublishing,
+		SignalProvider:  signalProvider,
 	}, nil
 }

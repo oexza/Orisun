@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"fmt"
-	"time"
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -67,7 +66,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 	js := natsRuntime.JetStream
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, err := sqlitebackend.InitializeSqliteDatabase(
+	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
 		runCtx,
 		config.Sqlite,
 		config.Admin,
@@ -88,9 +87,6 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 
-	signalProvider := func(boundary string) orisun.EventSignal {
-		return orisun.NewPollingSignal(time.Second)
-	}
 	orisun.StartEventPolling(runCtx, config, lockProvider, getEvents, js, eventPublishing, signalProvider, logger)
 
 	return &Store{

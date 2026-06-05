@@ -20,6 +20,7 @@ type BoundaryPools struct {
 	Boundary string
 	Write    *sqlitex.Pool
 	Read     *sqlitex.Pool
+	indexes  *sqliteIndexRegistry
 }
 
 // OpenBoundaryPools opens write+read pools for one boundary at {dir}/{boundary}.db.
@@ -62,6 +63,8 @@ func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string)
 		return nil, fmt.Errorf("open read pool for %s: %w", boundary, err)
 	}
 
+	indexes := newSqliteIndexRegistry()
+
 	conn, err := writePool.Take(ctx)
 	if err != nil {
 		writePool.Close()
@@ -74,9 +77,15 @@ func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string)
 		readPool.Close()
 		return nil, fmt.Errorf("migrate %s: %w", boundary, err)
 	}
+	if err := loadBoundaryIndexMetadata(conn, boundary, indexes); err != nil {
+		writePool.Put(conn)
+		writePool.Close()
+		readPool.Close()
+		return nil, fmt.Errorf("load index metadata %s: %w", boundary, err)
+	}
 	writePool.Put(conn)
 
-	return &BoundaryPools{Boundary: boundary, Write: writePool, Read: readPool}, nil
+	return &BoundaryPools{Boundary: boundary, Write: writePool, Read: readPool, indexes: indexes}, nil
 }
 
 func (b *BoundaryPools) Close() error {

@@ -528,7 +528,7 @@ func (s *EventStore) SubscribeToAllEvents(
 			s.logger.Errorf("Failed to get last processed event for timestamp: %v", err)
 			return fmt.Errorf("cannot determine NATS subscription start time: failed to retrieve last processed event: %w", err)
 		} else if len(lastEventResp.Events) == 0 {
-			s.logger.Warn("No events found at last processed position, using polling completion time for NATS subscription")
+			s.logger.Warn("No events found after last processed position, using polling completion time for NATS subscription")
 			timeToSubscribeFromJetstream = pollingCompletedTime
 		} else {
 			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()

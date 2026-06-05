@@ -4,11 +4,14 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 
 	"github.com/oexza/Orisun/logging"
 	eventstore "github.com/oexza/Orisun/orisun"
@@ -245,6 +248,182 @@ func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
 	want := eventstore.NotExistsPosition()
 	if pos.CommitPosition != want.CommitPosition || pos.PreparePosition != want.PreparePosition {
 		t.Fatalf("expected not-exists position, got commit=%d prepare=%d", pos.CommitPosition, pos.PreparePosition)
+	}
+}
+
+func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	ctx := context.Background()
+
+	admin := NewSqliteAdminDB(pools, "test", logger)
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	pool := pools["test"]
+
+	indexExists := func(name string) bool {
+		conn, err := pool.Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take conn: %v", err)
+		}
+		defer pool.Read.Put(conn)
+
+		found := false
+		err = sqlitex.Execute(conn,
+			"SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+			&sqlitex.ExecOptions{
+				Args: []any{name},
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					found = true
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("check index: %v", err)
+		}
+		return found
+	}
+
+	metadataCount := func(name string) int {
+		conn, err := pool.Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take conn: %v", err)
+		}
+		defer pool.Read.Put(conn)
+
+		count := 0
+		err = sqlitex.Execute(conn,
+			"SELECT COUNT(*) FROM orisun_boundary_index_metadata WHERE name = ?",
+			&sqlitex.ExecOptions{
+				Args: []any{name},
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					count = int(stmt.ColumnInt64(0))
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("check metadata: %v", err)
+		}
+		return count
+	}
+
+	err := admin.CreateBoundaryIndex(ctx, "test", "amount",
+		[]eventstore.BoundaryIndexField{{JsonKey: "amount", ValueType: "numeric"}},
+		nil,
+		"")
+	if err != nil {
+		t.Fatalf("create index: %v", err)
+	}
+	if !indexExists("amount_idx") {
+		t.Fatal("expected index to exist")
+	}
+	if got := metadataCount("amount"); got != 1 {
+		t.Fatalf("expected one metadata row, got %d", got)
+	}
+
+	sql, args := buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
+	if !strings.Contains(sql, "CAST(json_extract(data, '$.\"amount\"') AS REAL)") {
+		t.Fatalf("expected numeric cast in criteria SQL, got %q", sql)
+	}
+	if len(args) != 1 || args[0] != "45" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+
+	_, _, err = saver.Save(ctx, []eventstore.EventWithMapTags{
+		mustEvent(t, "Priced", map[string]any{"amount": 45}, map[string]any{}),
+	}, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     10,
+		Query: &eventstore.Query{
+			Criteria: []*eventstore.Criterion{
+				{Tags: []*eventstore.Tag{{Key: "amount", Value: "45"}}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(resp.Events))
+	}
+
+	if err := admin.DropBoundaryIndex(ctx, "test", "amount"); err != nil {
+		t.Fatalf("drop index: %v", err)
+	}
+	if indexExists("amount_idx") {
+		t.Fatal("expected index to be dropped")
+	}
+	if got := metadataCount("amount"); got != 0 {
+		t.Fatalf("expected no metadata rows, got %d", got)
+	}
+
+	sql, _ = buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
+	if strings.Contains(sql, "CAST(") {
+		t.Fatalf("expected untyped criteria SQL after dropping index, got %q", sql)
+	}
+}
+
+func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	admin := NewSqliteAdminDB(pools, "test", logger)
+
+	user := eventstore.User{
+		Id:             uuid.NewString(),
+		Name:           "Test User",
+		Username:       "cache-delete-test",
+		HashedPassword: "hash",
+		Roles:          []eventstore.Role{eventstore.RoleAdmin},
+	}
+	if err := admin.UpsertUser(user); err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	if _, err := admin.GetUserByUsername(user.Username); err != nil {
+		t.Fatalf("expected cached user: %v", err)
+	}
+	if err := admin.DeleteUser(user.Id); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	if _, err := admin.GetUserByUsername(user.Username); err == nil {
+		t.Fatal("expected deleted user lookup to fail")
+	}
+}
+
+func TestSaveNotifiesSqliteEventSignalAfterCommit(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+
+	notifier := NewSqliteEventNotifier(time.Hour)
+	saver := NewSqliteSaveEvents(pools, logger)
+	saver.notifier = notifier
+	signal := notifier.Signal("test")
+	defer signal.Stop()
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- signal.Wait(waitCtx)
+	}()
+
+	_, _, err := saver.Save(context.Background(), []eventstore.EventWithMapTags{
+		mustEvent(t, "Notified", map[string]any{"k": "v"}, map[string]any{}),
+	}, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if err := <-waitCh; err != nil {
+		t.Fatalf("expected save notification before polling interval: %v", err)
 	}
 }
 

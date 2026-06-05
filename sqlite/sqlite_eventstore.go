@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -58,6 +59,16 @@ func jsonPathLiteral(key string) string {
 // Each inner map ANDs key=value pairs; criteria OR across the outer slice.
 // Returns "1" (always-true) for empty input so callers can append to a WHERE.
 func buildCriteriaSQL(criteria []map[string]any) (string, []any) {
+	return buildCriteriaSQLWithTypes(criteria, nil)
+}
+
+func buildCriteriaSQLForBoundary(criteria []map[string]any, registry *sqliteIndexRegistry, boundary string) (string, []any) {
+	return buildCriteriaSQLWithTypes(criteria, func(key string) string {
+		return registry.fieldType(boundary, key)
+	})
+}
+
+func buildCriteriaSQLWithTypes(criteria []map[string]any, fieldType func(key string) string) (string, []any) {
 	args := make([]any, 0)
 	if len(criteria) == 0 {
 		return "1", args
@@ -71,8 +82,23 @@ func buildCriteriaSQL(criteria []map[string]any) (string, []any) {
 		sort.Strings(keys)
 		andParts := make([]string, 0, len(keys))
 		for _, k := range keys {
-			andParts = append(andParts, fmt.Sprintf("json_extract(data, %s) = ?", jsonPathLiteral(k)))
-			args = append(args, c[k])
+			path := jsonPathLiteral(k)
+			base := fmt.Sprintf("json_extract(data, %s)", path)
+			valueType := "text"
+			if fieldType != nil {
+				valueType = normalizeIndexValueType(fieldType(k))
+			}
+			switch valueType {
+			case "numeric":
+				andParts = append(andParts, "CAST("+base+" AS REAL) = CAST(? AS REAL)")
+				args = append(args, c[k])
+			case "boolean":
+				andParts = append(andParts, "CAST("+base+" AS INTEGER) = ?")
+				args = append(args, sqliteBooleanArg(c[k]))
+			default:
+				andParts = append(andParts, base+" = ?")
+				args = append(args, c[k])
+			}
 		}
 		if len(andParts) > 0 {
 			orParts = append(orParts, "("+strings.Join(andParts, " AND ")+")")
@@ -82,6 +108,24 @@ func buildCriteriaSQL(criteria []map[string]any) (string, []any) {
 		return "1", args
 	}
 	return strings.Join(orParts, " OR "), args
+}
+
+func sqliteBooleanArg(v any) any {
+	switch value := v.(type) {
+	case bool:
+		if value {
+			return int64(1)
+		}
+		return int64(0)
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "1":
+			return int64(1)
+		case "false", "0":
+			return int64(0)
+		}
+	}
+	return v
 }
 
 func criteriaAsList(query *eventstore.Query) []map[string]any {
@@ -101,8 +145,9 @@ func criteriaAsList(query *eventstore.Query) []map[string]any {
 // ---------------------------------------------------------------------------
 
 type SqliteSaveEvents struct {
-	pools  map[string]*BoundaryPools
-	logger logging.Logger
+	pools    map[string]*BoundaryPools
+	logger   logging.Logger
+	notifier *SqliteEventNotifier
 }
 
 func NewSqliteSaveEvents(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteSaveEvents {
@@ -138,13 +183,18 @@ func (s *SqliteSaveEvents) Save(
 	if beginErr != nil {
 		return "", 0, status.Errorf(codes.Internal, "begin tx: %v", beginErr)
 	}
-	defer endFn(&err)
+	defer func() {
+		endFn(&err)
+		if err == nil && s.notifier != nil {
+			s.notifier.Notify(boundary)
+		}
+	}()
 
 	// CCC check
 	if streamConsistencyCondition != nil && len(streamConsistencyCondition.Criteria) > 0 {
 		criteria := criteriaAsList(streamConsistencyCondition)
 		if len(criteria) > 0 {
-			where, whereArgs := buildCriteriaSQL(criteria)
+			where, whereArgs := buildCriteriaSQLForBoundary(criteria, pool.indexes, boundary)
 			checkSQL := "SELECT transaction_id, global_id FROM orisun_es_event WHERE " + where +
 				" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
 
@@ -258,7 +308,7 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 	if req.Query != nil && len(req.Query.Criteria) > 0 {
 		critList := criteriaAsList(req.Query)
 		if len(critList) > 0 {
-			where, wargs := buildCriteriaSQL(critList)
+			where, wargs := buildCriteriaSQLForBoundary(critList, pool.indexes, req.Boundary)
 			whereParts = append(whereParts, "("+where+")")
 			args = append(args, wargs...)
 		}
@@ -344,6 +394,7 @@ type SqliteAdminDB struct {
 	pools         map[string]*BoundaryPools
 	adminBoundary string
 	logger        logging.Logger
+	userCacheMu   sync.RWMutex
 	userCache     map[string]*eventstore.User
 }
 
@@ -478,6 +529,8 @@ func (a *SqliteAdminDB) UpsertUser(user eventstore.User) error {
 	if err != nil {
 		return err
 	}
+	a.userCacheMu.Lock()
+	defer a.userCacheMu.Unlock()
 	a.userCache[user.Username] = &user
 	return nil
 }
@@ -489,13 +542,23 @@ func (a *SqliteAdminDB) DeleteUser(id string) error {
 		return err
 	}
 	defer pool.Write.Put(conn)
-	return sqlitex.Execute(conn, "DELETE FROM users WHERE id = ?", &sqlitex.ExecOptions{Args: []any{id}})
+	if err := sqlitex.Execute(conn, "DELETE FROM users WHERE id = ?", &sqlitex.ExecOptions{Args: []any{id}}); err != nil {
+		return err
+	}
+	a.userCacheMu.Lock()
+	defer a.userCacheMu.Unlock()
+	a.userCache = make(map[string]*eventstore.User)
+	return nil
 }
 
 func (a *SqliteAdminDB) GetUserByUsername(username string) (eventstore.User, error) {
+	a.userCacheMu.RLock()
 	if u, ok := a.userCache[username]; ok && u != nil {
+		a.userCacheMu.RUnlock()
 		return *u, nil
 	}
+	a.userCacheMu.RUnlock()
+
 	pool := a.adminPool()
 	conn, err := pool.Read.Take(context.Background())
 	if err != nil {
@@ -527,6 +590,8 @@ func (a *SqliteAdminDB) GetUserByUsername(username string) (eventstore.User, err
 	if !found {
 		return eventstore.User{}, fmt.Errorf("user not found")
 	}
+	a.userCacheMu.Lock()
+	defer a.userCacheMu.Unlock()
 	a.userCache[username] = &u
 	return u, nil
 }
@@ -675,7 +740,7 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	fields []eventstore.BoundaryIndexField,
 	conditions []eventstore.BoundaryIndexCondition,
 	combinator string,
-) error {
+) (err error) {
 	pool, ok := a.pools[boundary]
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
@@ -686,12 +751,21 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	if len(fields) == 0 {
 		return fmt.Errorf("at least one field is required")
 	}
+	if combinator == "" {
+		combinator = eventstore.IndexCombinatorAND
+	}
 
 	exprs := make([]string, len(fields))
+	normalizedFields := make([]eventstore.BoundaryIndexField, len(fields))
 	for i, f := range fields {
+		valueType := normalizeIndexValueType(f.ValueType)
+		normalizedFields[i] = eventstore.BoundaryIndexField{
+			JsonKey:   f.JsonKey,
+			ValueType: valueType,
+		}
 		path := jsonPathLiteral(f.JsonKey)
 		base := fmt.Sprintf("json_extract(data, %s)", path)
-		switch f.ValueType {
+		switch valueType {
 		case "numeric":
 			exprs[i] = "CAST(" + base + " AS REAL)"
 		case "boolean":
@@ -707,9 +781,6 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	if len(conditions) > 0 {
 		validOps := map[string]bool{"=": true, ">": true, "<": true, ">=": true, "<=": true}
 		validCombinators := map[string]bool{eventstore.IndexCombinatorAND: true, eventstore.IndexCombinatorOR: true}
-		if combinator == "" {
-			combinator = eventstore.IndexCombinatorAND
-		}
 		if !validCombinators[combinator] {
 			return fmt.Errorf("invalid combinator %q: must be AND or OR", combinator)
 		}
@@ -730,12 +801,48 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	}
 	defer pool.Write.Put(conn)
 
+	endFn, err := sqlitex.ImmediateTransaction(conn)
+	if err != nil {
+		return err
+	}
+	defer endFn(&err)
+
 	ddl := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON orisun_es_event (%s)%s",
 		quoteIdent(name+"_idx"), strings.Join(exprs, ", "), whereClause)
-	return sqlitex.Execute(conn, ddl, nil)
+	if err = sqlitex.Execute(conn, ddl, nil); err != nil {
+		return err
+	}
+
+	fieldsJSON, err := json.Marshal(normalizedFields)
+	if err != nil {
+		return err
+	}
+	conditionsJSON, err := json.Marshal(conditions)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	err = sqlitex.Execute(conn,
+		`INSERT INTO orisun_boundary_index_metadata (name, fields, conditions, combinator, date_created, date_updated)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET
+		   fields = excluded.fields,
+		   conditions = excluded.conditions,
+		   combinator = excluded.combinator,
+		   date_updated = excluded.date_updated`,
+		&sqlitex.ExecOptions{
+			Args: []any{name, string(fieldsJSON), string(conditionsJSON), combinator, now, now},
+		})
+	if err != nil {
+		return err
+	}
+	if err = loadBoundaryIndexMetadata(conn, boundary, pool.indexes); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (a *SqliteAdminDB) DropBoundaryIndex(ctx context.Context, boundary, name string) error {
+func (a *SqliteAdminDB) DropBoundaryIndex(ctx context.Context, boundary, name string) (err error) {
 	pool, ok := a.pools[boundary]
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
@@ -749,8 +856,27 @@ func (a *SqliteAdminDB) DropBoundaryIndex(ctx context.Context, boundary, name st
 	}
 	defer pool.Write.Put(conn)
 
-	return sqlitex.Execute(conn,
+	endFn, err := sqlitex.ImmediateTransaction(conn)
+	if err != nil {
+		return err
+	}
+	defer endFn(&err)
+
+	err = sqlitex.Execute(conn,
 		fmt.Sprintf("DROP INDEX IF EXISTS %s", quoteIdent(name+"_idx")), nil)
+	if err != nil {
+		return err
+	}
+	err = sqlitex.Execute(conn,
+		"DELETE FROM orisun_boundary_index_metadata WHERE name = ?",
+		&sqlitex.ExecOptions{Args: []any{name}})
+	if err != nil {
+		return err
+	}
+	if err = loadBoundaryIndexMetadata(conn, boundary, pool.indexes); err != nil {
+		return err
+	}
+	return nil
 }
 
 func quoteIdent(name string) string {
@@ -800,24 +926,24 @@ func InitializeSqliteDatabase(
 	boundaries []string,
 	js jetstream.JetStream,
 	logger logging.Logger,
-) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, error) {
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
 	if sqliteCfg.Dir == "" {
-		return nil, nil, nil, nil, nil, errors.New("sqlite dir is empty")
+		return nil, nil, nil, nil, nil, nil, errors.New("sqlite dir is empty")
 	}
 	if err := ensureDir(sqliteCfg.Dir); err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("create sqlite dir: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("create sqlite dir: %w", err)
 	}
 
 	pools := make(map[string]*BoundaryPools, len(boundaries))
 	for _, b := range boundaries {
 		if err := validateIdentifier(b); err != nil {
 			closeAll(pools)
-			return nil, nil, nil, nil, nil, fmt.Errorf("invalid boundary %q: %w", b, err)
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid boundary %q: %w", b, err)
 		}
 		bp, err := OpenBoundaryPools(ctx, sqliteCfg.Dir, b, adminCfg.Boundary)
 		if err != nil {
 			closeAll(pools)
-			return nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, err
 		}
 		pools[b] = bp
 	}
@@ -825,10 +951,12 @@ func InitializeSqliteDatabase(
 	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
 		closeAll(pools)
-		return nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
 	}
 
+	notifier := NewSqliteEventNotifier(time.Second)
 	saver := NewSqliteSaveEvents(pools, logger)
+	saver.notifier = notifier
 	getter := NewSqliteGetEvents(pools, logger)
 	admin := NewSqliteAdminDB(pools, adminCfg.Boundary, logger)
 	publishing := NewSqliteEventPublishing(pools, logger)
@@ -838,7 +966,7 @@ func InitializeSqliteDatabase(
 		closeAll(pools)
 	}()
 
-	return saver, getter, lockProvider, admin, publishing, nil
+	return saver, getter, lockProvider, admin, publishing, notifier.Signal, nil
 }
 
 func closeAll(pools map[string]*BoundaryPools) {
