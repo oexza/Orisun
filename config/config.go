@@ -85,7 +85,14 @@ type BackendConfig struct {
 // SqliteConfig holds settings for the embedded SQLite backend.
 // Each boundary gets its own file at {Dir}/{boundary}.db.
 type SqliteConfig struct {
-	Dir string
+	Dir               string
+	Synchronous       string
+	BusyTimeoutMs     int
+	ReadPoolSize      int
+	CacheSize         int
+	MmapSize          int64
+	WalAutoCheckpoint int
+	TempStore         string
 }
 
 // admin

@@ -940,7 +940,7 @@ func InitializeSqliteDatabase(
 			closeAll(pools)
 			return nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid boundary %q: %w", b, err)
 		}
-		bp, err := OpenBoundaryPools(ctx, sqliteCfg.Dir, b, adminCfg.Boundary)
+		bp, err := OpenBoundaryPoolsWithConfig(ctx, sqliteCfg, b, adminCfg.Boundary)
 		if err != nil {
 			closeAll(pools)
 			return nil, nil, nil, nil, nil, nil, err

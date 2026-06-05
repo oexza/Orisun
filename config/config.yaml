@@ -7,6 +7,13 @@ backend:
 # Each boundary gets its own file at {dir}/{boundary}.db.
 sqlite:
   dir: ${ORISUN_SQLITE_DIR:./data/orisun/sqlite}
+  synchronous: ${ORISUN_SQLITE_SYNCHRONOUS:NORMAL}
+  busyTimeoutMs: ${ORISUN_SQLITE_BUSY_TIMEOUT_MS:5000}
+  readPoolSize: ${ORISUN_SQLITE_READ_POOL_SIZE:0}
+  cacheSize: ${ORISUN_SQLITE_CACHE_SIZE:0}
+  mmapSize: ${ORISUN_SQLITE_MMAP_SIZE:0}
+  walAutoCheckpoint: ${ORISUN_SQLITE_WAL_AUTO_CHECKPOINT:0}
+  tempStore: ${ORISUN_SQLITE_TEMP_STORE:MEMORY}
 
 postgres:
   user: ${ORISUN_PG_USER:postgres}

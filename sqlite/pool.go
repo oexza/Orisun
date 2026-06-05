@@ -6,7 +6,10 @@ import (
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 
+	config "github.com/oexza/Orisun/config"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 )
@@ -27,18 +30,20 @@ type BoundaryPools struct {
 // Migrations are applied on the first connection drawn from the write pool.
 // adminBoundary controls whether admin-only tables (users, users_count) are created.
 func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string) (*BoundaryPools, error) {
-	dbPath := filepath.Join(dir, boundary+".db")
-	uri := fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=on", url.PathEscape(dbPath))
+	return OpenBoundaryPoolsWithConfig(ctx, config.SqliteConfig{Dir: dir}, boundary, adminBoundary)
+}
+
+func OpenBoundaryPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteConfig, boundary, adminBoundary string) (*BoundaryPools, error) {
+	poolCfg, err := normalizeSqlitePoolConfig(sqliteCfg)
+	if err != nil {
+		return nil, err
+	}
+	dbPath := filepath.Join(poolCfg.dir, boundary+".db")
+	uri := sqliteURI(dbPath, poolCfg)
 
 	prepare := func(conn *sqlite.Conn) error {
 		// Belt-and-braces: apply pragmas explicitly in case the URI hints are ignored.
-		for _, p := range []string{
-			`PRAGMA journal_mode = WAL`,
-			`PRAGMA synchronous = NORMAL`,
-			`PRAGMA foreign_keys = ON`,
-			`PRAGMA busy_timeout = 5000`,
-			`PRAGMA temp_store = MEMORY`,
-		} {
+		for _, p := range sqlitePragmas(poolCfg) {
 			if err := sqlitex.ExecuteTransient(conn, p, nil); err != nil {
 				return fmt.Errorf("apply pragma %q: %w", p, err)
 			}
@@ -55,7 +60,7 @@ func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string)
 	}
 
 	readPool, err := sqlitex.NewPool(uri, sqlitex.PoolOptions{
-		PoolSize:    runtime.NumCPU(),
+		PoolSize:    poolCfg.readPoolSize,
 		PrepareConn: prepare,
 	})
 	if err != nil {
@@ -86,6 +91,93 @@ func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string)
 	writePool.Put(conn)
 
 	return &BoundaryPools{Boundary: boundary, Write: writePool, Read: readPool, indexes: indexes}, nil
+}
+
+type sqlitePoolConfig struct {
+	dir               string
+	synchronous       string
+	busyTimeoutMs     int
+	readPoolSize      int
+	cacheSize         int
+	mmapSize          int64
+	walAutoCheckpoint int
+	tempStore         string
+}
+
+func normalizeSqlitePoolConfig(sqliteCfg config.SqliteConfig) (sqlitePoolConfig, error) {
+	cfg := sqlitePoolConfig{
+		dir:           sqliteCfg.Dir,
+		synchronous:   strings.ToUpper(strings.TrimSpace(sqliteCfg.Synchronous)),
+		busyTimeoutMs: sqliteCfg.BusyTimeoutMs,
+		readPoolSize:  sqliteCfg.ReadPoolSize,
+		cacheSize:     sqliteCfg.CacheSize,
+		mmapSize:      sqliteCfg.MmapSize,
+		tempStore:     strings.ToUpper(strings.TrimSpace(sqliteCfg.TempStore)),
+	}
+	if cfg.synchronous == "" {
+		cfg.synchronous = "NORMAL"
+	}
+	if cfg.busyTimeoutMs == 0 {
+		cfg.busyTimeoutMs = 5000
+	}
+	if cfg.readPoolSize <= 0 {
+		cfg.readPoolSize = runtime.NumCPU()
+	}
+	if cfg.tempStore == "" {
+		cfg.tempStore = "MEMORY"
+	}
+	cfg.walAutoCheckpoint = sqliteCfg.WalAutoCheckpoint
+
+	switch cfg.synchronous {
+	case "OFF", "NORMAL", "FULL", "EXTRA":
+	default:
+		return sqlitePoolConfig{}, fmt.Errorf("invalid sqlite synchronous %q", sqliteCfg.Synchronous)
+	}
+	if cfg.busyTimeoutMs < 0 {
+		return sqlitePoolConfig{}, fmt.Errorf("sqlite busy timeout must be >= 0, got %d", sqliteCfg.BusyTimeoutMs)
+	}
+	if cfg.mmapSize < 0 {
+		return sqlitePoolConfig{}, fmt.Errorf("sqlite mmap size must be >= 0, got %d", sqliteCfg.MmapSize)
+	}
+	if cfg.walAutoCheckpoint < 0 {
+		return sqlitePoolConfig{}, fmt.Errorf("sqlite wal auto checkpoint must be >= 0, got %d", sqliteCfg.WalAutoCheckpoint)
+	}
+	switch cfg.tempStore {
+	case "DEFAULT", "FILE", "MEMORY":
+	default:
+		return sqlitePoolConfig{}, fmt.Errorf("invalid sqlite temp store %q", sqliteCfg.TempStore)
+	}
+
+	return cfg, nil
+}
+
+func sqliteURI(dbPath string, cfg sqlitePoolConfig) string {
+	params := url.Values{}
+	params.Set("_journal_mode", "WAL")
+	params.Set("_synchronous", cfg.synchronous)
+	params.Set("_busy_timeout", strconv.Itoa(cfg.busyTimeoutMs))
+	params.Set("_foreign_keys", "on")
+	return "file:" + url.PathEscape(dbPath) + "?" + params.Encode()
+}
+
+func sqlitePragmas(cfg sqlitePoolConfig) []string {
+	pragmas := []string{
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA synchronous = " + cfg.synchronous,
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA busy_timeout = " + strconv.Itoa(cfg.busyTimeoutMs),
+		"PRAGMA temp_store = " + cfg.tempStore,
+	}
+	if cfg.cacheSize != 0 {
+		pragmas = append(pragmas, "PRAGMA cache_size = "+strconv.Itoa(cfg.cacheSize))
+	}
+	if cfg.mmapSize > 0 {
+		pragmas = append(pragmas, "PRAGMA mmap_size = "+strconv.FormatInt(cfg.mmapSize, 10))
+	}
+	if cfg.walAutoCheckpoint > 0 {
+		pragmas = append(pragmas, "PRAGMA wal_autocheckpoint = "+strconv.Itoa(cfg.walAutoCheckpoint))
+	}
+	return pragmas
 }
 
 func (b *BoundaryPools) Close() error {
