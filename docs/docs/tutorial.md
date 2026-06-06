@@ -121,7 +121,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 {
   "boundary": "accounts",
   "query": {
-    "expected_position": {"commit_position": 2, "prepare_position": 0},
+    "expected_position": {"commit_position": 2, "prepare_position": 1},
     "subsetQuery": {
       "criteria": [
         {"tags": [{"key": "account_id", "value": "acct-1"}]}

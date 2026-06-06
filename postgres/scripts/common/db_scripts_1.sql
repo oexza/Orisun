@@ -17,6 +17,8 @@ CREATE OR REPLACE FUNCTION initialize_boundary_tables(
     schema_name TEXT
 ) RETURNS VOID AS
 $$
+DECLARE
+    prefixed_seq_name  TEXT;
 BEGIN
     -- Validate boundary_name is a valid PostgreSQL identifier
     -- - Must start with letter or underscore
@@ -25,6 +27,8 @@ BEGIN
     IF boundary_name ~ '^[^a-zA-Z_]' OR boundary_name ~ '[^a-zA-Z0-9_]' OR length(boundary_name) > 63 THEN
         RAISE EXCEPTION 'Invalid boundary name: %. Must start with letter or underscore, contain only letters/digits/underscores, and be 63 chars or less', boundary_name;
     END IF;
+
+    prefixed_seq_name := format('%I.%I', schema_name, boundary_name || '_orisun_es_event_global_id_seq');
 
     -- Create event table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -68,7 +72,7 @@ BEGIN
     EXECUTE format('
         WITH remapped AS (
             SELECT global_id,
-                   MAX(global_id) OVER (PARTITION BY transaction_id) AS logical_transaction_id
+                   MAX(global_id) OVER (PARTITION BY transaction_id) + 1 AS logical_transaction_id
             FROM %I.%I
         )
         UPDATE %I.%I e
@@ -78,6 +82,11 @@ BEGIN
           AND e.transaction_id <> remapped.logical_transaction_id',
                    schema_name, boundary_name || '_orisun_es_event',
                    schema_name, boundary_name || '_orisun_es_event');
+
+    EXECUTE format('SELECT setval(%L::regclass, (SELECT COALESCE(MAX(global_id) + 1, 0) FROM %I.%I), false)',
+                   prefixed_seq_name,
+                   schema_name,
+                   boundary_name || '_orisun_es_event');
 
     -- Create indexes
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
@@ -271,7 +280,8 @@ BEGIN
             FROM jsonb_array_elements($2) AS e
         ),
         max_global_id AS (
-            SELECT MAX(global_id) AS max_seq_overall
+            SELECT MAX(global_id) AS max_seq_overall,
+                   MAX(global_id) + 1 AS logical_transaction_id
             FROM events_with_ids
         ),
         inserted_events AS (
@@ -284,7 +294,7 @@ BEGIN
                                          data,
                                          metadata
             )
-            SELECT max_global_id.max_seq_overall,
+            SELECT max_global_id.logical_transaction_id,
                    $1,
                    (e ->> ''event_id'')::UUID,
                    events_with_ids.global_id,

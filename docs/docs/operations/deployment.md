@@ -94,18 +94,18 @@ Persist the NATS store directory for durable JetStream state. PostgreSQL remains
 
 ## PostgreSQL Major Upgrades
 
-Orisun `0.3.0` changes PostgreSQL event positions so public `commit_position` values are Orisun logical positions instead of PostgreSQL internal transaction IDs. This is a breaking storage migration for PostgreSQL-backed deployments.
+Orisun `0.3.1` changes PostgreSQL event positions so public `commit_position` values are Orisun logical positions instead of PostgreSQL internal transaction IDs. This is a breaking storage migration for PostgreSQL-backed deployments.
 
 Recommended upgrade sequence:
 
 1. Stop all Orisun nodes cleanly.
 2. Back up PostgreSQL and the NATS store directory.
-3. Upgrade PostgreSQL using your platform's normal process. If you are still running an Orisun version before `0.3.0`, prefer PostgreSQL `pg_upgrade` over dump/restore because older Orisun versions exposed PostgreSQL internal transaction IDs as public positions.
-4. Start one Orisun `0.3.0` node first.
+3. Upgrade PostgreSQL using your platform's normal process. If you are still running an Orisun version before `0.3.1`, prefer PostgreSQL `pg_upgrade` over dump/restore because older Orisun versions exposed PostgreSQL internal transaction IDs as public positions.
+4. Start one Orisun `0.3.1` node first.
 5. Wait for database migrations to complete for every configured boundary.
 6. Confirm publishers/projectors are healthy, then start the rest of the Orisun nodes.
 
-During the first `0.3.0` startup, Orisun:
+During the first `0.3.1` startup, Orisun:
 
 - adds internal `pg_xact_id` metadata to event tables,
 - remaps legacy `transaction_id` values to logical Orisun commit positions,

@@ -34,7 +34,7 @@ PostgreSQL mode stores two ordering-related values:
 - `transaction_id`: Orisun's logical commit position, durable across PostgreSQL major upgrades and restore workflows.
 - `pg_xact_id`: PostgreSQL's internal transaction ID, used only as a current-cluster visibility marker so publishers and catch-up reads do not skip older open transactions.
 
-Do not use PostgreSQL internal transaction IDs as application cursors. From Orisun `0.3.0`, startup migrations remap older Orisun databases that exposed PostgreSQL transaction IDs as public commit positions. See [Positions and Ordering](./positions#postgresql-transaction-ids) and [Deployment](../operations/deployment#postgresql-major-upgrades).
+Do not use PostgreSQL internal transaction IDs as application cursors. From Orisun `0.3.1`, startup migrations remap older Orisun databases that exposed PostgreSQL transaction IDs as public commit positions. See [Positions and Ordering](./positions#postgresql-transaction-ids) and [Deployment](../operations/deployment#postgresql-major-upgrades).
 
 ## SQLite
 

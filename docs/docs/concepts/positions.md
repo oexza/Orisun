@@ -18,22 +18,29 @@ Ordering within a boundary is the tuple `(commit_position, prepare_position)`, a
 
 ## PostgreSQL transaction IDs
 
-In Orisun `0.3.0` and later, PostgreSQL `transaction_id` is an Orisun logical commit position, not PostgreSQL's internal transaction ID. PostgreSQL's `pg_current_xact_id()` is still recorded internally as `pg_xact_id` so the PostgreSQL backend can avoid publishing or reading past open older transactions, but that value is current-cluster metadata and is not exposed as the public EventStore position.
+In Orisun `0.3.1` and later, PostgreSQL `transaction_id` is an Orisun logical commit position, not PostgreSQL's internal transaction ID. PostgreSQL's `pg_current_xact_id()` is still recorded internally as `pg_xact_id` so the PostgreSQL backend can avoid publishing or reading past open older transactions, but that value is current-cluster metadata and is not exposed as the public EventStore position.
 
 This matters during PostgreSQL major upgrades and restore workflows. PostgreSQL internal transaction IDs are assigned by a cluster-local counter. A `pg_upgrade` path may preserve enough cluster state for continuity, but dump/restore, logical replication moves, and some managed-service migrations can create a fresh cluster with lower internal transaction IDs. Orisun positions must remain valid across those workflows, so public positions use logical event-store ordering instead.
 
-When an older PostgreSQL-backed Orisun database starts on `0.3.0`, startup migrations remap legacy `transaction_id` values to logical commit positions and update publisher and projector checkpoints that point at stored events. Existing `pg_xact_id` values from a previous cluster are treated as disposable visibility metadata and cleared when they are detected as stale.
+When an older PostgreSQL-backed Orisun database starts on `0.3.1` or later, startup migrations remap legacy `transaction_id` values to logical commit positions and update publisher and projector checkpoints that point at stored events. Existing `pg_xact_id` values from a previous cluster are treated as disposable visibility metadata and cleared when they are detected as stale.
 
-## The before-first position
+## Empty and beginning positions
 
-Use `{-1, -1}` to mean "before any event exists":
+Use `{-1, -1}` as the empty expected position for writes:
 
 ```json
 {"commit_position": -1, "prepare_position": -1}
 ```
 
-- As `expected_position` in `SaveEvents`, it asserts the consistency context is still empty.
-- As `from_position` in `GetEvents` or `after_position` in a subscription, it means "start from the very beginning".
+As `expected_position` in `SaveEvents`, it asserts the consistency context is still empty.
+
+Use `{0, 0}` as the beginning cursor for reads and subscriptions:
+
+```json
+{"commit_position": 0, "prepare_position": 0}
+```
+
+No event is assigned the exact position `{0, 0}`. The first event in a boundary can have `prepare_position` `0`, but its `commit_position` is greater than `0`.
 
 ## Batch semantics
 
@@ -53,7 +60,7 @@ This is why a single account, processed one command at a time, advances its `com
 
 `GetEvents` reads a bounded page. To walk a boundary or a criteria set, page forward using the position of the last event you received:
 
-1. Call `GetEvents` with `from_position` (`{-1, -1}` for the first page) and a `count`.
+1. Call `GetEvents` with `from_position` (`{0, 0}` for the first page) and a `count`.
 2. Process the returned events.
 3. Use the `position` of the last event as the `from_position` for the next call.
 4. Stop when a page returns fewer events than `count`.

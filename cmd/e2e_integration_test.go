@@ -527,7 +527,7 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	subscribeReq := &pb.CatchUpSubscribeToEventStoreRequest{
 		Boundary:       "orisun_test_1",
 		SubscriberName: "test-subscriber",
-		AfterPosition:  &pb.Position{CommitPosition: -1, PreparePosition: -1}, // Start from beginning
+		AfterPosition:  &pb.Position{CommitPosition: 0, PreparePosition: 0}, // Start from beginning
 		Query: &pb.Query{
 			Criteria: []*pb.Criterion{
 				{

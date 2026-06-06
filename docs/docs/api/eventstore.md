@@ -106,6 +106,10 @@ Read from the beginning:
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 {
   "boundary": "orders",
+  "from_position": {
+    "commit_position": 0,
+    "prepare_position": 0
+  },
   "count": 100,
   "direction": "ASC"
 }
@@ -172,7 +176,7 @@ EOF
 
 `GetEvents` returns one bounded page (`count`, server-capped at 10000). To walk the whole log or a criteria set, page forward:
 
-1. First call uses `from_position` `{-1, -1}` to start at the beginning.
+1. First call uses `from_position` `{0, 0}` to start at the beginning.
 2. Process the page, then take the `position` of the last event.
 3. Pass it as `from_position` on the next call.
 4. Stop when a page returns fewer events than `count`.
@@ -189,8 +193,8 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvent
   "subscriber_name": "order-projector",
   "boundary": "orders",
   "after_position": {
-    "commit_position": -1,
-    "prepare_position": -1
+    "commit_position": 0,
+    "prepare_position": 0
   }
 }
 EOF
@@ -204,8 +208,8 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvent
   "subscriber_name": "placed-orders",
   "boundary": "orders",
   "after_position": {
-    "commit_position": -1,
-    "prepare_position": -1
+    "commit_position": 0,
+    "prepare_position": 0
   },
   "query": {
     "criteria": [

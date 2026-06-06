@@ -176,6 +176,8 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, tranID)
 	assert.GreaterOrEqual(t, globalID, int64(0))
+	assert.Equal(t, "1", tranID)
+	assert.Equal(t, int64(0), globalID)
 
 	// Get events
 	resp, err := getEvents.Get(
@@ -191,6 +193,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Len(t, resp.Events, 1)
 	assert.Equal(t, eventId.String(), resp.Events[0].EventId)
 	assert.Equal(t, "TestEvent", resp.Events[0].EventType)
+	assert.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, resp.Events[0].Position)
 
 	// Check that the data contains the expected values
 	assert.Contains(t, resp.Events[0].Data, "key")
@@ -200,6 +203,19 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Contains(t, resp.Events[0].Metadata, "meta")
 	assert.Contains(t, resp.Events[0].Metadata, "data")
 	assert.Contains(t, resp.Events[0].Metadata, "tags")
+
+	fromBeginning, err := getEvents.Get(
+		t.Context(),
+		&orisun.GetEventsRequest{
+			Boundary:     "test_boundary",
+			Direction:    orisun.Direction_ASC,
+			Count:        10,
+			FromPosition: &orisun.Position{CommitPosition: 0, PreparePosition: 0},
+		},
+	)
+	assert.NoError(t, err)
+	assert.Len(t, fromBeginning.Events, 1)
+	assert.Equal(t, eventId.String(), fromBeginning.Events[0].EventId)
 }
 
 func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
@@ -259,7 +275,7 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 		positions = append(positions, [2]int64{transactionID, globalID})
 	}
 	require.NoError(t, rows.Err())
-	require.Equal(t, [][2]int64{{1, 0}, {1, 1}, {2, 2}}, positions)
+	require.Equal(t, [][2]int64{{2, 0}, {2, 1}, {3, 2}}, positions)
 
 	var visibilityIndexDef string
 	err = db.QueryRow(`
@@ -296,7 +312,7 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 		WHERE boundary = 'test_boundary'
 	`).Scan(&lastPublishedTransactionID)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), lastPublishedTransactionID)
+	require.Equal(t, int64(3), lastPublishedTransactionID)
 
 	var checkpointCommitPosition int64
 	err = db.QueryRow(`
@@ -305,7 +321,7 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 		WHERE name = 'checkpoint-name'
 	`).Scan(&checkpointCommitPosition)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), checkpointCommitPosition)
+	require.Equal(t, int64(2), checkpointCommitPosition)
 
 	logger, err := logging.ZapLogger("debug")
 	require.NoError(t, err)
@@ -318,7 +334,7 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 
 	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
-	expectedPosition := &orisun.Position{CommitPosition: 2, PreparePosition: 2}
+	expectedPosition := &orisun.Position{CommitPosition: 3, PreparePosition: 2}
 	transactionID, globalID, err := saveEvents.Save(
 		t.Context(),
 		[]orisun.EventWithMapTags{
@@ -335,19 +351,20 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), globalID)
-	require.Equal(t, "3", transactionID)
+	require.Equal(t, "4", transactionID)
 
 	resp, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
 		Boundary:     "test_boundary",
 		Direction:    orisun.Direction_ASC,
 		Count:        10,
-		FromPosition: &orisun.Position{CommitPosition: 1, PreparePosition: 1},
+		FromPosition: &orisun.Position{CommitPosition: 0, PreparePosition: 0},
 	})
 	require.NoError(t, err)
-	require.Len(t, resp.Events, 3)
-	require.Equal(t, int64(1), resp.Events[0].Position.PreparePosition)
-	require.Equal(t, int64(2), resp.Events[1].Position.PreparePosition)
-	require.Equal(t, int64(3), resp.Events[2].Position.PreparePosition)
+	require.Len(t, resp.Events, 4)
+	require.Equal(t, &orisun.Position{CommitPosition: 2, PreparePosition: 0}, resp.Events[0].Position)
+	require.Equal(t, &orisun.Position{CommitPosition: 2, PreparePosition: 1}, resp.Events[1].Position)
+	require.Equal(t, &orisun.Position{CommitPosition: 3, PreparePosition: 2}, resp.Events[2].Position)
+	require.Equal(t, &orisun.Position{CommitPosition: 4, PreparePosition: 3}, resp.Events[3].Position)
 
 	var pgXactID sql.NullInt64
 	err = db.QueryRow(`

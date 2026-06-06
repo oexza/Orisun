@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-06-06
+
+### Fixed
+
+- Preserved pre-`0.3.0` read and subscription cursor semantics for PostgreSQL-backed stores. Clients can continue using `{0, 0}` as the beginning cursor for `GetEvents` and `CatchUpSubscribeToEvents`.
+- PostgreSQL logical `commit_position` values are now derived as `MAX(global_id) + 1` for each committed batch, so no event is emitted at the exact `{0, 0}` position while existing zero-based `prepare_position` values remain unchanged.
+- PostgreSQL startup migration now remaps legacy publisher and projector checkpoints to the corrected logical commit positions without changing stored `global_id` / `prepare_position` values.
+
 ## 0.3.0 - 2026-06-06
 
 ### Breaking Changes

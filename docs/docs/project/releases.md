@@ -44,7 +44,7 @@ Do not create release tags manually unless you are repairing a failed release an
 
 ## Breaking Releases
 
-Use a minor-version bump for storage or API changes that require operator action. For example, the PostgreSQL position migration that changes public `commit_position` values from PostgreSQL internal transaction IDs to Orisun logical positions is released as `0.3.0`, not another `0.2.x` patch.
+Use a minor-version bump for storage or API changes that require operator action. For example, the PostgreSQL position migration that changes public `commit_position` values from PostgreSQL internal transaction IDs to Orisun logical positions is released as `0.3.1`, not another `0.2.x` patch.
 
 Breaking release notes should include:
 
