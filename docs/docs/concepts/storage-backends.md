@@ -1,9 +1,9 @@
 ---
 title: Storage Backends
-description: Choose between PostgreSQL and SQLite deployment profiles.
+description: Choose between PostgreSQL, SQLite, and FoundationDB deployment profiles.
 ---
 
-Orisun supports PostgreSQL and SQLite. The backend is selected with `ORISUN_BACKEND` or by using a backend-specific binary or Docker image.
+Orisun supports PostgreSQL, SQLite, and FoundationDB. The backend is selected with `ORISUN_BACKEND` or by using a backend-specific binary or Docker image.
 
 ## Backend Matrix
 
@@ -11,6 +11,7 @@ Orisun supports PostgreSQL and SQLite. The backend is selected with `ORISUN_BACK
 | --- | --- | --- | --- |
 | `postgres` | Production clusters, larger datasets, shared database platforms | Yes | `pgx` |
 | `sqlite` | Embedded apps, edge, development, low-ops single-node production | No | `zombiezen.com/go/sqlite` |
+| `foundationdb` | Distributed transactional key-value deployments | Yes | FoundationDB Go binding |
 
 ## PostgreSQL
 
@@ -37,6 +38,31 @@ PostgreSQL mode stores two ordering-related values:
 - `pg_xact_id`: PostgreSQL's internal transaction ID, used only as a current-cluster visibility marker so publishers and catch-up reads do not skip older open transactions.
 
 Do not use PostgreSQL internal transaction IDs as application cursors. From Orisun `0.3.1`, startup migrations remap older Orisun databases that exposed PostgreSQL transaction IDs as public commit positions. See [Positions and Ordering](./positions#postgresql-transaction-ids) and [Deployment](../operations/deployment#postgresql-major-upgrades).
+
+## FoundationDB
+
+FoundationDB is a clustered backend built on ordered key-value transactions. Build binaries that include it with the `foundationdb` build tag and install the native FoundationDB client libraries on every host.
+
+FoundationDB stores:
+
+- event records in ordered per-boundary key ranges
+- publisher checkpoints
+- projector checkpoints
+- admin state
+- index metadata and secondary index keys
+- watch signal keys for publisher wake-ups
+
+```bash
+go build -tags foundationdb ./cmd/orisun-fdb
+
+ORISUN_BACKEND=foundationdb
+ORISUN_FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
+ORISUN_FDB_ROOT=orisun
+```
+
+Criteria queries keep the same public API. Ready boundary indexes create secondary keys for equality lookups; unindexed reads fall back to chunked event-log scans. Consistency checks fail closed unless every criterion key is covered by a ready index.
+
+FoundationDB assigns event positions with commit versionstamps instead of a per-boundary counter. Plain appends can commit in parallel; writes with a consistency context conflict only on the covered index range for that context, or on the whole boundary for boundary-wide expected-position checks.
 
 ## SQLite
 
@@ -79,6 +105,8 @@ SQLite maps each boundary to a file:
 /var/lib/orisun/sqlite/orisun_admin.db
 ```
 
+FoundationDB maps each boundary to tuple-encoded key ranges under `ORISUN_FDB_ROOT`.
+
 ## Migrating between backends
 
-The public API is the same across both backends, but storage files and database schemas are backend-specific. Treat backend migration as a data migration: export from one backend, replay or import into the other, then move traffic after validation.
+The public API is the same across backends, but storage files, keyspaces, and database schemas are backend-specific. Treat backend migration as a data migration: export from one backend, replay or import into the other, then move traffic after validation.

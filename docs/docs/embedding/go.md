@@ -9,6 +9,7 @@ Backend-specific embedding packages keep deployments explicit:
 
 - `embedded/postgres` imports the PostgreSQL backend.
 - `embedded/sqlite` imports the SQLite backend.
+- `embedded/foundationdb` imports the FoundationDB backend when built with `-tags foundationdb`.
 - Neither package needs the unused backend.
 
 Use embedding when Orisun should be part of your service process. Use the standalone server when you want a separate operational boundary and language-agnostic gRPC access.
@@ -90,6 +91,34 @@ store, err := embeddedsqlite.Start(
 ```
 
 SQLite remains single-node only. Keep `cfg.Nats.Cluster.Enabled = false`.
+
+## FoundationDB Embedding
+
+FoundationDB embedding requires the native FoundationDB client libraries and a build with the `foundationdb` tag.
+
+```go
+import (
+	"context"
+
+	embeddedfdb "github.com/oexza/Orisun/embedded/foundationdb"
+	"github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
+)
+
+func start(ctx context.Context) (*embeddedfdb.Store, error) {
+	cfg := config.InitializeConfig()
+	cfg.Backend.Type = "foundationdb"
+	cfg.FoundationDB.ClusterFile = "/etc/foundationdb/fdb.cluster"
+	logger := logging.InitializeDefaultLogger(cfg.Logging)
+	return embeddedfdb.Start(ctx, cfg, logger)
+}
+```
+
+Use the same NATS options as the other embedded stores. Build the host service with:
+
+```bash
+go build -tags foundationdb ./...
+```
 
 ## Embedded Index Management
 

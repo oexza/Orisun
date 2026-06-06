@@ -1,4 +1,4 @@
-# Storage backend selector. Values: "postgres" (default) or "sqlite".
+# Storage backend selector. Values: "postgres" (default), "sqlite", or "foundationdb".
 # sqlite is single-node only — incompatible with ORISUN_NATS_CLUSTER_ENABLED=true.
 backend:
   type: ${ORISUN_BACKEND:postgres}
@@ -14,6 +14,14 @@ sqlite:
   mmapSize: ${ORISUN_SQLITE_MMAP_SIZE:0}
   walAutoCheckpoint: ${ORISUN_SQLITE_WAL_AUTO_CHECKPOINT:0}
   tempStore: ${ORISUN_SQLITE_TEMP_STORE:MEMORY}
+
+# FoundationDB backend settings (used when backend.type=foundationdb).
+# Build with -tags foundationdb and install native FoundationDB client libraries.
+foundationDB:
+  clusterFile: ${ORISUN_FDB_CLUSTER_FILE:}
+  apiVersion: ${ORISUN_FDB_API_VERSION:730}
+  root: ${ORISUN_FDB_ROOT:orisun}
+  scanLimit: ${ORISUN_FDB_SCAN_LIMIT:100000}
 
 postgres:
   user: ${ORISUN_PG_USER:postgres}

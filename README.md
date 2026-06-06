@@ -98,6 +98,7 @@ Release binaries are attached to each GitHub release:
 | `orisun-<os>-<arch>` | All backends |
 | `orisun-pg-<os>-<arch>` | PostgreSQL only |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
+| `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` |
 
 Docker tags use one repository with flavor tags:
 
@@ -118,6 +119,7 @@ go build ./...
 task build
 task build:pg
 task build:sqlite
+go build -tags foundationdb ./cmd/orisun-fdb
 ```
 
 Release:

@@ -11,7 +11,7 @@ Configuration is shared across release binaries, Docker images, and embedded dep
 
 | Variable | Description |
 | --- | --- |
-| `ORISUN_BACKEND` | `postgres` or `sqlite`; defaults to `postgres`. |
+| `ORISUN_BACKEND` | `postgres`, `sqlite`, or `foundationdb`; defaults to `postgres`. |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions. |
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state. |
 
@@ -32,6 +32,17 @@ For SQLite, set:
 | --- | --- |
 | `ORISUN_SQLITE_DIR` | Directory for per-boundary SQLite database files. |
 | `ORISUN_NATS_CLUSTER_ENABLED` | Must be `false` for SQLite. |
+
+For FoundationDB, set:
+
+| Variable | Description |
+| --- | --- |
+| `ORISUN_FDB_CLUSTER_FILE` | FoundationDB cluster file path. Empty uses the client default. |
+| `ORISUN_FDB_API_VERSION` | FoundationDB API version. Defaults to `730`. |
+| `ORISUN_FDB_ROOT` | Root tuple prefix for Orisun data. Defaults to `orisun`. |
+| `ORISUN_FDB_SCAN_LIMIT` | Max records read by single-transaction indexed scans. Defaults to `100000`. |
+
+FoundationDB support is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host.
 
 ## Boundary configuration
 

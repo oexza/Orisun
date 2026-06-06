@@ -15,9 +15,10 @@ import (
 
 // AppConfig represents the application configuration
 type AppConfig struct {
-	Backend  BackendConfig
-	Postgres PostgresDBConfig
-	Sqlite   SqliteConfig
+	Backend      BackendConfig
+	Postgres     PostgresDBConfig
+	Sqlite       SqliteConfig
+	FoundationDB FoundationDBConfig
 	// Boundaries []Boundary `mapstructure:"boundaries"`
 	Boundaries string
 	boundaries []Boundary
@@ -77,9 +78,19 @@ type LoggingConfig struct {
 	Level   string // e.g., "debug", "info", "warn", "error"
 }
 
-// BackendConfig selects the storage driver. Values: "postgres" (default) or "sqlite".
+// BackendConfig selects the storage driver. Values: "postgres" (default), "sqlite", or "foundationdb".
 type BackendConfig struct {
 	Type string
+}
+
+// FoundationDBConfig holds settings for the FoundationDB backend.
+// The real backend is built with the "foundationdb" build tag because the Go
+// binding requires native FoundationDB client libraries.
+type FoundationDBConfig struct {
+	ClusterFile string
+	APIVersion  int
+	Root        string
+	ScanLimit   int
 }
 
 // SqliteConfig holds settings for the embedded SQLite backend.
@@ -262,8 +273,15 @@ func validateConfig(config AppConfig) error {
 		if config.Sqlite.Dir == "" {
 			return fmt.Errorf("sqlite backend requires ORISUN_SQLITE_DIR")
 		}
+	case "foundationdb":
+		if config.FoundationDB.Root == "" {
+			return fmt.Errorf("foundationdb backend requires ORISUN_FDB_ROOT")
+		}
+		if config.FoundationDB.APIVersion == 0 {
+			return fmt.Errorf("foundationdb backend requires ORISUN_FDB_API_VERSION")
+		}
 	default:
-		return fmt.Errorf("unknown backend type %q (expected 'postgres' or 'sqlite')", config.Backend.Type)
+		return fmt.Errorf("unknown backend type %q (expected 'postgres', 'sqlite', or 'foundationdb')", config.Backend.Type)
 	}
 
 	isAdminBoundaryDefined := false

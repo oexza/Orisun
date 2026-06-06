@@ -10,6 +10,7 @@ import (
 	"github.com/common-nighthawk/go-figure"
 	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/oexza/Orisun/config"
+	fdbbackend "github.com/oexza/Orisun/foundationdb"
 	l "github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 	pg "github.com/oexza/Orisun/postgres"
@@ -80,6 +81,27 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 			AdminDB:         adminDB,
 			EventPublishing: eventPublishing,
 			SignalProvider:  signalProvider,
+		}, nil
+	case "foundationdb":
+		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, closeFn, err := fdbbackend.InitializeFoundationDB(
+			ctx,
+			config.FoundationDB,
+			config.Admin,
+			config.GetBoundaryNames(),
+			js,
+			logger,
+		)
+		if err != nil {
+			return server.Backend{}, err
+		}
+		return server.Backend{
+			SaveEvents:      saveEvents,
+			GetEvents:       getEvents,
+			LockProvider:    lockProvider,
+			AdminDB:         adminDB,
+			EventPublishing: eventPublishing,
+			SignalProvider:  signalProvider,
+			Close:           closeFn,
 		}, nil
 	default:
 		return server.Backend{}, fmt.Errorf("unsupported backend: %s", config.BackendType())
