@@ -202,6 +202,163 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Contains(t, resp.Events[0].Metadata, "tags")
 }
 
+func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO public.test_boundary_orisun_es_event
+			(transaction_id, global_id, event_id, event_type, data, metadata)
+		VALUES
+			(900000, 0, $1, 'LegacyEvent', '{"key":"first"}', '{}'),
+			(900000, 1, $2, 'LegacyEvent', '{"key":"second"}', '{}'),
+			(900001, 2, $3, 'LegacyEvent', '{"key":"third"}', '{}')
+	`, uuid.NewString(), uuid.NewString(), uuid.NewString())
+	require.NoError(t, err)
+
+	_, err = db.Exec(`SELECT setval('public.test_boundary_orisun_es_event_global_id_seq', 2, true)`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO public.test_boundary_orisun_last_published_event_position
+			(boundary, transaction_id, global_id)
+		VALUES ('test_boundary', 900001, 2)
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO public.test_boundary_projector_checkpoint
+			(id, name, commit_position, prepare_position)
+		VALUES ('checkpoint-id', 'checkpoint-name', 900000, 1)
+	`)
+	require.NoError(t, err)
+
+	require.NoError(t, RunDbScripts(db, "test_boundary", "public", false, context.Background()))
+
+	rows, err := db.Query(`
+		SELECT transaction_id, global_id
+		FROM public.test_boundary_orisun_es_event
+		ORDER BY global_id ASC
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var positions [][2]int64
+	for rows.Next() {
+		var transactionID, globalID int64
+		require.NoError(t, rows.Scan(&transactionID, &globalID))
+		positions = append(positions, [2]int64{transactionID, globalID})
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, [][2]int64{{1, 0}, {1, 1}, {2, 2}}, positions)
+
+	var visibilityIndexDef string
+	err = db.QueryRow(`
+		SELECT indexdef
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND tablename = 'test_boundary_orisun_es_event'
+		  AND indexname = 'test_boundary_idx_event_order_visibility_covering'
+	`).Scan(&visibilityIndexDef)
+	require.NoError(t, err)
+	require.Contains(t, visibilityIndexDef, "pg_xact_id")
+
+	_, err = db.Exec(`
+		UPDATE public.test_boundary_orisun_es_event
+		SET pg_xact_id = 900000
+	`)
+	require.NoError(t, err)
+
+	require.NoError(t, RunDbScripts(db, "test_boundary", "public", false, context.Background()))
+
+	var stalePGXactIDCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM public.test_boundary_orisun_es_event
+		WHERE pg_xact_id IS NOT NULL
+	`).Scan(&stalePGXactIDCount)
+	require.NoError(t, err)
+	require.Equal(t, 0, stalePGXactIDCount)
+
+	var lastPublishedTransactionID int64
+	err = db.QueryRow(`
+		SELECT transaction_id
+		FROM public.test_boundary_orisun_last_published_event_position
+		WHERE boundary = 'test_boundary'
+	`).Scan(&lastPublishedTransactionID)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), lastPublishedTransactionID)
+
+	var checkpointCommitPosition int64
+	err = db.QueryRow(`
+		SELECT commit_position
+		FROM public.test_boundary_projector_checkpoint
+		WHERE name = 'checkpoint-name'
+	`).Scan(&checkpointCommitPosition)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), checkpointCommitPosition)
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
+	expectedPosition := &orisun.Position{CommitPosition: 2, PreparePosition: 2}
+	transactionID, globalID, err := saveEvents.Save(
+		t.Context(),
+		[]orisun.EventWithMapTags{
+			{
+				EventId:   uuid.NewString(),
+				EventType: "PostUpgradeEvent",
+				Data:      `{"key":"after-upgrade"}`,
+				Metadata:  `{}`,
+			},
+		},
+		"test_boundary",
+		expectedPosition,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), globalID)
+	require.Equal(t, "3", transactionID)
+
+	resp, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+		Boundary:     "test_boundary",
+		Direction:    orisun.Direction_ASC,
+		Count:        10,
+		FromPosition: &orisun.Position{CommitPosition: 1, PreparePosition: 1},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Events, 3)
+	require.Equal(t, int64(1), resp.Events[0].Position.PreparePosition)
+	require.Equal(t, int64(2), resp.Events[1].Position.PreparePosition)
+	require.Equal(t, int64(3), resp.Events[2].Position.PreparePosition)
+
+	var pgXactID sql.NullInt64
+	err = db.QueryRow(`
+		SELECT pg_xact_id
+		FROM public.test_boundary_orisun_es_event
+		WHERE global_id = 3
+	`).Scan(&pgXactID)
+	require.NoError(t, err)
+	require.True(t, pgXactID.Valid)
+}
+
 func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *testing.T) {
 	container, err := setupTestContainer(t)
 	require.NoError(t, err)

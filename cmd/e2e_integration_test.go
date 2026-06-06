@@ -527,7 +527,7 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	subscribeReq := &pb.CatchUpSubscribeToEventStoreRequest{
 		Boundary:       "orisun_test_1",
 		SubscriberName: "test-subscriber",
-		AfterPosition:  &pb.Position{CommitPosition: 0, PreparePosition: 0}, // Start from beginning
+		AfterPosition:  &pb.Position{CommitPosition: -1, PreparePosition: -1}, // Start from beginning
 		Query: &pb.Query{
 			Criteria: []*pb.Criterion{
 				{
@@ -553,4 +553,78 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	assert.Equal(t, "SubscriptionTest", event.EventType)
 	assert.Contains(t, event.Data, "First subscription event")
 	t.Logf("Successfully received event: %s", event.EventId)
+}
+
+func TestE2E_PostgresLiveSubscribeToEvents(t *testing.T) {
+	suite := setupE2ETest(t)
+	defer suite.teardown(t)
+
+	ctx, cancel := context.WithTimeout(createAuthenticatedContext("admin", "changeit"), 45*time.Second)
+	defer cancel()
+
+	eventType := "LiveSubscriptionTest"
+	eventID := uuid.New().String()
+	subscribeReq := &pb.CatchUpSubscribeToEventStoreRequest{
+		Boundary:       "orisun_test_1",
+		SubscriberName: "live-test-subscriber",
+		Query: &pb.Query{
+			Criteria: []*pb.Criterion{
+				{
+					Tags: []*pb.Tag{
+						{Key: "eventType", Value: eventType},
+					},
+				},
+			},
+		},
+	}
+
+	stream, err := suite.eventStoreClient.CatchUpSubscribeToEvents(ctx, subscribeReq)
+	require.NoError(t, err)
+	defer stream.CloseSend()
+
+	receivedEvents := make(chan *pb.Event, 1)
+	receiveErrors := make(chan error, 1)
+	go func() {
+		event, err := stream.Recv()
+		if err != nil {
+			receiveErrors <- err
+			return
+		}
+		receivedEvents <- event
+	}()
+
+	// Give the server time to complete the empty catch-up phase and attach the
+	// live NATS consumer before writing. This test is specifically guarding the
+	// write-after-subscribe path for the Postgres backend.
+	time.Sleep(2 * time.Second)
+
+	expectedPosition := orisun.NotExistsPosition()
+	saveReq := &pb.SaveEventsRequest{
+		Boundary: "orisun_test_1",
+		Query: &pb.SaveQuery{
+			ExpectedPosition: &expectedPosition,
+		},
+		Events: []*pb.EventToSave{
+			{
+				EventId:   eventID,
+				EventType: eventType,
+				Data:      `{"message": "Live subscription event"}`,
+				Metadata:  `{"source": "e2e-live-subscription-test"}`,
+			},
+		},
+	}
+
+	_, err = suite.eventStoreClient.SaveEvents(ctx, saveReq)
+	require.NoError(t, err)
+
+	select {
+	case event := <-receivedEvents:
+		assert.Equal(t, eventID, event.EventId)
+		assert.Equal(t, eventType, event.EventType)
+		assert.Contains(t, event.Data, "Live subscription event")
+	case err := <-receiveErrors:
+		t.Fatalf("Failed to receive live event from subscription: %v", err)
+	case <-time.After(20 * time.Second):
+		t.Fatal("Timed out waiting for live subscription event")
+	}
 }

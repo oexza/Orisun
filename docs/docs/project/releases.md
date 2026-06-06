@@ -42,6 +42,18 @@ Before tagging:
 
 Do not create release tags manually unless you are repairing a failed release and understand which script checks you are bypassing.
 
+## Breaking Releases
+
+Use a minor-version bump for storage or API changes that require operator action. For example, the PostgreSQL position migration that changes public `commit_position` values from PostgreSQL internal transaction IDs to Orisun logical positions is released as `0.3.0`, not another `0.2.x` patch.
+
+Breaking release notes should include:
+
+- what changed for existing deployments,
+- whether startup migrations run automatically,
+- backup and rollback expectations,
+- any required one-node-first rollout steps for clustered deployments,
+- whether external consumers need to remap stored positions.
+
 ## Binary Assets
 
 Each release publishes standalone binaries for Linux, macOS, and Windows. Use these when deploying Orisun directly as a process instead of through Docker.

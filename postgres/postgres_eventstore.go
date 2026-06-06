@@ -457,7 +457,11 @@ func (s *PostgresAdminDB) GetProjectorLastPosition(projectorName string) (*event
 		s.qGetProjectorPos,
 		projectorName,
 	).Scan(&commitPos, &preparePos)
-	if err != nil && err != sql.ErrNoRows {
+	if err == sql.ErrNoRows {
+		pos := eventstore.NotExistsPosition()
+		return &pos, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 

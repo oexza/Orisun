@@ -501,11 +501,13 @@ func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventst
 	defer pool.Read.Put(conn)
 
 	var commit, prepare int64
+	found := false
 	err = sqlitex.Execute(conn,
 		"SELECT commit_position, prepare_position FROM projector_checkpoint WHERE name = ?",
 		&sqlitex.ExecOptions{
 			Args: []any{projectorName},
 			ResultFunc: func(stmt *sqlite.Stmt) error {
+				found = true
 				commit = stmt.ColumnInt64(0)
 				prepare = stmt.ColumnInt64(1)
 				return nil
@@ -513,6 +515,10 @@ func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventst
 		})
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		pos := eventstore.NotExistsPosition()
+		return &pos, nil
 	}
 	return &eventstore.Position{CommitPosition: commit, PreparePosition: prepare}, nil
 }

@@ -90,7 +90,7 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 For example, on Linux amd64:
 
 ```bash
-VERSION=0.2.16
+VERSION=0.3.0
 
 curl -L \
   "https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \

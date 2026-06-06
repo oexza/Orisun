@@ -29,6 +29,7 @@ BEGIN
     -- Create event table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
         transaction_id BIGINT NOT NULL,
+        pg_xact_id     BIGINT,
         global_id      BIGINT PRIMARY KEY,
         event_id       UUID NOT NULL,
         event_type     TEXT NOT NULL CHECK (event_type <> ''''),
@@ -45,9 +46,44 @@ BEGIN
                    schema_name, boundary_name || '_orisun_es_event_global_id_seq',
                    schema_name, boundary_name || '_orisun_es_event', 'global_id');
 
+    -- Existing installations used PostgreSQL's internal xid8 as transaction_id.
+    -- Keep that only as an internal visibility marker; Orisun positions must be
+    -- logical, durable event-store positions that survive major version upgrades
+    -- and dump/restore operations where PostgreSQL XIDs can restart.
+    EXECUTE format('ALTER TABLE %I.%I ADD COLUMN IF NOT EXISTS pg_xact_id BIGINT',
+                   schema_name, boundary_name || '_orisun_es_event');
+
+    -- pg_xact_id is current-cluster-only. After dump/restore or a major upgrade
+    -- into a fresh cluster, the new cluster's xid8 can restart below values
+    -- stored by the old cluster. Those stale values must not be used as a
+    -- visibility barrier, or old committed rows can be hidden until the new
+    -- cluster's XID counter catches up.
+    EXECUTE format('
+        UPDATE %I.%I
+        SET pg_xact_id = NULL
+        WHERE pg_xact_id IS NOT NULL
+          AND pg_xact_id >= pg_current_xact_id()::TEXT::BIGINT',
+                   schema_name, boundary_name || '_orisun_es_event');
+
+    EXECUTE format('
+        WITH remapped AS (
+            SELECT global_id,
+                   MAX(global_id) OVER (PARTITION BY transaction_id) AS logical_transaction_id
+            FROM %I.%I
+        )
+        UPDATE %I.%I e
+        SET transaction_id = remapped.logical_transaction_id
+        FROM remapped
+        WHERE e.global_id = remapped.global_id
+          AND e.transaction_id <> remapped.logical_transaction_id',
+                   schema_name, boundary_name || '_orisun_es_event',
+                   schema_name, boundary_name || '_orisun_es_event');
+
     -- Create indexes
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
                    boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, event_type, data, metadata, date_created)',
+                   boundary_name || '_idx_event_order_visibility_covering', schema_name, boundary_name || '_orisun_es_event');
 
     -- Create last published event position table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -57,6 +93,17 @@ BEGIN
         date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
         date_updated   TIMESTAMPTZ DEFAULT NOW() NOT NULL
     )', schema_name, boundary_name || '_orisun_last_published_event_position');
+
+    EXECUTE format('
+        UPDATE %I.%I p
+        SET transaction_id = e.transaction_id
+        FROM %I.%I e
+        WHERE p.boundary = %L
+          AND p.global_id = e.global_id
+          AND p.transaction_id <> e.transaction_id',
+                   schema_name, boundary_name || '_orisun_last_published_event_position',
+                   schema_name, boundary_name || '_orisun_es_event',
+                   boundary_name);
 
     -- Create events count table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -73,6 +120,15 @@ BEGIN
         commit_position  BIGINT NOT NULL,
         prepare_position BIGINT NOT NULL
     )', schema_name, boundary_name || '_projector_checkpoint');
+
+    EXECUTE format('
+        UPDATE %I.%I c
+        SET commit_position = e.transaction_id
+        FROM %I.%I e
+        WHERE c.prepare_position = e.global_id
+          AND c.commit_position <> e.transaction_id',
+                   schema_name, boundary_name || '_projector_checkpoint',
+                   schema_name, boundary_name || '_orisun_es_event');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -111,7 +167,7 @@ DECLARE
     criteria              JSONB;
     expected_tx_id        BIGINT;
     expected_gid          BIGINT;
-    current_tx_id         BIGINT;
+    current_pg_xact_id    BIGINT;
     latest_tx_id          BIGINT;
     latest_gid            BIGINT;
     key_record            TEXT;
@@ -130,7 +186,7 @@ BEGIN
     criteria := query -> 'criteria';
     expected_tx_id := (query -> 'expected_position' ->> 'transaction_id')::BIGINT;
     expected_gid := (query -> 'expected_position' ->> 'global_id')::BIGINT;
-    current_tx_id := pg_current_xact_id()::TEXT::BIGINT;
+    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
 
     -- Build schema-qualified sequence reference for nextval (avoids SET search_path leak under pgbouncer txn-mode)
     prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
@@ -164,20 +220,22 @@ BEGIN
 
         -- Build criteria_sql from criteria array (replaces GIN @> operator)
         all_parts := '{}';
-        FOR crit IN SELECT jsonb_array_elements(criteria) LOOP
-            crit_parts := '{}';
-            FOR k, v IN SELECT * FROM jsonb_each_text(crit) LOOP
-                crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+        FOR crit IN SELECT jsonb_array_elements(criteria)
+            LOOP
+                crit_parts := '{}';
+                FOR k, v IN SELECT * FROM jsonb_each_text(crit)
+                    LOOP
+                        crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+                    END LOOP;
+                IF array_length(crit_parts, 1) > 0 THEN
+                    all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
+                END IF;
             END LOOP;
-            IF array_length(crit_parts, 1) > 0 THEN
-                all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
-            END IF;
-        END LOOP;
         criteria_sql := CASE
-            WHEN array_length(all_parts, 1) > 0
-            THEN '(' || array_to_string(all_parts, ' OR ') || ')'
-            ELSE 'TRUE'
-        END;
+                            WHEN array_length(all_parts, 1) > 0
+                                THEN '(' || array_to_string(all_parts, ' OR ') || ')'
+                            ELSE 'TRUE'
+            END;
 
         -- version check - use dynamic SQL to query the prefixed table (schema-qualified)
         EXECUTE format('
@@ -208,18 +266,28 @@ BEGIN
 
     -- CTE-based insert pattern - schema-qualified table and sequence (pgbouncer txn-mode safe)
     EXECUTE format('
-        WITH inserted_events AS (
+        WITH events_with_ids AS MATERIALIZED (
+            SELECT e, nextval(%L) AS global_id
+            FROM jsonb_array_elements($2) AS e
+        ),
+        max_global_id AS (
+            SELECT MAX(global_id) AS max_seq_overall
+            FROM events_with_ids
+        ),
+        inserted_events AS (
             INSERT INTO %I.%I (
                                          transaction_id,
+                                         pg_xact_id,
                                          event_id,
                                          global_id,
                                          event_type,
                                          data,
                                          metadata
             )
-            SELECT $1,
+            SELECT max_global_id.max_seq_overall,
+                   $1,
                    (e ->> ''event_id'')::UUID,
-                   nextval(%L),
+                   events_with_ids.global_id,
                    e ->> ''event_type'',
                    CASE
                        WHEN jsonb_typeof(e -> ''data'') = ''string'' THEN (e ->> ''data'')::jsonb
@@ -229,17 +297,16 @@ BEGIN
                        WHEN jsonb_typeof(e -> ''metadata'') = ''string'' THEN (e ->> ''metadata'')::jsonb
                        ELSE COALESCE(e -> ''metadata'', ''{}'')
                        END
-            FROM jsonb_array_elements($2) AS e
-            RETURNING global_id
-        ),
-         max_global_id AS (SELECT MAX(global_id) as max_seq_overall, COUNT(*) as inserted_count
-                           FROM inserted_events)
-        SELECT max_seq_overall, $1, max_seq_overall
-        FROM max_global_id',
+            FROM events_with_ids
+            CROSS JOIN max_global_id
+            RETURNING transaction_id, global_id
+        )
+        SELECT MAX(global_id), MAX(transaction_id), MAX(global_id)
+        FROM inserted_events',
+                   prefixed_seq_name,
                    schema,
-                   boundary_name || '_orisun_es_event',
-                   prefixed_seq_name
-            ) USING current_tx_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
+                   boundary_name || '_orisun_es_event'
+            ) USING current_pg_xact_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
 
     PERFORM pg_notify('orisun_events_' || md5(boundary_name), new_global_id::text);
 
@@ -309,20 +376,22 @@ BEGIN
     -- Build criteria_sql from criteria_array (replaces GIN @> operator)
     IF criteria_array IS NOT NULL THEN
         all_parts := '{}';
-        FOR crit IN SELECT jsonb_array_elements(criteria_array) LOOP
-            crit_parts := '{}';
-            FOR k, v IN SELECT * FROM jsonb_each_text(crit) LOOP
-                crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+        FOR crit IN SELECT jsonb_array_elements(criteria_array)
+            LOOP
+                crit_parts := '{}';
+                FOR k, v IN SELECT * FROM jsonb_each_text(crit)
+                    LOOP
+                        crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+                    END LOOP;
+                IF array_length(crit_parts, 1) > 0 THEN
+                    all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
+                END IF;
             END LOOP;
-            IF array_length(crit_parts, 1) > 0 THEN
-                all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
-            END IF;
-        END LOOP;
         criteria_sql := CASE
-            WHEN array_length(all_parts, 1) > 0
-            THEN '(' || array_to_string(all_parts, ' OR ') || ')'
-            ELSE 'TRUE'
-        END;
+                            WHEN array_length(all_parts, 1) > 0
+                                THEN '(' || array_to_string(all_parts, ' OR ') || ')'
+                            ELSE 'TRUE'
+            END;
     ELSE
         criteria_sql := 'TRUE';
     END IF;
@@ -330,15 +399,16 @@ BEGIN
     -- Use dynamic SQL to query the prefixed table
     RETURN QUERY EXECUTE format(
             $q$
-        SELECT * FROM %s
+        SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created
+        FROM %s
         WHERE
             %2$s AND
-            (%8$L != 'ASC' OR transaction_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())) AND
+            (%8$L != 'ASC' OR pg_xact_id IS NULL OR pg_xact_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())) AND
             (%3$L IS NULL OR (
                     (transaction_id, global_id) %4$s= (
                         %5$L::BIGINT,
                         %6$L::BIGINT
-                    )%7$s
+                    )
                 )
             )
         ORDER BY transaction_id %8$s, global_id %8$s
@@ -350,12 +420,7 @@ BEGIN
             op,
             tx_id,
             global_id,
-            CASE
-                WHEN after_position IS NOT NULL AND sort_dir != 'DESC' AND tx_id::BIGINT >= 0 THEN
-                    format(' AND %L::xid8 < (pg_snapshot_xmin(pg_current_snapshot()))', tx_id)
-                ELSE
-                    ''
-                END,
+            '',
             sort_dir,
             LEAST(GREATEST(max_count, 1), 10000)
                          );

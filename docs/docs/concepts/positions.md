@@ -16,6 +16,14 @@ A position has two fields:
 
 Ordering within a boundary is the tuple `(commit_position, prepare_position)`, ascending. Positions are per boundary — they are not comparable across boundaries.
 
+## PostgreSQL transaction IDs
+
+In Orisun `0.3.0` and later, PostgreSQL `transaction_id` is an Orisun logical commit position, not PostgreSQL's internal transaction ID. PostgreSQL's `pg_current_xact_id()` is still recorded internally as `pg_xact_id` so the PostgreSQL backend can avoid publishing or reading past open older transactions, but that value is current-cluster metadata and is not exposed as the public EventStore position.
+
+This matters during PostgreSQL major upgrades and restore workflows. PostgreSQL internal transaction IDs are assigned by a cluster-local counter. A `pg_upgrade` path may preserve enough cluster state for continuity, but dump/restore, logical replication moves, and some managed-service migrations can create a fresh cluster with lower internal transaction IDs. Orisun positions must remain valid across those workflows, so public positions use logical event-store ordering instead.
+
+When an older PostgreSQL-backed Orisun database starts on `0.3.0`, startup migrations remap legacy `transaction_id` values to logical commit positions and update publisher and projector checkpoints that point at stored events. Existing `pg_xact_id` values from a previous cluster are treated as disposable visibility metadata and cleared when they are detected as stale.
+
 ## The before-first position
 
 Use `{-1, -1}` to mean "before any event exists":
