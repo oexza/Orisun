@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestSave_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestSave_RejectsBatchLargerThanSqliteLimit(t *testing.T) {
+func TestSave_ChunksBatchLargerThanSqliteParamLimit(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
@@ -94,27 +95,36 @@ func TestSave_RejectsBatchLargerThanSqliteLimit(t *testing.T) {
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
-	batchSize := sqliteMaxEventsPerInsert + 1
+	batchSize := sqliteMaxEventsPerInsert*2 + 3
 	events := make([]eventstore.EventWithMapTags, batchSize)
 	for i := range events {
 		events[i] = mustEvent(t, "Chunked", map[string]any{"seq": i}, map[string]any{})
 	}
 
-	_, _, err := saver.Save(ctx, events, "test", nil, nil)
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("expected InvalidArgument, got %v", err)
+	tx, gid, err := saver.Save(ctx, events, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
 	}
 
 	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
-		Count:     10,
+		Count:     uint32(batchSize + 10),
 	})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != 0 {
-		t.Fatalf("expected no events after rejected batch, got %d", len(resp.Events))
+	if len(resp.Events) != batchSize {
+		t.Fatalf("expected %d events, got %d", batchSize, len(resp.Events))
+	}
+	// All chunks committed in one transaction: every event shares tx_id == max global_id.
+	for i, e := range resp.Events {
+		if got := strconv.FormatInt(e.Position.CommitPosition, 10); got != tx {
+			t.Fatalf("event %d: expected tx_id %s, got %s", i, tx, got)
+		}
+	}
+	if last := resp.Events[batchSize-1].Position.PreparePosition; last != gid {
+		t.Fatalf("last event global_id should equal returned gid: got %d, want %d", last, gid)
 	}
 }
 
@@ -299,6 +309,54 @@ func TestGet_FilterByCriteria(t *testing.T) {
 	}
 }
 
+func TestGet_FilterByUntypedScalarCriteria(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+	ctx := context.Background()
+
+	_, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
+		mustEvent(t, "A", map[string]any{"amount": 45, "active": true}, map[string]any{}),
+		mustEvent(t, "A", map[string]any{"amount": 46, "active": false}, map[string]any{}),
+		mustEvent(t, "A", map[string]any{"big": 1e10, "deleted": nil}, map[string]any{}),
+	}, "test", nil, nil)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		tag  *eventstore.Tag
+		want int
+	}{
+		{name: "number", tag: &eventstore.Tag{Key: "amount", Value: "45"}, want: 1},
+		{name: "boolean", tag: &eventstore.Tag{Key: "active", Value: "true"}, want: 1},
+		{name: "number decimal form", tag: &eventstore.Tag{Key: "big", Value: "10000000000"}, want: 1},
+		{name: "number exponent form does not match decimal rendering", tag: &eventstore.Tag{Key: "big", Value: "1e10"}, want: 0},
+		// PG ->> parity: JSON null renders as SQL NULL, never matches anything.
+		{name: "json null never matches", tag: &eventstore.Tag{Key: "deleted", Value: "null"}, want: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+				Boundary:  "test",
+				Direction: eventstore.Direction_ASC,
+				Count:     100,
+				Query: &eventstore.Query{
+					Criteria: []*eventstore.Criterion{{Tags: []*eventstore.Tag{tt.tag}}},
+				},
+			})
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if len(resp.Events) != tt.want {
+				t.Fatalf("expected %d matching events, got %d", tt.want, len(resp.Events))
+			}
+		})
+	}
+}
+
 func TestGet_OrderAndFromPosition(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
@@ -455,12 +513,12 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 		t.Fatalf("expected one metadata row, got %d", got)
 	}
 
-	sql, args := buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
-	if !strings.Contains(sql, "CAST(json_extract(data, '$.\"amount\"') AS REAL)") {
-		t.Fatalf("expected numeric cast in criteria SQL, got %q", sql)
+	sql, err := buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
+	if err != nil {
+		t.Fatalf("build criteria: %v", err)
 	}
-	if len(args) != 1 || args[0] != "45" {
-		t.Fatalf("unexpected args: %#v", args)
+	if !strings.Contains(sql, `CAST(json_extract(data, '$."amount"') AS REAL) = 45`) {
+		t.Fatalf("expected inlined numeric comparison in criteria SQL, got %q", sql)
 	}
 
 	_, _, err = saver.Save(ctx, []eventstore.EventWithMapTags{
@@ -497,9 +555,15 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 		t.Fatalf("expected no metadata rows, got %d", got)
 	}
 
-	sql, _ = buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
-	if strings.Contains(sql, "CAST(") {
+	sql, err = buildCriteriaSQLForBoundary([]map[string]any{{"amount": "45"}}, pool.indexes, "test")
+	if err != nil {
+		t.Fatalf("build criteria: %v", err)
+	}
+	if strings.Contains(sql, "AS REAL") {
 		t.Fatalf("expected untyped criteria SQL after dropping index, got %q", sql)
+	}
+	if !strings.Contains(sql, "CASE json_type") {
+		t.Fatalf("expected semantic scalar comparison after dropping index, got %q", sql)
 	}
 }
 
@@ -579,6 +643,195 @@ func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
 			t.Fatalf("expected unknown boundary error, got %v", err)
 		}
 	})
+
+	t.Run("numeric condition emits numeric comparison", func(t *testing.T) {
+		if err := admin.CreateBoundaryIndex(ctx, "test", "big_amount", []eventstore.BoundaryIndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "amount", Operator: ">", Value: "100"},
+		}, ""); err != nil {
+			t.Fatalf("create numeric-condition index: %v", err)
+		}
+		defer func() {
+			if err := admin.DropBoundaryIndex(ctx, "test", "big_amount"); err != nil {
+				t.Fatalf("drop index: %v", err)
+			}
+		}()
+
+		pool := pools["test"]
+		conn, err := pool.Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take conn: %v", err)
+		}
+		defer pool.Read.Put(conn)
+
+		var ddl string
+		err = sqlitex.Execute(conn,
+			"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'big_amount_idx'",
+			&sqlitex.ExecOptions{
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					ddl = stmt.ColumnText(0)
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("read index ddl: %v", err)
+		}
+		// A text literal here would make the predicate always-false: in SQLite,
+		// numbers sort before text, so json_extract(...) > '100' never matches.
+		if !strings.Contains(ddl, `CAST(json_extract(data, '$."amount"') AS REAL) > 100`) {
+			t.Fatalf("expected numeric predicate in index DDL, got %q", ddl)
+		}
+	})
+
+	t.Run("numeric condition rejects non-numeric value", func(t *testing.T) {
+		err := admin.CreateBoundaryIndex(ctx, "test", "bad_num", []eventstore.BoundaryIndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "amount", Operator: ">", Value: "lots"},
+		}, "")
+		if err == nil || !strings.Contains(err.Error(), "requires a finite numeric value") {
+			t.Fatalf("expected numeric value error, got %v", err)
+		}
+	})
+
+	t.Run("planner uses conditioned partial index for inlined criteria", func(t *testing.T) {
+		if err := admin.CreateBoundaryIndex(ctx, "test", "placed_amount2", []eventstore.BoundaryIndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "eventType", Operator: "=", Value: "OrderPlaced"},
+		}, ""); err != nil {
+			t.Fatalf("create partial index: %v", err)
+		}
+		defer func() {
+			if err := admin.DropBoundaryIndex(ctx, "test", "placed_amount2"); err != nil {
+				t.Fatalf("drop index: %v", err)
+			}
+		}()
+
+		pool := pools["test"]
+		where, err := buildCriteriaSQLForBoundary([]map[string]any{
+			{"eventType": "OrderPlaced", "amount": "150"},
+		}, pool.indexes, "test")
+		if err != nil {
+			t.Fatalf("build criteria: %v", err)
+		}
+
+		conn, err := pool.Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take conn: %v", err)
+		}
+		defer pool.Read.Put(conn)
+
+		var plan strings.Builder
+		err = sqlitex.ExecuteTransient(conn,
+			"EXPLAIN QUERY PLAN SELECT COUNT(*) FROM orisun_es_event WHERE "+where,
+			&sqlitex.ExecOptions{
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					plan.WriteString(stmt.ColumnText(3))
+					plan.WriteString("\n")
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("explain: %v", err)
+		}
+		// Bound parameters would fail SQLite's partial-index implication proof;
+		// inlined literals must make the planner pick the conditioned index.
+		if !strings.Contains(plan.String(), "placed_amount2_idx") {
+			t.Fatalf("expected query plan to use placed_amount2_idx, got:\n%s", plan.String())
+		}
+	})
+
+	t.Run("condition on undeclared key matches numeric JSON values", func(t *testing.T) {
+		// status is not declared as a typed field anywhere; the condition predicate
+		// must use the CASE scalar-text shape so stored JSON numbers still match —
+		// a raw text comparison would make the partial index permanently empty.
+		if err := admin.CreateBoundaryIndex(ctx, "test", "status404", []eventstore.BoundaryIndexField{
+			{JsonKey: "amount", ValueType: "numeric"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "status", Operator: "=", Value: "404"},
+		}, ""); err != nil {
+			t.Fatalf("create index: %v", err)
+		}
+		defer func() {
+			if err := admin.DropBoundaryIndex(ctx, "test", "status404"); err != nil {
+				t.Fatalf("drop index: %v", err)
+			}
+		}()
+
+		logger, _ := logging.ZapLogger("error")
+		saver := NewSqliteSaveEvents(pools, logger)
+		getter := NewSqliteGetEvents(pools, logger)
+		if _, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
+			mustEvent(t, "S", map[string]any{"status": 404, "amount": 5}, map[string]any{}),
+			mustEvent(t, "S", map[string]any{"status": "404", "amount": 6}, map[string]any{}),
+			mustEvent(t, "S", map[string]any{"status": 500, "amount": 7}, map[string]any{}),
+		}, "test", nil, nil); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+
+		resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+			Boundary:  "test",
+			Direction: eventstore.Direction_ASC,
+			Count:     100,
+			Query: &eventstore.Query{
+				Criteria: []*eventstore.Criterion{
+					{Tags: []*eventstore.Tag{{Key: "status", Value: "404"}}},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		// PG ->> renders number 404 and string "404" identically as '404'.
+		if len(resp.Events) != 2 {
+			t.Fatalf("expected 2 matching events (numeric and string status), got %d", len(resp.Events))
+		}
+
+		// Condition key is registry-known after creation, so the query term exactly
+		// matches the predicate and the planner can pick the partial index.
+		where, err := buildCriteriaSQLForBoundary([]map[string]any{
+			{"status": "404", "amount": "5"},
+		}, pools["test"].indexes, "test")
+		if err != nil {
+			t.Fatalf("build criteria: %v", err)
+		}
+		conn, err := pools["test"].Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take conn: %v", err)
+		}
+		defer pools["test"].Read.Put(conn)
+		var plan strings.Builder
+		err = sqlitex.ExecuteTransient(conn,
+			"EXPLAIN QUERY PLAN SELECT COUNT(*) FROM orisun_es_event WHERE "+where,
+			&sqlitex.ExecOptions{
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					plan.WriteString(stmt.ColumnText(3))
+					plan.WriteString("\n")
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("explain: %v", err)
+		}
+		if !strings.Contains(plan.String(), "status404_idx") {
+			t.Fatalf("expected query plan to use status404_idx, got:\n%s", plan.String())
+		}
+	})
+
+	t.Run("boolean condition emits integer comparison", func(t *testing.T) {
+		if err := admin.CreateBoundaryIndex(ctx, "test", "active_only", []eventstore.BoundaryIndexField{
+			{JsonKey: "active", ValueType: "boolean"},
+		}, []eventstore.BoundaryIndexCondition{
+			{Key: "active", Operator: "=", Value: "true"},
+		}, ""); err != nil {
+			t.Fatalf("create boolean-condition index: %v", err)
+		}
+		if err := admin.DropBoundaryIndex(ctx, "test", "active_only"); err != nil {
+			t.Fatalf("drop index: %v", err)
+		}
+	})
 }
 
 func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {
@@ -605,6 +858,38 @@ func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {
 	}
 	if _, err := admin.GetUserByUsername(user.Username); err == nil {
 		t.Fatal("expected deleted user lookup to fail")
+	}
+}
+
+func TestAdminUserCacheEvictedOnUsernameChange(t *testing.T) {
+	pools, cleanup := newTestPools(t)
+	defer cleanup()
+	logger, _ := logging.ZapLogger("error")
+	admin := NewSqliteAdminDB(pools, "test", logger)
+
+	user := eventstore.User{
+		Id:             uuid.NewString(),
+		Name:           "Test User",
+		Username:       "old-name",
+		HashedPassword: "hash",
+		Roles:          []eventstore.Role{eventstore.RoleAdmin},
+	}
+	if err := admin.UpsertUser(user); err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	if _, err := admin.GetUserByUsername("old-name"); err != nil {
+		t.Fatalf("expected cached user: %v", err)
+	}
+
+	user.Username = "new-name"
+	if err := admin.UpsertUser(user); err != nil {
+		t.Fatalf("rename user: %v", err)
+	}
+	if _, err := admin.GetUserByUsername("old-name"); err == nil {
+		t.Fatal("old username must stop resolving after rename")
+	}
+	if _, err := admin.GetUserByUsername("new-name"); err != nil {
+		t.Fatalf("new username should resolve: %v", err)
 	}
 }
 
@@ -639,31 +924,75 @@ func TestSaveNotifiesSqliteEventSignalAfterCommit(t *testing.T) {
 }
 
 func TestBuildCriteriaSQL(t *testing.T) {
+	caseExpr := func(k string) string {
+		return `CASE json_type(data, '$."` + k + `"') WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE CAST(json_extract(data, '$."` + k + `"') AS TEXT) END`
+	}
 	cases := []struct {
-		name     string
-		input    []map[string]any
-		wantArgs int
+		name  string
+		input []map[string]any
+		want  string
 	}{
-		{"empty", nil, 0},
-		{"single criterion", []map[string]any{{"k": "v"}}, 1},
-		{"multi-key AND", []map[string]any{{"a": "1", "b": "2"}}, 2},
-		{"multi-criterion OR", []map[string]any{{"a": "1"}, {"b": "2"}}, 2},
+		{"empty", nil, "1"},
+		{"single criterion", []map[string]any{{"k": "v"}},
+			"(" + caseExpr("k") + " = 'v')"},
+		{"multi-key AND", []map[string]any{{"a": "1", "b": "2"}},
+			"(" + caseExpr("a") + " = '1' AND " + caseExpr("b") + " = '2')"},
+		{"multi-criterion OR", []map[string]any{{"a": "1"}, {"b": "2"}},
+			"(" + caseExpr("a") + " = '1') OR (" + caseExpr("b") + " = '2')"},
+		{"quote escaped", []map[string]any{{"k": "it's"}},
+			"(" + caseExpr("k") + " = 'it''s')"},
+		{"inf not treated as numeric", []map[string]any{{"k": "inf"}},
+			"(" + caseExpr("k") + " = 'inf')"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			sql, args := buildCriteriaSQL(c.input)
-			if len(args) != c.wantArgs {
-				t.Errorf("wantArgs=%d gotArgs=%d, sql=%q", c.wantArgs, len(args), sql)
+			sql, err := buildCriteriaSQL(c.input)
+			if err != nil {
+				t.Fatalf("build: %v", err)
 			}
-			// Multi-criterion case must contain OR; single-criterion multi-key must contain AND.
-			if c.name == "multi-criterion OR" && !strings.Contains(sql, " OR ") {
-				t.Errorf("expected OR in %q", sql)
-			}
-			if c.name == "multi-key AND" && !strings.Contains(sql, " AND ") {
-				t.Errorf("expected AND in %q", sql)
+			if sql != c.want {
+				t.Errorf("got %q, want %q", sql, c.want)
 			}
 		})
 	}
+
+	t.Run("rejects NUL byte", func(t *testing.T) {
+		if _, err := buildCriteriaSQL([]map[string]any{{"k": "a\x00b"}}); err == nil {
+			t.Fatal("expected NUL byte rejection")
+		}
+	})
+
+	t.Run("declared text field keeps direct index expression", func(t *testing.T) {
+		registry := newSqliteIndexRegistry()
+		registry.replaceBoundaryFields("test", map[string]sqliteFieldInfo{
+			"k": {valueType: "text", declaredField: true},
+		})
+		sql, err := buildCriteriaSQLForBoundary([]map[string]any{{"k": "v"}}, registry, "test")
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		want := `(json_extract(data, '$."k"') = 'v')`
+		if sql != want {
+			t.Fatalf("got %q, want %q", sql, want)
+		}
+	})
+
+	t.Run("condition-only key keeps exact CASE shape", func(t *testing.T) {
+		// No numeric OR branch: the query term must exactly match the partial-index
+		// condition predicate or the implication proof fails and the index goes unused.
+		registry := newSqliteIndexRegistry()
+		registry.replaceBoundaryFields("test", map[string]sqliteFieldInfo{
+			"k": {valueType: "text", declaredField: false},
+		})
+		sql, err := buildCriteriaSQLForBoundary([]map[string]any{{"k": "1"}}, registry, "test")
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		want := "(" + caseExpr("k") + " = '1')"
+		if sql != want {
+			t.Fatalf("got %q, want %q", sql, want)
+		}
+	})
 }
 
 func TestJSONPathLiteralEscapes(t *testing.T) {
