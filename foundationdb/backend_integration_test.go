@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -345,6 +346,91 @@ func TestFoundationDBGetEventsCountPaged(t *testing.T) {
 	}
 	if count != total {
 		t.Fatalf("expected %d events, got %d", total, count)
+	}
+}
+
+// TestFoundationDBTotalOrderUnderConcurrency: boundary-wide total order is a
+// core Orisun guarantee. Many goroutines append in parallel (no consistency
+// condition, so nothing serialises them app-side); afterwards a paged read of
+// the boundary must yield every event exactly once in strictly increasing
+// position order, and batches must never interleave.
+func TestFoundationDBTotalOrderUnderConcurrency(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx := context.Background()
+
+	const writers = 8
+	const savesPerWriter = 20
+	const eventsPerSave = 3
+
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < savesPerWriter; i++ {
+				events := make([]eventstore.EventWithMapTags, eventsPerSave)
+				for j := range events {
+					events[j] = eventstore.EventWithMapTags{
+						EventId:   uuid.NewString(),
+						EventType: "Ordered",
+						Data:      map[string]any{"writer": strconv.Itoa(w), "save": strconv.Itoa(i), "j": strconv.Itoa(j)},
+						Metadata:  map[string]any{},
+					}
+				}
+				if _, _, err := backend.Save(ctx, events, "test", nil, nil); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent Save: %v", err)
+	}
+
+	const total = writers * savesPerWriter * eventsPerSave
+	seen := map[string]struct{}{}
+	var prev *eventstore.Position
+	var prevCommit int64 = -1
+	var cursor *eventstore.Position
+	for {
+		req := &eventstore.GetEventsRequest{Boundary: "test", Count: 50, Direction: eventstore.Direction_ASC}
+		if cursor != nil {
+			req.FromPosition = &eventstore.Position{
+				CommitPosition:  cursor.CommitPosition,
+				PreparePosition: cursor.PreparePosition + 1,
+			}
+		}
+		resp, err := backend.Get(ctx, req)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(resp.Events) == 0 {
+			break
+		}
+		for _, event := range resp.Events {
+			if prev != nil && comparePositions(event.Position, prev) <= 0 {
+				t.Fatalf("total order violated: %v after %v", event.Position, prev)
+			}
+			// A batch shares one commit position; once the commit position
+			// advances it must never come back (batches cannot interleave).
+			if event.Position.CommitPosition < prevCommit {
+				t.Fatalf("batch interleaving: commit %d after %d", event.Position.CommitPosition, prevCommit)
+			}
+			prevCommit = event.Position.CommitPosition
+			prev = event.Position
+			if _, dup := seen[event.EventId]; dup {
+				t.Fatalf("event %s seen twice", event.EventId)
+			}
+			seen[event.EventId] = struct{}{}
+		}
+		cursor = resp.Events[len(resp.Events)-1].Position
+	}
+	if len(seen) != total {
+		t.Fatalf("expected %d events in total order, got %d", total, len(seen))
 	}
 }
 
