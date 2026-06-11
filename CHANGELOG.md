@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `EventStore/GetLatestByCriteria` RPC: returns the latest event per criterion assembled from one consistent server-side read snapshot, plus a `context_position` for use as the next `expected_position`. Closes the mixed-snapshot gap where a context assembled from independent `GetEvents` calls can miss an event that committed between them below the observed max position. Implemented for PostgreSQL (single-statement `UNION ALL` of `LIMIT 1` lookups) and SQLite (one deferred read transaction).
+- General-ledger workload e2e test (`TestE2E_LedgerWorkload_*`) driving concurrent double-entry transfers with carried balances through the public gRPC API, auditing carried-balance consistency, no-overdraft, money conservation, and debit/credit pairing.
+
 ## 0.3.1 - 2026-06-06
 
 ### Fixed

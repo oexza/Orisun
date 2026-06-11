@@ -35,6 +35,10 @@ const selectMatchingEvents = `
 SELECT * FROM %s.get_matching_events_v3($1::text, $2::text, $3::jsonb, $4::jsonb, $5, $6::INT)
 `
 
+const selectLatestByCriteria = `
+SELECT * FROM %s.get_latest_by_criteria_v1($1::text, $2::text, $3::jsonb)
+`
+
 const setSearchPath = `
 set search_path to '%s'
 `
@@ -76,6 +80,7 @@ type PostgresGetEvents struct {
 	logger                 logging.Logger
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
 	selectQueries          map[string]string // boundary -> pre-formatted select SQL
+	latestQueries          map[string]string // boundary -> pre-formatted latest-by-criteria SQL
 }
 
 func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
@@ -89,14 +94,17 @@ func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
 func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresGetEvents {
 	queries := make(map[string]string, len(boundarySchemaMappings))
+	latestQueries := make(map[string]string, len(boundarySchemaMappings))
 	for boundary, m := range boundarySchemaMappings {
 		queries[boundary] = fmt.Sprintf(selectMatchingEvents, m.Schema)
+		latestQueries[boundary] = fmt.Sprintf(selectLatestByCriteria, m.Schema)
 	}
 	return &PostgresGetEvents{
 		db:                     db,
 		logger:                 logger,
 		boundarySchemaMappings: boundarySchemaMappings,
 		selectQueries:          queries,
+		latestQueries:          latestQueries,
 	}
 }
 
@@ -341,6 +349,88 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	}
 
 	return &eventstore.GetEventsResponse{Events: events}, nil
+}
+
+// GetLatestByCriteria returns the latest event per criterion plus the max
+// observed position. The per-criterion lookups run inside one SQL statement
+// (get_latest_by_criteria_v1 builds a UNION ALL of LIMIT-1 subqueries), so the
+// whole context comes from one snapshot — assembling it from independent
+// queries would let an event commit in between with a position below the
+// observed maximum, invisible to a scalar expected-position check.
+func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
+	schema, err := s.Schema(req.Boundary)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+	}
+	if len(req.Criteria) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	}
+
+	criteriaList := getCriteriaAsList(&eventstore.Query{Criteria: req.Criteria})
+	if len(criteriaList) != len(req.Criteria) {
+		return nil, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+	}
+	paramsBytes, err := json.Marshal(map[string]any{"criteria": criteriaList})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to marshal criteria: %v", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, s.latestQueries[req.Boundary], req.Boundary, schema, paramsBytes)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
+	}
+	defer rows.Close()
+
+	eventsByIdx := make(map[int]*eventstore.Event, len(req.Criteria))
+	for rows.Next() {
+		var (
+			idx                     int
+			transactionID, globalID int64
+			eventID, eventType      string
+			dataJSON, metadataJSON  string
+			dateCreated             time.Time
+		)
+		if err := rows.Scan(&idx, &transactionID, &globalID, &eventID, &eventType, &dataJSON, &metadataJSON, &dateCreated); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
+		}
+		eventsByIdx[idx] = &eventstore.Event{
+			EventId:   eventID,
+			EventType: eventType,
+			Data:      dataJSON,
+			Metadata:  metadataJSON,
+			Position: &eventstore.Position{
+				CommitPosition:  transactionID,
+				PreparePosition: globalID,
+			},
+			DateCreated: timestamppb.New(dateCreated),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
+	}
+
+	resp := &eventstore.GetLatestByCriteriaResponse{}
+	contextPos := eventstore.NotExistsPosition()
+	found := false
+	for i, criterion := range req.Criteria {
+		result := &eventstore.LatestCriterionResult{Criterion: criterion}
+		if event, ok := eventsByIdx[i]; ok {
+			result.Event = event
+			if !found || event.Position.CommitPosition > contextPos.CommitPosition ||
+				(event.Position.CommitPosition == contextPos.CommitPosition &&
+					event.Position.PreparePosition > contextPos.PreparePosition) {
+				contextPos.CommitPosition = event.Position.CommitPosition
+				contextPos.PreparePosition = event.Position.PreparePosition
+				found = true
+			}
+		}
+		resp.Results = append(resp.Results, result)
+	}
+	resp.ContextPosition = &eventstore.Position{
+		CommitPosition:  contextPos.CommitPosition,
+		PreparePosition: contextPos.PreparePosition,
+	}
+	return resp, nil
 }
 
 func getStreamSectionAsMap(expectedPosition *eventstore.Position, consistencyCondition *eventstore.Query) map[string]any {

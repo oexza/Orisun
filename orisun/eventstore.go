@@ -34,6 +34,10 @@ type EventsSaver interface {
 
 type EventsRetriever interface {
 	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
+	// GetLatestByCriteria returns the latest event per criterion from ONE
+	// backend read snapshot, plus the max observed position as the
+	// optimistic-lock token for the combined context.
+	GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error)
 }
 
 type LockProvider interface {
@@ -406,6 +410,22 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
 	// }
 	return s.getEventsFn.Get(ctx, req)
+}
+
+func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
+	s.logger.Debugf("GetLatestByCriteria called with req: %v", req)
+	if req.Boundary == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "boundary is required")
+	}
+	if len(req.Criteria) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	}
+	for i, criterion := range req.Criteria {
+		if criterion == nil || len(criterion.Tags) == 0 {
+			return nil, status.Errorf(codes.InvalidArgument, "criterion %d has no tags", i)
+		}
+	}
+	return s.getEventsFn.GetLatestByCriteria(ctx, req)
 }
 
 func (s *EventStore) SubscribeToAllEvents(

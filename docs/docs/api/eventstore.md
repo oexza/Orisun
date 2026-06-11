@@ -183,6 +183,26 @@ EOF
 
 Keep the consumer idempotent and deduplicate by `event_id` rather than assuming exactly-once paging. The position model behind `from_position` and `direction` is described in [Positions and Ordering](../concepts/positions).
 
+## GetLatestByCriteria
+
+`GetLatestByCriteria` returns the latest event matching each criterion, assembled by the server from **one consistent read snapshot**, plus a `context_position` to use as the `expected_position` of the next `SaveEvents` with the same combined criteria. It is the command-side read for the carried-state pattern: store the resulting state (for example an account balance) on each event, then a command needs only the latest event per entity, not a history replay.
+
+```bash
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetLatestByCriteria <<EOF
+{
+  "boundary": "ledger",
+  "criteria": [
+    {"tags": [{"key": "account_id", "value": "acct-01"}]},
+    {"tags": [{"key": "account_id", "value": "acct-02"}]}
+  ]
+}
+EOF
+```
+
+The response carries one `result` per request criterion in order (`event` unset when nothing matches) and `context_position` — the max position observed in the same snapshot, or `{-1, -1}` when nothing matched.
+
+Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two snapshots. An event can commit between them with a position *below* the maximum you observed, and a scalar `expected_position` can only prove "nothing newer than X exists" — it cannot prove your reads saw everything up to X. `GetLatestByCriteria` closes that gap by sampling the whole context atomically. See [Command Context Consistency](../concepts/command-context-consistency).
+
 ## CatchUpSubscribeToEvents
 
 Catch-up subscriptions replay stored events, then switch to live JetStream delivery.

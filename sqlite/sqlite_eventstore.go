@@ -544,6 +544,104 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 	return &eventstore.GetEventsResponse{Events: events}, nil
 }
 
+// GetLatestByCriteria returns the latest event per criterion plus the max
+// observed position, all from ONE read snapshot: the per-criterion lookups run
+// inside an explicit deferred read transaction, so under WAL every statement
+// sees the same database state. Independent client reads cannot substitute —
+// an event committing between them can hide below the observed max position.
+func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
+	pool, ok := s.pools[req.Boundary]
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
+	}
+	if len(req.Criteria) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	}
+
+	conn, err := pool.Read.Take(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "take read conn: %v", err)
+	}
+	defer pool.Read.Put(conn)
+
+	if err := sqlitex.ExecuteTransient(conn, "BEGIN DEFERRED", nil); err != nil {
+		return nil, status.Errorf(codes.Internal, "begin read tx: %v", err)
+	}
+	defer func() {
+		_ = sqlitex.ExecuteTransient(conn, "COMMIT", nil)
+	}()
+
+	resp := &eventstore.GetLatestByCriteriaResponse{}
+	contextPos := eventstore.NotExistsPosition()
+	found := false
+	for _, criterion := range req.Criteria {
+		anded := make(map[string]any, len(criterion.Tags))
+		for _, tag := range criterion.Tags {
+			anded[tag.Key] = tag.Value
+		}
+		if len(anded) == 0 {
+			return nil, status.Errorf(codes.InvalidArgument, "criterion has no tags")
+		}
+		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, req.Boundary)
+		if buildErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
+		}
+		q := "SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created " +
+			"FROM orisun_es_event WHERE " + where +
+			" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
+
+		result := &eventstore.LatestCriterionResult{Criterion: criterion}
+		// Transient: criteria literals are inlined (see buildCriteriaSQL).
+		if err := sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				event := scanEventRow(stmt)
+				result.Event = event
+				if !found || (event.Position.CommitPosition > contextPos.CommitPosition ||
+					(event.Position.CommitPosition == contextPos.CommitPosition &&
+						event.Position.PreparePosition > contextPos.PreparePosition)) {
+					contextPos.CommitPosition = event.Position.CommitPosition
+					contextPos.PreparePosition = event.Position.PreparePosition
+					found = true
+				}
+				return nil
+			},
+		}); err != nil {
+			return nil, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
+		}
+		resp.Results = append(resp.Results, result)
+	}
+	resp.ContextPosition = &eventstore.Position{
+		CommitPosition:  contextPos.CommitPosition,
+		PreparePosition: contextPos.PreparePosition,
+	}
+	return resp, nil
+}
+
+// scanEventRow decodes one orisun_es_event row in the canonical column order
+// (transaction_id, global_id, event_id, event_type, data, metadata, date_created).
+func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
+	created := stmt.ColumnText(6)
+	t, parseErr := time.Parse(time.RFC3339Nano, created)
+	if parseErr != nil {
+		if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
+			t = t2
+		} else {
+			t = time.Now().UTC()
+		}
+	}
+	return &eventstore.Event{
+		EventId:   stmt.ColumnText(2),
+		EventType: stmt.ColumnText(3),
+		Data:      stmt.ColumnText(4),
+		Metadata:  stmt.ColumnText(5),
+		Position: &eventstore.Position{
+			CommitPosition:  stmt.ColumnInt64(0),
+			PreparePosition: stmt.ColumnInt64(1),
+		},
+		DateCreated: timestamppb.New(t),
+	}
+}
+
 // ---------------------------------------------------------------------------
 // SqliteAdminDB
 // ---------------------------------------------------------------------------

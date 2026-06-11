@@ -436,3 +436,65 @@ BEGIN
                          );
 END;
 $$;
+
+-- get_latest_by_criteria_v1 returns the newest event matching each criterion,
+-- all from ONE statement (therefore one snapshot), plus enough to compute the
+-- context position client-side. One snapshot is the point: assembling the same
+-- context from independent queries lets an event commit in between with a
+-- position below the observed maximum, which a scalar expected-position check
+-- cannot detect.
+CREATE OR REPLACE FUNCTION get_latest_by_criteria_v1(
+    boundary_name TEXT,
+    schema TEXT,
+    criteria JSONB
+)
+    RETURNS TABLE
+            (
+                criterion_idx  INT,
+                transaction_id BIGINT,
+                global_id      BIGINT,
+                event_id       UUID,
+                event_type     TEXT,
+                data           JSONB,
+                metadata       JSONB,
+                date_created   TIMESTAMPTZ
+            )
+    LANGUAGE plpgsql
+    STABLE
+AS
+$$
+DECLARE
+    qualified_table_name TEXT;
+    criteria_array       JSONB := criteria -> 'criteria';
+    crit                 JSONB;
+    crit_parts           TEXT[];
+    selects              TEXT[] := '{}';
+    idx                  INT   := 0;
+    k                    TEXT;
+    v                    TEXT;
+BEGIN
+    IF criteria_array IS NULL OR jsonb_array_length(criteria_array) = 0 THEN
+        RAISE EXCEPTION 'criteria cannot be empty';
+    END IF;
+
+    qualified_table_name := format('%I.%I', schema, boundary_name || '_orisun_es_event');
+
+    FOR crit IN SELECT jsonb_array_elements(criteria_array)
+        LOOP
+            crit_parts := '{}';
+            FOR k, v IN SELECT * FROM jsonb_each_text(crit)
+                LOOP
+                    crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+                END LOOP;
+            IF array_length(crit_parts, 1) IS NULL THEN
+                RAISE EXCEPTION 'criterion % has no tags', idx;
+            END IF;
+            selects := selects || format(
+                    '(SELECT %s AS criterion_idx, e.transaction_id, e.global_id, e.event_id, e.event_type, e.data, e.metadata, e.date_created FROM %s e WHERE %s ORDER BY e.transaction_id DESC, e.global_id DESC LIMIT 1)',
+                    idx, qualified_table_name, array_to_string(crit_parts, ' AND '));
+            idx := idx + 1;
+        END LOOP;
+
+    RETURN QUERY EXECUTE array_to_string(selects, ' UNION ALL ');
+END;
+$$;

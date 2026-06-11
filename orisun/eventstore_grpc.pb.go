@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	EventStore_SaveEvents_FullMethodName               = "/orisun.EventStore/SaveEvents"
 	EventStore_GetEvents_FullMethodName                = "/orisun.EventStore/GetEvents"
+	EventStore_GetLatestByCriteria_FullMethodName      = "/orisun.EventStore/GetLatestByCriteria"
 	EventStore_CatchUpSubscribeToEvents_FullMethodName = "/orisun.EventStore/CatchUpSubscribeToEvents"
 	EventStore_Ping_FullMethodName                     = "/orisun.EventStore/Ping"
 	EventStore_CreateIndex_FullMethodName              = "/orisun.EventStore/CreateIndex"
@@ -33,6 +34,7 @@ const (
 type EventStoreClient interface {
 	SaveEvents(ctx context.Context, in *SaveEventsRequest, opts ...grpc.CallOption) (*WriteResult, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
+	GetLatestByCriteria(ctx context.Context, in *GetLatestByCriteriaRequest, opts ...grpc.CallOption) (*GetLatestByCriteriaResponse, error)
 	CatchUpSubscribeToEvents(ctx context.Context, in *CatchUpSubscribeToEventStoreRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	CreateIndex(ctx context.Context, in *CreateIndexRequest, opts ...grpc.CallOption) (*CreateIndexResponse, error)
@@ -61,6 +63,16 @@ func (c *eventStoreClient) GetEvents(ctx context.Context, in *GetEventsRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEventsResponse)
 	err := c.cc.Invoke(ctx, EventStore_GetEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *eventStoreClient) GetLatestByCriteria(ctx context.Context, in *GetLatestByCriteriaRequest, opts ...grpc.CallOption) (*GetLatestByCriteriaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLatestByCriteriaResponse)
+	err := c.cc.Invoke(ctx, EventStore_GetLatestByCriteria_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +134,7 @@ func (c *eventStoreClient) DropIndex(ctx context.Context, in *DropIndexRequest, 
 type EventStoreServer interface {
 	SaveEvents(context.Context, *SaveEventsRequest) (*WriteResult, error)
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
+	GetLatestByCriteria(context.Context, *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error)
 	CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	CreateIndex(context.Context, *CreateIndexRequest) (*CreateIndexResponse, error)
@@ -141,6 +154,9 @@ func (UnimplementedEventStoreServer) SaveEvents(context.Context, *SaveEventsRequ
 }
 func (UnimplementedEventStoreServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEvents not implemented")
+}
+func (UnimplementedEventStoreServer) GetLatestByCriteria(context.Context, *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLatestByCriteria not implemented")
 }
 func (UnimplementedEventStoreServer) CatchUpSubscribeToEvents(*CatchUpSubscribeToEventStoreRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method CatchUpSubscribeToEvents not implemented")
@@ -207,6 +223,24 @@ func _EventStore_GetEvents_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(EventStoreServer).GetEvents(ctx, req.(*GetEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EventStore_GetLatestByCriteria_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLatestByCriteriaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventStoreServer).GetLatestByCriteria(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventStore_GetLatestByCriteria_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventStoreServer).GetLatestByCriteria(ctx, req.(*GetLatestByCriteriaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -290,6 +324,10 @@ var EventStore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEvents",
 			Handler:    _EventStore_GetEvents_Handler,
+		},
+		{
+			MethodName: "GetLatestByCriteria",
+			Handler:    _EventStore_GetLatestByCriteria_Handler,
 		},
 		{
 			MethodName: "Ping",

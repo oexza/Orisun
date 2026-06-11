@@ -44,6 +44,10 @@ func (r *fakeRetriever) add(events ...*Event) {
 	r.events = append(r.events, events...)
 }
 
+func (r *fakeRetriever) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
 func (r *fakeRetriever) Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
