@@ -146,6 +146,13 @@ func InitializeFoundationDB(
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("admin boundary %q is not configured", adminCfg.Boundary)
 	}
 
+	// With criteria reads fail-closed, Orisun's own admin slices and the auth
+	// user projector cannot run until their criteria shapes are covered.
+	if err := backend.ensureSystemIndexes(ctx); err != nil {
+		db.Close()
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("ensure system indexes: %w", err)
+	}
+
 	signalProvider := func(boundary string) eventstore.EventSignal {
 		return &fdbSignal{
 			db:       db,
@@ -165,6 +172,73 @@ func ensureAPIVersion(version int) error {
 		apiErr = fdb.APIVersion(version)
 	})
 	return apiErr
+}
+
+// systemAdminIndexes cover the criteria shapes Orisun's own admin slices and
+// auth projector query on the admin boundary ({eventType, username},
+// {eventType, user_id}, {eventType, userId}). Criteria reads are fail-closed,
+// so these must be ready before the admin service starts.
+var systemAdminIndexes = []struct {
+	name   string
+	fields []eventstore.BoundaryIndexField
+}{
+	{"sys_admin_et_username", []eventstore.BoundaryIndexField{
+		{JsonKey: "eventType", ValueType: "text"},
+		{JsonKey: "username", ValueType: "text"},
+	}},
+	{"sys_admin_et_user_id", []eventstore.BoundaryIndexField{
+		{JsonKey: "eventType", ValueType: "text"},
+		{JsonKey: "user_id", ValueType: "text"},
+	}},
+	{"sys_admin_et_userid", []eventstore.BoundaryIndexField{
+		{JsonKey: "eventType", ValueType: "text"},
+		{JsonKey: "userId", ValueType: "text"},
+	}},
+}
+
+func (b *Backend) ensureSystemIndexes(ctx context.Context) error {
+	for _, sys := range systemAdminIndexes {
+		ready, err := b.indexReadyWithFields(b.adminBoundary, sys.name, sys.fields)
+		if err != nil {
+			return err
+		}
+		if ready {
+			continue
+		}
+		if err := b.CreateBoundaryIndex(ctx, b.adminBoundary, sys.name, sys.fields, nil, eventstore.IndexCombinatorAND); err != nil {
+			return fmt.Errorf("create system index %s: %w", sys.name, err)
+		}
+	}
+	return nil
+}
+
+// indexReadyWithFields reports whether the named index already exists with
+// exactly the wanted unconditioned field list — so startup skips a pointless
+// clear-and-backfill on every boot.
+func (b *Backend) indexReadyWithFields(boundary, name string, fields []eventstore.BoundaryIndexField) (bool, error) {
+	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		raw := rt.Get(b.indexMetaKey(boundary, name)).MustGet()
+		if raw == nil {
+			return false, nil
+		}
+		var def indexDefinition
+		if err := json.Unmarshal(raw, &def); err != nil {
+			return false, nil
+		}
+		if def.State != indexStateReady || len(def.Conditions) != 0 || len(def.Fields) != len(fields) {
+			return false, nil
+		}
+		for i := range fields {
+			if def.Fields[i] != fields[i] {
+				return false, nil
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
 }
 
 func (b *Backend) Save(

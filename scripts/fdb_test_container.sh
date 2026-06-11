@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Compile and test the FoundationDB backend inside a Linux container with a
-# throwaway single-node fdbserver. Usage: scripts/fdb_test_container.sh [go-test-args...]
+# throwaway single-node fdbserver.
+# Usage: scripts/fdb_test_container.sh [go-test-args...]
+#        TEST_PKGS=./cmd/ scripts/fdb_test_container.sh -run TestE2E_LedgerWorkload_FoundationDB -v
 set -euo pipefail
 
 FDB_VERSION="${FDB_VERSION:-7.3.77}"
@@ -17,6 +19,7 @@ TEST_ARGS="$*"
 if [ -z "$TEST_ARGS" ]; then
   TEST_ARGS="-run TestFoundationDB -v"
 fi
+TEST_PKGS="${TEST_PKGS:-./foundationdb/}"
 
 docker run --rm \
   -v "$REPO_DIR":/src \
@@ -25,6 +28,7 @@ docker run --rm \
   -e FDB_VERSION="$FDB_VERSION" \
   -e DEB_ARCH="$DEB_ARCH" \
   -e TEST_ARGS="$TEST_ARGS" \
+  -e TEST_PKGS="$TEST_PKGS" \
   "$GO_IMAGE" bash -ec '
     base="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}"
     curl -fsSL -o /tmp/clients.deb "${base}/foundationdb-clients_${FDB_VERSION}-1_${DEB_ARCH}.deb"
@@ -51,7 +55,7 @@ docker run --rm \
     export GOFLAGS=-buildvcs=false
     export ORISUN_FDB_TEST_CLUSTER_FILE=/etc/foundationdb/fdb.cluster
     go vet -tags foundationdb ./foundationdb/
-    # $TEST_ARGS expands after parsing: metacharacters in it (e.g. | in -bench
-    # regexes) are not reinterpreted as shell operators.
-    go test -tags foundationdb ./foundationdb/ $TEST_ARGS
+    # $TEST_ARGS/$TEST_PKGS expand after parsing: metacharacters in them (e.g.
+    # | in -bench regexes) are not reinterpreted as shell operators.
+    go test -tags foundationdb $TEST_PKGS $TEST_ARGS
   '
