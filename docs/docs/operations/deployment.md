@@ -80,6 +80,52 @@ Operational notes:
 - Run exactly one active Orisun writer node.
 - Back up both SQLite files and the NATS store directory if live delivery retention matters during restore.
 
+## Scaling SQLite
+
+SQLite has no clustered mode, but a single boundary file goes further than most workloads need, and Orisun's boundary model gives you a sharding path before you have to change backends. Scale in this order.
+
+### 1. Vertical headroom first
+
+Each boundary file already runs WAL mode with a read pool sized to `runtime.NumCPU()` and a single serialized writer. On NVMe storage with batched `SaveEvents`, a single boundary sustains tens of thousands of events per second. Before adding infrastructure:
+
+- batch writes — the per-transaction cost dominates, not the per-event cost
+- keep `ORISUN_SQLITE_DIR` on local NVMe, never on NFS or other network filesystems (file locking is unreliable there)
+- raise `LimitNOFILE` and give the node enough memory for the page cache
+
+The per-boundary write ceiling is fundamental: one writer per file, and the publisher requires total order per boundary. This same per-boundary ordering ceiling exists in PostgreSQL mode; SQLite just reaches it sooner.
+
+### 2. Shard by boundary
+
+A boundary is a complete, independent unit: its own database file, its own position counter, its own publisher checkpoint. Orisun has no cross-boundary transactions, so boundaries shard cleanly across nodes with no coordination:
+
+- run N independent single-node Orisun deployments
+- give each node a disjoint subset in `ORISUN_BOUNDARIES`
+- route client requests by boundary to the owning node (client-side routing table, or a gRPC proxy that switches on the boundary field)
+
+Each node remains a normal standalone SQLite deployment — no shared storage, no consensus, no rebalancing protocol. Moving a boundary to another node is a file move during a maintenance window: stop the source node, copy `{boundary}.db` and run a final WAL checkpoint, start it on the target node, update routing.
+
+If one boundary alone outgrows a node, sharding cannot help — split the domain into more boundaries or move that deployment to PostgreSQL.
+
+### 3. Durability and failover
+
+The gap in a single-node deployment is availability, not throughput. Two complementary tools:
+
+**[Litestream](https://litestream.io)** continuously replicates SQLite WAL segments to S3-compatible storage. It runs as a sidecar, needs no Orisun changes, and gives a recovery point of seconds. Replicate every `{boundary}.db` in `ORISUN_SQLITE_DIR`. Recovery is a restore-and-restart: minutes of downtime, near-zero data loss. This should be the baseline for any production SQLite deployment.
+
+**[LiteFS](https://fly.io/docs/litefs/)** replicates the files to warm standby machines with lease-based primary election, cutting failover from minutes to seconds. Run Orisun only on the current primary: Orisun is not read-only-aware (publishers and checkpoints write continuously), so a second Orisun process must not run against a replica copy. Standbys hold warm files; on failover, the new primary starts Orisun. LiteFS adds operational moving parts (FUSE, a lease backend) — adopt it only when restore-time recovery is too slow.
+
+Do not copy live database files with `cp` or filesystem snapshots alone; under WAL a bare file copy can be torn. Use Litestream, the SQLite backup API, or stop the node first.
+
+What does not work: multi-writer SQLite replication (cr-sqlite, marmot, and similar eventually-consistent or CRDT systems). Orisun's consistency check must be serializable with the insert in one transaction on one writer; concurrent writers on different replicas would each pass their local check and merge conflicting histories. Only single-writer topologies preserve Orisun's guarantees.
+
+### 4. Graduate to PostgreSQL
+
+When a deployment needs multi-node availability or write scale beyond boundary sharding, move to the PostgreSQL backend rather than building a distributed SQLite. The public API is identical; see [Migrating between backends](../concepts/storage-backends#migrating-between-backends). Migration is an event replay: read each boundary's events in order from the SQLite deployment and `SaveEvents` them into a PostgreSQL-backed deployment. Positions are regenerated on write, so consumers must restart subscriptions from the new positions.
+
+### Analytics on the side
+
+SQLite boundary files are readable by [DuckDB's sqlite extension](https://duckdb.org/docs/extensions/sqlite), so a restored backup or standby copy doubles as a zero-ETL analytics source — point DuckDB at a copy of `{boundary}.db` and run columnar SQL over the event log without touching the write path. Always use a copy or a Litestream restore, never the live file.
+
 ## Standalone PostgreSQL
 
 Use one Orisun node with PostgreSQL when you want the event log in PostgreSQL but do not need Orisun clustering.
