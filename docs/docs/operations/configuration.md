@@ -41,6 +41,8 @@ For FoundationDB, set:
 | `ORISUN_FDB_API_VERSION` | FoundationDB API version. Defaults to `730`. |
 | `ORISUN_FDB_ROOT` | Root tuple prefix for Orisun data. Defaults to `orisun`. |
 | `ORISUN_FDB_SCAN_LIMIT` | Max records read by single-transaction indexed scans. Defaults to `100000`. |
+| `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` | Per-transaction timeout including internal retries. Defaults to `10000`; negative disables. |
+| `ORISUN_FDB_TRANSACTION_RETRY_LIMIT` | Max internal retries per transaction. Defaults to `0` (unlimited; the timeout is the bound). |
 
 FoundationDB support is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host.
 

@@ -38,6 +38,9 @@ const (
 	// maxBatchSize bounds a single Save: the 2-byte versionstamp user version
 	// distinguishes events within one commit, so offsets must fit in uint16.
 	maxBatchSize = 1 << 16
+	// defaultPageCount/maxPageCount mirror the PostgreSQL and SQLite read caps.
+	defaultPageCount = 1000
+	maxPageCount     = 10000
 )
 
 var (
@@ -52,6 +55,8 @@ type Backend struct {
 	adminBoundary string
 	boundaries    map[string]struct{}
 	logger        logging.Logger
+	userCacheMu   sync.RWMutex
+	userCache     map[string]*eventstore.User
 }
 
 type eventRecord struct {
@@ -95,6 +100,10 @@ func InitializeFoundationDB(
 	if fdbCfg.ScanLimit <= 0 {
 		fdbCfg.ScanLimit = defaultScanLimit
 	}
+	// 0 = default 10s; negative = explicitly disabled.
+	if fdbCfg.TransactionTimeoutMs == 0 {
+		fdbCfg.TransactionTimeoutMs = 10000
+	}
 	if err := ensureAPIVersion(fdbCfg.APIVersion); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, err
 	}
@@ -110,6 +119,22 @@ func InitializeFoundationDB(
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
 	}
 
+	// Bound every transaction (including internal retries) so a partitioned or
+	// unreachable cluster surfaces as an error instead of a hung gRPC call. FDB's
+	// default is no timeout.
+	if fdbCfg.TransactionTimeoutMs > 0 {
+		if err := db.Options().SetTransactionTimeout(int64(fdbCfg.TransactionTimeoutMs)); err != nil {
+			db.Close()
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("set transaction timeout: %w", err)
+		}
+	}
+	if fdbCfg.TransactionRetryLimit > 0 {
+		if err := db.Options().SetTransactionRetryLimit(int64(fdbCfg.TransactionRetryLimit)); err != nil {
+			db.Close()
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("set transaction retry limit: %w", err)
+		}
+	}
+
 	backend := &Backend{
 		db:            db,
 		root:          fdbCfg.Root,
@@ -117,6 +142,7 @@ func InitializeFoundationDB(
 		adminBoundary: adminCfg.Boundary,
 		boundaries:    make(map[string]struct{}, len(boundaries)),
 		logger:        logger,
+		userCache:     make(map[string]*eventstore.User),
 	}
 	for _, boundary := range boundaries {
 		backend.boundaries[boundary] = struct{}{}
@@ -178,17 +204,20 @@ func (b *Backend) Save(
 	// refers to the committed attempt's versionstamp.
 	var vsFuture fdb.FutureKey
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
-		if expectedPosition != nil || hasCriteria(streamConsistencyCondition) {
-			actual, err := b.latestMatchingPosition(tr, boundary, streamConsistencyCondition)
+		// Parity with the PostgreSQL and SQLite backends: the consistency check
+		// runs only when the condition carries criteria. An expected position
+		// without criteria is ignored — there is no context to compare against.
+		if hasCriteria(streamConsistencyCondition) {
+			actualTx, actualGid, err := b.latestMatchingPosition(tr, boundary, streamConsistencyCondition)
 			if err != nil {
 				return nil, err
 			}
-			expected := eventstore.NotExistsPosition()
+			expectedTx, expectedGid := int64(-1), int64(-1)
 			if expectedPosition != nil {
-				expected = *expectedPosition
+				expectedTx, expectedGid = expectedPosition.CommitPosition, expectedPosition.PreparePosition
 			}
-			if actual.CommitPosition != expected.CommitPosition || actual.PreparePosition != expected.PreparePosition {
-				return nil, optimisticConflict(expected, actual)
+			if actualTx != expectedTx || actualGid != expectedGid {
+				return nil, optimisticConflict(expectedTx, expectedGid, actualTx, actualGid)
 			}
 		}
 
@@ -259,6 +288,12 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 	if err := b.checkBoundary(req.Boundary); err != nil {
 		return nil, err
 	}
+	// Page caps mirror the PostgreSQL and SQLite backends.
+	if req.Count <= 0 {
+		req.Count = defaultPageCount
+	} else if req.Count > maxPageCount {
+		req.Count = maxPageCount
+	}
 	if hasCriteria(req.Query) {
 		events, err := b.query(ctx, req)
 		if err != nil {
@@ -285,18 +320,19 @@ func (b *Backend) GetLastPublishedEventPosition(ctx context.Context, boundary st
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		raw := rt.Get(b.lastPublishedKey(boundary)).MustGet()
 		if raw == nil {
-			return eventstore.NotExistsPosition(), nil
+			return storedPosition{Commit: -1, Prepare: -1}, nil
 		}
-		var pos eventstore.Position
+		var pos storedPosition
 		if err := json.Unmarshal(raw, &pos); err != nil {
-			return eventstore.Position{}, err
+			return storedPosition{}, err
 		}
 		return pos, nil
 	})
 	if err != nil {
 		return eventstore.Position{}, err
 	}
-	return result.(eventstore.Position), nil
+	pos := result.(storedPosition)
+	return eventstore.Position{CommitPosition: pos.Commit, PreparePosition: pos.Prepare}, nil
 }
 
 func (b *Backend) InsertLastPublishedEvent(ctx context.Context, boundary string, transactionID, globalID int64) error {
@@ -304,7 +340,7 @@ func (b *Backend) InsertLastPublishedEvent(ctx context.Context, boundary string,
 		return err
 	}
 	_, err := b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
-		value, err := json.Marshal(eventstore.Position{CommitPosition: transactionID, PreparePosition: globalID})
+		value, err := json.Marshal(storedPosition{Commit: transactionID, Prepare: globalID})
 		if err != nil {
 			return nil, err
 		}
@@ -312,6 +348,13 @@ func (b *Backend) InsertLastPublishedEvent(ctx context.Context, boundary string,
 		return nil, nil
 	})
 	return err
+}
+
+// storedPosition is the JSON checkpoint format — same field names as the
+// Position proto's json tags, without copying the proto struct (vet: copylocks).
+type storedPosition struct {
+	Commit  int64 `json:"commit_position"`
+	Prepare int64 `json:"prepare_position"`
 }
 
 func (b *Backend) ListAdminUsers() ([]*eventstore.User, error) {
@@ -383,11 +426,31 @@ func (b *Backend) UpsertUser(user eventstore.User) error {
 		return err
 	}
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		// A username change must clear the old username key, or the stale
+		// mapping would keep serving the old login name forever.
+		if raw := tr.Get(b.adminUserByIDKey(user.Id)).MustGet(); raw != nil {
+			existing, err := decodeUser(raw)
+			if err != nil {
+				return nil, err
+			}
+			if existing.Username != user.Username {
+				tr.Clear(b.adminUserByUsernameKey(existing.Username))
+			}
+		}
 		tr.Set(b.adminUserByIDKey(user.Id), value)
 		tr.Set(b.adminUserByUsernameKey(user.Username), value)
 		return nil, nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	b.userCacheMu.Lock()
+	defer b.userCacheMu.Unlock()
+	// Reset the whole cache: a username change would otherwise leave the old
+	// username's entry serving stale credentials until restart.
+	b.userCache = make(map[string]*eventstore.User)
+	b.userCache[user.Username] = &user
+	return nil
 }
 
 func (b *Backend) DeleteUser(id string) error {
@@ -404,11 +467,33 @@ func (b *Backend) DeleteUser(id string) error {
 		tr.Clear(b.adminUserByUsernameKey(user.Username))
 		return nil, nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	b.userCacheMu.Lock()
+	defer b.userCacheMu.Unlock()
+	b.userCache = make(map[string]*eventstore.User)
+	return nil
 }
 
+// GetUserByUsername sits on the per-request auth path, so hits are served from
+// an in-process cache like the SQLite backend's. Mutations reset the cache.
 func (b *Backend) GetUserByUsername(username string) (eventstore.User, error) {
-	return b.getUser(b.adminUserByUsernameKey(username), "user not found")
+	b.userCacheMu.RLock()
+	if u, ok := b.userCache[username]; ok && u != nil {
+		b.userCacheMu.RUnlock()
+		return *u, nil
+	}
+	b.userCacheMu.RUnlock()
+
+	user, err := b.getUser(b.adminUserByUsernameKey(username), "user not found")
+	if err != nil {
+		return eventstore.User{}, err
+	}
+	b.userCacheMu.Lock()
+	defer b.userCacheMu.Unlock()
+	b.userCache[username] = &user
+	return user, nil
 }
 
 func (b *Backend) GetUserById(id string) (eventstore.User, error) {
@@ -447,26 +532,61 @@ func (b *Backend) GetEventsCount(boundary string) (int, error) {
 	}
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		raw := rt.Get(b.eventsCountKey(boundary)).MustGet()
-		if raw != nil {
-			n, err := strconv.Atoi(string(raw))
-			if err == nil {
-				return n, nil
-			}
+		if raw == nil {
+			return -1, nil
 		}
-		iter := rt.GetRange(prefixRange(b.eventPrefix(boundary)), fdb.RangeOptions{Mode: fdb.StreamingModeWantAll}).Iterator()
-		count := 0
-		for iter.Advance() {
-			if _, err := iter.Get(); err != nil {
-				return 0, err
-			}
-			count++
+		n, err := strconv.Atoi(string(raw))
+		if err != nil {
+			return -1, nil
 		}
-		return count, nil
+		return n, nil
 	})
 	if err != nil {
 		return 0, err
 	}
-	return result.(int), nil
+	if n := result.(int); n >= 0 {
+		return n, nil
+	}
+	return b.countEventsPaged(boundary)
+}
+
+// countEventsPaged counts the boundary's event keys across bounded chunks. A
+// single-transaction count of a large boundary would exceed FoundationDB's 5s
+// read window; chunking trades snapshot atomicity (the count is approximate
+// under concurrent writes) for not failing at all.
+func (b *Backend) countEventsPaged(boundary string) (int, error) {
+	pr := prefixRange(b.eventPrefix(boundary))
+	beginKey := pr.Begin.FDBKey()
+	endKey := pr.End.FDBKey()
+	total := 0
+	for {
+		var scanned int
+		var lastKey fdb.Key
+		_, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+			iter := rt.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
+				Limit: scanChunkSize,
+				Mode:  fdb.StreamingModeWantAll,
+			}).Iterator()
+			scanned = 0
+			for iter.Advance() {
+				kv, err := iter.Get()
+				if err != nil {
+					return nil, err
+				}
+				lastKey = kv.Key
+				scanned++
+			}
+			return nil, nil
+		})
+		if err != nil {
+			return 0, err
+		}
+		total += scanned
+		if scanned < scanChunkSize {
+			return total, nil
+		}
+		beginKey = keyAfter(lastKey)
+	}
 }
 
 func (b *Backend) SaveEventCount(count int, boundary string) error {
@@ -662,10 +782,10 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 // us stop after `count` matches — anything beyond that can't rank into the result.
 func (b *Backend) fullScanMatching(ctx context.Context, boundary string, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
 	b.logger.Warnf("FoundationDB query on boundary %s has no covering index; performing full scan", boundary)
-	pr := prefixRange(b.eventPrefix(boundary))
-	beginKey := pr.Begin.FDBKey()
-	endKey := pr.End.FDBKey()
 	reverse := direction == eventstore.Direction_DESC
+	begin, end := b.eventRangeForCursor(boundary, from, direction)
+	beginKey := begin.FDBKey()
+	endKey := end.FDBKey()
 	collected := make([]*eventstore.Event, 0, count)
 	for {
 		var scanned int
@@ -725,46 +845,27 @@ func (b *Backend) fullScanMatching(ctx context.Context, boundary string, criteri
 	return collected, nil
 }
 
-func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransaction, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction) ([]*eventstore.Event, error) {
-	prefix := b.indexLookupPrefix(boundary, idx, criterion)
-	iter := rt.GetRange(prefixRange(prefix), fdb.RangeOptions{
-		Limit:   b.scanLimit,
-		Mode:    fdb.StreamingModeWantAll,
-		Reverse: direction == eventstore.Direction_DESC,
-	}).Iterator()
-	events := make([]*eventstore.Event, 0)
-	for iter.Advance() {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		kv, err := iter.Get()
-		if err != nil {
-			return nil, err
-		}
-		tx, gid, err := indexPositionFromKey(kv.Key)
-		if err != nil {
-			return nil, err
-		}
-		pos := &eventstore.Position{CommitPosition: tx, PreparePosition: gid}
-		if !positionMatches(pos, from, direction) {
-			continue
-		}
-		event, err := b.getEventByPosition(rt, boundary, tx, gid)
-		if err != nil {
-			return nil, err
-		}
-		if event != nil {
-			events = append(events, event)
-		}
-	}
-	return events, nil
-}
-
 func (b *Backend) scanIndexCandidatesPaged(ctx context.Context, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
 	pr := prefixRange(b.indexLookupPrefix(boundary, idx, criterion))
 	beginKey := pr.Begin.FDBKey()
 	endKey := pr.End.FDBKey()
 	reverse := direction == eventstore.Direction_DESC
+	// Seek to the cursor inside the index slice (same reasoning as
+	// eventRangeForCursor: a filtered-out prefix would eat the chunk limit).
+	if from != nil {
+		if from.CommitPosition < 0 || from.PreparePosition < 0 {
+			if reverse {
+				return nil, nil
+			}
+		} else {
+			cursor := b.indexCursorKey(boundary, idx, criterion, from)
+			if reverse {
+				endKey = keyAfter(cursor)
+			} else {
+				beginKey = cursor
+			}
+		}
+	}
 	collected := make([]*eventstore.Event, 0, count)
 	for {
 		var scanned int
@@ -829,18 +930,15 @@ func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *e
 		limit = int(req.Count)
 	}
 	if limit <= 0 {
-		limit = b.scanLimit
+		limit = defaultPageCount
 	}
-	iter := rt.GetRange(prefixRange(b.eventPrefix(req.Boundary)), fdb.RangeOptions{
+	begin, end := b.eventRangeForCursor(req.Boundary, req.FromPosition, req.Direction)
+	iter := rt.GetRange(fdb.KeyRange{Begin: begin, End: end}, fdb.RangeOptions{
 		Limit:   limit,
 		Mode:    fdb.StreamingModeWantAll,
 		Reverse: req.Direction == eventstore.Direction_DESC,
 	}).Iterator()
-	events := make([]*eventstore.Event, 0, req.Count)
-	resultLimit := int(req.Count)
-	if limit > resultLimit {
-		resultLimit = limit
-	}
+	events := make([]*eventstore.Event, 0, limit)
 	for iter.Advance() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -853,51 +951,61 @@ func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *e
 		if err != nil {
 			return nil, err
 		}
-		pos := &eventstore.Position{CommitPosition: tx, PreparePosition: gid}
-		if !positionMatches(pos, req.FromPosition, req.Direction) {
-			continue
-		}
 		event, err := eventFromRecord(kv.Value, tx, gid)
 		if err != nil {
 			return nil, err
 		}
 		events = append(events, event)
-		if len(events) >= resultLimit {
+		if len(events) >= limit {
 			break
 		}
 	}
 	return events, nil
 }
 
-func (b *Backend) latestMatchingPosition(tr fdb.Transaction, boundary string, query *eventstore.Query) (eventstore.Position, error) {
-	if !hasCriteria(query) {
-		// Global optimistic lock: any event appended to this boundary must
-		// invalidate the check, so register the whole event range as a read
-		// conflict. This serialises only boundary-wide consistency conditions
-		// (rare); plain appends with no condition never reach this path.
-		if err := tr.AddReadConflictRange(prefixRange(b.eventPrefix(boundary))); err != nil {
-			return eventstore.Position{}, err
-		}
-		events, err := b.scanEvents(context.Background(), tr, &eventstore.GetEventsRequest{
-			Boundary:  boundary,
-			Count:     1,
-			Direction: eventstore.Direction_DESC,
-		}, 1)
-		if err != nil {
-			return eventstore.Position{}, err
-		}
-		if len(events) == 0 {
-			return eventstore.NotExistsPosition(), nil
-		}
-		return *events[0].Position, nil
+// eventRangeForCursor seeks the event range to the read cursor instead of
+// filtering after the fact — otherwise the range Limit is consumed by
+// pre-cursor keys and paging returns nothing once the cursor passes the first
+// Limit keys of the boundary. The cursor is inclusive in both directions,
+// matching the `>=`/`<=` semantics of the SQL backends. Positions with a
+// negative component (the not-exists sentinel) mean "no cursor".
+func (b *Backend) eventRangeForCursor(boundary string, from *eventstore.Position, direction eventstore.Direction) (fdb.KeyConvertible, fdb.KeyConvertible) {
+	pr := prefixRange(b.eventPrefix(boundary))
+	begin, end := pr.Begin, pr.End
+	if from == nil {
+		return begin, end
 	}
+	if from.CommitPosition < 0 || from.PreparePosition < 0 {
+		if direction == eventstore.Direction_DESC {
+			// SQL parity: `(tx, gid) <= (-1, -1)` matches nothing.
+			return begin, begin
+		}
+		// ASC from the not-exists sentinel reads from the beginning — the
+		// publisher's first catch-up after an empty checkpoint depends on this.
+		return begin, end
+	}
+	cursor := b.eventKeyForPosition(boundary, from)
+	if direction == eventstore.Direction_DESC {
+		// keyAfter keeps the cursor key itself inside the half-open range.
+		return begin, keyAfter(cursor)
+	}
+	return cursor, end
+}
 
+// latestMatchingPosition resolves the newest event position matching the
+// consistency criteria using only ready covering indexes. A covering index
+// slice fully encodes the match — field values live in the key, and condition
+// membership was checked when the entry was written — so the newest entry's
+// versionstamp IS the answer. No event records are fetched inside the write
+// transaction: each criterion costs one Limit-1 reverse range read regardless
+// of how long the aggregate's history is.
+func (b *Backend) latestMatchingPosition(tr fdb.Transaction, boundary string, query *eventstore.Query) (int64, int64, error) {
 	indexes, err := b.loadIndexes(tr, boundary)
 	if err != nil {
-		return eventstore.Position{}, err
+		return -1, -1, err
 	}
 	indexes = readyIndexes(indexes)
-	best := eventstore.NotExistsPosition()
+	bestTx, bestGid := int64(-1), int64(-1)
 	found := false
 	for _, criterion := range criteriaAsMaps(query) {
 		idx, ok := chooseCoveringIndex(indexes, criterion)
@@ -907,30 +1015,37 @@ func (b *Backend) latestMatchingPosition(tr fdb.Transaction, boundary string, qu
 			// boundary (blowing FDB's txn limits and creating a huge conflict
 			// range). A silent bounded scan could miss a conflicting event and
 			// wrongly pass the optimistic lock.
-			return eventstore.Position{}, b.unindexedConsistencyErr(boundary, criterion)
+			return -1, -1, b.unindexedConsistencyErr(boundary, criterion)
 		}
 		// Scope the conflict range to this criterion's index slice (one
 		// aggregate). Only a concurrent write to the SAME aggregate forces a
 		// retry; commands on other aggregates in this boundary commit in
 		// parallel. This is what makes within-boundary writes scale.
-		if err := tr.AddReadConflictRange(prefixRange(b.indexLookupPrefix(boundary, idx, criterion))); err != nil {
-			return eventstore.Position{}, err
+		slice := prefixRange(b.indexLookupPrefix(boundary, idx, criterion))
+		if err := tr.AddReadConflictRange(slice); err != nil {
+			return -1, -1, err
 		}
-		candidates, err := b.scanIndexCandidates(context.Background(), tr, boundary, idx, criterion, nil, eventstore.Direction_DESC)
-		if err != nil {
-			return eventstore.Position{}, err
-		}
-		for _, event := range candidates {
-			if eventMatchesCriterion(event.Data, criterion) && (!found || comparePositions(event.Position, &best) > 0) {
-				best = *event.Position
+		iter := tr.GetRange(slice, fdb.RangeOptions{
+			Limit:   1,
+			Mode:    fdb.StreamingModeWantAll,
+			Reverse: true,
+		}).Iterator()
+		for iter.Advance() {
+			kv, err := iter.Get()
+			if err != nil {
+				return -1, -1, err
+			}
+			tx, gid, err := indexPositionFromKey(kv.Key)
+			if err != nil {
+				return -1, -1, err
+			}
+			if !found || tx > bestTx || (tx == bestTx && gid > bestGid) {
+				bestTx, bestGid = tx, gid
 				found = true
 			}
 		}
 	}
-	if !found {
-		return eventstore.NotExistsPosition(), nil
-	}
-	return best, nil
+	return bestTx, bestGid, nil
 }
 
 func (b *Backend) unindexedConsistencyErr(boundary string, criterion map[string]string) error {
@@ -1059,6 +1174,17 @@ func (b *Backend) indexVersionstampKey(boundary string, idx indexDefinition, dat
 		return nil, false, err
 	}
 	return fdb.Key(packed), true, nil
+}
+
+// indexCursorKey returns the index-entry key at a known position inside one
+// criterion's lookup slice. Used to seek paged index scans to a read cursor.
+func (b *Backend) indexCursorKey(boundary string, idx indexDefinition, criterion map[string]string, pos *eventstore.Position) fdb.Key {
+	parts := tuple.Tuple{b.root, boundary, "index", idx.Name}
+	for _, field := range idx.Fields {
+		parts = append(parts, criterion[field.JsonKey])
+	}
+	parts = append(parts, versionstampFromPosition(pos))
+	return fdb.Key(parts.Pack())
 }
 
 // indexKeyAtPosition builds an index entry for an already-committed event, used
@@ -1513,22 +1639,22 @@ func isAlpha(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= '
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 type optimisticConflictError struct {
-	expected eventstore.Position
-	actual   eventstore.Position
+	expectedTx, expectedGid int64
+	actualTx, actualGid     int64
 }
 
 func (e optimisticConflictError) Error() string {
 	return fmt.Sprintf(
 		"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
-		e.expected.CommitPosition,
-		e.expected.PreparePosition,
-		e.actual.CommitPosition,
-		e.actual.PreparePosition,
+		e.expectedTx, e.expectedGid, e.actualTx, e.actualGid,
 	)
 }
 
-func optimisticConflict(expected, actual eventstore.Position) error {
-	return optimisticConflictError{expected: expected, actual: actual}
+func optimisticConflict(expectedTx, expectedGid, actualTx, actualGid int64) error {
+	return optimisticConflictError{
+		expectedTx: expectedTx, expectedGid: expectedGid,
+		actualTx: actualTx, actualGid: actualGid,
+	}
 }
 
 func isOptimisticConflict(err error) bool {

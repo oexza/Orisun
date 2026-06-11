@@ -154,7 +154,197 @@ func TestFoundationDBAdminAndPublishingState(t *testing.T) {
 		t.Fatalf("GetLastPublishedEventPosition returned error: %v", err)
 	}
 	if pos.CommitPosition != 4 || pos.PreparePosition != 4 {
-		t.Fatalf("unexpected published position: %v", pos)
+		t.Fatalf("unexpected published position: %v", &pos)
+	}
+}
+
+// TestFoundationDBPagingFromPosition walks a boundary in pages using the
+// publisher's cursor convention (commit, prepare+1). Regression test for the
+// scan that filtered by position AFTER applying the range limit: page 2 would
+// come back empty because the limit was consumed by pre-cursor keys.
+func TestFoundationDBPagingFromPosition(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx := context.Background()
+
+	const batches = 3
+	const perBatch = 10
+	for i := 0; i < batches; i++ {
+		events := make([]eventstore.EventWithMapTags, perBatch)
+		for j := 0; j < perBatch; j++ {
+			events[j] = eventstore.EventWithMapTags{
+				EventId:   uuid.NewString(),
+				EventType: "Paged",
+				Data:      map[string]any{"batch": strconv.Itoa(i), "n": strconv.Itoa(j)},
+				Metadata:  map[string]any{},
+			}
+		}
+		if _, _, err := backend.Save(ctx, events, "test", nil, nil); err != nil {
+			t.Fatalf("Save batch %d: %v", i, err)
+		}
+	}
+
+	seen := map[string]struct{}{}
+	var cursor *eventstore.Position
+	pages := 0
+	for {
+		req := &eventstore.GetEventsRequest{
+			Boundary:  "test",
+			Count:     perBatch,
+			Direction: eventstore.Direction_ASC,
+		}
+		if cursor != nil {
+			req.FromPosition = &eventstore.Position{
+				CommitPosition:  cursor.CommitPosition,
+				PreparePosition: cursor.PreparePosition + 1,
+			}
+		}
+		resp, err := backend.Get(ctx, req)
+		if err != nil {
+			t.Fatalf("Get page %d: %v", pages, err)
+		}
+		if len(resp.Events) == 0 {
+			break
+		}
+		pages++
+		if pages > batches+1 {
+			t.Fatalf("paging did not terminate")
+		}
+		prev := cursor
+		for _, event := range resp.Events {
+			if prev != nil && comparePositions(event.Position, prev) <= 0 {
+				t.Fatalf("event %s position %v not after %v", event.EventId, event.Position, prev)
+			}
+			prev = event.Position
+			if _, dup := seen[event.EventId]; dup {
+				t.Fatalf("event %s returned twice", event.EventId)
+			}
+			seen[event.EventId] = struct{}{}
+		}
+		cursor = resp.Events[len(resp.Events)-1].Position
+	}
+	if len(seen) != batches*perBatch {
+		t.Fatalf("expected %d events across pages, got %d in %d pages", batches*perBatch, len(seen), pages)
+	}
+
+	// DESC from the newest cursor must page backwards without duplicates.
+	desc, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:     "test",
+		Count:        perBatch,
+		Direction:    eventstore.Direction_DESC,
+		FromPosition: cursor,
+	})
+	if err != nil {
+		t.Fatalf("Get DESC: %v", err)
+	}
+	if len(desc.Events) != perBatch {
+		t.Fatalf("expected %d DESC events, got %d", perBatch, len(desc.Events))
+	}
+	if comparePositions(desc.Events[0].Position, cursor) != 0 {
+		t.Fatalf("DESC page should start at the inclusive cursor")
+	}
+}
+
+// TestFoundationDBCCCSuccessAndStaleExpected drives a single aggregate through
+// the optimistic-lock cycle: first write against an empty context, follow-up
+// write with the returned position, then a stale write that must conflict.
+func TestFoundationDBCCCSuccessAndStaleExpected(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx := context.Background()
+
+	if err := backend.CreateBoundaryIndex(ctx, "test", "agg", []eventstore.BoundaryIndexField{
+		{JsonKey: "agg_id", ValueType: "text"},
+	}, nil, eventstore.IndexCombinatorAND); err != nil {
+		t.Fatalf("CreateBoundaryIndex: %v", err)
+	}
+	criteria := &eventstore.Query{Criteria: []*eventstore.Criterion{
+		{Tags: []*eventstore.Tag{{Key: "agg_id", Value: "agg-1"}}},
+	}}
+
+	notExists := eventstore.NotExistsPosition()
+	txID, gid, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "Created",
+		Data:      map[string]any{"agg_id": "agg-1"},
+		Metadata:  map[string]any{},
+	}}, "test", &notExists, criteria)
+	if err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+	commit, err := strconv.ParseInt(txID, 10, 64)
+	if err != nil {
+		t.Fatalf("parse commit position: %v", err)
+	}
+	current := eventstore.Position{CommitPosition: commit, PreparePosition: gid}
+
+	if _, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "Updated",
+		Data:      map[string]any{"agg_id": "agg-1"},
+		Metadata:  map[string]any{},
+	}}, "test", &current, criteria); err != nil {
+		t.Fatalf("Save with correct expected position: %v", err)
+	}
+
+	if _, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "Updated",
+		Data:      map[string]any{"agg_id": "agg-1"},
+		Metadata:  map[string]any{},
+	}}, "test", &current, criteria); status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("expected ALREADY_EXISTS for stale expected position, got %v", err)
+	}
+}
+
+// TestFoundationDBUserRename: renaming a user must stop the old username from
+// resolving — both in FoundationDB and in the auth cache.
+func TestFoundationDBUserRename(t *testing.T) {
+	backend := newTestBackend(t)
+
+	user := eventstore.User{Id: "u-1", Name: "Ada", Username: "ada", HashedPassword: "h1", Roles: []eventstore.Role{eventstore.RoleAdmin}}
+	if err := backend.UpsertUser(user); err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	if _, err := backend.GetUserByUsername("ada"); err != nil {
+		t.Fatalf("GetUserByUsername(ada): %v", err)
+	}
+
+	user.Username = "ada2"
+	if err := backend.UpsertUser(user); err != nil {
+		t.Fatalf("UpsertUser rename: %v", err)
+	}
+	if _, err := backend.GetUserByUsername("ada"); err == nil {
+		t.Fatalf("old username must not resolve after rename")
+	}
+	got, err := backend.GetUserByUsername("ada2")
+	if err != nil {
+		t.Fatalf("GetUserByUsername(ada2): %v", err)
+	}
+	if got.Id != "u-1" {
+		t.Fatalf("expected user u-1, got %q", got.Id)
+	}
+}
+
+func TestFoundationDBGetEventsCountPaged(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx := context.Background()
+
+	const total = 25
+	for i := 0; i < total; i++ {
+		if _, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+			EventId:   uuid.NewString(),
+			EventType: "Counted",
+			Data:      map[string]any{"n": strconv.Itoa(i)},
+			Metadata:  map[string]any{},
+		}}, "test", nil, nil); err != nil {
+			t.Fatalf("Save %d: %v", i, err)
+		}
+	}
+	count, err := backend.GetEventsCount("test")
+	if err != nil {
+		t.Fatalf("GetEventsCount: %v", err)
+	}
+	if count != total {
+		t.Fatalf("expected %d events, got %d", total, count)
 	}
 }
 
@@ -186,7 +376,8 @@ func newTestBackend(tb testing.TB) *Backend {
 			"test":         {},
 			"orisun_admin": {},
 		},
-		logger: logging.InitializeDefaultLogger(configForTestLogger()),
+		logger:    logging.InitializeDefaultLogger(configForTestLogger()),
+		userCache: make(map[string]*eventstore.User),
 	}
 	tb.Cleanup(func() {
 		_, _ = db.Transact(func(tr fdb.Transaction) (interface{}, error) {

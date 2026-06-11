@@ -77,16 +77,17 @@ func BenchmarkFDBIndependentAggregates(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		agg := fmt.Sprintf("agg-%d", atomic.AddInt64(&aggCounter, 1))
 		cond := orderCriterion(agg)
-		expected := eventstore.NotExistsPosition()
+		// nil expected position means "context must be empty" — same as the
+		// not-exists sentinel.
+		var expected *eventstore.Position
 		i := 0
 		for pb.Next() {
-			ep := expected
 			txID, gid, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
 				EventId:   fmt.Sprintf("%s-%d", agg, i),
 				EventType: "OrderEvent",
 				Data:      map[string]any{"order_id": agg},
 				Metadata:  map[string]any{},
-			}}, "test", &ep, cond)
+			}}, "test", expected, cond)
 			if err != nil {
 				b.Fatalf("independent save (sole writer should never conflict): %v", err)
 			}
@@ -94,7 +95,7 @@ func BenchmarkFDBIndependentAggregates(b *testing.B) {
 			if parseErr != nil {
 				b.Fatalf("parse txID %q: %v", txID, parseErr)
 			}
-			expected = eventstore.Position{CommitPosition: commit, PreparePosition: gid}
+			expected = &eventstore.Position{CommitPosition: commit, PreparePosition: gid}
 			i++
 		}
 	})
@@ -125,16 +126,16 @@ func BenchmarkFDBSingleHotAggregate(b *testing.B) {
 				if err != nil {
 					b.Fatalf("hot read head: %v", err)
 				}
-				expected := eventstore.NotExistsPosition()
+				var expected *eventstore.Position
 				if len(resp.Events) > 0 {
-					expected = *resp.Events[0].Position
+					expected = resp.Events[0].Position
 				}
 				_, _, err = backend.Save(ctx, []eventstore.EventWithMapTags{{
 					EventId:   fmt.Sprintf("%s-%d", agg, id),
 					EventType: "OrderEvent",
 					Data:      map[string]any{"order_id": agg},
 					Metadata:  map[string]any{},
-				}}, "test", &expected, cond)
+				}}, "test", expected, cond)
 				if status.Code(err) == codes.AlreadyExists {
 					continue // lost the race; re-read head and retry
 				}

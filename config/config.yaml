@@ -22,6 +22,8 @@ foundationDB:
   apiVersion: ${ORISUN_FDB_API_VERSION:730}
   root: ${ORISUN_FDB_ROOT:orisun}
   scanLimit: ${ORISUN_FDB_SCAN_LIMIT:100000}
+  transactionTimeoutMs: ${ORISUN_FDB_TRANSACTION_TIMEOUT_MS:10000}
+  transactionRetryLimit: ${ORISUN_FDB_TRANSACTION_RETRY_LIMIT:0}
 
 postgres:
   user: ${ORISUN_PG_USER:postgres}

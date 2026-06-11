@@ -62,7 +62,7 @@ ORISUN_FDB_ROOT=orisun
 
 Criteria queries keep the same public API. Ready boundary indexes create secondary keys for equality lookups; unindexed reads fall back to chunked event-log scans. Consistency checks fail closed unless every criterion key is covered by a ready index.
 
-FoundationDB assigns event positions with commit versionstamps instead of a per-boundary counter. Plain appends can commit in parallel; writes with a consistency context conflict only on the covered index range for that context, or on the whole boundary for boundary-wide expected-position checks.
+FoundationDB assigns event positions with commit versionstamps instead of a per-boundary counter. Plain appends can commit in parallel; writes with a consistency context conflict only on the covered index range for that context, so commands on different aggregates in one boundary commit concurrently. As in the other backends, an `expected_position` takes effect only together with consistency criteria.
 
 ## SQLite
 

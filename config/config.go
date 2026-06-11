@@ -91,6 +91,12 @@ type FoundationDBConfig struct {
 	APIVersion  int
 	Root        string
 	ScanLimit   int
+	// TransactionTimeoutMs bounds each FoundationDB transaction including its
+	// internal retries. 0 = backend default (10s); negative = no timeout.
+	TransactionTimeoutMs int
+	// TransactionRetryLimit caps internal retries per transaction. 0 = unlimited
+	// (the timeout is the bound).
+	TransactionRetryLimit int
 }
 
 // SqliteConfig holds settings for the embedded SQLite backend.
