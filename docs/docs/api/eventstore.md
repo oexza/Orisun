@@ -7,6 +7,7 @@ The EventStore service owns event operations:
 
 - `SaveEvents`
 - `GetEvents`
+- `GetLatestByCriteria`
 - `CatchUpSubscribeToEvents`
 - `Ping`
 - `CreateIndex`

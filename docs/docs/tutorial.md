@@ -81,7 +81,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
     {
       "event_id": "acct-1-credit-1",
       "event_type": "MoneyCredited",
-      "data": "{\"account_id\":\"acct-1\",\"amount\":100}",
+      "data": "{\"account_id\":\"acct-1\",\"amount\":100,\"balance\":100}",
       "metadata": "{}"
     }
   ]
@@ -93,24 +93,20 @@ Use the `log_position` returned by step 1 as `expected_position`. If another com
 
 ## 3. Read the context and decide
 
-Before debiting, read every event in the account's context and rebuild the balance in your application:
+This ledger carries the account balance on each event, so a debit command does not need to replay the whole account history. Read the latest matching event from a single server-side snapshot:
 
 ```bash
-grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetLatestByCriteria <<EOF
 {
   "boundary": "accounts",
-  "query": {
-    "criteria": [
-      {"tags": [{"key": "account_id", "value": "acct-1"}]}
-    ]
-  },
-  "count": 1000,
-  "direction": "ASC"
+  "criteria": [
+    {"tags": [{"key": "account_id", "value": "acct-1"}]}
+  ]
 }
 EOF
 ```
 
-The application folds the events into a balance and remembers the `position` of the last event it saw. That position is the consistency anchor for the debit.
+The application reads `results[0].event.data.balance`, decides whether the debit is valid, and remembers `context_position`. That position is the consistency anchor for the debit.
 
 ## 4. Debit with a consistency check
 
@@ -132,7 +128,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
     {
       "event_id": "acct-1-debit-1",
       "event_type": "MoneyDebited",
-      "data": "{\"account_id\":\"acct-1\",\"amount\":40}",
+      "data": "{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}",
       "metadata": "{}"
     }
   ]
@@ -140,7 +136,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 EOF
 ```
 
-Set `expected_position` to the last position observed in step 3. The save commits only if no newer `acct-1` event exists.
+Set `expected_position` to the `context_position` observed in step 3. The save commits only if no newer `acct-1` event exists.
 
 ## 5. Handle the conflict
 
@@ -153,8 +149,8 @@ ERROR:
 
 This is a concurrency signal. The losing command should:
 
-1. Re-run the read in step 3.
-2. Rebuild the balance from the new context.
+1. Re-run the latest-by-criteria read in step 3.
+2. Read the carried balance from the new latest event.
 3. Re-check the invariant. The debit may no longer be valid.
 4. Retry the save with the new `expected_position`.
 

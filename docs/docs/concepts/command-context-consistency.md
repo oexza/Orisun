@@ -58,6 +58,19 @@ The save request includes an expected position for the queried context:
 
 Use `{-1, -1}` as the before-first-event position.
 
+## Reading a command context
+
+For a single paged history read, use `GetEvents` and take the position of the last event returned as the expected position for the next write.
+
+For carried-state contexts that need the latest event for multiple criteria, use `GetLatestByCriteria`. The server reads all criteria from one consistent snapshot and returns:
+
+- the latest event matching each criterion, in request order,
+- `context_position`, the max position observed in that same snapshot.
+
+Pass `context_position` to `SaveEvents.query.expected_position` with the same combined criteria.
+
+Do not assemble a multi-criterion command context from independent `GetEvents` calls. Those calls can observe different snapshots; a write can commit between them with a position below the maximum position you observed, and a scalar expected position cannot prove the earlier call saw it.
+
 ## Save with a subset query
 
 In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
@@ -112,6 +125,7 @@ The application should:
 ## Design guidance
 
 - Keep criteria as narrow as the command's invariants allow.
+- Use `GetLatestByCriteria` for multi-criterion carried-state decisions.
 - Create indexes for fields used in high-volume command contexts.
 - Treat `ALREADY_EXISTS` as a retryable business conflict.
 - Use stable event IDs so retried commands remain idempotent at the application boundary.

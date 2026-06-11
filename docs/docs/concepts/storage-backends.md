@@ -14,7 +14,7 @@ Orisun supports PostgreSQL and SQLite. The backend is selected with `ORISUN_BACK
 
 ## PostgreSQL
 
-PostgreSQL is the clustered backend. Multiple Orisun nodes can share one database. Publishers coordinate with PostgreSQL advisory locks so only one active publisher owns a boundary at a time.
+PostgreSQL is the clustered backend. Multiple Orisun nodes can share one database. Publishers coordinate with PostgreSQL advisory locks so only one active publisher owns a boundary at a time. Writes also take a short per-boundary advisory lock while drawing public positions and committing, which preserves commit-ordered positions across concurrent writers.
 
 PostgreSQL stores:
 
@@ -26,6 +26,8 @@ PostgreSQL stores:
 - admin state
 
 Choose PostgreSQL when you need horizontal Orisun nodes, database-managed backup/restore, mature operational tooling, or PgBouncer integration.
+
+The write lock is per boundary, not global. It is intentional: Command Context Consistency relies on public positions being a stable upper bound for committed events in that boundary. Split unrelated high-write domains into separate boundaries when they do not share invariants.
 
 ### PostgreSQL position metadata
 

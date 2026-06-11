@@ -15,6 +15,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 - Transactional event storage on PostgreSQL or SQLite.
 - Command Context Consistency: save only if the queried event context has not changed.
+- Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.
 - Durable publisher checkpoints so committed events are not skipped.
 - Sequential publishing per boundary in ascending event-log position.

@@ -54,7 +54,11 @@ This is why a single account, processed one command at a time, advances its `com
 
 ## Positions and consistency
 
-[Command Context Consistency](./command-context-consistency) uses positions as the optimistic-lock token. You read a context, remember the position of its last event, and pass that as `expected_position` on the next write. If any newer event matched the context, the save is rejected with `ALREADY_EXISTS`.
+[Command Context Consistency](./command-context-consistency) uses positions as the optimistic-lock token. You read a context, remember the position returned by that context read, and pass it as `expected_position` on the next write. If any newer event matched the context, the save is rejected with `ALREADY_EXISTS`.
+
+For a `GetEvents` history read, the context position is the position of the last event returned. For `GetLatestByCriteria`, use the response `context_position`; it is computed from one server-side read snapshot across all criteria. Independent reads do not provide the same guarantee for a multi-criterion command context.
+
+PostgreSQL serializes position assignment per boundary from position draw through commit. That keeps public positions commit-ordered, so an observed context position is a valid stable upper bound for later consistency checks. SQLite naturally has one writer. FoundationDB uses commit versionstamps for commit-ordered keys.
 
 ## Positions and paging
 

@@ -52,4 +52,4 @@ Orisun delivery is at least once. Consumers should be idempotent and deduplicate
 
 ## Slow criteria queries
 
-Criteria queries read JSON fields from event `data`. Create indexes for every high-volume key used in command contexts or projector filters. See [Indexing](../concepts/indexing).
+Criteria queries read JSON fields from event `data`. Create indexes for every high-volume key used in command contexts, `GetLatestByCriteria`, or projector filters. See [Indexing](../concepts/indexing).
