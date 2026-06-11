@@ -381,6 +381,88 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 	return &eventstore.GetEventsResponse{Events: result.([]*eventstore.Event)}, nil
 }
 
+// GetLatestByCriteria returns the latest event per criterion plus the max
+// observed position, all from ONE FDB read transaction (one read version =
+// one snapshot). Like every FDB criteria read, each criterion needs a ready
+// covering index — the newest entry of the criterion's index slice IS the
+// latest match, so a criterion costs one reverse Limit-1 range read plus one
+// event get. Because FDB positions are commit-ordered, no later commit can
+// place an event below the returned context position.
+func (b *Backend) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
+	if err := b.checkBoundary(req.Boundary); err != nil {
+		return nil, err
+	}
+	if len(req.Criteria) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	}
+	criteria := criteriaAsMaps(&eventstore.Query{Criteria: req.Criteria})
+	if len(criteria) != len(req.Criteria) {
+		return nil, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+	}
+
+	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		indexes, err := b.loadIndexes(rt, req.Boundary)
+		if err != nil {
+			return nil, err
+		}
+		indexes = readyIndexes(indexes)
+		events := make([]*eventstore.Event, len(criteria))
+		for i, criterion := range criteria {
+			idx, ok := chooseCoveringIndex(indexes, criterion)
+			if !ok {
+				return nil, b.unindexedQueryErr(req.Boundary, criterion)
+			}
+			slice := prefixRange(b.indexLookupPrefix(req.Boundary, idx, criterion))
+			iter := rt.GetRange(slice, fdb.RangeOptions{
+				Limit:   1,
+				Mode:    fdb.StreamingModeWantAll,
+				Reverse: true,
+			}).Iterator()
+			for iter.Advance() {
+				kv, err := iter.Get()
+				if err != nil {
+					return nil, err
+				}
+				tx, gid, err := indexPositionFromKey(kv.Key)
+				if err != nil {
+					return nil, err
+				}
+				event, err := b.getEventByPosition(rt, req.Boundary, tx, gid)
+				if err != nil {
+					return nil, err
+				}
+				events[i] = event
+			}
+		}
+		return events, nil
+	})
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+			return nil, err
+		}
+		return nil, status.Errorf(codes.Internal, "get latest by criteria: %v", err)
+	}
+
+	events := result.([]*eventstore.Event)
+	resp := &eventstore.GetLatestByCriteriaResponse{}
+	contextTx, contextGid := int64(-1), int64(-1)
+	found := false
+	for i, criterion := range req.Criteria {
+		latest := &eventstore.LatestCriterionResult{Criterion: criterion}
+		if event := events[i]; event != nil {
+			latest.Event = event
+			if !found || event.Position.CommitPosition > contextTx ||
+				(event.Position.CommitPosition == contextTx && event.Position.PreparePosition > contextGid) {
+				contextTx, contextGid = event.Position.CommitPosition, event.Position.PreparePosition
+				found = true
+			}
+		}
+		resp.Results = append(resp.Results, latest)
+	}
+	resp.ContextPosition = &eventstore.Position{CommitPosition: contextTx, PreparePosition: contextGid}
+	return resp, nil
+}
+
 func (b *Backend) GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error) {
 	if err := b.checkBoundary(boundary); err != nil {
 		return eventstore.Position{}, err
