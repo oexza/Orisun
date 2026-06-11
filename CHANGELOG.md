@@ -7,6 +7,10 @@
 - `EventStore/GetLatestByCriteria` RPC: returns the latest event per criterion assembled from one consistent server-side read snapshot, plus a `context_position` for use as the next `expected_position`. Closes the mixed-snapshot gap where a context assembled from independent `GetEvents` calls can miss an event that committed between them below the observed max position. Implemented for PostgreSQL (single-statement `UNION ALL` of `LIMIT 1` lookups) and SQLite (one deferred read transaction).
 - General-ledger workload e2e test (`TestE2E_LedgerWorkload_*`) driving concurrent double-entry transfers with carried balances through the public gRPC API, auditing carried-balance consistency, no-overdraft, money conservation, and debit/credit pairing.
 
+### Fixed
+
+- PostgreSQL positions are now assigned in commit order per boundary: `insert_events_with_consistency_v3` takes a per-boundary advisory lock from position draw until commit. Previously a concurrent batch could draw lower `global_id`s, stay in flight while a later-drawn batch committed, and then commit below a context max another writer had already observed — invisible to a scalar expected-position check. The lock closes that window; the cost is that writes within one boundary serialise from draw to commit (the SQLite and FoundationDB backends already had commit-ordered positions). The function is replaced automatically at startup; no data migration.
+
 ## 0.3.1 - 2026-06-06
 
 ### Fixed

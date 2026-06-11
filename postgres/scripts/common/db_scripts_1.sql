@@ -18,7 +18,7 @@ CREATE OR REPLACE FUNCTION initialize_boundary_tables(
 ) RETURNS VOID AS
 $$
 DECLARE
-    prefixed_seq_name  TEXT;
+    prefixed_seq_name TEXT;
 BEGIN
     -- Validate boundary_name is a valid PostgreSQL identifier
     -- - Must start with letter or underscore
@@ -91,8 +91,9 @@ BEGIN
     -- Create indexes
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
                    boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
-    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, event_type, data, metadata, date_created)',
-                   boundary_name || '_idx_event_order_visibility_covering', schema_name, boundary_name || '_orisun_es_event');
+    EXECUTE format(
+            'CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, event_type, data, metadata, date_created)',
+            boundary_name || '_idx_event_order_visibility_covering', schema_name, boundary_name || '_orisun_es_event');
 
     -- Create last published event position table
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
@@ -272,6 +273,17 @@ BEGIN
                 expected_tx_id, expected_gid, latest_tx_id, latest_gid;
         END IF;
     END IF;
+
+    -- Per-boundary position lock: held from position draw until commit, so
+    -- positions are assigned in COMMIT order per boundary. Without it, a
+    -- concurrent batch can draw lower global_ids, stay in flight while a
+    -- later-drawn batch commits, then commit "into the past" of the boundary —
+    -- below a context max another writer already observed — which a scalar
+    -- expected-position check cannot detect. Acquired AFTER the per-criterion
+    -- locks above and always last, so lock ordering stays deadlock-free.
+    -- This serialises writers per boundary from draw to commit; that is the
+    -- price of commit-ordered positions on PostgreSQL.
+    PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
 
     -- CTE-based insert pattern - schema-qualified table and sequence (pgbouncer txn-mode safe)
     EXECUTE format('
@@ -465,11 +477,11 @@ AS
 $$
 DECLARE
     qualified_table_name TEXT;
-    criteria_array       JSONB := criteria -> 'criteria';
+    criteria_array       JSONB  := criteria -> 'criteria';
     crit                 JSONB;
     crit_parts           TEXT[];
     selects              TEXT[] := '{}';
-    idx                  INT   := 0;
+    idx                  INT    := 0;
     k                    TEXT;
     v                    TEXT;
 BEGIN

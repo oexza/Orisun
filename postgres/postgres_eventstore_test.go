@@ -376,7 +376,7 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	require.True(t, pgXactID.Valid)
 }
 
-func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *testing.T) {
+func TestInsertsSerializePerBoundaryAndPositionsFollowCommitOrder(t *testing.T) {
 	container, err := setupTestContainer(t)
 	require.NoError(t, err)
 	defer func() {
@@ -400,19 +400,45 @@ func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *tes
 	}
 	getEvents := NewPostgresGetEvents(db, logger, mapping)
 
+	// The per-boundary position lock makes the old hazard structurally
+	// impossible: a younger insert cannot draw positions (let alone commit)
+	// while an older insert in the same boundary is still open. This test
+	// asserts the serialisation and the resulting commit-ordered positions —
+	// the property the publisher and the CCC max-position check rely on.
 	ctx := t.Context()
 	txOlder, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	defer txOlder.Rollback()
 
 	olderID := uuid.NewString()
-	insertEventInTx(t, txOlder, olderID, "OlderOpenTransaction")
-
-	txYounger, err := db.BeginTx(ctx, nil)
+	olderGid, err := insertEventInTx(ctx, txOlder, olderID, "OlderOpenTransaction")
 	require.NoError(t, err)
+
+	type youngerResult struct {
+		gid int64
+		err error
+	}
 	youngerID := uuid.NewString()
-	insertEventInTx(t, txYounger, youngerID, "YoungerCommittedTransaction")
-	require.NoError(t, txYounger.Commit())
+	youngerDone := make(chan youngerResult, 1)
+	go func() {
+		txYounger, err := db.BeginTx(context.Background(), nil)
+		if err != nil {
+			youngerDone <- youngerResult{err: err}
+			return
+		}
+		defer txYounger.Rollback()
+		gid, err := insertEventInTx(context.Background(), txYounger, youngerID, "YoungerTransaction")
+		if err == nil {
+			err = txYounger.Commit()
+		}
+		youngerDone <- youngerResult{gid: gid, err: err}
+	}()
+
+	select {
+	case res := <-youngerDone:
+		t.Fatalf("younger insert must block on the per-boundary position lock while the older insert is open, got %+v", res)
+	case <-time.After(750 * time.Millisecond):
+	}
 
 	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
@@ -420,9 +446,18 @@ func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *tes
 		Count:     10,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, resp.Events, "younger committed transactions must not publish while an older transaction is still open")
+	assert.Empty(t, resp.Events, "nothing must be visible while the only insert is still open")
 
 	require.NoError(t, txOlder.Commit())
+
+	var younger youngerResult
+	select {
+	case younger = <-youngerDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("younger insert did not complete after the older transaction committed")
+	}
+	require.NoError(t, younger.err)
+	require.Greater(t, younger.gid, olderGid, "positions must be assigned in commit order")
 
 	require.Eventually(t, func() bool {
 		resp, err = getEvents.Get(ctx, &orisun.GetEventsRequest{
@@ -437,9 +472,7 @@ func TestGetEventsHoldsBackYoungerTransactionsWhileOlderTransactionIsOpen(t *tes
 	require.Equal(t, youngerID, resp.Events[1].EventId)
 }
 
-func insertEventInTx(t *testing.T, tx *sql.Tx, eventID, eventType string) {
-	t.Helper()
-
+func insertEventInTx(ctx context.Context, tx *sql.Tx, eventID, eventType string) (int64, error) {
 	eventsJSON := fmt.Sprintf(
 		`[{"event_id":%q,"event_type":%q,"data":{"eventType":%q},"metadata":{}}]`,
 		eventID,
@@ -449,14 +482,14 @@ func insertEventInTx(t *testing.T, tx *sql.Tx, eventID, eventType string) {
 
 	var newGlobalID, latestTransactionID, latestGlobalID int64
 	err := tx.QueryRowContext(
-		t.Context(),
+		ctx,
 		`SELECT * FROM public.insert_events_with_consistency_v3($1::text, $2::text, $3::jsonb, $4::jsonb)`,
 		"test_boundary",
 		"public",
 		[]byte(`{}`),
 		[]byte(eventsJSON),
 	).Scan(&newGlobalID, &latestTransactionID, &latestGlobalID)
-	require.NoError(t, err)
+	return latestGlobalID, err
 }
 
 func TestSave200EventsOneByOne(t *testing.T) {
