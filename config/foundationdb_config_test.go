@@ -60,7 +60,7 @@ func TestLoadConfigReadsFoundationDBDefaults(t *testing.T) {
 	if cfg.FoundationDB.Root != "orisun" {
 		t.Fatalf("expected root orisun, got %q", cfg.FoundationDB.Root)
 	}
-	if cfg.FoundationDB.ScanLimit != 100000 {
-		t.Fatalf("expected scan limit 100000, got %d", cfg.FoundationDB.ScanLimit)
+	if cfg.FoundationDB.TransactionTimeoutMs != 10000 {
+		t.Fatalf("expected transaction timeout 10000, got %d", cfg.FoundationDB.TransactionTimeoutMs)
 	}
 }

@@ -124,6 +124,21 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("expected FAILED_PRECONDITION for unindexed consistency condition, got %v", err)
 	}
+
+	// FDB criteria reads also require a ready covering index. Falling back to a
+	// boundary scan would make large boundaries unbounded and undermine the
+	// backend's scaling contract.
+	_, err = backend.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Count:     10,
+		Direction: eventstore.Direction_ASC,
+		Query: &eventstore.Query{Criteria: []*eventstore.Criterion{
+			{Tags: []*eventstore.Tag{{Key: "uncovered_key", Value: "v"}}},
+		}},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FAILED_PRECONDITION for unindexed query, got %v", err)
+	}
 }
 
 func TestFoundationDBAdminAndPublishingState(t *testing.T) {
@@ -456,7 +471,6 @@ func newTestBackend(tb testing.TB) *Backend {
 	backend := &Backend{
 		db:            db,
 		root:          root,
-		scanLimit:     1000,
 		adminBoundary: "orisun_admin",
 		boundaries: map[string]struct{}{
 			"test":         {},

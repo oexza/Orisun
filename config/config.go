@@ -90,7 +90,6 @@ type FoundationDBConfig struct {
 	ClusterFile string
 	APIVersion  int
 	Root        string
-	ScanLimit   int
 	// TransactionTimeoutMs bounds each FoundationDB transaction including its
 	// internal retries. 0 = backend default (10s); negative = no timeout.
 	TransactionTimeoutMs int

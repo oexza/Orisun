@@ -30,7 +30,6 @@ import (
 const (
 	defaultAPIVersion  = 730
 	defaultRoot        = "orisun"
-	defaultScanLimit   = 100000
 	backfillChunkSize  = 1000
 	scanChunkSize      = 1000
 	indexStateBuilding = "building"
@@ -51,7 +50,6 @@ var (
 type Backend struct {
 	db            fdb.Database
 	root          string
-	scanLimit     int
 	adminBoundary string
 	boundaries    map[string]struct{}
 	logger        logging.Logger
@@ -97,9 +95,6 @@ func InitializeFoundationDB(
 	if fdbCfg.Root == "" {
 		fdbCfg.Root = defaultRoot
 	}
-	if fdbCfg.ScanLimit <= 0 {
-		fdbCfg.ScanLimit = defaultScanLimit
-	}
 	// 0 = default 10s; negative = explicitly disabled.
 	if fdbCfg.TransactionTimeoutMs == 0 {
 		fdbCfg.TransactionTimeoutMs = 10000
@@ -138,7 +133,6 @@ func InitializeFoundationDB(
 	backend := &Backend{
 		db:            db,
 		root:          fdbCfg.Root,
-		scanLimit:     fdbCfg.ScanLimit,
 		adminBoundary: adminCfg.Boundary,
 		boundaries:    make(map[string]struct{}, len(boundaries)),
 		logger:        logger,
@@ -744,18 +738,13 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		idx, ok := chooseIndex(indexes, criterion)
-		var candidates []*eventstore.Event
-		if ok {
-			candidates, err = b.scanIndexCandidatesPaged(ctx, req.Boundary, idx, criterion, req.FromPosition, req.Direction, int(req.Count))
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			candidates, err = b.fullScanMatching(ctx, req.Boundary, criterion, req.FromPosition, req.Direction, int(req.Count))
-			if err != nil {
-				return nil, err
-			}
+		idx, ok := chooseCoveringIndex(indexes, criterion)
+		if !ok {
+			return nil, b.unindexedQueryErr(req.Boundary, criterion)
+		}
+		candidates, err := b.scanIndexCandidatesPaged(ctx, req.Boundary, idx, criterion, req.FromPosition, req.Direction, int(req.Count))
+		if err != nil {
+			return nil, err
 		}
 		for _, event := range candidates {
 			if eventMatchesCriterion(event.Data, criterion) && positionMatches(event.Position, req.FromPosition, req.Direction) {
@@ -773,76 +762,6 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 		events = events[:count]
 	}
 	return events, nil
-}
-
-// fullScanMatching accurately scans an entire boundary in position order across
-// multiple bounded read transactions, returning up to `count` events matching the
-// criterion. Replaces the old single-transaction fallback that silently capped at
-// scanLimit (and could miss matches past it). Scanning in `direction` order lets
-// us stop after `count` matches — anything beyond that can't rank into the result.
-func (b *Backend) fullScanMatching(ctx context.Context, boundary string, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
-	b.logger.Warnf("FoundationDB query on boundary %s has no covering index; performing full scan", boundary)
-	reverse := direction == eventstore.Direction_DESC
-	begin, end := b.eventRangeForCursor(boundary, from, direction)
-	beginKey := begin.FDBKey()
-	endKey := end.FDBKey()
-	collected := make([]*eventstore.Event, 0, count)
-	for {
-		var scanned int
-		var lastKey fdb.Key
-		result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
-			local := make([]*eventstore.Event, 0)
-			iter := rt.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
-				Limit:   scanChunkSize,
-				Mode:    fdb.StreamingModeWantAll,
-				Reverse: reverse,
-			}).Iterator()
-			scanned = 0
-			for iter.Advance() {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				kv, err := iter.Get()
-				if err != nil {
-					return nil, err
-				}
-				lastKey = kv.Key
-				scanned++
-				tx, gid, err := eventPositionFromKey(kv.Key)
-				if err != nil {
-					return nil, err
-				}
-				pos := &eventstore.Position{CommitPosition: tx, PreparePosition: gid}
-				if !positionMatches(pos, from, direction) {
-					continue
-				}
-				event, err := eventFromRecord(kv.Value, tx, gid)
-				if err != nil {
-					return nil, err
-				}
-				if eventMatchesCriterion(event.Data, criterion) {
-					local = append(local, event)
-				}
-			}
-			return local, nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		collected = append(collected, result.([]*eventstore.Event)...)
-		if count > 0 && len(collected) >= count {
-			break
-		}
-		if scanned < scanChunkSize {
-			break
-		}
-		if reverse {
-			endKey = lastKey
-		} else {
-			beginKey = keyAfter(lastKey)
-		}
-	}
-	return collected, nil
 }
 
 func (b *Backend) scanIndexCandidatesPaged(ctx context.Context, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
@@ -1049,14 +968,24 @@ func (b *Backend) latestMatchingPosition(tr fdb.Transaction, boundary string, qu
 }
 
 func (b *Backend) unindexedConsistencyErr(boundary string, criterion map[string]string) error {
+	return b.unindexedCriteriaErr("consistency condition", boundary, criterion,
+		"create one with CreateBoundaryIndex before using it in a consistency condition")
+}
+
+func (b *Backend) unindexedQueryErr(boundary string, criterion map[string]string) error {
+	return b.unindexedCriteriaErr("query", boundary, criterion,
+		"create one with CreateBoundaryIndex before querying these criteria")
+}
+
+func (b *Backend) unindexedCriteriaErr(kind, boundary string, criterion map[string]string, guidance string) error {
 	keys := make([]string, 0, len(criterion))
 	for key := range criterion {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	return status.Errorf(codes.FailedPrecondition,
-		"consistency condition on boundary %s references keys %v with no ready covering index; create one via Admin/CreateIndex before using it in a consistency condition",
-		boundary, keys)
+		"%s on boundary %s references keys %v with no ready covering index; %s",
+		kind, boundary, keys, guidance)
 }
 
 func (b *Backend) getEventByPosition(rt fdb.ReadTransaction, boundary string, tx, gid int64) (*eventstore.Event, error) {
