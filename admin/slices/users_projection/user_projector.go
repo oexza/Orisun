@@ -67,7 +67,9 @@ func (p *UserProjector) Start(ctx context.Context) error {
 	stream := orisun.NewMessageHandler[orisun.Event](ctx)
 
 	go func() {
-		p.logger.Debugf("Receiving events for: %s", projectorName)
+		if p.logger.IsDebugEnabled() {
+			p.logger.Debugf("Receiving events for: %s", projectorName)
+		}
 
 		for {
 			event, err := stream.Recv()
@@ -120,7 +122,9 @@ func (p *UserProjector) Start(ctx context.Context) error {
 }
 
 func (p *UserProjector) handleEvent(event *orisun.Event) error {
-	p.logger.Debugf("Handling event %v", event)
+	if p.logger.IsDebugEnabled() {
+		p.logger.Debugf("Handling event %v", event)
+	}
 
 	switch event.EventType {
 	case ev.EventTypeUserCreated:

@@ -42,7 +42,9 @@ func UnaryAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.UnaryServer
 			logger.Errorf("Failed to set token header: %v", err)
 		}
 
-		auth.logger.Debugf("Authenticated user %s for method %s with token %s", user.Username, info.FullMethod, token)
+		if auth.logger.IsDebugEnabled() {
+			auth.logger.Debugf("Authenticated user %s for method %s with token %s", user.Username, info.FullMethod, token)
+		}
 		return handler(withUserCtx, req)
 	}
 }
@@ -79,7 +81,9 @@ func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (or
 	// get token if present in header
 	token := md.Get(tokenHeaderName)
 	if len(token) > 0 {
-		logger.Debugf("Token is %v", token)
+		if logger.IsDebugEnabled() {
+			logger.Debugf("Token is %v", token)
+		}
 		user, err := auth.ValidateToken(ctx, token[len(token)-1])
 		if err == nil {
 			return *user, token[len(token)-1], nil

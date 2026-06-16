@@ -18,6 +18,7 @@ import (
 
 type noopLogger struct{}
 
+func (noopLogger) IsDebugEnabled() bool  { return false }
 func (noopLogger) Debug(...any)          {}
 func (noopLogger) Debugf(string, ...any) {}
 func (noopLogger) Info(...any)           {}

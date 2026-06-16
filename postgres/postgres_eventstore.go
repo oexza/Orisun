@@ -114,7 +114,9 @@ func (s *PostgresSaveEvents) Save(
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
-	s.logger.Debug("Postgres: Saving events from request: %v", events)
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("Postgres: Saving events from request: %v", events)
+	}
 
 	if len(events) == 0 {
 		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
@@ -133,7 +135,9 @@ func (s *PostgresSaveEvents) Save(
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
 	}
-	s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
+	}
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
@@ -141,78 +145,40 @@ func (s *PostgresSaveEvents) Save(
 	}
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
-	// Use a shorter-lived transaction with immediate execution and commit
 	var tranID string
 	var globID int64
 	var newGlobalID int64
 
-	// Execute the operation in a single atomic transaction
-	err = func() error {
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			s.logger.Errorf("Error beginning transaction: %v", err)
-			return status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
-		}
-		defer func() {
-			if err != nil {
-				tx.Rollback()
-			}
-		}()
-
-		// intruct postgres to log sql statements
-		// _, errr := tx.Exec("SET log_statement = 'all';")
-		// if errr != nil {
-		// 	return status.Errorf(codes.Internal, "failed to set log_statement: %v", err)
-		// }
-
-		row := tx.QueryRowContext(
-			ctx,
-			s.insertQueries[boundary],
-			boundary,
-			schema,
-			streamSubsetAsBytes,
-			eventsJSON,
-		)
-
-		if row.Err() != nil {
-			s.logger.Errorf("Error inserting events: %v", row.Err())
-			return status.Errorf(codes.Internal, "failed to insert events: %v", row.Err())
-		}
-
-		// Scan the result
-		if err := row.Scan(&newGlobalID, &tranID, &globID); err != nil {
-			s.logger.Errorf("Error scanning result: %v", err)
-			return status.Errorf(codes.Internal, "failed to scan result: %v", err)
-		}
-
-		// Commit immediately to release the connection
-		if err := tx.Commit(); err != nil {
-			s.logger.Errorf("Error committing transaction: %v", err)
-			return status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
-		}
-
-		return nil
-	}()
-
-	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
-	}
-
-	s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
-
-	if err != nil {
+	// Execute as one autocommit statement. The SQL function is already atomic,
+	// and transaction-scoped advisory locks release as soon as this statement's
+	// implicit transaction commits.
+	row := s.db.QueryRowContext(
+		ctx,
+		s.insertQueries[boundary],
+		boundary,
+		schema,
+		streamSubsetAsBytes,
+		eventsJSON,
+	)
+	if err := row.Scan(&newGlobalID, &tranID, &globID); err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
 			return "", 0, status.Error(codes.AlreadyExists, err.Error())
 		}
-		s.logger.Errorf("Error saving events to database: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "Error saving events to database")
+		s.logger.Errorf("Error inserting events: %v", err)
+		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", err)
+	}
+
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("PG save events::::: Transaction ID: %v, Global ID: %v", tranID, globID)
 	}
 
 	return tranID, globID, nil
 }
 
 func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
-	s.logger.Debugf("Getting events from request: %v", req)
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("Getting events from request: %v", req)
+	}
 
 	schema, err := s.Schema(req.Boundary)
 	if err != nil {
@@ -612,7 +578,9 @@ func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (orisun.User, error) {
 func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error) {
 	user := userCache[username]
 	if user != nil {
-		s.logger.Debug("Fetched from cache")
+		if s.logger.IsDebugEnabled() {
+			s.logger.Debug("Fetched from cache")
+		}
 		return *user, nil
 	}
 
@@ -641,7 +609,9 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error
 func (s *PostgresAdminDB) GetUserById(id string) (orisun.User, error) {
 	rows, err := s.db.Query(s.qGetUserById, id)
 	if err != nil {
-		s.logger.Debugf("User by ID: %v", err)
+		if s.logger.IsDebugEnabled() {
+			s.logger.Debugf("User by ID: %v", err)
+		}
 		return orisun.User{}, err
 	}
 	defer rows.Close()
@@ -690,7 +660,9 @@ func (s *PostgresAdminDB) UpsertUser(user orisun.User) error {
 func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
 	rows, err := s.db.Query(s.qGetUsersCount)
 	if err != nil {
-		s.logger.Debugf("User count: %v", err)
+		if s.logger.IsDebugEnabled() {
+			s.logger.Debugf("User count: %v", err)
+		}
 		return 0, err
 	}
 	defer rows.Close()
@@ -713,7 +685,9 @@ func (s *PostgresAdminDB) GetEventsCount(boundary string) (int, error) {
 
 	rows, err := s.db.Query(q)
 	if err != nil {
-		s.logger.Debugf("Event count table query error: %v", err)
+		if s.logger.IsDebugEnabled() {
+			s.logger.Debugf("Event count table query error: %v", err)
+		}
 		var count int
 		err := s.db.QueryRow(s.qFallbackEventCount[boundary]).Scan(&count)
 		if err != nil {

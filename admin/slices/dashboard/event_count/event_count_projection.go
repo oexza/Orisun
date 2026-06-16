@@ -74,7 +74,9 @@ func (p *EventCountEventHandler) Start(ctx context.Context) error {
 				return
 			}
 
-			p.logger.Debugf("Receiving events for: %s", "events_count_projection")
+			if p.logger.IsDebugEnabled() {
+				p.logger.Debugf("Receiving events for: %s", "events_count_projection")
+			}
 			event, err := stream.Recv()
 			if err != nil {
 				p.logger.Error("Error receiving event: %v", err)

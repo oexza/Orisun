@@ -42,7 +42,9 @@ func (a *Authenticator) ValidateToken(ctx context.Context, token string) (*orisu
 	user, ok := userTokenCache[token]
 
 	if ok && user != nil {
-		a.logger.Debugf("Fetched user from cache by token")
+		if a.logger.IsDebugEnabled() {
+			a.logger.Debugf("Fetched user from cache by token")
+		}
 		return user, nil
 	}
 	return nil, fmt.Errorf("invalid credentials")
@@ -76,7 +78,9 @@ func (a *Authenticator) ValidateCredentials(ctx context.Context, username string
 
 	// generate a session token for the user
 	generatredToken := uuid.New().String()
-	a.logger.Debugf("Generated session token %s for user %s", generatredToken, userr.Username)
+	if a.logger.IsDebugEnabled() {
+		a.logger.Debugf("Generated session token %s for user %s", generatredToken, userr.Username)
+	}
 
 	// Cache the user
 	// go func() {
@@ -116,7 +120,9 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 
 	go func() {
 		for {
-			p.logger.Debugf("Receiving events for: %s", projectorName)
+			if p.logger.IsDebugEnabled() {
+				p.logger.Debugf("Receiving events for: %s", projectorName)
+			}
 			event, err := stream.Recv()
 			if err != nil {
 				p.logger.Error("Error receiving event: %v", err)
@@ -150,7 +156,9 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 }
 
 func (p *AuthUserProjector) handleEvent(event *orisun.Event) error {
-	p.logger.Debugf("Handling event %v", event)
+	if p.logger.IsDebugEnabled() {
+		p.logger.Debugf("Handling event %v", event)
+	}
 
 	switch event.EventType {
 	case admin_events.EventTypeUserPasswordChanged:
@@ -160,7 +168,9 @@ func (p *AuthUserProjector) handleEvent(event *orisun.Event) error {
 		}
 
 		if userByIdCache[userEvent.UserId] != nil {
-			p.logger.Debugf("Updating password hash for user %s", userEvent.UserId)
+			if p.logger.IsDebugEnabled() {
+				p.logger.Debugf("Updating password hash for user %s", userEvent.UserId)
+			}
 			cacheMutex.Lock()
 			defer cacheMutex.Unlock()
 			userByIdCache[userEvent.UserId].HashedPassword = userEvent.PasswordHash

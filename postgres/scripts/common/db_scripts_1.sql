@@ -1,16 +1,24 @@
 -- Initialize Boundary Tables Function
 --
--- This function creates all boundary-prefixed tables, indexes, and sequences
--- for a given boundary in a specified schema.
+-- Creates or upgrades the PostgreSQL objects used by one logical boundary in a
+-- caller-supplied schema. Boundaries are mapped to schemas by Go configuration;
+-- the boundary name is used only as the table/sequence prefix inside that schema.
 --
 -- Parameters:
---   boundary_name (TEXT): The boundary name to use as a prefix for all tables
---   schema_name (TEXT): The PostgreSQL schema where tables will be created
+--   boundary_name (TEXT): Boundary/table prefix, validated as a PostgreSQL identifier
+--   schema_name (TEXT): PostgreSQL schema where the boundary objects live
 --
--- Example:
---   SELECT initialize_boundary_tables('orders', 'public');
+-- Creates or maintains:
+--   <boundary>_orisun_es_event
+--   <boundary>_orisun_es_event_global_id_seq
+--   <boundary>_orisun_last_published_event_position
+--   <boundary>_events_count
+--   <boundary>_projector_checkpoint
 --
--- Creates tables like: public.orders_orisun_es_event, public.orders_events_count, etc.
+-- Existing rows may be migrated from old PostgreSQL-XID positions to Orisun
+-- logical positions. transaction_id is the logical commit position used by
+-- clients, projectors, and publishing checkpoints; pg_xact_id is only an
+-- internal visibility marker for current-cluster in-flight transaction checks.
 
 CREATE OR REPLACE FUNCTION initialize_boundary_tables(
     boundary_name TEXT,
@@ -20,7 +28,7 @@ $$
 DECLARE
     prefixed_seq_name TEXT;
 BEGIN
-    -- Validate boundary_name is a valid PostgreSQL identifier
+    -- Validate boundary_name as a simple PostgreSQL identifier.
     -- - Must start with letter or underscore
     -- - Can contain letters, digits, underscores
     -- - Max length 63 characters
@@ -30,7 +38,7 @@ BEGIN
 
     prefixed_seq_name := format('%I.%I', schema_name, boundary_name || '_orisun_es_event_global_id_seq');
 
-    -- Create event table
+    -- Create the durable event table for this boundary.
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
         transaction_id BIGINT NOT NULL,
         pg_xact_id     BIGINT,
@@ -42,7 +50,7 @@ BEGIN
         date_created   TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE ''UTC'') NOT NULL
     )', schema_name, boundary_name || '_orisun_es_event');
 
-    -- Create sequence
+    -- Create the boundary-local global_id sequence.
     EXECUTE format('CREATE SEQUENCE IF NOT EXISTS %I.%I
         START WITH 0
         MINVALUE 0
@@ -88,14 +96,14 @@ BEGIN
                    schema_name,
                    boundary_name || '_orisun_es_event');
 
-    -- Create indexes
+    -- Create indexes used by latest-position checks and ordered event reads.
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
                    boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
     EXECUTE format(
             'CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, event_type, data, metadata, date_created)',
             boundary_name || '_idx_event_order_visibility_covering', schema_name, boundary_name || '_orisun_es_event');
 
-    -- Create last published event position table
+    -- Create the per-boundary NATS publisher checkpoint table.
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
         boundary       TEXT PRIMARY KEY,
         transaction_id BIGINT NOT NULL DEFAULT 0,
@@ -115,7 +123,7 @@ BEGIN
                    schema_name, boundary_name || '_orisun_es_event',
                    boundary_name);
 
-    -- Create events count table
+    -- Create the admin event-count cache table.
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
         id          VARCHAR(255) PRIMARY KEY,
         event_count VARCHAR(255) NOT NULL,
@@ -123,7 +131,7 @@ BEGIN
         updated_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     )', schema_name, boundary_name || '_events_count');
 
-    -- Create projector checkpoint table
+    -- Create the admin/projector checkpoint table.
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
         id               VARCHAR(255) PRIMARY KEY,
         name             VARCHAR(255) UNIQUE NOT NULL,
@@ -145,18 +153,26 @@ $$ LANGUAGE plpgsql;
 
 -- Insert Events with Consistency Function
 --
--- This function inserts a batch of events into a boundary-prefixed event store table
--- while enforcing stream consistency via optimistic locking.
+-- Inserts one non-empty event batch into a boundary event table and enforces
+-- Command Context Consistency for the supplied content query. The Go saver sends
+-- query as:
+--   {
+--     "expected_position": {"transaction_id": <commit>, "global_id": <prepare>},
+--     "criteria": [{"tag": "value", ...}, ...]
+--   }
 --
--- Parameters:
---   boundary_name (TEXT): The boundary name (used to find the prefixed table)
---   schema (TEXT): The schema to use for the event store table
---   query (JSONB): A JSON object containing query metadata
---     - criteria (JSONB): Optional JSON object for granular locking
---   events (JSONB): A JSON array of events to insert
+-- Each criterion object is an AND of its tags; the criteria array is ORed. When
+-- criteria are present, this function locks each criterion object, finds the
+-- latest event matching the content query, and compares it with expected_position.
+-- A missing expected_position or missing match is treated as (-1, -1).
+--
+-- The inserted batch receives consecutive global_id values. Its logical
+-- transaction_id is MAX(global_id) + 1 for the batch, which keeps Orisun
+-- positions durable and independent of PostgreSQL XID reuse.
 --
 -- Returns:
---   TABLE: A table with the new_global_id, latest_transaction_id, latest_global_id
+--   new_global_id: the highest global_id inserted
+--   latest_transaction_id/latest_global_id: the resulting position to return to callers
 
 CREATE OR REPLACE FUNCTION insert_events_with_consistency_v3(
     boundary_name TEXT,
@@ -198,24 +214,24 @@ BEGIN
     expected_gid := (query -> 'expected_position' ->> 'global_id')::BIGINT;
     current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
 
-    -- Build schema-qualified sequence reference for nextval (avoids SET search_path leak under pgbouncer txn-mode)
+    -- Build a schema-qualified sequence reference for nextval. This avoids
+    -- depending on search_path, including under pgbouncer transaction pooling.
     prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
 
     IF jsonb_array_length(events) = 0 THEN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
 
-    -- If criteria is present then we acquire granular locks for each criterion.
-    -- This is to ensure that we don't block other insert operations
-    -- having non-overlapping criteria.
+    -- If criteria are present, acquire granular locks for each criterion object.
+    -- This allows concurrent saves with non-overlapping content contexts.
     -- Each criterion object is locked as a unit (not individual fields within it).
     IF criteria IS NOT NULL THEN
-        -- Extract all unique criteria (each criterion is one lock)
+        -- Extract all unique criteria. Each criterion object maps to one lock.
         SELECT ARRAY_AGG(DISTINCT criterion::text)
         INTO criteria_tags
         FROM jsonb_array_elements(criteria) AS criterion;
 
-        -- Lock key-value pairs in alphabetical order (deadlock prevention)
+        -- Lock criterion objects in deterministic order for deadlock prevention.
         IF criteria_tags IS NOT NULL THEN
             criteria_tags := ARRAY(
                     SELECT DISTINCT unnest(criteria_tags)
@@ -228,7 +244,8 @@ BEGIN
                 END LOOP;
         END IF;
 
-        -- Build criteria_sql from criteria array (replaces GIN @> operator)
+        -- Build the content query as an OR of criteria, where each criterion is
+        -- an AND of tag equality checks.
         all_parts := '{}';
         FOR crit IN SELECT jsonb_array_elements(criteria)
             LOOP
@@ -247,7 +264,8 @@ BEGIN
                             ELSE 'TRUE'
             END;
 
-        -- version check - use dynamic SQL to query the prefixed table (schema-qualified)
+        -- Version check: read the latest event matching this content query from
+        -- the schema-qualified boundary table.
         EXECUTE format('
             SELECT DISTINCT oe.transaction_id, oe.global_id
             FROM %I.%I oe
@@ -262,7 +280,7 @@ BEGIN
             latest_gid := -1;
         END IF;
 
-        -- If expected_position is not provided, we set the default.
+        -- If expected_position is not provided, default to the empty context.
         IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
             expected_tx_id := -1;
             expected_gid := -1;
@@ -285,7 +303,7 @@ BEGIN
     -- price of commit-ordered positions on PostgreSQL.
     PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
 
-    -- CTE-based insert pattern - schema-qualified table and sequence (pgbouncer txn-mode safe)
+    -- CTE-based insert using only schema-qualified table/sequence names.
     EXECUTE format('
         WITH events_with_ids AS MATERIALIZED (
             SELECT e, nextval(%L) AS global_id
@@ -339,19 +357,24 @@ $$;
 
 -- Get Matching Events Function
 --
--- This function queries events from a boundary-prefixed event store table
--- based on criteria and position.
+-- Reads events from a boundary event table for PostgresGetEvents.Get. The
+-- criteria parameter is either NULL or {"criteria": [criterion, ...]}, matching
+-- the same content-query shape used by saves: tags inside one criterion are ANDed,
+-- and criteria are ORed.
 --
 -- Parameters:
---   boundary_name (TEXT): The boundary name (used to find the prefixed table)
---   schema (TEXT): The schema to use
---   criteria (JSONB): Optional JSON object for filtering events
---   after_position (JSONB): Optional position to start from
+--   boundary_name (TEXT): Boundary/table prefix
+--   schema (TEXT): PostgreSQL schema containing the boundary table
+--   criteria (JSONB): Optional content query wrapper
+--   after_position (JSONB): Optional {"transaction_id": ..., "global_id": ...}
 --   sort_dir (TEXT): Sort direction ('ASC' or 'DESC')
---   max_count (INT): Maximum number of events to return
+--   max_count (INT): Maximum number of events to return, clamped to [1, 10000]
 --
--- Returns:
---   SETOF record: The matching events
+-- Position filtering is inclusive: ASC reads from >= after_position and DESC
+-- reads from <= after_position. ASC reads also apply a stable-prefix visibility
+-- barrier, hiding rows from transactions that are still in flight according to
+-- pg_xact_id. Rows with NULL pg_xact_id are legacy/restored rows and are treated
+-- as visible.
 
 CREATE OR REPLACE FUNCTION get_matching_events_v3(
     boundary_name TEXT,
@@ -392,10 +415,11 @@ BEGIN
         RAISE EXCEPTION 'Invalid sort direction: "%"', sort_dir;
     END IF;
 
-    -- Build qualified table name
+    -- Build the schema-qualified boundary event table name.
     qualified_table_name := format('%I.%I_orisun_es_event', schema, boundary_name);
 
-    -- Build criteria_sql from criteria_array (replaces GIN @> operator)
+    -- Build the content query as an OR of criteria, where each criterion is
+    -- an AND of tag equality checks.
     IF criteria_array IS NOT NULL THEN
         all_parts := '{}';
         FOR crit IN SELECT jsonb_array_elements(criteria_array)
@@ -418,7 +442,7 @@ BEGIN
         criteria_sql := 'TRUE';
     END IF;
 
-    -- Use dynamic SQL to query the prefixed table
+    -- Use dynamic SQL because the boundary table name and criteria predicate are dynamic.
     RETURN QUERY EXECUTE format(
             $q$
         SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created
@@ -449,12 +473,17 @@ BEGIN
 END;
 $$;
 
--- get_latest_by_criteria_v1 returns the newest event matching each criterion,
--- all from ONE statement (therefore one snapshot), plus enough to compute the
--- context position client-side. One snapshot is the point: assembling the same
--- context from independent queries lets an event commit in between with a
--- position below the observed maximum, which a scalar expected-position check
--- cannot detect.
+-- get_latest_by_criteria_v1 returns the newest event matching each requested
+-- criterion, all from ONE statement and therefore one PostgreSQL snapshot. The
+-- Go caller computes context_position as the maximum returned event position and
+-- uses it as SaveEvents.query.expected_position. One snapshot is the point:
+-- assembling the same context from independent queries lets an event commit in
+-- between with a position below the observed maximum, which a scalar
+-- expected-position check cannot detect.
+--
+-- This function returns one row per matching criterion only. Criteria with no
+-- matching event are omitted; the Go caller maps missing indexes back to empty
+-- LatestCriterionResult entries.
 CREATE OR REPLACE FUNCTION get_latest_by_criteria_v1(
     boundary_name TEXT,
     schema TEXT,

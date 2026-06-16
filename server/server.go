@@ -60,7 +60,9 @@ func ensureJetStreamStreamIsProperlySetup(ctx context.Context, js jetstream.JetS
 		if err != nil {
 			return nil, fmt.Errorf("failed to add stream: %v", err)
 		}
-		logger.Debugf("stream info: %v", natsStream)
+		if logger.IsDebugEnabled() {
+			logger.Debugf("stream info: %v", natsStream)
+		}
 	}
 
 	return natsStream, nil
@@ -93,13 +95,17 @@ func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamN
 	consumption, err := consumer.Consume(func(natsNsg jetstream.Msg) {
 		// Try to send the message to the handler
 		for {
-			logger.Debugf("Consuming message: %v", string(natsNsg.Data()))
+			if logger.IsDebugEnabled() {
+				logger.Debugf("Consuming message: %v", string(natsNsg.Data()))
+			}
 			if ctx.Err() != nil {
 				return
 			}
 			message := common.PublishRequest{}
 			json.Unmarshal(natsNsg.Data(), &message)
-			logger.Debugf("message: %v", message)
+			if logger.IsDebugEnabled() {
+				logger.Debugf("message: %v", message)
+			}
 			err = handler.Send(&message)
 
 			if err == nil {
@@ -157,7 +163,9 @@ type Backend struct {
 type BackendInitializer func(context.Context, c.AppConfig, jetstream.JetStream, l.Logger) (Backend, error)
 
 func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initializeBackend BackendInitializer) {
-	AppLogger.Debugf("config: %v", config)
+	if AppLogger.IsDebugEnabled() {
+		AppLogger.Debugf("config: %v", config)
+	}
 
 	// Log Go runtime tuning. GOMAXPROCS auto-set from cgroup via automaxprocs side-effect import.
 	// GOMEMLIMIT/GOGC honor the standard Go env vars; tune in container/orchestrator manifest.
@@ -222,7 +230,9 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	// Start projectors
 	pubsubStreamName := "ORISUN-ADMIN"
 	var jetStreamPublishFunction = func(ctx context.Context, req *common.PublishRequest) error {
-		AppLogger.Debugf("Publishing to jetstream: %v", req)
+		if AppLogger.IsDebugEnabled() {
+			AppLogger.Debugf("Publishing to jetstream: %v", req)
+		}
 
 		_, err := ensureJetStreamStreamIsProperlySetup(ctx, js, pubsubStreamName, AppLogger)
 		if err != nil {
@@ -240,7 +250,9 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 			return err
 		}
 
-		AppLogger.Debugf("Published to jetstream: %v", res)
+		if AppLogger.IsDebugEnabled() {
+			AppLogger.Debugf("Published to jetstream: %v", res)
+		}
 		return nil
 	}
 
@@ -426,7 +438,9 @@ func startUserProjector(
 				err := userProjector.Start(groupCtx)
 
 				if err != nil {
-					logger.Debugf("Failed to start user projection (likely due to lock contention): %v - will retry", err)
+					if logger.IsDebugEnabled() {
+						logger.Debugf("Failed to start user projection (likely due to lock contention): %v - will retry", err)
+					}
 					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
 						return waitErr
 					}
@@ -460,7 +474,9 @@ func startAuthUserProjector(
 				err := userProjector.Start(groupCtx)
 
 				if err != nil {
-					logger.Debugf("Failed to start auth user projection (likely due to lock contention): %v - will retry", err)
+					if logger.IsDebugEnabled() {
+						logger.Debugf("Failed to start auth user projection (likely due to lock contention): %v - will retry", err)
+					}
 					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
 						return waitErr
 					}
@@ -505,7 +521,9 @@ func startUserCountProjector(
 				err := userProjector.Start(groupCtx)
 
 				if err != nil {
-					logger.Debugf("Failed to start user count projection (likely due to lock contention): %v - will retry", err)
+					if logger.IsDebugEnabled() {
+						logger.Debugf("Failed to start user count projection (likely due to lock contention): %v - will retry", err)
+					}
 					if waitErr := backoff.Wait(groupCtx); waitErr != nil {
 						return waitErr
 					}
@@ -552,7 +570,9 @@ func startEventCountProjector(
 					err := eventProjector.Start(groupCtx)
 
 					if err != nil {
-						logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", b, err)
+						if logger.IsDebugEnabled() {
+							logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", b, err)
+						}
 						if waitErr := backoff.Wait(groupCtx); waitErr != nil {
 							return waitErr
 						}

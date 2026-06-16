@@ -15,6 +15,7 @@ import (
 
 type testLogger struct{}
 
+func (testLogger) IsDebugEnabled() bool  { return false }
 func (testLogger) Debug(...any)          {}
 func (testLogger) Debugf(string, ...any) {}
 func (testLogger) Info(...any)           {}
