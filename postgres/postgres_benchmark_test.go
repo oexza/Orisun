@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,12 +31,34 @@ const (
 func setupBenchmarkDB(b *testing.B) (*sql.DB, func()) {
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        "postgres:17",
+		Image:        "postgres:17.5-alpine3.22",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "test",
 			"POSTGRES_PASSWORD": "test",
 			"POSTGRES_DB":       "testdb",
+		},
+		Cmd: []string{
+			"postgres",
+			"-c", "shared_buffers=2GB",
+			"-c", "work_mem=64MB",
+			"-c", "maintenance_work_mem=512MB",
+			"-c", "effective_cache_size=6GB",
+			"-c", "wal_buffers=64MB",
+			"-c", "min_wal_size=2GB",
+			"-c", "max_wal_size=8GB",
+			"-c", "checkpoint_completion_target=0.7",
+			"-c", "checkpoint_timeout=3min",
+			"-c", "max_connections=300",
+			"-c", "max_worker_processes=14",
+			"-c", "max_parallel_workers=14",
+			"-c", "max_parallel_workers_per_gather=7",
+			"-c", "max_parallel_maintenance_workers=7",
+			"-c", "random_page_cost=1.1",
+			"-c", "seq_page_cost=1.0",
+			"-c", "cpu_tuple_cost=0.01",
+			"-c", "cpu_index_tuple_cost=0.005",
+			"-c", "cpu_operator_cost=0.0025",
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForLog("database system is ready to accept connections"),
@@ -65,12 +89,12 @@ func setupBenchmarkDB(b *testing.B) (*sql.DB, func()) {
 
 	var db *sql.DB
 	for retries := 0; retries < 3; retries++ {
-		db, err = sql.Open("postgres", connStr)
+		db, err = sql.Open("pgx", connStr)
 		require.NoError(b, err, "failed to open database")
 
-		db.SetMaxOpenConns(10)
-		db.SetMaxIdleConns(10)
-		db.SetConnMaxLifetime(5 * time.Minute)
+		db.SetMaxOpenConns(250)
+		db.SetMaxIdleConns(100)
+		db.SetConnMaxLifetime(time.Hour)
 
 		pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = db.PingContext(pingCtx)
@@ -336,4 +360,76 @@ func BenchmarkConsistencyCheck_WithIndex(b *testing.B) {
 	}
 
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "saves/sec")
+}
+
+// BenchmarkPostgres_Burst10000 fires a fixed-size burst of concurrent
+// single-event appends. Run with -benchtime=1x when you want wall-clock burst
+// throughput.
+func BenchmarkPostgres_Burst10000(b *testing.B) {
+	const burst = 10000
+
+	for _, maxConns := range []int{10, 25, 50, 100, 250} {
+		b.Run(fmt.Sprintf("pool_%d", maxConns), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				db, teardown := setupBenchmarkDB(b)
+				db.SetMaxOpenConns(maxConns)
+				db.SetMaxIdleConns(maxConns)
+
+				ctx := context.Background()
+				logger, err := logging.ZapLogger("warn")
+				require.NoError(b, err)
+				mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+					"bench_boundary": {
+						Boundary: "bench_boundary",
+						Schema:   "public",
+					},
+				}
+				saveEvents := NewPostgresSaveEvents(ctx, db, logger, mapping)
+
+				events := make([]orisun.EventWithMapTags, burst)
+				for j := 0; j < burst; j++ {
+					id, err := uuid.NewV7()
+					require.NoError(b, err)
+					events[j] = orisun.EventWithMapTags{
+						EventId:   id.String(),
+						EventType: "BurstEvent",
+						Data:      `{"k":"v"}`,
+						Metadata:  `{}`,
+					}
+				}
+
+				var wg sync.WaitGroup
+				var ok, fail int64
+				startCh := make(chan struct{})
+				wg.Add(burst)
+				for j := 0; j < burst; j++ {
+					ev := events[j]
+					go func() {
+						defer wg.Done()
+						<-startCh
+						if _, _, err := saveEvents.Save(ctx, []orisun.EventWithMapTags{ev}, "bench_boundary", nil, nil); err != nil {
+							atomic.AddInt64(&fail, 1)
+							return
+						}
+						atomic.AddInt64(&ok, 1)
+					}()
+				}
+
+				b.ResetTimer()
+				startTime := time.Now()
+				close(startCh)
+				wg.Wait()
+				elapsed := time.Since(startTime)
+				b.StopTimer()
+
+				b.ReportMetric(float64(ok)/elapsed.Seconds(), "events/sec")
+				b.ReportMetric(float64(elapsed.Milliseconds()), "ms/burst")
+				if fail > 0 {
+					b.Logf("burst had %d failures", fail)
+				}
+
+				teardown()
+			}
+		})
+	}
 }

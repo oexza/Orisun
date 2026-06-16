@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -146,4 +147,52 @@ func BenchmarkFDBSingleHotAggregate(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkFDBBurst10000 fires a fixed-size burst of concurrent single-event
+// appends. Run with -benchtime=1x when you want wall-clock burst throughput:
+//
+//	ORISUN_FDB_TEST_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
+//	  go test -tags foundationdb -run '^$' -bench BenchmarkFDBBurst10000 \
+//	  -benchtime=1x ./foundationdb/
+func BenchmarkFDBBurst10000(b *testing.B) {
+	backend := newTestBackend(b)
+	ctx := context.Background()
+	const burstSize = 10000
+
+	b.ResetTimer()
+	totalOK := int64(0)
+	for burst := 0; burst < b.N; burst++ {
+		start := make(chan struct{})
+		errs := make(chan error, burstSize)
+		var wg sync.WaitGroup
+		wg.Add(burstSize)
+		for i := 0; i < burstSize; i++ {
+			i := i
+			go func() {
+				defer wg.Done()
+				<-start
+				_, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+					EventId:   fmt.Sprintf("burst-%d-%d", burst, i),
+					EventType: "BurstAppended",
+					Data:      map[string]any{"burst": burst, "i": i},
+					Metadata:  map[string]any{},
+				}}, "test", nil, nil)
+				if err != nil {
+					errs <- err
+					return
+				}
+				atomic.AddInt64(&totalOK, 1)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				b.Fatalf("burst save: %v", err)
+			}
+		}
+	}
+	b.ReportMetric(float64(totalOK)/b.Elapsed().Seconds(), "events/sec")
 }
