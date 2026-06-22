@@ -100,7 +100,7 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
   },
   "events": [
     {
-      "event_id": "transfer-001",
+      "event_id": "00000000-0000-4000-8000-000000000001",
       "event_type": "TransferRecorded",
       "data": "{\"from\":\"alice\",\"to\":\"bob\",\"amount\":25}",
       "metadata": "{}"

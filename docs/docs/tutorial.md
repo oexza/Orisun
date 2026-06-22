@@ -116,7 +116,7 @@ result, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "acct-1-opened",
+		EventId:   "00000000-0000-4000-8000-000000000001",
 		EventType: "AccountOpened",
 		Data:      `{"account_id":"acct-1","balance":0}`,
 		Metadata:  `{}`,
@@ -140,7 +140,7 @@ const result = await client.saveEvents({
   },
   events: [
     {
-      eventId: 'acct-1-opened',
+      eventId: '00000000-0000-4000-8000-000000000001',
       eventType: 'AccountOpened',
       data: { account_id: 'acct-1', balance: 0 },
     },
@@ -167,7 +167,7 @@ Eventstore.WriteResult result = client.saveEvents(Eventstore.SaveEventsRequest.n
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("acct-1-opened")
+        .setEventId("00000000-0000-4000-8000-000000000001")
         .setEventType("AccountOpened")
         .setData("{\"account_id\":\"acct-1\",\"balance\":0}")
         .build())
@@ -193,7 +193,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "acct-1-opened",
+      "event_id": "00000000-0000-4000-8000-000000000001",
       "event_type": "AccountOpened",
       "data": "{\"account_id\":\"acct-1\",\"balance\":0}",
       "metadata": "{}"
@@ -227,7 +227,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "acct-1-credit-1",
+		EventId:   "00000000-0000-4000-8000-000000000002",
 		EventType: "MoneyCredited",
 		Data:      `{"account_id":"acct-1","amount":100,"balance":100}`,
 		Metadata:  `{}`,
@@ -249,7 +249,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: 'acct-1-credit-1',
+      eventId: '00000000-0000-4000-8000-000000000002',
       eventType: 'MoneyCredited',
       data: { account_id: 'acct-1', amount: 100, balance: 100 },
     },
@@ -274,7 +274,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("acct-1-credit-1")
+        .setEventId("00000000-0000-4000-8000-000000000002")
         .setEventType("MoneyCredited")
         .setData("{\"account_id\":\"acct-1\",\"amount\":100,\"balance\":100}")
         .build())
@@ -298,7 +298,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "acct-1-credit-1",
+      "event_id": "00000000-0000-4000-8000-000000000002",
       "event_type": "MoneyCredited",
       "data": "{\"account_id\":\"acct-1\",\"amount\":100,\"balance\":100}",
       "metadata": "{}"
@@ -400,7 +400,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "acct-1-debit-1",
+		EventId:   "00000000-0000-4000-8000-000000000003",
 		EventType: "MoneyDebited",
 		Data:      `{"account_id":"acct-1","amount":40,"balance":60}`,
 		Metadata:  `{}`,
@@ -422,7 +422,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: 'acct-1-debit-1',
+      eventId: '00000000-0000-4000-8000-000000000003',
       eventType: 'MoneyDebited',
       data: { account_id: 'acct-1', amount: 40, balance: 60 },
     },
@@ -447,7 +447,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("acct-1-debit-1")
+        .setEventId("00000000-0000-4000-8000-000000000003")
         .setEventType("MoneyDebited")
         .setData("{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}")
         .build())
@@ -471,7 +471,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "acct-1-debit-1",
+      "event_id": "00000000-0000-4000-8000-000000000003",
       "event_type": "MoneyDebited",
       "data": "{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}",
       "metadata": "{}"
@@ -544,7 +544,7 @@ This is a concurrency signal. The losing command should:
 3. Re-check the invariant. The debit may no longer be valid.
 4. Retry the save with the new `expected_position`.
 
-Reusing the same `event_id` on retry keeps the command idempotent at the application boundary.
+Reusing the same `event_id` on retry keeps the command idempotent at the application boundary. See [Idempotency & Retry](./patterns/idempotency-and-retry) for the full pattern, including the retry loop and consumer-side deduplication.
 
 ## 6. Index the query field
 

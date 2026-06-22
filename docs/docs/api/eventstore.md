@@ -99,7 +99,7 @@ Events have four caller-supplied fields:
 
 | Field | Description |
 | --- | --- |
-| `event_id` | Stable event identifier. Use this for idempotency and deduplication. |
+| `event_id` | Stable event identifier, a UUID. PostgreSQL requires UUID format; SQLite accepts any string, but UUIDs are recommended. Use this for idempotency and deduplication. |
 | `event_type` | Event type name, for example `OrderPlaced`. |
 | `data` | JSON object encoded as a string. Criteria queries match this JSON object. |
 | `metadata` | JSON object encoded as a string. Use for request source, tracing, or non-domain metadata. |
@@ -123,7 +123,7 @@ result, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 	},
 	Events: []*eventstore.EventToSave{
 		{
-			EventId:   "order-001",
+			EventId:   "00000000-0000-4000-8000-000000000001",
 			EventType: "OrderPlaced",
 			Data:      `{"customer_id":"c-1","amount":45}`,
 			Metadata:  `{"source":"checkout"}`,
@@ -145,7 +145,7 @@ const result = await client.saveEvents({
   },
   events: [
     {
-      eventId: 'order-001',
+      eventId: '00000000-0000-4000-8000-000000000001',
       eventType: 'OrderPlaced',
       data: { customer_id: 'c-1', amount: 45 },
       metadata: { source: 'checkout' },
@@ -168,7 +168,7 @@ Eventstore.WriteResult result = client.saveEvents(
                 .setCommitPosition(-1).setPreparePosition(-1).build())
             .build())
         .addEvents(Eventstore.EventToSave.newBuilder()
-            .setEventId("order-001")
+            .setEventId("00000000-0000-4000-8000-000000000001")
             .setEventType("OrderPlaced")
             .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
             .setMetadata("{\"source\":\"checkout\"}")
@@ -193,7 +193,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "order-001",
+      "event_id": "00000000-0000-4000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}"
@@ -240,7 +240,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "order-002",
+		EventId:   "00000000-0000-4000-8000-000000000002",
 		EventType: "OrderConfirmed",
 		Data:      `{"customer_id":"c-1","amount":45}`,
 		Metadata:  `{}`,
@@ -264,7 +264,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: 'order-002',
+      eventId: '00000000-0000-4000-8000-000000000002',
       eventType: 'OrderConfirmed',
       data: { customer_id: 'c-1', amount: 45 },
     },
@@ -289,7 +289,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("order-002")
+        .setEventId("00000000-0000-4000-8000-000000000002")
         .setEventType("OrderConfirmed")
         .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
         .build())
@@ -320,7 +320,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "order-002",
+      "event_id": "00000000-0000-4000-8000-000000000002",
       "event_type": "OrderConfirmed",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{}"
@@ -546,7 +546,7 @@ EOF
 {
   "events": [
     {
-      "event_id": "order-001",
+      "event_id": "00000000-0000-4000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}",

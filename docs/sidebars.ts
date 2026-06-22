@@ -21,6 +21,16 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Patterns',
+      collapsed: false,
+      items: [
+        'patterns/idempotency-and-retry',
+        'patterns/projection-rebuild',
+        'patterns/event-schema-evolution',
+      ],
+    },
+    {
+      type: 'category',
       label: 'API',
       collapsed: false,
       items: ['api/eventstore', 'api/admin', 'api/clients'],
