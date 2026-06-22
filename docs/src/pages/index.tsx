@@ -129,6 +129,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
   {
     title: 'Understand',
     links: [
+      ['Comparing Orisun', '/docs/comparison', 'How Orisun differs from Kafka, EventStoreDB, Postgres LISTEN/NOTIFY, and NATS JetStream.'],
       ['Consistency', '/docs/concepts/command-context-consistency', 'Model business invariants over event-content queries.'],
       ['Delivery guarantees', '/docs/concepts/delivery-guarantees', 'See how checkpoints preserve ordered publishing.'],
       ['Storage backends', '/docs/concepts/storage-backends', 'Choose the right backend for your deployment shape.'],

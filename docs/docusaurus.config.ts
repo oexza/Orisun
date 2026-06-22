@@ -95,7 +95,7 @@ const config: Config = {
       copyright: `Copyright ${new Date().getFullYear()} Orisun contributors. Released under the MIT License.`,
     },
     prism: {
-      additionalLanguages: ['bash', 'go', 'json', 'yaml', 'protobuf'],
+      additionalLanguages: ['bash', 'go', 'java', 'json', 'typescript', 'yaml', 'protobuf'],
     },
     tableOfContents: {
       minHeadingLevel: 2,

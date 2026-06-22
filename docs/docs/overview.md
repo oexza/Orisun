@@ -20,7 +20,7 @@ Use Orisun when:
 - projectors need to recover from downtime without relying only on broker retention,
 - you want the event store, publisher, gRPC API, auth, indexes, and telemetry in one deployable server.
 
-Choose another tool when you only need transient messaging or a general-purpose queue with no durable event-log semantics.
+Choose another tool when you only need transient messaging or a general-purpose queue with no durable event-log semantics. See [Comparing Orisun](/docs/comparison) for how Orisun differs from Kafka, EventStoreDB, PostgreSQL `LISTEN/NOTIFY`, and NATS JetStream.
 
 ## How it works
 
