@@ -5,6 +5,8 @@ description: Model event membership with queryable scope keys.
 
 Event scopes are a modeling convention for grouping related events without forcing every command into one stream. The event that creates something gets its own stable event id. Later events copy that id into queryable scope fields.
 
+This pattern is inspired by Ralf Westphal's article [Scoping Events](https://ralfwestphal.substack.com/p/scoping-events), which describes scopes as event-rooted containers for related events.
+
 Orisun does not reserve a special `scope` field. Criteria and indexes match JSON keys in event `data`, so scope keys are normal event data keys. A common convention is to prefix them with `scope.`. The examples below show stored event data; when calling `SaveEvents`, pass the type through `event_type` and Orisun writes the canonical `eventType` key into `data`.
 
 ```json
@@ -87,6 +89,43 @@ To read account history for Alice, query the root event and transfer events wher
 Criteria entries are ORed together. Tags inside one criterion are ANDed together.
 
 Including `eventType` in each criterion keeps query shapes specific and aligns with partial indexes. If you intentionally need every event with a scope key, you can query only `scope.fromAccountOpenedId` or `scope.toAccountOpenedId`, but that is usually a broader and less index-friendly shape.
+
+## Nested scope example
+
+The article's course example shows why scopes do not have to form a single parent-child stream. A grade can belong to the enrollment scope, the student scope, and the course scope at the same time:
+
+```json
+{
+  "eventType": "GradeAssigned",
+  "gradeAssignedId": "grade-assigned-1",
+  "grade": "B+",
+  "scope.studentEnrolledInCourseId": "student-enrolled-in-course-1",
+  "scope.studentRegisteredId": "student-registered-1",
+  "scope.coursePublishedId": "course-published-1"
+}
+```
+
+That lets a projector query from any useful perspective. To rebuild everything in the scope of a published course, read the root event and every event that carries the course scope:
+
+```json
+{
+  "criteria": [
+    {
+      "tags": [
+        {"key": "eventType", "value": "CoursePublished"},
+        {"key": "coursePublishedId", "value": "course-published-1"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "scope.coursePublishedId", "value": "course-published-1"}
+      ]
+    }
+  ]
+}
+```
+
+Westphal uses a `scopes` object in the article. In Orisun, the important part is the persisted JSON key. Use `scope.coursePublishedId`, `scopes.coursePublishedId`, or another house style consistently, then create indexes for the exact keys your criteria use.
 
 ## Use scopes with CCC
 
