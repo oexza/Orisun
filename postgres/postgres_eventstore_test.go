@@ -232,6 +232,12 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	defer db.Close()
 
 	_, err = db.Exec(`
+		ALTER TABLE public.test_boundary_orisun_es_event
+		ADD COLUMN event_type TEXT NOT NULL DEFAULT 'LegacyEvent' CHECK (event_type <> '')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
 		INSERT INTO public.test_boundary_orisun_es_event
 			(transaction_id, global_id, event_id, event_type, data, metadata)
 		VALUES
@@ -287,6 +293,38 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	`).Scan(&visibilityIndexDef)
 	require.NoError(t, err)
 	require.Contains(t, visibilityIndexDef, "pg_xact_id")
+	require.NotContains(t, visibilityIndexDef, "event_type")
+
+	var eventTypeIndexDef string
+	err = db.QueryRow(`
+		SELECT indexdef
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND tablename = 'test_boundary_orisun_es_event'
+		  AND indexname = 'test_boundary_idx_event_type_order'
+	`).Scan(&eventTypeIndexDef)
+	require.NoError(t, err)
+	require.Contains(t, eventTypeIndexDef, "data ->> 'eventType'::text")
+
+	var eventTypeColumnCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'test_boundary_orisun_es_event'
+		  AND column_name = 'event_type'
+	`).Scan(&eventTypeColumnCount)
+	require.NoError(t, err)
+	require.Equal(t, 0, eventTypeColumnCount)
+
+	var rowsMissingEventType int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM public.test_boundary_orisun_es_event
+		WHERE data->>'eventType' IS DISTINCT FROM 'LegacyEvent'
+	`).Scan(&rowsMissingEventType)
+	require.NoError(t, err)
+	require.Equal(t, 0, rowsMissingEventType)
 
 	_, err = db.Exec(`
 		UPDATE public.test_boundary_orisun_es_event

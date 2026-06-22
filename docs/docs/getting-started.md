@@ -285,7 +285,7 @@ The response contains the committed log position:
 }
 ```
 
-Orisun stores `event_type` in event `data` as the canonical `eventType` JSON key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
+Orisun stores the API `event_type` value in event `data` as the canonical `eventType` JSON key and derives returned event types from that key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
 
 ## Release artifacts
 

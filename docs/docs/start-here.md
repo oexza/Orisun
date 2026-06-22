@@ -38,7 +38,7 @@ Orisun applications usually follow this loop:
 3. Save new events only if that queried context is still at the expected position.
 4. Subscribe with catch-up replay from storage, then continue from live JetStream messages.
 
-`event_type` is also stored in event `data` as `eventType`, so content criteria and JSON indexes can include event type without duplicating it in every payload.
+`event_type` is the API field for the event's type. Orisun stores it in event `data` as the canonical `eventType` JSON key, derives returned event types from that key, and lets content criteria and JSON indexes use `eventType` without duplicating it in every payload.
 
 ## NATS Choices
 

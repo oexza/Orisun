@@ -33,7 +33,7 @@ Events have four caller-supplied fields:
 Orisun also stores a durable `position` and `date_created` on committed events.
 
 :::note
-`SaveEvents` adds `eventType` to the stored event data from `event_type`, so criteria and indexes can use the `eventType` JSON key.
+`event_type` is the API field for the event's type. On save, Orisun writes that value into the stored event data as the canonical `eventType` JSON key, and storage backends derive response `event_type` from `data.eventType`. Criteria and indexes should use the `eventType` JSON key.
 :::
 
 ## SaveEvents

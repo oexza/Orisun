@@ -19,6 +19,8 @@
 -- logical positions. transaction_id is the logical commit position used by
 -- clients, projectors, and publishing checkpoints; pg_xact_id is only an
 -- internal visibility marker for current-cluster in-flight transaction checks.
+-- Existing rows with a legacy event_type column are backfilled into
+-- data.eventType before the redundant storage column is dropped.
 
 CREATE OR REPLACE FUNCTION initialize_boundary_tables(
     boundary_name TEXT,
@@ -44,7 +46,6 @@ BEGIN
         pg_xact_id     BIGINT,
         global_id      BIGINT PRIMARY KEY,
         event_id       UUID NOT NULL,
-        event_type     TEXT NOT NULL CHECK (event_type <> ''''),
         data           JSONB NOT NULL,
         metadata       JSONB,
         date_created   TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE ''UTC'') NOT NULL
@@ -64,6 +65,23 @@ BEGIN
     -- and dump/restore operations where PostgreSQL XIDs can restart.
     EXECUTE format('ALTER TABLE %I.%I ADD COLUMN IF NOT EXISTS pg_xact_id BIGINT',
                    schema_name, boundary_name || '_orisun_es_event');
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = schema_name
+          AND table_name = boundary_name || '_orisun_es_event'
+          AND column_name = 'event_type'
+    ) THEN
+        EXECUTE format('
+            UPDATE %I.%I
+            SET data = jsonb_set(COALESCE(data, ''{}''::jsonb), ''{eventType}'', to_jsonb(event_type), true)
+            WHERE data->>''eventType'' IS DISTINCT FROM event_type',
+                       schema_name, boundary_name || '_orisun_es_event');
+
+        EXECUTE format('ALTER TABLE %I.%I DROP COLUMN event_type',
+                       schema_name, boundary_name || '_orisun_es_event');
+    END IF;
 
     -- pg_xact_id is current-cluster-only. After dump/restore or a major upgrade
     -- into a fresh cluster, the new cluster's xid8 can restart below values
@@ -99,8 +117,10 @@ BEGIN
     -- Create indexes used by latest-position checks and ordered event reads.
     EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (data)',
                    boundary_name || '_idx_global_order_covering', schema_name, boundary_name || '_orisun_es_event');
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I.%I ((data->>''eventType''), transaction_id DESC, global_id DESC)',
+                   boundary_name || '_idx_event_type_order', schema_name, boundary_name || '_orisun_es_event');
     EXECUTE format(
-            'CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, event_type, data, metadata, date_created)',
+            'CREATE INDEX IF NOT EXISTS %I ON %I.%I (transaction_id DESC, global_id DESC) INCLUDE (pg_xact_id, event_id, data, metadata, date_created)',
             boundary_name || '_idx_event_order_visibility_covering', schema_name, boundary_name || '_orisun_es_event');
 
     -- Create the per-boundary NATS publisher checkpoint table.
@@ -222,6 +242,14 @@ BEGIN
         RAISE EXCEPTION 'Events array cannot be empty';
     END IF;
 
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(events) AS evt
+        WHERE COALESCE(evt ->> 'event_type', '') = ''
+    ) THEN
+        RAISE EXCEPTION 'event_type cannot be empty';
+    END IF;
+
     -- If criteria are present, acquire granular locks for each criterion object.
     -- This allows concurrent saves with non-overlapping content contexts.
     -- Each criterion object is locked as a unit (not individual fields within it).
@@ -306,7 +334,21 @@ BEGIN
     -- CTE-based insert using only schema-qualified table/sequence names.
     EXECUTE format('
         WITH events_with_ids AS MATERIALIZED (
-            SELECT e, nextval(%L) AS global_id
+            SELECT e,
+                   nextval(%L) AS global_id,
+                   jsonb_set(
+                       CASE
+                           WHEN jsonb_typeof(e -> ''data'') = ''string'' THEN (e ->> ''data'')::jsonb
+                           ELSE COALESCE(e -> ''data'', ''{}'')
+                       END,
+                       ''{eventType}'',
+                       to_jsonb(e ->> ''event_type''),
+                       true
+                   ) AS data_json,
+                   CASE
+                       WHEN jsonb_typeof(e -> ''metadata'') = ''string'' THEN (e ->> ''metadata'')::jsonb
+                       ELSE COALESCE(e -> ''metadata'', ''{}'')
+                   END AS metadata_json
             FROM jsonb_array_elements($2) AS e
         ),
         max_global_id AS (
@@ -320,7 +362,6 @@ BEGIN
                                          pg_xact_id,
                                          event_id,
                                          global_id,
-                                         event_type,
                                          data,
                                          metadata
             )
@@ -328,15 +369,8 @@ BEGIN
                    $1,
                    (e ->> ''event_id'')::UUID,
                    events_with_ids.global_id,
-                   e ->> ''event_type'',
-                   CASE
-                       WHEN jsonb_typeof(e -> ''data'') = ''string'' THEN (e ->> ''data'')::jsonb
-                       ELSE COALESCE(e -> ''data'', ''{}'')
-                       END,
-                   CASE
-                       WHEN jsonb_typeof(e -> ''metadata'') = ''string'' THEN (e ->> ''metadata'')::jsonb
-                       ELSE COALESCE(e -> ''metadata'', ''{}'')
-                       END
+                   events_with_ids.data_json,
+                   events_with_ids.metadata_json
             FROM events_with_ids
             CROSS JOIN max_global_id
             RETURNING transaction_id, global_id
@@ -445,7 +479,7 @@ BEGIN
     -- Use dynamic SQL because the boundary table name and criteria predicate are dynamic.
     RETURN QUERY EXECUTE format(
             $q$
-        SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created
+        SELECT transaction_id, global_id, event_id, data->>'eventType' AS event_type, data, metadata, date_created
         FROM %s
         WHERE
             %2$s AND
@@ -531,7 +565,7 @@ BEGIN
                 RAISE EXCEPTION 'criterion % has no tags', idx;
             END IF;
             selects := selects || format(
-                    '(SELECT %s AS criterion_idx, e.transaction_id, e.global_id, e.event_id, e.event_type, e.data, e.metadata, e.date_created FROM %s e WHERE %s ORDER BY e.transaction_id DESC, e.global_id DESC LIMIT 1)',
+                    '(SELECT %s AS criterion_idx, e.transaction_id, e.global_id, e.event_id, e.data->>''eventType'' AS event_type, e.data, e.metadata, e.date_created FROM %s e WHERE %s ORDER BY e.transaction_id DESC, e.global_id DESC LIMIT 1)',
                     idx, qualified_table_name, array_to_string(crit_parts, ' AND '));
             idx := idx + 1;
         END LOOP;
