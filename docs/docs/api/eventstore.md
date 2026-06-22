@@ -219,7 +219,7 @@ The response contains the committed log position:
 
 Orisun stores the API `event_type` value in event `data` as the canonical `eventType` JSON key and derives returned event types from that key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
 
-For event-scoped models, put queryable scope keys in `data` as normal JSON keys, for example `scope.fromAccountOpenedId`, and index them like any other field. See [Event Scopes](../patterns/event-scopes) for the modeling pattern.
+For event-scoped models, put queryable scope keys in `data` as normal JSON keys, for example `scopes.coursePublishedId`, and index them like any other field. See [Event Scopes](../patterns/event-scopes) for the modeling pattern.
 
 Batches are atomic. Events in one batch share the same commit position and receive increasing prepare positions.
 
