@@ -22,19 +22,45 @@ With CCC, the application asks for the event subset that matters to the command,
 
 ## Example context
 
-A transfer command can depend on all events where `account_holder` is either Alice or Bob:
+A transfer command can depend on the event scopes for both affected accounts. If the account roots are `AccountOpened` events, transfer events can carry queryable `scope.fromAccountOpenedId` and `scope.toAccountOpenedId` keys:
 
 ```json
 {
   "criteria": [
     {
       "tags": [
-        {"key": "account_holder", "value": "alice"}
+        {"key": "eventType", "value": "AccountOpened"},
+        {"key": "accountOpenedId", "value": "account-opened-alice"}
       ]
     },
     {
       "tags": [
-        {"key": "account_holder", "value": "bob"}
+        {"key": "eventType", "value": "AccountOpened"},
+        {"key": "accountOpenedId", "value": "account-opened-bob"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scope.fromAccountOpenedId", "value": "account-opened-alice"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scope.toAccountOpenedId", "value": "account-opened-alice"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scope.fromAccountOpenedId", "value": "account-opened-bob"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scope.toAccountOpenedId", "value": "account-opened-bob"}
       ]
     }
   ]
@@ -42,6 +68,8 @@ A transfer command can depend on all events where `account_holder` is either Ali
 ```
 
 Criteria entries are combined with OR. Tags inside one criterion are combined with AND.
+
+The `scope.` prefix is only a convention in event `data`; Orisun matches JSON keys exactly. If your application models scopes as a nested object, flatten it before saving so queries and indexes can use keys like `scope.fromAccountOpenedId`. See [Event Scopes](../patterns/event-scopes) for the full pattern.
 
 ## Expected position
 
@@ -87,12 +115,38 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
       "criteria": [
         {
           "tags": [
-            {"key": "account_holder", "value": "alice"}
+            {"key": "eventType", "value": "AccountOpened"},
+            {"key": "accountOpenedId", "value": "account-opened-alice"}
           ]
         },
         {
           "tags": [
-            {"key": "account_holder", "value": "bob"}
+            {"key": "eventType", "value": "AccountOpened"},
+            {"key": "accountOpenedId", "value": "account-opened-bob"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scope.fromAccountOpenedId", "value": "account-opened-alice"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scope.toAccountOpenedId", "value": "account-opened-alice"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scope.fromAccountOpenedId", "value": "account-opened-bob"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scope.toAccountOpenedId", "value": "account-opened-bob"}
           ]
         }
       ]
@@ -102,7 +156,7 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
       "event_type": "TransferRecorded",
-      "data": "{\"from\":\"alice\",\"to\":\"bob\",\"amount\":25}",
+      "data": "{\"transferRecordedId\":\"transfer-1\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scope.fromAccountOpenedId\":\"account-opened-alice\",\"scope.toAccountOpenedId\":\"account-opened-bob\"}",
       "metadata": "{}"
     }
   ]

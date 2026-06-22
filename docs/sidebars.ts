@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'patterns/idempotency-and-retry',
         'patterns/projection-rebuild',
+        'patterns/event-scopes',
         'patterns/event-schema-evolution',
       ],
     },
@@ -53,6 +54,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['embedding/go'],
     },
+    'internals',
     {
       type: 'category',
       label: 'Project',
