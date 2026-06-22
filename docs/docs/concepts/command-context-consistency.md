@@ -30,37 +30,37 @@ A transfer command can depend on the event scopes for both affected accounts. If
     {
       "tags": [
         {"key": "eventType", "value": "AccountOpened"},
-        {"key": "accountOpenedId", "value": "account-opened-alice"}
+        {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "AccountOpened"},
-        {"key": "accountOpenedId", "value": "account-opened-bob"}
+        {"key": "accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.fromAccountOpenedId", "value": "account-opened-alice"}
+        {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.toAccountOpenedId", "value": "account-opened-alice"}
+        {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.fromAccountOpenedId", "value": "account-opened-bob"}
+        {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.toAccountOpenedId", "value": "account-opened-bob"}
+        {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     }
   ]
@@ -116,37 +116,37 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
         {
           "tags": [
             {"key": "eventType", "value": "AccountOpened"},
-            {"key": "accountOpenedId", "value": "account-opened-alice"}
+            {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "AccountOpened"},
-            {"key": "accountOpenedId", "value": "account-opened-bob"}
+            {"key": "accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.fromAccountOpenedId", "value": "account-opened-alice"}
+            {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.toAccountOpenedId", "value": "account-opened-alice"}
+            {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.fromAccountOpenedId", "value": "account-opened-bob"}
+            {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.toAccountOpenedId", "value": "account-opened-bob"}
+            {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         }
       ]
@@ -154,9 +154,9 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000001",
+      "event_id": "018f2d5e-2003-7000-8000-000000000003",
       "event_type": "TransferRecorded",
-      "data": "{\"transferRecordedId\":\"transfer-1\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scope.fromAccountOpenedId\":\"account-opened-alice\",\"scope.toAccountOpenedId\":\"account-opened-bob\"}",
+      "data": "{\"transferRecordedId\":\"018f2d5e-2003-7000-8000-000000000003\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scope.fromAccountOpenedId\":\"018f2d5e-2001-7000-8000-000000000001\",\"scope.toAccountOpenedId\":\"018f2d5e-2002-7000-8000-000000000002\"}",
       "metadata": "{}"
     }
   ]

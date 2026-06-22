@@ -116,7 +116,7 @@ result, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "00000000-0000-4000-8000-000000000001",
+		EventId:   "018f2d5e-0001-7000-8000-000000000001",
 		EventType: "AccountOpened",
 		Data:      `{"account_id":"acct-1","balance":0}`,
 		Metadata:  `{}`,
@@ -140,7 +140,7 @@ const result = await client.saveEvents({
   },
   events: [
     {
-      eventId: '00000000-0000-4000-8000-000000000001',
+      eventId: '018f2d5e-0001-7000-8000-000000000001',
       eventType: 'AccountOpened',
       data: { account_id: 'acct-1', balance: 0 },
     },
@@ -167,7 +167,7 @@ Eventstore.WriteResult result = client.saveEvents(Eventstore.SaveEventsRequest.n
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("00000000-0000-4000-8000-000000000001")
+        .setEventId("018f2d5e-0001-7000-8000-000000000001")
         .setEventType("AccountOpened")
         .setData("{\"account_id\":\"acct-1\",\"balance\":0}")
         .build())
@@ -193,7 +193,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "AccountOpened",
       "data": "{\"account_id\":\"acct-1\",\"balance\":0}",
       "metadata": "{}"
@@ -227,7 +227,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "00000000-0000-4000-8000-000000000002",
+		EventId:   "018f2d5e-0002-7000-8000-000000000002",
 		EventType: "MoneyCredited",
 		Data:      `{"account_id":"acct-1","amount":100,"balance":100}`,
 		Metadata:  `{}`,
@@ -249,7 +249,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: '00000000-0000-4000-8000-000000000002',
+      eventId: '018f2d5e-0002-7000-8000-000000000002',
       eventType: 'MoneyCredited',
       data: { account_id: 'acct-1', amount: 100, balance: 100 },
     },
@@ -274,7 +274,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("00000000-0000-4000-8000-000000000002")
+        .setEventId("018f2d5e-0002-7000-8000-000000000002")
         .setEventType("MoneyCredited")
         .setData("{\"account_id\":\"acct-1\",\"amount\":100,\"balance\":100}")
         .build())
@@ -298,7 +298,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000002",
+      "event_id": "018f2d5e-0002-7000-8000-000000000002",
       "event_type": "MoneyCredited",
       "data": "{\"account_id\":\"acct-1\",\"amount\":100,\"balance\":100}",
       "metadata": "{}"
@@ -400,7 +400,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "00000000-0000-4000-8000-000000000003",
+		EventId:   "018f2d5e-0003-7000-8000-000000000003",
 		EventType: "MoneyDebited",
 		Data:      `{"account_id":"acct-1","amount":40,"balance":60}`,
 		Metadata:  `{}`,
@@ -422,7 +422,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: '00000000-0000-4000-8000-000000000003',
+      eventId: '018f2d5e-0003-7000-8000-000000000003',
       eventType: 'MoneyDebited',
       data: { account_id: 'acct-1', amount: 40, balance: 60 },
     },
@@ -447,7 +447,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("00000000-0000-4000-8000-000000000003")
+        .setEventId("018f2d5e-0003-7000-8000-000000000003")
         .setEventType("MoneyDebited")
         .setData("{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}")
         .build())
@@ -471,7 +471,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000003",
+      "event_id": "018f2d5e-0003-7000-8000-000000000003",
       "event_type": "MoneyDebited",
       "data": "{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}",
       "metadata": "{}"

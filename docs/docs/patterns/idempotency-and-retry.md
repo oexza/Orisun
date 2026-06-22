@@ -38,7 +38,7 @@ On `ALREADY_EXISTS`, re-read the context and re-decide — the invariant may no 
 
 ```go
 // Deterministic per command intent — NOT uuid.NewString() on each attempt.
-eventID := "00000000-0000-4000-8000-0000000000a1"
+eventID := "018f2d5e-00a1-7000-8000-0000000000a1"
 
 for {
 	latest, err := client.GetLatestByCriteria(ctx, &eventstore.GetLatestByCriteriaRequest{
@@ -88,7 +88,7 @@ for {
   <TabItem value="node" label="Node.js">
 
 ```typescript
-const eventId = '00000000-0000-4000-8000-0000000000a1'; // deterministic per command
+const eventId = '018f2d5e-00a1-7000-8000-0000000000a1'; // deterministic per command
 
 for (;;) {
   const latest = await client.getLatestByCriteria({
@@ -124,7 +124,7 @@ for (;;) {
   <TabItem value="java" label="Java">
 
 ```java
-String eventId = "00000000-0000-4000-8000-0000000000a1"; // deterministic per command
+String eventId = "018f2d5e-00a1-7000-8000-0000000000a1"; // deterministic per command
 
 while (true) {
     Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
@@ -178,7 +178,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
     "subsetQuery": {"criteria": [{"tags": [{"key": "account_id", "value": "acct-1"}]}]}
   },
   "events": [{
-    "event_id": "00000000-0000-4000-8000-0000000000a1",
+    "event_id": "018f2d5e-00a1-7000-8000-0000000000a1",
     "event_type": "MoneyDebited",
     "data": "{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}"
   }]

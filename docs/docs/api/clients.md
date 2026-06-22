@@ -136,7 +136,7 @@ func main() {
 			SubsetQuery:      accountQuery,
 		},
 		Events: []*eventstore.EventToSave{{
-			EventId: "00000000-0000-4000-8000-000000000001", EventType: "AccountOpened",
+			EventId: "018f2d5e-0001-7000-8000-000000000001", EventType: "AccountOpened",
 			Data: `{"account_id":"acct-1","balance":0}`,
 		}},
 	})
@@ -201,7 +201,7 @@ try {
     },
     events: [
       {
-        eventId: '00000000-0000-4000-8000-000000000001',
+        eventId: '018f2d5e-0001-7000-8000-000000000001',
         eventType: 'AccountOpened',
         data: { account_id: 'acct-1', balance: 0 },
       },
@@ -264,7 +264,7 @@ try (OrisunClient client = OrisunClient.newBuilder()
               .setSubsetQuery(accountQuery)
               .build())
           .addEvents(Eventstore.EventToSave.newBuilder()
-              .setEventId("00000000-0000-4000-8000-000000000001")
+              .setEventId("018f2d5e-0001-7000-8000-000000000001")
               .setEventType("AccountOpened")
               .setData("{\"account_id\":\"acct-1\",\"balance\":0}")
               .build())

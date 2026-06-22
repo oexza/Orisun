@@ -264,7 +264,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}"

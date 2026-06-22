@@ -123,7 +123,7 @@ result, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 	},
 	Events: []*eventstore.EventToSave{
 		{
-			EventId:   "00000000-0000-4000-8000-000000000001",
+			EventId:   "018f2d5e-0001-7000-8000-000000000001",
 			EventType: "OrderPlaced",
 			Data:      `{"customer_id":"c-1","amount":45}`,
 			Metadata:  `{"source":"checkout"}`,
@@ -145,7 +145,7 @@ const result = await client.saveEvents({
   },
   events: [
     {
-      eventId: '00000000-0000-4000-8000-000000000001',
+      eventId: '018f2d5e-0001-7000-8000-000000000001',
       eventType: 'OrderPlaced',
       data: { customer_id: 'c-1', amount: 45 },
       metadata: { source: 'checkout' },
@@ -168,7 +168,7 @@ Eventstore.WriteResult result = client.saveEvents(
                 .setCommitPosition(-1).setPreparePosition(-1).build())
             .build())
         .addEvents(Eventstore.EventToSave.newBuilder()
-            .setEventId("00000000-0000-4000-8000-000000000001")
+            .setEventId("018f2d5e-0001-7000-8000-000000000001")
             .setEventType("OrderPlaced")
             .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
             .setMetadata("{\"source\":\"checkout\"}")
@@ -193,7 +193,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}"
@@ -242,7 +242,7 @@ _, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
 		},
 	},
 	Events: []*eventstore.EventToSave{{
-		EventId:   "00000000-0000-4000-8000-000000000002",
+		EventId:   "018f2d5e-0002-7000-8000-000000000002",
 		EventType: "OrderConfirmed",
 		Data:      `{"customer_id":"c-1","amount":45}`,
 		Metadata:  `{}`,
@@ -266,7 +266,7 @@ await client.saveEvents({
   },
   events: [
     {
-      eventId: '00000000-0000-4000-8000-000000000002',
+      eventId: '018f2d5e-0002-7000-8000-000000000002',
       eventType: 'OrderConfirmed',
       data: { customer_id: 'c-1', amount: 45 },
     },
@@ -291,7 +291,7 @@ client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
             .build())
         .build())
     .addEvents(Eventstore.EventToSave.newBuilder()
-        .setEventId("00000000-0000-4000-8000-000000000002")
+        .setEventId("018f2d5e-0002-7000-8000-000000000002")
         .setEventType("OrderConfirmed")
         .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
         .build())
@@ -322,7 +322,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000002",
+      "event_id": "018f2d5e-0002-7000-8000-000000000002",
       "event_type": "OrderConfirmed",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{}"
@@ -548,7 +548,7 @@ EOF
 {
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}",

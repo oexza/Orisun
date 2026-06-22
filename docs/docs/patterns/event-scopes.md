@@ -16,7 +16,7 @@ Start with two independent scope roots:
 ```json
 {
   "eventType": "StudentRegistered",
-  "studentRegisteredId": "student-registered-mary",
+  "studentRegisteredId": "018f2d5e-1001-7000-8000-000000000001",
   "studentName": "Mary"
 }
 ```
@@ -24,7 +24,7 @@ Start with two independent scope roots:
 ```json
 {
   "eventType": "CoursePublished",
-  "coursePublishedId": "course-published-es101",
+  "coursePublishedId": "018f2d5e-1002-7000-8000-000000000002",
   "courseNumber": "25.2.63.101",
   "title": "Event Sourcing 101"
 }
@@ -35,10 +35,10 @@ The enrollment event belongs to both roots. It also becomes a new scope root of 
 ```json
 {
   "eventType": "StudentEnrolledInCourse",
-  "studentEnrolledInCourseId": "student-enrolled-mary-es101",
+  "studentEnrolledInCourseId": "018f2d5e-1003-7000-8000-000000000003",
   "enrolledAt": "2026-06-22T09:00:00Z",
-  "scopes.studentRegisteredId": "student-registered-mary",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.studentRegisteredId": "018f2d5e-1001-7000-8000-000000000001",
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
@@ -47,12 +47,12 @@ A grade belongs directly to the enrollment scope and also carries the outer stud
 ```json
 {
   "eventType": "GradeAssigned",
-  "gradeAssignedId": "grade-assigned-mary-es101-midterm",
+  "gradeAssignedId": "018f2d5e-1004-7000-8000-000000000004",
   "grade": "B+",
   "assignedAt": "2026-06-22T10:00:00Z",
-  "scopes.studentEnrolledInCourseId": "student-enrolled-mary-es101",
-  "scopes.studentRegisteredId": "student-registered-mary",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.studentEnrolledInCourseId": "018f2d5e-1003-7000-8000-000000000003",
+  "scopes.studentRegisteredId": "018f2d5e-1001-7000-8000-000000000001",
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
@@ -61,13 +61,13 @@ The article then extends the example: a grade dispute starts a chat in the scope
 ```json
 {
   "eventType": "ChatStarted",
-  "chatStartedId": "chat-started-grade-dispute-1",
+  "chatStartedId": "018f2d5e-1005-7000-8000-000000000005",
   "topic": "Grade discussion",
   "startedAt": "2026-06-22T11:00:00Z",
-  "scopes.gradeAssignedId": "grade-assigned-mary-es101-midterm",
-  "scopes.studentEnrolledInCourseId": "student-enrolled-mary-es101",
-  "scopes.studentRegisteredId": "student-registered-mary",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.gradeAssignedId": "018f2d5e-1004-7000-8000-000000000004",
+  "scopes.studentEnrolledInCourseId": "018f2d5e-1003-7000-8000-000000000003",
+  "scopes.studentRegisteredId": "018f2d5e-1001-7000-8000-000000000001",
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
@@ -76,15 +76,15 @@ Messages happen inside the chat scope. They can also carry inherited scopes so a
 ```json
 {
   "eventType": "ChatMessageSent",
-  "chatMessageSentId": "chat-message-1",
+  "chatMessageSentId": "018f2d5e-1006-7000-8000-000000000006",
   "sender": "mary",
   "message": "Can we review the grading rubric?",
   "sentAt": "2026-06-22T11:05:00Z",
-  "scopes.chatStartedId": "chat-started-grade-dispute-1",
-  "scopes.gradeAssignedId": "grade-assigned-mary-es101-midterm",
-  "scopes.studentEnrolledInCourseId": "student-enrolled-mary-es101",
-  "scopes.studentRegisteredId": "student-registered-mary",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.chatStartedId": "018f2d5e-1005-7000-8000-000000000005",
+  "scopes.gradeAssignedId": "018f2d5e-1004-7000-8000-000000000004",
+  "scopes.studentEnrolledInCourseId": "018f2d5e-1003-7000-8000-000000000003",
+  "scopes.studentRegisteredId": "018f2d5e-1001-7000-8000-000000000001",
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
@@ -93,21 +93,21 @@ The same course scope can also contain events that are not part of one student's
 ```json
 {
   "eventType": "CourseLiked",
-  "courseLikedId": "course-liked-1",
-  "likedBy": "student-registered-mary",
+  "courseLikedId": "018f2d5e-1007-7000-8000-000000000007",
+  "likedBy": "018f2d5e-1001-7000-8000-000000000001",
   "likedAt": "2026-06-22T12:00:00Z",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
 ```json
 {
   "eventType": "CourseQuestionAsked",
-  "courseQuestionAskedId": "course-question-1",
-  "askedBy": "student-registered-mary",
+  "courseQuestionAskedId": "018f2d5e-1008-7000-8000-000000000008",
+  "askedBy": "018f2d5e-1001-7000-8000-000000000001",
   "question": "Will there be a session on projections?",
   "askedAt": "2026-06-22T12:10:00Z",
-  "scopes.coursePublishedId": "course-published-es101"
+  "scopes.coursePublishedId": "018f2d5e-1002-7000-8000-000000000002"
 }
 ```
 
@@ -118,12 +118,12 @@ In application code you can model scopes as a nested object:
 ```typescript
 {
   eventType: 'GradeAssigned',
-  gradeAssignedId: 'grade-assigned-mary-es101-midterm',
+  gradeAssignedId: '018f2d5e-1004-7000-8000-000000000004',
   grade: 'B+',
   scopes: {
-    studentEnrolledInCourseId: 'student-enrolled-mary-es101',
-    studentRegisteredId: 'student-registered-mary',
-    coursePublishedId: 'course-published-es101',
+    studentEnrolledInCourseId: '018f2d5e-1003-7000-8000-000000000003',
+    studentRegisteredId: '018f2d5e-1001-7000-8000-000000000001',
+    coursePublishedId: '018f2d5e-1002-7000-8000-000000000002',
   },
 }
 ```
@@ -140,12 +140,12 @@ To rebuild everything in a published course scope, read the root event and every
     {
       "tags": [
         {"key": "eventType", "value": "CoursePublished"},
-        {"key": "coursePublishedId", "value": "course-published-es101"}
+        {"key": "coursePublishedId", "value": "018f2d5e-1002-7000-8000-000000000002"}
       ]
     },
     {
       "tags": [
-        {"key": "scopes.coursePublishedId", "value": "course-published-es101"}
+        {"key": "scopes.coursePublishedId", "value": "018f2d5e-1002-7000-8000-000000000002"}
       ]
     }
   ]
@@ -160,12 +160,12 @@ To focus on the enrollment, change only the root and scope key:
     {
       "tags": [
         {"key": "eventType", "value": "StudentEnrolledInCourse"},
-        {"key": "studentEnrolledInCourseId", "value": "student-enrolled-mary-es101"}
+        {"key": "studentEnrolledInCourseId", "value": "018f2d5e-1003-7000-8000-000000000003"}
       ]
     },
     {
       "tags": [
-        {"key": "scopes.studentEnrolledInCourseId", "value": "student-enrolled-mary-es101"}
+        {"key": "scopes.studentEnrolledInCourseId", "value": "018f2d5e-1003-7000-8000-000000000003"}
       ]
     }
   ]
@@ -193,12 +193,12 @@ Scopes are a natural fit for [Command Context Consistency](../concepts/command-c
         {
           "tags": [
             {"key": "eventType", "value": "StudentEnrolledInCourse"},
-            {"key": "studentEnrolledInCourseId", "value": "student-enrolled-mary-es101"}
+            {"key": "studentEnrolledInCourseId", "value": "018f2d5e-1003-7000-8000-000000000003"}
           ]
         },
         {
           "tags": [
-            {"key": "scopes.studentEnrolledInCourseId", "value": "student-enrolled-mary-es101"}
+            {"key": "scopes.studentEnrolledInCourseId", "value": "018f2d5e-1003-7000-8000-000000000003"}
           ]
         }
       ]
@@ -206,9 +206,9 @@ Scopes are a natural fit for [Command Context Consistency](../concepts/command-c
   },
   "events": [
     {
-      "event_id": "00000000-0000-4000-8000-000000000201",
+      "event_id": "018f2d5e-1004-7000-8000-000000000004",
       "event_type": "GradeAssigned",
-      "data": "{\"gradeAssignedId\":\"grade-assigned-mary-es101-midterm\",\"grade\":\"B+\",\"assignedAt\":\"2026-06-22T10:00:00Z\",\"scopes.studentEnrolledInCourseId\":\"student-enrolled-mary-es101\",\"scopes.studentRegisteredId\":\"student-registered-mary\",\"scopes.coursePublishedId\":\"course-published-es101\"}",
+      "data": "{\"gradeAssignedId\":\"018f2d5e-1004-7000-8000-000000000004\",\"grade\":\"B+\",\"assignedAt\":\"2026-06-22T10:00:00Z\",\"scopes.studentEnrolledInCourseId\":\"018f2d5e-1003-7000-8000-000000000003\",\"scopes.studentRegisteredId\":\"018f2d5e-1001-7000-8000-000000000001\",\"scopes.coursePublishedId\":\"018f2d5e-1002-7000-8000-000000000002\"}",
       "metadata": "{}"
     }
   ]
