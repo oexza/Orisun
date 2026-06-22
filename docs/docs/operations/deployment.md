@@ -52,13 +52,15 @@ The environment file contains the same settings shown in [Getting Started](../ge
 
 Use the published Docker images when your platform already standardizes on containers, or when you want the simplest way to run the official release artifact.
 
-The image tags mirror the binary flavors:
+Images are published to both Docker Hub and GitHub Container Registry. The Docker Hub tags mirror the binary flavors:
 
 | Image | Backend |
 | --- | --- |
 | `orexza/orisun:latest` | all backends |
 | `orexza/orisun:pg` | PostgreSQL only |
 | `orexza/orisun:sqlite` | SQLite only |
+
+The same tags are also available under `ghcr.io/oexza/orisun`.
 
 Persist the same directories you would persist for a binary deployment. Containers do not change the storage model.
 
@@ -213,7 +215,7 @@ Effective values are logged at startup.
 
 | Limit | Value | Notes |
 | --- | --- | --- |
-| gRPC request message size | 4 MB (gRPC default) | Caps a single `SaveEvents` request, so it bounds batch size × event payload. Split very large batches. |
+| gRPC request message size | `ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE` (default 64 MB) | Caps a single `SaveEvents` request, so it bounds batch size times event payload. Split very large batches. |
 | Event `data` / `metadata` | JSON string per field | No separate field cap; the whole request must fit the message-size limit above. |
 | Publisher read batch | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` (default 1000) | Events drained per publisher read cycle. Raise for high write volume, lower to smooth memory. |
 | `GetEvents` page | `count` per request, server-capped at 10000 | Page with `from_position`; see [Positions and Ordering](../concepts/positions#positions-and-paging). |
@@ -221,7 +223,7 @@ Effective values are logged at startup.
 
 Sizing guidance:
 
-- Keep batches comfortably under 4 MB. For bulk imports, chunk into many ordered `SaveEvents` calls.
+- Keep batches comfortably under the configured gRPC receive limit. For bulk imports, chunk into many ordered `SaveEvents` calls.
 - Set retention age above the slowest subscriber's expected lag and above the catch-up handover grace (~10s).
 - Subscribers that routinely fall out of the live window are served from durable storage; this is correct but increases read load. Scale retention or subscriber throughput accordingly.
 

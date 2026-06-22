@@ -25,9 +25,9 @@ So `ALREADY_EXISTS` after a retry means *"something already moved this context"*
 The store does **not** deduplicate by `event_id`. There is no unique constraint on `event_id` (the primary key is the per-boundary `global_id`). A stable `event_id` is for *detection* and *consumer dedup*; the CCC check is what prevents duplicate writes.
 :::
 
-### Use a deterministic event_id
+### Use a command-stable event_id
 
-Generate the `event_id` from the command intent, not with a fresh random UUID on every attempt. A retried command then carries the same `event_id` as the original, which lets you (and your projectors) recognize it.
+Assign the `event_id` when the command is first accepted, then reuse it on every retry of that command. A UUIDv7 works well when it is generated once and carried with the command; what breaks idempotency is generating a fresh value on every attempt. A retried command should carry the same `event_id` as the original so you and your projectors can recognize it.
 
 ### Retry loop
 
@@ -37,7 +37,7 @@ On `ALREADY_EXISTS`, re-read the context and re-decide — the invariant may no 
   <TabItem value="go" label="Go" default>
 
 ```go
-// Deterministic per command intent — NOT uuid.NewString() on each attempt.
+// Stable for this command — NOT uuid.NewString() on each attempt.
 eventID := "018f2d5e-00a1-7000-8000-0000000000a1"
 
 for {
@@ -88,7 +88,7 @@ for {
   <TabItem value="node" label="Node.js">
 
 ```typescript
-const eventId = '018f2d5e-00a1-7000-8000-0000000000a1'; // deterministic per command
+const eventId = '018f2d5e-00a1-7000-8000-0000000000a1'; // stable per command
 
 for (;;) {
   const latest = await client.getLatestByCriteria({
@@ -124,7 +124,7 @@ for (;;) {
   <TabItem value="java" label="Java">
 
 ```java
-String eventId = "018f2d5e-00a1-7000-8000-0000000000a1"; // deterministic per command
+String eventId = "018f2d5e-00a1-7000-8000-0000000000a1"; // stable per command
 
 while (true) {
     Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
@@ -191,7 +191,7 @@ EOF
 
 ### Ambiguous failures: "maybe it committed"
 
-A timeout *after* the server received the save but *before* you got the response is ambiguous — the command may have committed. Treat it like a conflict: re-read the context. If the carried state already reflects your decision, your first attempt committed; do not apply it again. A deterministic `event_id` makes this check recognizable downstream.
+A timeout *after* the server received the save but *before* you got the response is ambiguous — the command may have committed. Treat it like a conflict: re-read the context. If the carried state already reflects your decision, your first attempt committed; do not apply it again. A command-stable `event_id` makes this check recognizable downstream.
 
 ## Read side: deduplicate by event_id in the projector
 
@@ -207,6 +207,6 @@ Persist the projector checkpoint **after** the side effect is durable, so a rest
 | Concern | Mechanism |
 | --- | --- |
 | Don't write a duplicate on retry | CCC `expected_position` → `ALREADY_EXISTS` |
-| Recognize a retried command | Deterministic `event_id` |
+| Recognize a retried command | Command-stable `event_id` |
 | Don't double-apply on redelivery | Consumer dedup by `event_id` |
 | Recover from a lost response | Re-read the context before retrying |

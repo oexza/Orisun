@@ -22,7 +22,7 @@ With CCC, the application asks for the event subset that matters to the command,
 
 ## Example context
 
-A transfer command can depend on the event scopes for both affected accounts. If the account roots are `AccountOpened` events, transfer events can carry queryable `scope.fromAccountOpenedId` and `scope.toAccountOpenedId` keys:
+A transfer command can depend on the event scopes for both affected accounts. If the account roots are `AccountOpened` events, transfer events can carry queryable `scopes.fromAccountOpenedId` and `scopes.toAccountOpenedId` keys:
 
 ```json
 {
@@ -42,25 +42,25 @@ A transfer command can depend on the event scopes for both affected accounts. If
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+        {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+        {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+        {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     },
     {
       "tags": [
         {"key": "eventType", "value": "TransferRecorded"},
-        {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+        {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     }
   ]
@@ -69,7 +69,7 @@ A transfer command can depend on the event scopes for both affected accounts. If
 
 Criteria entries are combined with OR. Tags inside one criterion are combined with AND.
 
-The `scope.` prefix is only a convention in event `data`; Orisun matches JSON keys exactly. If your application models scopes as a nested object, flatten it before saving so queries and indexes can use keys like `scope.fromAccountOpenedId`. See [Event Scopes](../patterns/event-scopes) for the full pattern.
+The `scopes.` prefix is only a convention in event `data`; Orisun matches JSON keys exactly. If your application models scopes as a nested object, flatten it before saving so queries and indexes can use keys like `scopes.fromAccountOpenedId`. See [Event Scopes](../patterns/event-scopes) for the full pattern.
 
 ## Expected position
 
@@ -128,25 +128,25 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+            {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+            {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+            {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         },
         {
           "tags": [
             {"key": "eventType", "value": "TransferRecorded"},
-            {"key": "scope.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+            {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         }
       ]
@@ -156,7 +156,7 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
     {
       "event_id": "018f2d5e-2003-7000-8000-000000000003",
       "event_type": "TransferRecorded",
-      "data": "{\"transferRecordedId\":\"018f2d5e-2003-7000-8000-000000000003\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scope.fromAccountOpenedId\":\"018f2d5e-2001-7000-8000-000000000001\",\"scope.toAccountOpenedId\":\"018f2d5e-2002-7000-8000-000000000002\"}",
+      "data": "{\"transferRecordedId\":\"018f2d5e-2003-7000-8000-000000000003\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scopes.fromAccountOpenedId\":\"018f2d5e-2001-7000-8000-000000000001\",\"scopes.toAccountOpenedId\":\"018f2d5e-2002-7000-8000-000000000002\"}",
       "metadata": "{}"
     }
   ]

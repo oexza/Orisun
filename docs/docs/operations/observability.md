@@ -13,6 +13,7 @@ Orisun emits OpenTelemetry **traces** and exports them over OTLP gRPC. This is t
 | --- | --- | --- |
 | `ORISUN_OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing. |
 | `ORISUN_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC collector endpoint. |
+| `ORISUN_OTEL_SERVICE_NAME` | `orisun` | Service name attached to exported spans. |
 
 Point `ORISUN_OTEL_ENDPOINT` at any OTLP-compatible collector (the OpenTelemetry Collector, Tempo, Jaeger with OTLP, Honeycomb, etc.). Traces are tagged with the service name so multiple nodes are distinguishable.
 

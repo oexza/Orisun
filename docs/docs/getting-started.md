@@ -48,10 +48,10 @@ You can move to PostgreSQL later without changing the EventStore API.
 
 ## Choose a backend
 
-| Backend | Best for | Multi-node | Binary | Image |
-| --- | --- | --- | --- | --- |
-| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` |
-| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` |
+| Backend | Best for | Multi-node | Binary | Docker Hub image | GHCR image |
+| --- | --- | --- | --- | --- | --- |
+| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/oexza/orisun:sqlite` |
+| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/oexza/orisun:pg` |
 
 Both backends expose the same EventStore and Admin gRPC APIs.
 
@@ -299,7 +299,7 @@ Binary assets are attached to each GitHub release:
 | `orisun-pg-linux-amd64`, `orisun-pg-darwin-arm64`, ... | PostgreSQL only |
 | `orisun-sqlite-linux-amd64`, `orisun-sqlite-darwin-arm64`, ... | SQLite only |
 
-Docker images use one repository with backend flavor tags:
+Docker images are published to Docker Hub and GitHub Container Registry with the same backend flavor tags:
 
 | Tag | Backend |
 | --- | --- |
@@ -309,6 +309,8 @@ Docker images use one repository with backend flavor tags:
 | `orexza/orisun:<version>` | All backends for a release |
 | `orexza/orisun:<version>-pg` | PostgreSQL-only release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+
+Use the same tag names under `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
 
 ## Next steps
 

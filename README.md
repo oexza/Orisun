@@ -86,7 +86,7 @@ See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-star
 | Setup guide | [SQLite and PostgreSQL setup](https://oexza.github.io/Orisun/docs/getting-started) |
 | API guide | [EventStore and Admin API](https://oexza.github.io/Orisun/docs/api/eventstore) |
 | Releases | [github.com/oexza/Orisun/releases](https://github.com/oexza/Orisun/releases) |
-| Docker images | [orexza/orisun](https://hub.docker.com/r/orexza/orisun) |
+| Docker images | [Docker Hub](https://hub.docker.com/r/orexza/orisun), [GHCR](https://github.com/oexza/Orisun/pkgs/container/orisun) |
 | Go client | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
 | Node.js client | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
 | Java client | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
@@ -99,7 +99,7 @@ Release binaries are attached to each GitHub release:
 | `orisun-pg-<os>-<arch>` | PostgreSQL only |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 
-Docker tags use one repository with flavor tags:
+Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`) with the same flavor tags:
 
 | Tag | Backend |
 | --- | --- |
@@ -109,6 +109,8 @@ Docker tags use one repository with flavor tags:
 | `orexza/orisun:<version>` | All backends for a release |
 | `orexza/orisun:<version>-pg` | PostgreSQL-only release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+
+Use the same suffixes with `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
 
 ## Development
 

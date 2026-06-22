@@ -99,7 +99,7 @@ Events have four caller-supplied fields:
 
 | Field | Description |
 | --- | --- |
-| `event_id` | Stable event identifier, a UUID. PostgreSQL requires UUID format; SQLite accepts any string, but UUIDs are recommended. Use this for idempotency and deduplication. |
+| `event_id` | Stable event identifier. Use UUIDs for portability; the docs use UUIDv7 examples. PostgreSQL requires UUID format, while SQLite accepts any string. Orisun does not deduplicate writes by `event_id`; use it for application-level retry recognition and consumer deduplication. |
 | `event_type` | Event type name, for example `OrderPlaced`. |
 | `data` | JSON object encoded as a string. Criteria queries match this JSON object. |
 | `metadata` | JSON object encoded as a string. Use for request source, tracing, or non-domain metadata. |

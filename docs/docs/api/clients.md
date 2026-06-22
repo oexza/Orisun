@@ -31,7 +31,7 @@ go get github.com/oexza/orisun-client-go
 The package is currently installed from GitHub (npm publication is pending):
 
 ```bash
-npm install github:oexza/Orisun#main
+npm install github:oexza/orisun-node-client
 ```
 
 Or in `package.json`:
@@ -39,7 +39,7 @@ Or in `package.json`:
 ```json
 {
   "dependencies": {
-    "@orisun/eventstore-client": "github:oexza/Orisun#main"
+    "@orisun/eventstore-client": "github:oexza/orisun-node-client"
   }
 }
 ```
