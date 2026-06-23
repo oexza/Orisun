@@ -40,7 +40,7 @@ const config: Config = {
       {
         name: 'description',
         content:
-          'Orisun is a batteries-included event store with PostgreSQL or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs.',
+          'Orisun is a batteries-included event store with PostgreSQL, YugabyteDB, or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs.',
       },
     ],
     navbar: {

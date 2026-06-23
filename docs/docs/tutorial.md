@@ -22,7 +22,7 @@ ORISUN_BOUNDARIES='[{"name":"accounts"},{"name":"orisun_admin"}]'
 ORISUN_ADMIN_BOUNDARY=orisun_admin
 ```
 
-For PostgreSQL, also map it to a schema:
+For PostgreSQL-compatible backends, including YugabyteDB, also map it to a schema:
 
 ```bash
 ORISUN_PG_SCHEMAS=accounts:public,orisun_admin:admin

@@ -110,6 +110,7 @@ type PostgresDBConfig struct {
 	Port     string
 	Schemas  string
 	SSLMode  string
+	Dialect  string
 	// Write pool configuration (optimized for write operations)
 	WriteMaxOpenConns    int
 	WriteMaxIdleConns    int
@@ -126,6 +127,13 @@ type PostgresDBConfig struct {
 	AdminConnMaxIdleTime time.Duration
 	AdminConnMaxLifetime time.Duration
 	ListenEnabled        bool
+}
+
+func (p PostgresDBConfig) DatabaseDialect() string {
+	if p.Dialect == "" {
+		return "postgres"
+	}
+	return strings.ToLower(strings.TrimSpace(p.Dialect))
 }
 
 type BoundaryToPostgresSchemaMapping struct {
@@ -264,6 +272,13 @@ func validateConfig(config AppConfig) error {
 		}
 	default:
 		return fmt.Errorf("unknown backend type %q (expected 'postgres' or 'sqlite')", config.Backend.Type)
+	}
+
+	switch config.Postgres.DatabaseDialect() {
+	case "postgres", "yugabyte":
+		// ok
+	default:
+		return fmt.Errorf("unknown postgres dialect %q (expected 'postgres' or 'yugabyte')", config.Postgres.Dialect)
 	}
 
 	isAdminBoundaryDefined := false

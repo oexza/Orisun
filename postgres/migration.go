@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 )
 
 //go:embed scripts/common/*.sql
 var sqlScripts embed.FS
+
+//go:embed scripts/yugabyte/*.sql
+var yugabyteSQLScripts embed.FS
 
 //go:embed scripts/admin/*.sql
 var adminSqlScripts embed.FS
@@ -17,6 +21,15 @@ var adminSqlScripts embed.FS
 // It validates the boundary name, creates the schema if needed, and calls
 // the PostgreSQL initialization functions to create boundary-prefixed tables.
 func RunDbScripts(db *sql.DB, boundary string, schema string, isAdminSchema bool, ctx context.Context) error {
+	return RunDbScriptsWithDialect(db, boundary, schema, isAdminSchema, "postgres", ctx)
+}
+
+func RunDbScriptsWithDialect(db *sql.DB, boundary string, schema string, isAdminSchema bool, dialect string, ctx context.Context) error {
+	dialect = normalizeSQLDialect(dialect)
+	if dialect != "postgres" && dialect != "yugabyte" {
+		return fmt.Errorf("unknown SQL dialect %q", dialect)
+	}
+
 	// Validate boundary name
 	if err := validateBoundaryName(boundary); err != nil {
 		return fmt.Errorf("invalid boundary name %s: %w", boundary, err)
@@ -33,7 +46,7 @@ func RunDbScripts(db *sql.DB, boundary string, schema string, isAdminSchema bool
 	// These scripts define initialize_boundary_tables() and initialize_admin_tables()
 	// We need to load them once per schema, but since we're calling them per-boundary,
 	// we just ensure the functions exist first
-	if err := ensureFunctionsDefined(db, schema, ctx); err != nil {
+	if err := ensureFunctionsDefined(db, schema, dialect, ctx); err != nil {
 		return fmt.Errorf("failed to ensure functions are defined: %w", err)
 	}
 
@@ -44,6 +57,17 @@ func RunDbScripts(db *sql.DB, boundary string, schema string, isAdminSchema bool
 	}
 
 	return nil
+}
+
+func normalizeSQLDialect(dialect string) string {
+	switch strings.ToLower(strings.TrimSpace(dialect)) {
+	case "", "postgres", "postgresql":
+		return "postgres"
+	case "yugabyte", "yugabytedb", "ysql":
+		return "yugabyte"
+	default:
+		return strings.ToLower(strings.TrimSpace(dialect))
+	}
 }
 
 // validateBoundaryName checks if a boundary name is a valid PostgreSQL identifier.
@@ -104,7 +128,7 @@ func createSchemaIfNotExists(db *sql.DB, schema string, ctx context.Context) err
 
 // ensureFunctionsDefined ensures the SQL functions (initialize_boundary_tables, etc.)
 // are defined in the specified schema. This loads the SQL scripts that define these functions.
-func ensureFunctionsDefined(db *sql.DB, schema string, ctx context.Context) error {
+func ensureFunctionsDefined(db *sql.DB, schema string, dialect string, ctx context.Context) error {
 	// We need to execute the SQL scripts that define the functions
 	// but only execute the function definitions, not the table creation (since we do that per-boundary)
 
@@ -113,7 +137,12 @@ func ensureFunctionsDefined(db *sql.DB, schema string, ctx context.Context) erro
 	// The scripts also contain CREATE TABLE IF NOT EXISTS which we're replacing with our functions
 
 	// Load common scripts (contains initialize_boundary_tables function)
-	if err := executeSQLScripts(db, sqlScripts, schema, ctx); err != nil {
+	scripts := sqlScripts
+	if dialect == "yugabyte" {
+		scripts = yugabyteSQLScripts
+	}
+
+	if err := executeSQLScripts(db, scripts, schema, ctx); err != nil {
 		return fmt.Errorf("failed to execute common SQL scripts: %w", err)
 	}
 
@@ -141,6 +170,12 @@ func executeSQLScripts(db *sql.DB, scripts embed.FS, schema string, ctx context.
 		content, err := sqlScripts.ReadFile("scripts/common/db_scripts_1.sql")
 		if err != nil {
 			return fmt.Errorf("failed to read db_scripts_1.sql: %w", err)
+		}
+		scriptContent = string(content)
+	} else if scripts == yugabyteSQLScripts {
+		content, err := yugabyteSQLScripts.ReadFile("scripts/yugabyte/db_scripts_1.sql")
+		if err != nil {
+			return fmt.Errorf("failed to read yugabyte db_scripts_1.sql: %w", err)
 		}
 		scriptContent = string(content)
 	} else if scripts == adminSqlScripts {

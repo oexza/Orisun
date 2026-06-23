@@ -937,6 +937,7 @@ func InitializePostgresDatabase(
 	}()
 
 	postgesBoundarySchemaMappings := postgresDBConfig.GetSchemaMapping()
+	dbDialect := postgresDBConfig.DatabaseDialect()
 
 	// Create PG LISTEN/NOTIFY listener if enabled.
 	var pgListener *PGNotifyListener
@@ -970,7 +971,7 @@ func InitializePostgresDatabase(
 	for boundary, mapping := range postgesBoundarySchemaMappings {
 		isAdminBoundary := boundary == adminConfig.Boundary
 		// Use write pool for database migrations (schema changes)
-		if err = RunDbScripts(writeDB, boundary, mapping.Schema, isAdminBoundary, ctx); err != nil {
+		if err = RunDbScriptsWithDialect(writeDB, boundary, mapping.Schema, isAdminBoundary, dbDialect, ctx); err != nil {
 			logger.Fatalf("Failed to run database migrations for boundary %s in schema %s: %v", boundary, mapping.Schema, err)
 		}
 

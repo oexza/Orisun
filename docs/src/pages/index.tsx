@@ -9,7 +9,7 @@ type LinkItem = readonly [title: string, href: string, description: string];
 type FlowStep = readonly [number: string, title: string, description: string];
 
 const heroFacts = [
-  ['Storage', 'PostgreSQL or SQLite'],
+  ['Storage', 'PostgreSQL, YugabyteDB, or SQLite'],
   ['Consistency', 'JSON-scoped optimistic writes'],
   ['Delivery', 'Catch-up plus live JetStream'],
 ];
@@ -25,7 +25,7 @@ const guarantees = [
     label: 'Delivery',
     title: 'No skipped committed events',
     description:
-      'Publisher checkpoints live in PostgreSQL or SQLite. Wake-up signals can be missed; committed events still drain sequentially.',
+      'Publisher checkpoints live in PostgreSQL-compatible storage or SQLite. Wake-up signals can be missed; committed events still drain sequentially.',
   },
   {
     label: 'Deployment',
@@ -47,6 +47,12 @@ const backends = [
     href: '/docs/getting-started#run-postgresql-from-a-binary',
     summary: 'Multi-node Orisun deployments backed by database-managed storage and operational tooling.',
     details: ['cluster locks', 'schemas', 'PgBouncer-friendly config', 'shared storage'],
+  },
+  {
+    name: 'YugabyteDB',
+    href: '/docs/getting-started#run-yugabytedb-from-a-binary',
+    summary: 'PostgreSQL-compatible distributed SQL with Orisun committed-watermark reads.',
+    details: ['YSQL', 'pg_notify wake-ups', 'advisory locks', 'committed watermark'],
   },
 ];
 
@@ -151,7 +157,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Event Store With Embedded Delivery"
-      description="Orisun is a batteries-included event store with PostgreSQL or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs."
+      description="Orisun is a batteries-included event store with PostgreSQL, YugabyteDB, or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs."
     >
       <header className={styles.hero}>
         <div className={styles.heroGrid} />
@@ -275,8 +281,9 @@ export default function Home(): ReactNode {
               <span className={styles.eyebrow}>Why Orisun</span>
               <h2>The event log, consistency boundary, and delivery loop live together.</h2>
               <p>
-                PostgreSQL or SQLite is the durable source of truth. Embedded JetStream is the
-                delivery layer. Your application keeps business decisions in application code.
+                PostgreSQL-compatible storage or SQLite is the durable source of truth. Embedded
+                JetStream is the delivery layer. Your application keeps business decisions in
+                application code.
               </p>
             </div>
             <div className={styles.featureGrid}>

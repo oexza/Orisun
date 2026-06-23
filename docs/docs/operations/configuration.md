@@ -16,7 +16,7 @@ Configuration is shared across release binaries, Docker images, and embedded dep
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state. |
 | `ORISUN_ADMIN_PASSWORD` | Bootstrap admin password. The default is for local development only. |
 
-For PostgreSQL, also set:
+For PostgreSQL-compatible backends, also set:
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -27,6 +27,25 @@ For PostgreSQL, also set:
 | `ORISUN_PG_NAME` | `orisun` | PostgreSQL database. |
 | `ORISUN_PG_SCHEMAS` | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Comma-separated `boundary:schema` mappings. |
 | `ORISUN_PG_SSLMODE` | `disable` | PostgreSQL SSL mode passed to the driver. |
+| `ORISUN_PG_DIALECT` | `postgres` | SQL dialect for the PostgreSQL-compatible backend. Use `yugabyte` for YugabyteDB; this selects committed-watermark visibility. YugabyteDB deployments must run `v2025.2.3+` with `LISTEN/NOTIFY` enabled. |
+
+For YugabyteDB, use the PostgreSQL-compatible backend and set:
+
+```bash
+ORISUN_BACKEND=postgres
+ORISUN_PG_DIALECT=yugabyte
+ORISUN_PG_PORT=5433
+ORISUN_PG_LISTEN_ENABLED=true
+```
+
+YugabyteDB must be `v2025.2.3` or later and must enable `LISTEN/NOTIFY` on both Masters and TServers:
+
+```bash
+--master_flags=ysql_yb_enable_listen_notify=true
+--tserver_flags=ysql_yb_enable_listen_notify=true
+```
+
+Orisun uses `pg_notify` for publisher wake-ups in YugabyteDB mode. Polling still protects delivery correctness, but writes require `pg_notify` to be available.
 
 For SQLite, set:
 
@@ -43,7 +62,7 @@ For SQLite, set:
 ORISUN_BOUNDARIES='[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]'
 ```
 
-For PostgreSQL, every boundary should also appear in `ORISUN_PG_SCHEMAS`:
+For PostgreSQL-compatible backends, every boundary should also appear in `ORISUN_PG_SCHEMAS`:
 
 ```bash
 ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
@@ -88,9 +107,9 @@ Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63
 | `ORISUN_SQLITE_WAL_AUTO_CHECKPOINT` | `0` | SQLite WAL auto-checkpoint override. |
 | `ORISUN_SQLITE_TEMP_STORE` | `MEMORY` | SQLite temp-store mode. |
 
-## PostgreSQL pool settings
+## PostgreSQL-compatible pool settings
 
-Orisun uses separate PostgreSQL pools for writes, reads, and admin work. Size their combined open connections below PostgreSQL `max_connections` or the PgBouncer pool size.
+Orisun uses separate PostgreSQL-compatible pools for writes, reads, and admin work. Size their combined open connections below the database connection limit or the PgBouncer pool size.
 
 | Variable | Default | Description |
 | --- | --- | --- |
