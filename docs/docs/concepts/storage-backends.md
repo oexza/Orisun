@@ -1,15 +1,23 @@
 ---
 title: Storage Backends
+<<<<<<< HEAD
 description: Choose between PostgreSQL, SQLite, and FoundationDB deployment profiles.
 ---
 
 Orisun supports PostgreSQL, SQLite, and FoundationDB. The backend is selected with `ORISUN_BACKEND` or by using a backend-specific binary or Docker image.
+=======
+description: Choose between PostgreSQL-compatible and SQLite deployment profiles.
+---
+
+Orisun supports PostgreSQL, YugabyteDB, and SQLite. The backend is selected with `ORISUN_BACKEND` or by using a backend-specific binary or Docker image. YugabyteDB uses the PostgreSQL-compatible backend with `ORISUN_PG_DIALECT=yugabyte`.
+>>>>>>> main
 
 ## Backend Matrix
 
 | Backend | Use case | Multi-node | Driver |
 | --- | --- | --- | --- |
 | `postgres` | Production clusters, larger datasets, shared database platforms | Yes | `pgx` |
+| `postgres` + `ORISUN_PG_DIALECT=yugabyte` | YugabyteDB clusters using YSQL | Yes | `pgx` |
 | `sqlite` | Embedded apps, edge, development, low-ops single-node production | No | `zombiezen.com/go/sqlite` |
 | `foundationdb` | Distributed transactional key-value deployments | Yes | FoundationDB Go binding |
 
@@ -39,6 +47,7 @@ PostgreSQL mode stores two ordering-related values:
 
 Do not use PostgreSQL internal transaction IDs as application cursors. From Orisun `0.3.1`, startup migrations remap older Orisun databases that exposed PostgreSQL transaction IDs as public commit positions. See [Positions and Ordering](./positions#postgresql-transaction-ids) and [Deployment](../operations/deployment#postgresql-major-upgrades).
 
+<<<<<<< HEAD
 ## FoundationDB
 
 FoundationDB is a clustered backend built on ordered key-value transactions. Build binaries that include it with the `foundationdb` build tag and install the native FoundationDB client libraries on every host.
@@ -65,6 +74,28 @@ Criteria queries keep the same public API, but FoundationDB requires ready cover
 FoundationDB assigns event positions with commit versionstamps instead of a per-boundary counter. Plain appends can commit in parallel; writes with a consistency context conflict only on the covered index range for that context, so commands on different aggregates in one boundary commit concurrently. As in the other backends, an `expected_position` takes effect only together with consistency criteria.
 
 For cluster layout, process classes, Kubernetes, backups, and monitoring, see [FoundationDB topology](../operations/deployment#foundationdb-topology).
+=======
+## YugabyteDB
+
+YugabyteDB is supported through the PostgreSQL-compatible backend. Set:
+
+```bash
+ORISUN_BACKEND=postgres
+ORISUN_PG_DIALECT=yugabyte
+ORISUN_PG_PORT=5433
+```
+
+YugabyteDB requirements:
+
+- YugabyteDB `v2025.2.3` or later.
+- YSQL enabled and reachable through the PostgreSQL wire protocol.
+- `LISTEN/NOTIFY` enabled on both Masters and TServers with `ysql_yb_enable_listen_notify=true`.
+- Advisory locks enabled. YugabyteDB `v2025.1+` enables them by default.
+
+Orisun uses the same logical positions on YugabyteDB as on PostgreSQL: `transaction_id` is the public commit position and `global_id` is the event position inside a boundary. YugabyteDB does not expose PostgreSQL internal transaction IDs, so Orisun uses an application-managed `<boundary>_orisun_committed_position` watermark for stable-prefix ASC reads instead of PostgreSQL's `pg_xact_id` snapshot barrier.
+
+Publisher wake-ups still use `LISTEN/NOTIFY`, and polling remains the no-miss fallback if a notification is delayed. Because Orisun's YugabyteDB write path calls `pg_notify`, a cluster without `LISTEN/NOTIFY` enabled will fail writes during startup or save operations.
+>>>>>>> main
 
 ## SQLite
 
@@ -111,4 +142,8 @@ FoundationDB maps each boundary to tuple-encoded key ranges under `ORISUN_FDB_RO
 
 ## Migrating between backends
 
+<<<<<<< HEAD
 The public API is the same across backends, but storage files, keyspaces, and database schemas are backend-specific. Treat backend migration as a data migration: export from one backend, replay or import into the other, then move traffic after validation.
+=======
+The public API is the same across supported backends, but storage files and database schemas are backend-specific. Treat backend migration as a data migration: export from one backend, replay or import into the other, then move traffic after validation.
+>>>>>>> main

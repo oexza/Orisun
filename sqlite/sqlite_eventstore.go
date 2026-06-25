@@ -260,13 +260,12 @@ type SqliteSaveEvents struct {
 
 type sqliteEventToInsert struct {
 	EventID      string
-	EventType    string
 	DataJSON     string
 	MetadataJSON string
 }
 
 const (
-	sqliteInsertParamsPerEvent = 6
+	sqliteInsertParamsPerEvent = 5
 	sqliteMaxInsertParams      = 999
 	sqliteMaxEventsPerInsert   = sqliteMaxInsertParams / sqliteInsertParamsPerEvent
 )
@@ -391,7 +390,6 @@ func normalizeEventsForSqliteInsert(events []eventstore.EventWithMapTags) ([]sql
 		}
 		out[i] = sqliteEventToInsert{
 			EventID:      event.EventId,
-			EventType:    event.EventType,
 			DataJSON:     dataJSON,
 			MetadataJSON: metadataJSON,
 		}
@@ -409,16 +407,16 @@ func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, 
 
 		var sb strings.Builder
 		sb.Grow(64 + len(chunk)*48)
-		sb.WriteString("INSERT INTO orisun_es_event (transaction_id, global_id, event_id, event_type, data, metadata) VALUES ")
+		sb.WriteString("INSERT INTO orisun_es_event (transaction_id, global_id, event_id, data, metadata) VALUES ")
 		insertArgs := make([]any, 0, len(chunk)*sqliteInsertParamsPerEvent)
 		for i, e := range chunk {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString("(?, ?, ?, ?, ?, ?)")
+			sb.WriteString("(?, ?, ?, ?, ?)")
 			gid := firstID + int64(start+i)
 			insertArgs = append(insertArgs,
-				transactionID, gid, e.EventID, e.EventType, e.DataJSON, e.MetadataJSON,
+				transactionID, gid, e.EventID, e.DataJSON, e.MetadataJSON,
 			)
 		}
 
@@ -497,7 +495,7 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 	}
 
 	q := fmt.Sprintf(
-		"SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created "+
+		"SELECT transaction_id, global_id, event_id, json_extract(data, '$.\"eventType\"') AS event_type, data, metadata, date_created "+
 			"FROM orisun_es_event WHERE %s ORDER BY transaction_id %s, global_id %s LIMIT %d",
 		whereSQL, dirSQL, dirSQL, count,
 	)
@@ -586,7 +584,7 @@ func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventsto
 		if buildErr != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
 		}
-		q := "SELECT transaction_id, global_id, event_id, event_type, data, metadata, date_created " +
+		q := "SELECT transaction_id, global_id, event_id, json_extract(data, '$.\"eventType\"') AS event_type, data, metadata, date_created " +
 			"FROM orisun_es_event WHERE " + where +
 			" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
 
@@ -617,8 +615,8 @@ func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventsto
 	return resp, nil
 }
 
-// scanEventRow decodes one orisun_es_event row in the canonical column order
-// (transaction_id, global_id, event_id, event_type, data, metadata, date_created).
+// scanEventRow decodes one orisun_es_event row in the canonical query order
+// (transaction_id, global_id, event_id, event_type alias, data, metadata, date_created).
 func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
 	created := stmt.ColumnText(6)
 	t, parseErr := time.Parse(time.RFC3339Nano, created)

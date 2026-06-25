@@ -541,7 +541,7 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	defer setup.cleanup(b)
 
 	boundary := "benchmark_test"
-	concurrency := 20000
+	concurrency := 10000
 
 	var totalEvents int64
 	var totalErrors int64

@@ -256,7 +256,9 @@ func authorizeRequest(ctx context.Context, roles []Role) error {
 }
 
 func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResponse, err error) {
-	s.logger.Debugf("Ping called")
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("Ping called")
+	}
 	return &PingResponse{}, nil
 }
 
@@ -322,7 +324,9 @@ func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*Dro
 }
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
-	s.logger.Debugf("SaveEvents called with req: %v", req)
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("SaveEvents called with req: %v", req)
+	}
 
 	err = authorizeRequest(ctx, []Role{RoleAdmin, RoleOperations})
 	if err != nil {
@@ -402,7 +406,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 }
 
 func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
-	s.logger.Debugf("GetEvents called with req: %v", req)
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("GetEvents called with req: %v", req)
+	}
 	if req.Count == 0 {
 		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
 	}
@@ -413,7 +419,9 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 }
 
 func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
-	s.logger.Debugf("GetLatestByCriteria called with req: %v", req)
+	if s.logger.IsDebugEnabled() {
+		s.logger.Debugf("GetLatestByCriteria called with req: %v", req)
+	}
 	if req.Boundary == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "boundary is required")
 	}
@@ -552,7 +560,9 @@ func (s *EventStore) SubscribeToAllEvents(
 			timeToSubscribeFromJetstream = pollingCompletedTime
 		} else {
 			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()
-			s.logger.Debugf("Starting NATS subscription from last processed event time: %v", timeToSubscribeFromJetstream)
+			if s.logger.IsDebugEnabled() {
+				s.logger.Debugf("Starting NATS subscription from last processed event time: %v", timeToSubscribeFromJetstream)
+			}
 		}
 	} else {
 		// No events processed, start from polling completion time

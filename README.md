@@ -13,7 +13,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 ## What It Provides
 
-- Transactional event storage on PostgreSQL or SQLite.
+- Transactional event storage on PostgreSQL, YugabyteDB, or SQLite.
 - Command Context Consistency: save only if the queried event context has not changed.
 - Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.
@@ -75,7 +75,11 @@ ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ./build/orisun-pg-linux-amd64
 ```
 
-See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-started) for binary and Docker setup for both backends.
+YugabyteDB uses the PostgreSQL-compatible binary with `ORISUN_PG_DIALECT=yugabyte`.
+Use YugabyteDB `v2025.2.3+` and enable `LISTEN/NOTIFY` on Masters and TServers
+with `ysql_yb_enable_listen_notify=true`.
+
+See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-started) for binary and Docker setup for all supported backends.
 
 ## Artifacts
 
@@ -83,10 +87,10 @@ See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-star
 | --- | --- |
 | Documentation | [GitHub Pages](https://oexza.github.io/Orisun/) |
 | Start here | [Choose the right docs path](https://oexza.github.io/Orisun/docs/start-here) |
-| Setup guide | [SQLite and PostgreSQL setup](https://oexza.github.io/Orisun/docs/getting-started) |
+| Setup guide | [SQLite, PostgreSQL, and YugabyteDB setup](https://oexza.github.io/Orisun/docs/getting-started) |
 | API guide | [EventStore and Admin API](https://oexza.github.io/Orisun/docs/api/eventstore) |
 | Releases | [github.com/oexza/Orisun/releases](https://github.com/oexza/Orisun/releases) |
-| Docker images | [orexza/orisun](https://hub.docker.com/r/orexza/orisun) |
+| Docker images | [Docker Hub](https://hub.docker.com/r/orexza/orisun), [GHCR](https://github.com/oexza/Orisun/pkgs/container/orisun) |
 | Go client | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
 | Node.js client | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
 | Java client | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
@@ -96,20 +100,22 @@ Release binaries are attached to each GitHub release:
 | Asset pattern | Backend |
 | --- | --- |
 | `orisun-<os>-<arch>` | All backends |
-| `orisun-pg-<os>-<arch>` | PostgreSQL only |
+| `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` |
 
-Docker tags use one repository with flavor tags:
+Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`) with the same flavor tags:
 
 | Tag | Backend |
 | --- | --- |
 | `orexza/orisun:latest` | All backends |
-| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
 | `orexza/orisun:<version>` | All backends for a release |
-| `orexza/orisun:<version>-pg` | PostgreSQL-only release |
+| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+
+Use the same suffixes with `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
 
 ## Development
 

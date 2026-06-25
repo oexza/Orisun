@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -171,8 +172,99 @@ func TestSave_AddsEventTypeToData(t *testing.T) {
 	if data["eventType"] != "OrderPlaced" {
 		t.Fatalf("expected canonical eventType in data, got %v", data["eventType"])
 	}
+	if resp.Events[0].EventType != "OrderPlaced" {
+		t.Fatalf("expected EventType from data.eventType, got %q", resp.Events[0].EventType)
+	}
 	if data["order_id"] != "order-1" {
 		t.Fatalf("expected original data to be preserved, got %v", data["order_id"])
+	}
+
+	conn, err := pools["test"].Read.Take(ctx)
+	if err != nil {
+		t.Fatalf("take read conn: %v", err)
+	}
+	defer pools["test"].Read.Put(conn)
+	hasEventTypeColumn, err := tableHasColumn(conn, "orisun_es_event", "event_type")
+	if err != nil {
+		t.Fatalf("inspect event table: %v", err)
+	}
+	if hasEventTypeColumn {
+		t.Fatal("event_type storage column should not exist")
+	}
+}
+
+func TestMigration_DropsEventTypeColumnAfterBackfill(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	conn, err := sqlite.OpenConn(dbPath, sqlite.OpenReadWrite|sqlite.OpenCreate)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if err := sqlitex.ExecuteScript(conn, `
+CREATE TABLE orisun_es_event (
+    transaction_id INTEGER NOT NULL,
+    global_id      INTEGER PRIMARY KEY,
+    event_id       TEXT    NOT NULL,
+    event_type     TEXT    NOT NULL CHECK (event_type <> ''),
+    data           TEXT    NOT NULL CHECK (json_valid(data)),
+    metadata       TEXT,
+    date_created   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE orisun_es_seq (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    next_id INTEGER NOT NULL DEFAULT 2
+);
+INSERT INTO orisun_es_seq (id, next_id) VALUES (1, 2);
+INSERT INTO orisun_es_event (transaction_id, global_id, event_id, event_type, data, metadata)
+VALUES (1, 1, 'event-1', 'MigratedEvent', '{"eventType":"stale","k":"v"}', '{}');
+`, nil); err != nil {
+		conn.Close()
+		t.Fatalf("seed legacy db: %v", err)
+	}
+	conn.Close()
+
+	bp, err := OpenBoundaryPools(context.Background(), dir, "test", "test")
+	if err != nil {
+		t.Fatalf("open migrated pools: %v", err)
+	}
+	defer bp.Close()
+
+	readConn, err := bp.Read.Take(context.Background())
+	if err != nil {
+		t.Fatalf("take read conn: %v", err)
+	}
+	hasEventTypeColumn, err := tableHasColumn(readConn, "orisun_es_event", "event_type")
+	bp.Read.Put(readConn)
+	if err != nil {
+		t.Fatalf("inspect event table: %v", err)
+	}
+	if hasEventTypeColumn {
+		t.Fatal("event_type storage column should be dropped")
+	}
+
+	logger, _ := logging.ZapLogger("error")
+	getter := NewSqliteGetEvents(map[string]*BoundaryPools{"test": bp}, logger)
+	resp, err := getter.Get(context.Background(), &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Direction: eventstore.Direction_ASC,
+		Count:     10,
+	})
+	if err != nil {
+		t.Fatalf("get migrated event: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(resp.Events))
+	}
+	if resp.Events[0].EventType != "MigratedEvent" {
+		t.Fatalf("expected EventType from migrated data, got %q", resp.Events[0].EventType)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(resp.Events[0].Data), &data); err != nil {
+		t.Fatalf("unmarshal data: %v", err)
+	}
+	if data["eventType"] != "MigratedEvent" {
+		t.Fatalf("expected migrated data.eventType, got %v", data["eventType"])
 	}
 }
 

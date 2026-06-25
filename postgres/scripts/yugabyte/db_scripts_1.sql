@@ -1,24 +1,26 @@
 -- Initialize Boundary Tables Function
 --
--- Creates or upgrades the PostgreSQL objects used by one logical boundary in a
+-- Creates or upgrades the YugabyteDB objects used by one logical boundary in a
 -- caller-supplied schema. Boundaries are mapped to schemas by Go configuration;
 -- the boundary name is used only as the table/sequence prefix inside that schema.
 --
 -- Parameters:
 --   boundary_name (TEXT): Boundary/table prefix, validated as a PostgreSQL identifier
---   schema_name (TEXT): PostgreSQL schema where the boundary objects live
+--   schema_name (TEXT): YugabyteDB schema where the boundary objects live
 --
 -- Creates or maintains:
 --   <boundary>_orisun_es_event
 --   <boundary>_orisun_es_event_global_id_seq
 --   <boundary>_orisun_last_published_event_position
+--   <boundary>_orisun_committed_position
 --   <boundary>_events_count
 --   <boundary>_projector_checkpoint
 --
 -- Existing rows may be migrated from old PostgreSQL-XID positions to Orisun
 -- logical positions. transaction_id is the logical commit position used by
--- clients, projectors, and publishing checkpoints; pg_xact_id is only an
--- internal visibility marker for current-cluster in-flight transaction checks.
+-- clients, projectors, and publishing checkpoints. YugabyteDB does not expose
+-- PostgreSQL xid semantics, so pg_xact_id is kept only for storage-shape
+-- compatibility and the committed watermark is used for stable-prefix reads.
 -- Existing rows with a legacy event_type column are backfilled into
 -- data.eventType before the redundant storage column is dropped.
 
@@ -83,16 +85,12 @@ BEGIN
                        schema_name, boundary_name || '_orisun_es_event');
     END IF;
 
-    -- pg_xact_id is current-cluster-only. After dump/restore or a major upgrade
-    -- into a fresh cluster, the new cluster's xid8 can restart below values
-    -- stored by the old cluster. Those stale values must not be used as a
-    -- visibility barrier, or old committed rows can be hidden until the new
-    -- cluster's XID counter catches up.
+    -- YugabyteDB does not provide PostgreSQL xid semantics. Keep pg_xact_id
+    -- nullable for table-shape compatibility, but do not use stored values.
     EXECUTE format('
         UPDATE %I.%I
         SET pg_xact_id = NULL
-        WHERE pg_xact_id IS NOT NULL
-          AND pg_xact_id >= pg_current_xact_id()::TEXT::BIGINT',
+        WHERE pg_xact_id IS NOT NULL',
                    schema_name, boundary_name || '_orisun_es_event');
 
     EXECUTE format('
@@ -131,6 +129,39 @@ BEGIN
         date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
         date_updated   TIMESTAMPTZ DEFAULT NOW() NOT NULL
     )', schema_name, boundary_name || '_orisun_last_published_event_position');
+
+    -- Stable committed-prefix watermark for YugabyteDB ASC reads. Writers hold
+    -- the per-boundary position lock until commit, and update this row in the
+    -- same transaction as event inserts.
+    EXECUTE format('CREATE TABLE IF NOT EXISTS %I.%I (
+        boundary       TEXT PRIMARY KEY,
+        transaction_id BIGINT NOT NULL DEFAULT -1,
+        global_id      BIGINT NOT NULL DEFAULT -1,
+        date_created   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+        date_updated   TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    )', schema_name, boundary_name || '_orisun_committed_position');
+
+    EXECUTE format('
+        INSERT INTO %I.%I (boundary, transaction_id, global_id, date_created, date_updated)
+        SELECT %L,
+               COALESCE(latest.transaction_id, -1),
+               COALESCE(latest.global_id, -1),
+               NOW(),
+               NOW()
+        FROM (SELECT 1) seed
+        LEFT JOIN LATERAL (
+            SELECT transaction_id, global_id
+            FROM %I.%I
+            ORDER BY transaction_id DESC, global_id DESC
+            LIMIT 1
+        ) latest ON TRUE
+        ON CONFLICT (boundary)
+        DO UPDATE SET transaction_id = EXCLUDED.transaction_id,
+                      global_id = EXCLUDED.global_id,
+                      date_updated = NOW()',
+                   schema_name, boundary_name || '_orisun_committed_position',
+                   boundary_name,
+                   schema_name, boundary_name || '_orisun_es_event');
 
     EXECUTE format('
         UPDATE %I.%I p
@@ -213,7 +244,6 @@ DECLARE
     criteria              JSONB;
     expected_tx_id        BIGINT;
     expected_gid          BIGINT;
-    current_pg_xact_id    BIGINT;
     latest_tx_id          BIGINT;
     latest_gid            BIGINT;
     key_record            TEXT;
@@ -232,8 +262,6 @@ BEGIN
     criteria := query -> 'criteria';
     expected_tx_id := (query -> 'expected_position' ->> 'transaction_id')::BIGINT;
     expected_gid := (query -> 'expected_position' ->> 'global_id')::BIGINT;
-    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
-
     -- Build a schema-qualified sequence reference for nextval. This avoids
     -- depending on search_path, including under pgbouncer transaction pooling.
     prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
@@ -349,7 +377,7 @@ BEGIN
                        WHEN jsonb_typeof(e -> ''metadata'') = ''string'' THEN (e ->> ''metadata'')::jsonb
                        ELSE COALESCE(e -> ''metadata'', ''{}'')
                    END AS metadata_json
-            FROM jsonb_array_elements($2) AS e
+            FROM jsonb_array_elements($1) AS e
         ),
         max_global_id AS (
             SELECT MAX(global_id) AS max_seq_overall,
@@ -366,7 +394,7 @@ BEGIN
                                          metadata
             )
             SELECT max_global_id.logical_transaction_id,
-                   $1,
+                   NULL,
                    (e ->> ''event_id'')::UUID,
                    events_with_ids.global_id,
                    events_with_ids.data_json,
@@ -380,7 +408,18 @@ BEGIN
                    prefixed_seq_name,
                    schema,
                    boundary_name || '_orisun_es_event'
-            ) USING current_pg_xact_id, events INTO new_global_id, latest_transaction_id, latest_global_id;
+            ) USING events INTO new_global_id, latest_transaction_id, latest_global_id;
+
+    EXECUTE format('
+        INSERT INTO %I.%I (boundary, transaction_id, global_id, date_created, date_updated)
+        VALUES ($1, $2, $3, NOW(), NOW())
+        ON CONFLICT (boundary)
+        DO UPDATE SET transaction_id = $2,
+                      global_id = $3,
+                      date_updated = NOW()',
+                   schema,
+                   boundary_name || '_orisun_committed_position'
+            ) USING boundary_name, latest_transaction_id, latest_global_id;
 
     PERFORM pg_notify('orisun_events_' || md5(boundary_name), new_global_id::text);
 
@@ -407,8 +446,8 @@ $$;
 -- Position filtering is inclusive: ASC reads from >= after_position and DESC
 -- reads from <= after_position. ASC reads also apply a stable-prefix visibility
 -- barrier, hiding rows from transactions that are still in flight according to
--- pg_xact_id. Rows with NULL pg_xact_id are legacy/restored rows and are treated
--- as visible.
+-- the committed-position watermark. Rows beyond the watermark are not returned
+-- to ASC readers, which keeps publisher scans on a stable committed prefix.
 
 CREATE OR REPLACE FUNCTION get_matching_events_v3(
     boundary_name TEXT,
@@ -435,6 +474,7 @@ $$
 DECLARE
     op                   TEXT  := CASE WHEN sort_dir = 'ASC' THEN '>' ELSE '<' END;
     qualified_table_name TEXT;
+    qualified_watermark_table TEXT;
     criteria_array       JSONB := criteria -> 'criteria';
     tx_id                TEXT  := (after_position ->> 'transaction_id')::text;
     global_id            TEXT  := (after_position ->> 'global_id')::text;
@@ -451,6 +491,7 @@ BEGIN
 
     -- Build the schema-qualified boundary event table name.
     qualified_table_name := format('%I.%I_orisun_es_event', schema, boundary_name);
+    qualified_watermark_table := format('%I.%I_orisun_committed_position', schema, boundary_name);
 
     -- Build the content query as an OR of criteria, where each criterion is
     -- an AND of tag equality checks.
@@ -483,7 +524,11 @@ BEGIN
         FROM %s
         WHERE
             %2$s AND
-            (%8$L != 'ASC' OR pg_xact_id IS NULL OR pg_xact_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())) AND
+            (%8$L != 'ASC' OR (transaction_id, global_id) <= (
+                SELECT cp.transaction_id, cp.global_id
+                FROM %10$s cp
+                WHERE cp.boundary = %11$L
+            )) AND
             (%3$L IS NULL OR (
                     (transaction_id, global_id) %4$s= (
                         %5$L::BIGINT,
@@ -502,7 +547,9 @@ BEGIN
             global_id,
             '',
             sort_dir,
-            LEAST(GREATEST(max_count, 1), 10000)
+            LEAST(GREATEST(max_count, 1), 10000),
+            qualified_watermark_table,
+            boundary_name
                          );
 END;
 $$;

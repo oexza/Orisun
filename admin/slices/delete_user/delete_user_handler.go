@@ -54,10 +54,12 @@ func DeleteUser(
 ) error {
 	userId = strings.TrimSpace(userId)
 	currentUserId = strings.TrimSpace(currentUserId)
-	logger.Debug("Current Userrrr: " + currentUserId)
+	if logger.IsDebugEnabled() {
+		logger.Debug("Current Userrrr: " + currentUserId)
+	}
 
 	if userId == currentUserId {
-		return fmt.Errorf("You cannot delete your own account")
+		return fmt.Errorf("you cannot delete your own account")
 	}
 	logger.Infof("Deleting user: %s", userId)
 	evts, err := getEvents(

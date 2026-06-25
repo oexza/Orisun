@@ -3,6 +3,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 const sidebars: SidebarsConfig = {
   docs: [
     'overview',
+    'comparison',
     'start-here',
     'getting-started',
     'tutorial',
@@ -16,6 +17,17 @@ const sidebars: SidebarsConfig = {
         'concepts/storage-backends',
         'concepts/delivery-guarantees',
         'concepts/indexing',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Patterns',
+      collapsed: false,
+      items: [
+        'patterns/idempotency-and-retry',
+        'patterns/projection-rebuild',
+        'patterns/event-scopes',
+        'patterns/event-schema-evolution',
       ],
     },
     {
@@ -42,6 +54,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['embedding/go'],
     },
+    'internals',
     {
       type: 'category',
       label: 'Project',

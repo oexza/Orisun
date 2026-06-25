@@ -52,13 +52,15 @@ The environment file contains the same settings shown in [Getting Started](../ge
 
 Use the published Docker images when your platform already standardizes on containers, or when you want the simplest way to run the official release artifact.
 
-The image tags mirror the binary flavors:
+Images are published to both Docker Hub and GitHub Container Registry. The Docker Hub tags mirror the binary flavors:
 
 | Image | Backend |
 | --- | --- |
 | `orexza/orisun:latest` | all backends |
-| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
+
+The same tags are also available under `ghcr.io/oexza/orisun`.
 
 Persist the same directories you would persist for a binary deployment. Containers do not change the storage model.
 
@@ -188,6 +190,30 @@ Expected publisher behavior:
 - Other nodes may log lock contention for that boundary.
 - If the owner exits, another node resumes from the PostgreSQL checkpoint.
 
+## YugabyteDB
+
+YugabyteDB is deployed through the PostgreSQL-compatible backend:
+
+```bash
+ORISUN_BACKEND=postgres
+ORISUN_PG_DIALECT=yugabyte
+ORISUN_PG_PORT=5433
+ORISUN_PG_LISTEN_ENABLED=true
+```
+
+Use YugabyteDB `v2025.2.3` or later. Enable `LISTEN/NOTIFY` on both Masters and TServers:
+
+```bash
+--master_flags=ysql_yb_enable_listen_notify=true
+--tserver_flags=ysql_yb_enable_listen_notify=true
+```
+
+Orisun requires YugabyteDB advisory locks and `LISTEN/NOTIFY`. Advisory locks are enabled by default in YugabyteDB `v2025.1+`. `LISTEN/NOTIFY` is disabled by default in YugabyteDB and must be enabled before Orisun starts. If `pg_notify` is unavailable, saves fail.
+
+YugabyteDB does not provide PostgreSQL internal transaction ID semantics, so Orisun uses a per-boundary committed-position watermark for stable-prefix reads. This is selected automatically by `ORISUN_PG_DIALECT=yugabyte`; do not run YugabyteDB with the default `postgres` dialect.
+
+For clustered Orisun nodes, use the same guidance as [Clustered PostgreSQL](#clustered-postgresql): all Orisun nodes share the same YugabyteDB database, boundaries, schema mapping, and NATS cluster configuration.
+
 ## FoundationDB topology
 
 A FoundationDB deployment has three independently scalable tiers:
@@ -235,6 +261,7 @@ Orisun's write scaling rides this directly: positions come from commit versionst
 - Coordinators: 3 spread across failure domains in one datacenter, 5 across multiple.
 - Bound client-side stalls with `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` (default 10s) so a partitioned cluster surfaces as errors instead of hung requests.
 
+
 ## PgBouncer
 
 Session mode works out of the box.
@@ -260,7 +287,7 @@ Effective values are logged at startup.
 
 | Limit | Value | Notes |
 | --- | --- | --- |
-| gRPC request message size | 4 MB (gRPC default) | Caps a single `SaveEvents` request, so it bounds batch size × event payload. Split very large batches. |
+| gRPC request message size | `ORISUN_GRPC_MAX_RECEIVE_MESSAGE_SIZE` (default 64 MB) | Caps a single `SaveEvents` request, so it bounds batch size times event payload. Split very large batches. |
 | Event `data` / `metadata` | JSON string per field | No separate field cap; the whole request must fit the message-size limit above. |
 | Publisher read batch | `ORISUN_POLLING_PUBLISHER_BATCH_SIZE` (default 1000) | Events drained per publisher read cycle. Raise for high write volume, lower to smooth memory. |
 | `GetEvents` page | `count` per request, server-capped at 10000 | Page with `from_position`; see [Positions and Ordering](../concepts/positions#positions-and-paging). |
@@ -268,7 +295,7 @@ Effective values are logged at startup.
 
 Sizing guidance:
 
-- Keep batches comfortably under 4 MB. For bulk imports, chunk into many ordered `SaveEvents` calls.
+- Keep batches comfortably under the configured gRPC receive limit. For bulk imports, chunk into many ordered `SaveEvents` calls.
 - Set retention age above the slowest subscriber's expected lag and above the catch-up handover grace (~10s).
 - Subscribers that routinely fall out of the live window are served from durable storage; this is correct but increases read load. Scale retention or subscriber throughput accordingly.
 

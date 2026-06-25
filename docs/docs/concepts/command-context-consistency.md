@@ -22,19 +22,45 @@ With CCC, the application asks for the event subset that matters to the command,
 
 ## Example context
 
-A transfer command can depend on all events where `account_holder` is either Alice or Bob:
+A transfer command can depend on the event scopes for both affected accounts. If the account roots are `AccountOpened` events, transfer events can carry queryable `scopes.fromAccountOpenedId` and `scopes.toAccountOpenedId` keys:
 
 ```json
 {
   "criteria": [
     {
       "tags": [
-        {"key": "account_holder", "value": "alice"}
+        {"key": "eventType", "value": "AccountOpened"},
+        {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
       ]
     },
     {
       "tags": [
-        {"key": "account_holder", "value": "bob"}
+        {"key": "eventType", "value": "AccountOpened"},
+        {"key": "accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+      ]
+    },
+    {
+      "tags": [
+        {"key": "eventType", "value": "TransferRecorded"},
+        {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
       ]
     }
   ]
@@ -42,6 +68,8 @@ A transfer command can depend on all events where `account_holder` is either Ali
 ```
 
 Criteria entries are combined with OR. Tags inside one criterion are combined with AND.
+
+The `scopes.` prefix is only a convention in event `data`; Orisun matches JSON keys exactly. If your application models scopes as a nested object, flatten it before saving so queries and indexes can use keys like `scopes.fromAccountOpenedId`. See [Event Scopes](../patterns/event-scopes) for the full pattern.
 
 ## Expected position
 
@@ -87,12 +115,38 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
       "criteria": [
         {
           "tags": [
-            {"key": "account_holder", "value": "alice"}
+            {"key": "eventType", "value": "AccountOpened"},
+            {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
           ]
         },
         {
           "tags": [
-            {"key": "account_holder", "value": "bob"}
+            {"key": "eventType", "value": "AccountOpened"},
+            {"key": "accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scopes.fromAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+          ]
+        },
+        {
+          "tags": [
+            {"key": "eventType", "value": "TransferRecorded"},
+            {"key": "scopes.toAccountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
           ]
         }
       ]
@@ -100,9 +154,9 @@ In `SaveEvents`, the consistency query is passed as `query.subsetQuery`:
   },
   "events": [
     {
-      "event_id": "transfer-001",
+      "event_id": "018f2d5e-2003-7000-8000-000000000003",
       "event_type": "TransferRecorded",
-      "data": "{\"from\":\"alice\",\"to\":\"bob\",\"amount\":25}",
+      "data": "{\"transferRecordedId\":\"018f2d5e-2003-7000-8000-000000000003\",\"from\":\"alice\",\"to\":\"bob\",\"amount\":25,\"scopes.fromAccountOpenedId\":\"018f2d5e-2001-7000-8000-000000000001\",\"scopes.toAccountOpenedId\":\"018f2d5e-2002-7000-8000-000000000002\"}",
       "metadata": "{}"
     }
   ]

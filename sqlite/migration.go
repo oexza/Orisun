@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS orisun_es_event (
     transaction_id INTEGER NOT NULL,
     global_id      INTEGER PRIMARY KEY,
     event_id       TEXT    NOT NULL,
-    event_type     TEXT    NOT NULL CHECK (event_type <> ''),
     data           TEXT    NOT NULL CHECK (json_valid(data)),
     metadata       TEXT,
     date_created   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -22,6 +21,17 @@ CREATE TABLE IF NOT EXISTS orisun_es_event (
 
 CREATE INDEX IF NOT EXISTS idx_global_order_covering
     ON orisun_es_event (transaction_id DESC, global_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_event_type_order
+    ON orisun_es_event (
+        CASE json_type(data, '$."eventType"')
+            WHEN 'true' THEN 'true'
+            WHEN 'false' THEN 'false'
+            ELSE CAST(json_extract(data, '$."eventType"') AS TEXT)
+        END,
+        transaction_id DESC,
+        global_id DESC
+    );
 
 CREATE TABLE IF NOT EXISTS orisun_es_seq (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
@@ -61,6 +71,44 @@ CREATE TABLE IF NOT EXISTS orisun_boundary_index_metadata (
 );
 `
 
+const dropEventTypeColumnDDL = `
+CREATE TABLE orisun_es_event_v2 (
+    transaction_id INTEGER NOT NULL,
+    global_id      INTEGER PRIMARY KEY,
+    event_id       TEXT    NOT NULL,
+    data           TEXT    NOT NULL CHECK (json_valid(data)),
+    metadata       TEXT,
+    date_created   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+INSERT INTO orisun_es_event_v2 (transaction_id, global_id, event_id, data, metadata, date_created)
+SELECT
+    transaction_id,
+    global_id,
+    event_id,
+    json_set(data, '$."eventType"', event_type),
+    metadata,
+    date_created
+FROM orisun_es_event;
+
+DROP TABLE orisun_es_event;
+ALTER TABLE orisun_es_event_v2 RENAME TO orisun_es_event;
+
+CREATE INDEX IF NOT EXISTS idx_global_order_covering
+    ON orisun_es_event (transaction_id DESC, global_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_event_type_order
+    ON orisun_es_event (
+        CASE json_type(data, '$."eventType"')
+            WHEN 'true' THEN 'true'
+            WHEN 'false' THEN 'false'
+            ELSE CAST(json_extract(data, '$."eventType"') AS TEXT)
+        END,
+        transaction_id DESC,
+        global_id DESC
+    );
+`
+
 // Admin-only tables, created only inside the admin boundary's database.
 const adminDDL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -85,10 +133,32 @@ func applyMigrations(conn *sqlite.Conn, isAdminBoundary bool) error {
 	if err := sqlitex.ExecuteScript(conn, commonDDL, nil); err != nil {
 		return fmt.Errorf("common ddl: %w", err)
 	}
+	hasLegacyEventType, err := tableHasColumn(conn, "orisun_es_event", "event_type")
+	if err != nil {
+		return fmt.Errorf("inspect event table: %w", err)
+	}
+	if hasLegacyEventType {
+		if err := sqlitex.ExecuteScript(conn, dropEventTypeColumnDDL, nil); err != nil {
+			return fmt.Errorf("drop event_type column: %w", err)
+		}
+	}
 	if isAdminBoundary {
 		if err := sqlitex.ExecuteScript(conn, adminDDL, nil); err != nil {
 			return fmt.Errorf("admin ddl: %w", err)
 		}
 	}
 	return nil
+}
+
+func tableHasColumn(conn *sqlite.Conn, tableName, columnName string) (bool, error) {
+	found := false
+	err := sqlitex.Execute(conn, "PRAGMA table_info("+quoteIdent(tableName)+")", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			if stmt.ColumnText(1) == columnName {
+				found = true
+			}
+			return nil
+		},
+	})
+	return found, err
 }

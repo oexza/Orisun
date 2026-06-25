@@ -3,6 +3,9 @@ title: EventStore API
 description: Save, query, subscribe, ping, and manage indexes.
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 The EventStore service owns event operations:
 
 - `SaveEvents`
@@ -13,11 +16,82 @@ The EventStore service owns event operations:
 - `CreateIndex`
 - `DropIndex`
 
-All examples use the default Basic auth header:
+## Connect and authenticate
+
+Every example on this page assumes an authenticated client connected to a running server. The default credentials are `admin:changeit` — change `ORISUN_ADMIN_PASSWORD` before exposing the server.
+
+Pick your client once; every tabbed example below follows that choice across this page and the tutorial.
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+import (
+	"context"
+	"log"
+
+	orisun "github.com/oexza/orisun-client-go"
+	eventstore "github.com/oexza/orisun-client-go/eventstore"
+)
+
+client, err := orisun.New(
+	"localhost:5005",
+	orisun.WithCredentials("admin", "changeit"),
+	orisun.WithInsecure(), // plaintext transport; use WithTransportCredentials for TLS
+)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.Close()
+
+ctx := context.Background()
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+import { EventStoreClient } from '@orisun/eventstore-client';
+
+const client = new EventStoreClient({
+  host: 'localhost',
+  port: 5005,
+  username: 'admin',
+  password: 'changeit',
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+import com.orisunlabs.orisun.client.OrisunClient;
+import com.orisunlabs.orisun.client.EventSubscription;
+import com.orisun.eventstore.Eventstore;
+
+try (OrisunClient client = OrisunClient.newBuilder()
+    .withServer("localhost", 5005)
+    .withBasicAuth("admin", "changeit")
+    .build()) {
+  // use client; Eventstore.* holds the generated message types
+}
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 AUTH='Authorization: Basic YWRtaW46Y2hhbmdlaXQ='
 ```
+
+Send the header on every call:
+
+```bash
+grpcurl -H "$AUTH" localhost:5005 orisun.EventStore/Ping
+```
+
+  </TabItem>
+</Tabs>
 
 ## Data model
 
@@ -25,7 +99,7 @@ Events have four caller-supplied fields:
 
 | Field | Description |
 | --- | --- |
-| `event_id` | Stable event identifier. Use this for idempotency and deduplication. |
+| `event_id` | Stable event identifier. Use UUIDs for portability; the docs use UUIDv7 examples. PostgreSQL requires UUID format, while SQLite accepts any string. Orisun does not deduplicate writes by `event_id`; use it for application-level retry recognition and consumer deduplication. |
 | `event_type` | Event type name, for example `OrderPlaced`. |
 | `data` | JSON object encoded as a string. Criteria queries match this JSON object. |
 | `metadata` | JSON object encoded as a string. Use for request source, tracing, or non-domain metadata. |
@@ -33,10 +107,79 @@ Events have four caller-supplied fields:
 Orisun also stores a durable `position` and `date_created` on committed events.
 
 :::note
-`SaveEvents` adds `eventType` to the stored event data from `event_type`, so criteria and indexes can use the `eventType` JSON key.
+`event_type` is the API field for the event's type. On save, Orisun writes that value into the stored event data as the canonical `eventType` JSON key, and storage backends derive response `event_type` from `data.eventType`. Criteria and indexes should use the `eventType` JSON key.
 :::
 
 ## SaveEvents
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+result, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
+	Boundary: "orders",
+	Query: &eventstore.SaveQuery{
+		ExpectedPosition: &eventstore.Position{CommitPosition: -1, PreparePosition: -1},
+	},
+	Events: []*eventstore.EventToSave{
+		{
+			EventId:   "018f2d5e-0001-7000-8000-000000000001",
+			EventType: "OrderPlaced",
+			Data:      `{"customer_id":"c-1","amount":45}`,
+			Metadata:  `{"source":"checkout"}`,
+		},
+	},
+})
+
+// result.LogPosition.CommitPosition / PreparePosition
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const result = await client.saveEvents({
+  boundary: 'orders',
+  query: {
+    expectedPosition: { commitPosition: -1, preparePosition: -1 },
+  },
+  events: [
+    {
+      eventId: '018f2d5e-0001-7000-8000-000000000001',
+      eventType: 'OrderPlaced',
+      data: { customer_id: 'c-1', amount: 45 },
+      metadata: { source: 'checkout' },
+    },
+  ],
+});
+
+// result.logPosition.commitPosition / preparePosition
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+Eventstore.WriteResult result = client.saveEvents(
+    Eventstore.SaveEventsRequest.newBuilder()
+        .setBoundary("orders")
+        .setQuery(Eventstore.SaveQuery.newBuilder()
+            .setExpectedPosition(Eventstore.Position.newBuilder()
+                .setCommitPosition(-1).setPreparePosition(-1).build())
+            .build())
+        .addEvents(Eventstore.EventToSave.newBuilder()
+            .setEventId("018f2d5e-0001-7000-8000-000000000001")
+            .setEventType("OrderPlaced")
+            .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
+            .setMetadata("{\"source\":\"checkout\"}")
+            .build())
+        .build());
+
+// result.getLogPosition().getCommitPosition()
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
@@ -50,7 +193,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "order-001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}"
@@ -60,11 +203,103 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
+The response contains the committed log position:
+
+```json
+{
+  "log_position": {
+    "commit_position": 1,
+    "prepare_position": 0
+  }
+}
+```
+
+Orisun stores the API `event_type` value in event `data` as the canonical `eventType` JSON key and derives returned event types from that key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
+
+For event-scoped models, put queryable scope keys in `data` as normal JSON keys, for example `scopes.coursePublishedId`, and index them like any other field. See [Event Scopes](../patterns/event-scopes) for the modeling pattern.
+
 Batches are atomic. Events in one batch share the same commit position and receive increasing prepare positions.
 
 ### Save with a consistency subset
 
 Use `query.subsetQuery` to enforce Command Context Consistency for a specific event subset:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+_, err := client.SaveEvents(ctx, &eventstore.SaveEventsRequest{
+	Boundary: "orders",
+	Query: &eventstore.SaveQuery{
+		ExpectedPosition: &eventstore.Position{CommitPosition: 12, PreparePosition: 8},
+		SubsetQuery: &eventstore.Query{
+			Criteria: []*eventstore.Criterion{{
+				Tags: []*eventstore.Tag{{Key: "customer_id", Value: "c-1"}},
+			}},
+		},
+	},
+	Events: []*eventstore.EventToSave{{
+		EventId:   "018f2d5e-0002-7000-8000-000000000002",
+		EventType: "OrderConfirmed",
+		Data:      `{"customer_id":"c-1","amount":45}`,
+		Metadata:  `{}`,
+	}},
+})
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+await client.saveEvents({
+  boundary: 'orders',
+  query: {
+    expectedPosition: { commitPosition: 12, preparePosition: 8 },
+    subsetQuery: {
+      criteria: [
+        { tags: [{ key: 'customer_id', value: 'c-1' }] },
+      ],
+    },
+  },
+  events: [
+    {
+      eventId: '018f2d5e-0002-7000-8000-000000000002',
+      eventType: 'OrderConfirmed',
+      data: { customer_id: 'c-1', amount: 45 },
+    },
+  ],
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+client.saveEvents(Eventstore.SaveEventsRequest.newBuilder()
+    .setBoundary("orders")
+    .setQuery(Eventstore.SaveQuery.newBuilder()
+        .setExpectedPosition(Eventstore.Position.newBuilder()
+            .setCommitPosition(12).setPreparePosition(8).build())
+        .setSubsetQuery(Eventstore.Query.newBuilder()
+            .addCriteria(Eventstore.Criterion.newBuilder()
+                .addTags(Eventstore.Tag.newBuilder()
+                    .setKey("customer_id").setValue("c-1").build())
+                .build())
+            .build())
+        .build())
+    .addEvents(Eventstore.EventToSave.newBuilder()
+        .setEventId("018f2d5e-0002-7000-8000-000000000002")
+        .setEventType("OrderConfirmed")
+        .setData("{\"customer_id\":\"c-1\",\"amount\":45}")
+        .build())
+    .build());
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
@@ -87,7 +322,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "order-002",
+      "event_id": "018f2d5e-0002-7000-8000-000000000002",
       "event_type": "OrderConfirmed",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{}"
@@ -97,11 +332,61 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 If the subset changed after the expected position, Orisun returns `ALREADY_EXISTS`.
 
 ## GetEvents
 
 Read from the beginning:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+resp, err := client.GetEvents(ctx, &eventstore.GetEventsRequest{
+	Boundary:     "orders",
+	FromPosition: &eventstore.Position{CommitPosition: 0, PreparePosition: 0},
+	Count:        100,
+	Direction:    eventstore.Direction_ASC,
+})
+
+for _, event := range resp.Events {
+	_ = event // event.Position is durable ordering within the boundary
+}
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const events = await client.getEvents({
+  boundary: 'orders',
+  fromPosition: { commitPosition: 0, preparePosition: 0 },
+  count: 100,
+  direction: 'ASC',
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+Eventstore.GetEventsResponse resp = client.getEvents(
+    Eventstore.GetEventsRequest.newBuilder()
+        .setBoundary("orders")
+        .setFromPosition(Eventstore.Position.newBuilder()
+            .setCommitPosition(0).setPreparePosition(0).build())
+        .setCount(100)
+        .setDirection(Eventstore.Direction.ASC)
+        .build());
+
+// resp.getEventsList()
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
@@ -117,7 +402,63 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 Read by criteria:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+resp, err := client.GetEvents(ctx, &eventstore.GetEventsRequest{
+	Boundary: "orders",
+	Query: &eventstore.Query{
+		Criteria: []*eventstore.Criterion{{
+			Tags: []*eventstore.Tag{{Key: "customer_id", Value: "c-1"}},
+		}},
+	},
+	Count:     100,
+	Direction: eventstore.Direction_ASC,
+})
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const events = await client.getEvents({
+  boundary: 'orders',
+  query: {
+    criteria: [
+      { tags: [{ key: 'customer_id', value: 'c-1' }] },
+    ],
+  },
+  count: 100,
+  direction: 'ASC',
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+Eventstore.GetEventsResponse resp = client.getEvents(
+    Eventstore.GetEventsRequest.newBuilder()
+        .setBoundary("orders")
+        .setQuery(Eventstore.Query.newBuilder()
+            .addCriteria(Eventstore.Criterion.newBuilder()
+                .addTags(Eventstore.Tag.newBuilder()
+                    .setKey("customer_id").setValue("c-1").build())
+                .build())
+            .build())
+        .setCount(100)
+        .setDirection(Eventstore.Direction.ASC)
+        .build());
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
@@ -138,7 +479,51 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 Page from a position:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+resp, err := client.GetEvents(ctx, &eventstore.GetEventsRequest{
+	Boundary:     "orders",
+	FromPosition: &eventstore.Position{CommitPosition: 1000, PreparePosition: 42},
+	Count:        100,
+	Direction:    eventstore.Direction_ASC,
+})
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const events = await client.getEvents({
+  boundary: 'orders',
+  fromPosition: { commitPosition: 1000, preparePosition: 42 },
+  count: 100,
+  direction: 'ASC',
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+Eventstore.GetEventsResponse resp = client.getEvents(
+    Eventstore.GetEventsRequest.newBuilder()
+        .setBoundary("orders")
+        .setFromPosition(Eventstore.Position.newBuilder()
+            .setCommitPosition(1000).setPreparePosition(42).build())
+        .setCount(100)
+        .setDirection(Eventstore.Direction.ASC)
+        .build());
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
@@ -154,13 +539,16 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetEvents <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 `GetEvents` returns matching events with their committed position and creation time:
 
 ```json
 {
   "events": [
     {
-      "event_id": "order-001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}",
@@ -188,6 +576,65 @@ Keep the consumer idempotent and deduplicate by `event_id` rather than assuming 
 
 `GetLatestByCriteria` returns the latest event matching each criterion, assembled by the server from **one consistent read snapshot**, plus a `context_position` to use as the `expected_position` of the next `SaveEvents` with the same combined criteria. It is the command-side read for the carried-state pattern: store the resulting state (for example an account balance) on each event, then a command needs only the latest event per entity, not a history replay.
 
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+resp, err := client.GetLatestByCriteria(ctx, &eventstore.GetLatestByCriteriaRequest{
+	Boundary: "ledger",
+	Criteria: []*eventstore.Criterion{
+		{Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-01"}}},
+		{Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-02"}}},
+	},
+})
+
+// One result per criterion, in request order.
+// resp.ContextPosition is the next expected_position for a SaveEvents
+// using the same combined criteria.
+for _, r := range resp.Results {
+	if r.Event != nil {
+		// r.Event.Data carries the latest snapshot for this criterion
+	}
+}
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const latest = await client.getLatestByCriteria({
+  boundary: 'ledger',
+  criteria: [
+    { tags: [{ key: 'account_id', value: 'acct-01' }] },
+    { tags: [{ key: 'account_id', value: 'acct-02' }] },
+  ],
+});
+
+// latest.results[i].event  — latest event per criterion, in request order
+// latest.contextPosition   — pass to the next saveEvents expectedPosition
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
+    Eventstore.GetLatestByCriteriaRequest.newBuilder()
+        .setBoundary("ledger")
+        .addCriteria(Eventstore.Criterion.newBuilder()
+            .addTags(Eventstore.Tag.newBuilder()
+                .setKey("account_id").setValue("acct-01").build()).build())
+        .addCriteria(Eventstore.Criterion.newBuilder()
+            .addTags(Eventstore.Tag.newBuilder()
+                .setKey("account_id").setValue("acct-02").build()).build())
+        .build());
+
+Eventstore.Position expectedPosition = latest.getContextPosition();
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
+
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetLatestByCriteria <<EOF
 {
@@ -200,6 +647,9 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetLatestByCriteria <<E
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 The response carries one `result` per request criterion in order (`event` unset when nothing matches) and `context_position` — the max position observed in the same snapshot, or `{-1, -1}` when nothing matched.
 
 Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two snapshots. An event can commit between them with a position *below* the maximum you observed, and a scalar `expected_position` can only prove "nothing newer than X exists" — it cannot prove your reads saw everything up to X. `GetLatestByCriteria` closes that gap by sampling the whole context atomically. See [Command Context Consistency](../concepts/command-context-consistency).
@@ -207,6 +657,75 @@ Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two sna
 ## CatchUpSubscribeToEvents
 
 Catch-up subscriptions replay stored events, then switch to live JetStream delivery.
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+handler := orisun.NewSimpleEventHandler().
+	WithOnEvent(func(event *eventstore.Event) error {
+		// persist side effects, then checkpoint event.Position
+		return nil
+	}).
+	WithOnError(func(err error) {
+		log.Printf("subscription stopped: %v", err)
+	})
+
+sub, err := client.SubscribeToEvents(ctx, &eventstore.CatchUpSubscribeToEventStoreRequest{
+	Boundary:       "orders",
+	SubscriberName: "order-projector",
+	AfterPosition:  &eventstore.Position{CommitPosition: 0, PreparePosition: 0},
+}, handler)
+if err != nil {
+	return err
+}
+defer sub.Close()
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const subscription = client.subscribeToEvents(
+  {
+    subscriberName: 'order-projector',
+    boundary: 'orders',
+    afterPosition: { commitPosition: 0, preparePosition: 0 },
+  },
+  (event) => {
+    // persist side effects, then checkpoint event.position
+    console.log('event:', event.eventType, event.data);
+  },
+  (error) => {
+    console.error('subscription error:', error);
+  },
+);
+
+// subscription.cancel() to stop
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+EventSubscription sub = client.subscribeToEvents(
+    Eventstore.CatchUpSubscribeToEventStoreRequest.newBuilder()
+        .setBoundary("orders")
+        .setSubscriberName("order-projector")
+        .setAfterPosition(Eventstore.Position.newBuilder()
+            .setCommitPosition(0).setPreparePosition(0).build())
+        .build(),
+    new EventSubscription.EventHandler() {
+        public void onEvent(Eventstore.Event event) { /* project + checkpoint */ }
+        public void onError(Throwable error) { error.printStackTrace(); }
+        public void onCompleted() {}
+    });
+
+// sub.close() to stop
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
@@ -221,7 +740,67 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvent
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 Filtered subscription:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+sub, err := client.SubscribeToEvents(ctx, &eventstore.CatchUpSubscribeToEventStoreRequest{
+	Boundary:       "orders",
+	SubscriberName: "placed-orders",
+	AfterPosition:  &eventstore.Position{CommitPosition: 0, PreparePosition: 0},
+	Query: &eventstore.Query{
+		Criteria: []*eventstore.Criterion{{
+			Tags: []*eventstore.Tag{{Key: "eventType", Value: "OrderPlaced"}},
+		}},
+	},
+}, handler)
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+const subscription = client.subscribeToEvents(
+  {
+    subscriberName: 'placed-orders',
+    boundary: 'orders',
+    afterPosition: { commitPosition: 0, preparePosition: 0 },
+    query: {
+      criteria: [
+        { tags: [{ key: 'eventType', value: 'OrderPlaced' }] },
+      ],
+    },
+  },
+  (event) => { /* ... */ },
+);
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+client.subscribeToEvents(Eventstore.CatchUpSubscribeToEventStoreRequest.newBuilder()
+        .setBoundary("orders")
+        .setSubscriberName("placed-orders")
+        .setAfterPosition(Eventstore.Position.newBuilder()
+            .setCommitPosition(0).setPreparePosition(0).build())
+        .setQuery(Eventstore.Query.newBuilder()
+            .addCriteria(Eventstore.Criterion.newBuilder()
+                .addTags(Eventstore.Tag.newBuilder()
+                    .setKey("eventType").setValue("OrderPlaced").build())
+                .build())
+            .build())
+        .build(),
+    /* handler */);
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvents <<EOF
@@ -245,15 +824,91 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CatchUpSubscribeToEvent
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 ## Ping
 
 `Ping` is an authenticated liveness check that takes no arguments:
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+if err := client.Ping(ctx); err != nil {
+	return err
+}
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+await client.ping();
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+client.ping();
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d '{}' localhost:5005 orisun.EventStore/Ping
 ```
 
+  </TabItem>
+</Tabs>
+
 ## CreateIndex
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+_, err := client.CreateIndex(ctx, &eventstore.CreateIndexRequest{
+	Boundary: "orders",
+	Name:     "customer_id",
+	Fields: []*eventstore.IndexField{{
+		JsonKey:   "customer_id",
+		ValueType: eventstore.ValueType_TEXT,
+	}},
+})
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+await client.createIndex({
+  boundary: 'orders',
+  name: 'customer_id',
+  fields: [
+    { jsonKey: 'customer_id', valueType: 'TEXT' },
+  ],
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+client.createIndex(Eventstore.CreateIndexRequest.newBuilder()
+    .setBoundary("orders")
+    .setName("customer_id")
+    .addFields(Eventstore.IndexField.newBuilder()
+        .setJsonKey("customer_id")
+        .setValueType(Eventstore.ValueType.TEXT)
+        .build())
+    .build());
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
@@ -267,15 +922,107 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/CreateIndex <<EOF
 EOF
 ```
 
+  </TabItem>
+</Tabs>
+
 `value_type` is `TEXT`, `NUMERIC`, `BOOLEAN`, or `TIMESTAMPTZ`. Add `conditions` for a partial index. Each condition `operator` must be one of `=`, `>`, `<`, `>=`, or `<=`. See [Indexing](../concepts/indexing) for composite and partial index examples.
 
 ## DropIndex
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+_, err := client.DropIndex(ctx, &eventstore.DropIndexRequest{
+	Boundary: "orders",
+	Name:     "customer_id",
+})
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+await client.dropIndex({
+  boundary: 'orders',
+  name: 'customer_id',
+});
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+client.dropIndex(Eventstore.DropIndexRequest.newBuilder()
+    .setBoundary("orders")
+    .setName("customer_id")
+    .build());
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
 
 ```bash
 grpcurl -H "$AUTH" \
   -d '{"boundary":"orders","name":"customer_id"}' \
   localhost:5005 orisun.EventStore/DropIndex
 ```
+
+  </TabItem>
+</Tabs>
+
+## Handling consistency conflicts
+
+When a command's context changed between read and write, `SaveEvents` returns `ALREADY_EXISTS`. Treat it as a retryable business conflict: re-read the context, re-decide, and save again with the new position.
+
+<Tabs groupId="client-lang">
+  <TabItem value="go" label="Go" default>
+
+```go
+var conflict *orisun.OptimisticConcurrencyException
+if errors.As(err, &conflict) {
+	log.Printf("consistency conflict: expected=%v actual=%v",
+		conflict.ExpectedVersion(), conflict.ActualVersion())
+}
+```
+
+  </TabItem>
+  <TabItem value="node" label="Node.js">
+
+```typescript
+try {
+  await client.saveEvents({ /* ... */ });
+} catch (error) {
+  if (error.message.includes('AlreadyExists')) {
+    // concurrency conflict — re-read the context and retry
+  } else {
+    throw error;
+  }
+}
+```
+
+  </TabItem>
+  <TabItem value="java" label="Java">
+
+```java
+try {
+    client.saveEvents(request);
+} catch (OptimisticConcurrencyException conflict) {
+    // concurrency conflict — re-read the context and retry
+    // conflict.getExpectedVersion() / conflict.getActualVersion()
+}
+```
+
+  </TabItem>
+  <TabItem value="grpcurl" label="grpcurl">
+
+```text
+ERROR:
+  Code: AlreadyExists
+```
+
+  </TabItem>
+</Tabs>
 
 ## Proto source
 

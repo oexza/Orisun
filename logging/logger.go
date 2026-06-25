@@ -14,6 +14,7 @@ var isDevelopment = true
 var appLogger Logger
 
 type Logger interface {
+	IsDebugEnabled() bool
 	Debug(args ...any)
 	Debugf(format string, args ...any)
 	Info(args ...any)
@@ -24,6 +25,14 @@ type Logger interface {
 	Errorf(format string, args ...any)
 	Fatal(args ...any)
 	Fatalf(format string, args ...any)
+}
+
+type zapLogger struct {
+	*zap.SugaredLogger
+}
+
+func (l *zapLogger) IsDebugEnabled() bool {
+	return l.Desugar().Core().Enabled(zapcore.DebugLevel)
 }
 
 func ZapLogger(level string) (Logger, error) {
@@ -55,7 +64,7 @@ func ZapLogger(level string) (Logger, error) {
 		return nil, err
 	}
 
-	appLogger = logger.Sugar()
+	appLogger = &zapLogger{SugaredLogger: logger.Sugar()}
 	return appLogger, nil
 }
 

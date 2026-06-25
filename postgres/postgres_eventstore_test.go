@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,12 @@ import (
 )
 
 type PostgresContainer struct {
+	container testcontainers.Container
+	host      string
+	port      string
+}
+
+type YugabyteContainer struct {
 	container testcontainers.Container
 	host      string
 	port      string
@@ -76,7 +83,59 @@ func setupTestContainer(t *testing.T) (*PostgresContainer, error) {
 	}, nil
 }
 
+func setupYugabyteTestContainer(t *testing.T) (*YugabyteContainer, error) {
+	ctx := context.Background()
+	image := os.Getenv("ORISUN_YUGABYTE_TEST_IMAGE")
+	if image == "" {
+		image = "yugabytedb/yugabyte:2025.2.3.2-b1"
+	}
+
+	req := testcontainers.ContainerRequest{
+		Image:        image,
+		ExposedPorts: []string{"5433/tcp", "15433/tcp"},
+		Cmd: []string{
+			"bin/yugabyted",
+			"start",
+			"--background=false",
+			"--tserver_flags=ysql_yb_enable_listen_notify=true",
+			"--master_flags=ysql_yb_enable_listen_notify=true",
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("5433/tcp"),
+			wait.ForLog("YugabyteDB Started").WithStartupTimeout(6*time.Minute),
+		).WithStartupTimeout(6 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start yugabyte container: %w", err)
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get yugabyte container host: %w", err)
+	}
+
+	port, err := container.MappedPort(ctx, "5433/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get yugabyte mapped ysql port: %w", err)
+	}
+
+	return &YugabyteContainer{
+		container: container,
+		host:      host,
+		port:      port.Port(),
+	}, nil
+}
+
 func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, error) {
+	return setupTestDatabaseWithDialect(t, container, "postgres")
+}
+
+func setupTestDatabaseWithDialect(t *testing.T, container *PostgresContainer, dialect string) (*sql.DB, error) {
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=test password=test dbname=testdb sslmode=disable",
 		container.host,
@@ -117,11 +176,57 @@ func setupTestDatabase(t *testing.T, container *PostgresContainer) (*sql.DB, err
 
 	// Run database migrations using the common scripts
 	ctx := context.Background()
-	if err := RunDbScripts(db, "test_boundary", "public", false, ctx); err != nil {
+	if err := RunDbScriptsWithDialect(db, "test_boundary", "public", false, dialect, ctx); err != nil {
 		return nil, fmt.Errorf("failed to run database migrations: %v", err)
 	}
 
 	return db, nil
+}
+
+func setupYugabyteTestDatabase(t *testing.T, container *YugabyteContainer) (*sql.DB, error) {
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=yugabyte password=yugabyte dbname=yugabyte sslmode=disable",
+		container.host,
+		container.port,
+	)
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to yugabyte: %w", err)
+	}
+
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Minute * 5)
+
+	var pingErr error
+	for attempt := range 60 {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pingErr = db.PingContext(ctx)
+		cancel()
+		if pingErr == nil {
+			break
+		}
+		time.Sleep(time.Duration(attempt/10+1) * time.Second)
+	}
+	if pingErr != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping yugabyte after retries: %w", pingErr)
+	}
+
+	if err := RunDbScriptsWithDialect(db, "test_boundary", "public", false, "yugabyte", context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to run yugabyte migrations: %w", err)
+	}
+
+	return db, nil
+}
+
+func terminateTestContainer(t *testing.T, container testcontainers.Container) {
+	t.Helper()
+	if err := container.Terminate(context.Background()); err != nil {
+		t.Logf("Failed to terminate container: %v", err)
+	}
 }
 
 func TestSaveAndGetEvents(t *testing.T) {
@@ -232,6 +337,12 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	defer db.Close()
 
 	_, err = db.Exec(`
+		ALTER TABLE public.test_boundary_orisun_es_event
+		ADD COLUMN event_type TEXT NOT NULL DEFAULT 'LegacyEvent' CHECK (event_type <> '')
+	`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
 		INSERT INTO public.test_boundary_orisun_es_event
 			(transaction_id, global_id, event_id, event_type, data, metadata)
 		VALUES
@@ -287,6 +398,38 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	`).Scan(&visibilityIndexDef)
 	require.NoError(t, err)
 	require.Contains(t, visibilityIndexDef, "pg_xact_id")
+	require.NotContains(t, visibilityIndexDef, "event_type")
+
+	var eventTypeIndexDef string
+	err = db.QueryRow(`
+		SELECT indexdef
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND tablename = 'test_boundary_orisun_es_event'
+		  AND indexname = 'test_boundary_idx_event_type_order'
+	`).Scan(&eventTypeIndexDef)
+	require.NoError(t, err)
+	require.Contains(t, eventTypeIndexDef, "data ->> 'eventType'::text")
+
+	var eventTypeColumnCount int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'test_boundary_orisun_es_event'
+		  AND column_name = 'event_type'
+	`).Scan(&eventTypeColumnCount)
+	require.NoError(t, err)
+	require.Equal(t, 0, eventTypeColumnCount)
+
+	var rowsMissingEventType int
+	err = db.QueryRow(`
+		SELECT COUNT(*)
+		FROM public.test_boundary_orisun_es_event
+		WHERE data->>'eventType' IS DISTINCT FROM 'LegacyEvent'
+	`).Scan(&rowsMissingEventType)
+	require.NoError(t, err)
+	require.Equal(t, 0, rowsMissingEventType)
 
 	_, err = db.Exec(`
 		UPDATE public.test_boundary_orisun_es_event
@@ -374,6 +517,197 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	`).Scan(&pgXactID)
 	require.NoError(t, err)
 	require.True(t, pgXactID.Valid)
+}
+
+func TestYugabyteDialectUsesCommittedWatermark(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer func() {
+		if err := container.container.Terminate(context.Background()); err != nil {
+			t.Logf("Failed to terminate container: %v", err)
+		}
+	}()
+
+	db, err := setupTestDatabaseWithDialect(t, container, "yugabyte")
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
+
+	position := orisun.NotExistsPosition()
+	transactionID, globalID, err := saveEvents.Save(
+		t.Context(),
+		[]orisun.EventWithMapTags{
+			{
+				EventId:   uuid.NewString(),
+				EventType: "YugabyteWatermarkEvent",
+				Data:      `{"key":"value"}`,
+				Metadata:  `{}`,
+			},
+		},
+		"test_boundary",
+		&position,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "1", transactionID)
+	require.Equal(t, int64(0), globalID)
+
+	var watermarkTransactionID, watermarkGlobalID int64
+	err = db.QueryRow(`
+		SELECT transaction_id, global_id
+		FROM public.test_boundary_orisun_committed_position
+		WHERE boundary = 'test_boundary'
+	`).Scan(&watermarkTransactionID, &watermarkGlobalID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), watermarkTransactionID)
+	require.Equal(t, int64(0), watermarkGlobalID)
+
+	var pgXactID sql.NullInt64
+	err = db.QueryRow(`
+		SELECT pg_xact_id
+		FROM public.test_boundary_orisun_es_event
+		WHERE global_id = 0
+	`).Scan(&pgXactID)
+	require.NoError(t, err)
+	require.False(t, pgXactID.Valid)
+
+	_, err = db.Exec(`
+		UPDATE public.test_boundary_orisun_committed_position
+		SET transaction_id = -1, global_id = -1
+		WHERE boundary = 'test_boundary'
+	`)
+	require.NoError(t, err)
+
+	hidden, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+		Boundary:  "test_boundary",
+		Direction: orisun.Direction_ASC,
+		Count:     10,
+	})
+	require.NoError(t, err)
+	require.Empty(t, hidden.Events)
+
+	_, err = db.Exec(`
+		UPDATE public.test_boundary_orisun_committed_position
+		SET transaction_id = 1, global_id = 0
+		WHERE boundary = 'test_boundary'
+	`)
+	require.NoError(t, err)
+
+	visible, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+		Boundary:  "test_boundary",
+		Direction: orisun.Direction_ASC,
+		Count:     10,
+	})
+	require.NoError(t, err)
+	require.Len(t, visible.Events, 1)
+	require.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, visible.Events[0].Position)
+}
+
+func TestYugabyteContainerDialectSaveGetAndNotify(t *testing.T) {
+	container, err := setupYugabyteTestContainer(t)
+	require.NoError(t, err)
+	defer terminateTestContainer(t, container.container)
+
+	db, err := setupYugabyteTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger, err := logging.ZapLogger("debug")
+	require.NoError(t, err)
+
+	mapping := map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary": {
+			Boundary: "test_boundary",
+			Schema:   "public",
+		},
+	}
+
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=yugabyte password=yugabyte dbname=yugabyte sslmode=disable",
+		container.host,
+		container.port,
+	)
+	listener, err := NewPGNotifyListener(t.Context(), connStr, mapping, logger)
+	require.NoError(t, err)
+	listenerCtx, cancelListener := context.WithCancel(t.Context())
+	go listener.Start(listenerCtx)
+	defer func() {
+		cancelListener()
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		listener.Close(closeCtx)
+	}()
+
+	signal := listener.Signal("test_boundary", time.Hour)
+	defer signal.Stop()
+
+	saveEvents := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
+	getEvents := NewPostgresGetEvents(db, logger, mapping)
+
+	eventID := uuid.NewString()
+	position := orisun.NotExistsPosition()
+	transactionID, globalID, err := saveEvents.Save(
+		t.Context(),
+		[]orisun.EventWithMapTags{
+			{
+				EventId:   eventID,
+				EventType: "YugabyteContainerEvent",
+				Data:      `{"account_id":"acct-yb","amount":"10"}`,
+				Metadata:  `{}`,
+			},
+		},
+		"test_boundary",
+		&position,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "1", transactionID)
+	require.Equal(t, int64(0), globalID)
+
+	waitCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, signal.Wait(waitCtx), "Yugabyte LISTEN/NOTIFY should wake the boundary listener")
+
+	resp, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+		Boundary:  "test_boundary",
+		Direction: orisun.Direction_ASC,
+		Count:     10,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Events, 1)
+	require.Equal(t, eventID, resp.Events[0].EventId)
+	require.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, resp.Events[0].Position)
+
+	var watermarkTransactionID, watermarkGlobalID int64
+	err = db.QueryRow(`
+		SELECT transaction_id, global_id
+		FROM public.test_boundary_orisun_committed_position
+		WHERE boundary = 'test_boundary'
+	`).Scan(&watermarkTransactionID, &watermarkGlobalID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), watermarkTransactionID)
+	require.Equal(t, int64(0), watermarkGlobalID)
+
+	var pgXactID sql.NullInt64
+	err = db.QueryRow(`
+		SELECT pg_xact_id
+		FROM public.test_boundary_orisun_es_event
+		WHERE global_id = 0
+	`).Scan(&pgXactID)
+	require.NoError(t, err)
+	require.False(t, pgXactID.Valid)
 }
 
 func TestInsertsSerializePerBoundaryAndPositionsFollowCommitOrder(t *testing.T) {

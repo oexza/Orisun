@@ -9,7 +9,7 @@ slug: /
 
 Orisun is an event store for applications that need durable history, content-based consistency checks, and live delivery from the same system.
 
-It stores the event log in PostgreSQL or SQLite, uses Command Context Consistency to protect writes against stale decisions, and publishes committed events through embedded NATS JetStream for catch-up and live subscriptions.
+It stores the event log in PostgreSQL, YugabyteDB, or SQLite, uses Command Context Consistency to protect writes against stale decisions, and publishes committed events through embedded NATS JetStream for catch-up and live subscriptions.
 
 ## When Orisun fits
 
@@ -20,11 +20,11 @@ Use Orisun when:
 - projectors need to recover from downtime without relying only on broker retention,
 - you want the event store, publisher, gRPC API, auth, indexes, and telemetry in one deployable server.
 
-Choose another tool when you only need transient messaging or a general-purpose queue with no durable event-log semantics.
+Choose another tool when you only need transient messaging or a general-purpose queue with no durable event-log semantics. See [Comparing Orisun](/docs/comparison) for how Orisun differs from Kafka, EventStoreDB, PostgreSQL `LISTEN/NOTIFY`, and NATS JetStream.
 
 ## How it works
 
-1. **Store** events transactionally in PostgreSQL or SQLite.
+1. **Store** events transactionally in PostgreSQL, YugabyteDB, or SQLite.
 2. **Check** command consistency by querying the event subset the command depends on.
 3. **Publish** committed events sequentially per boundary from durable publisher checkpoints.
 4. **Subscribe** with catch-up replay from storage, then switch to live JetStream delivery.

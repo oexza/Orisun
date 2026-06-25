@@ -61,7 +61,7 @@ Each release publishes standalone binaries for Linux, macOS, and Windows. Use th
 | Asset pattern | Backend |
 | --- | --- |
 | `orisun-<os>-<arch>` | All backends |
-| `orisun-pg-<os>-<arch>` | PostgreSQL only |
+| `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 
 Linux and macOS binaries should be marked executable after download:
@@ -72,11 +72,15 @@ chmod +x ./orisun-sqlite
 
 ## Docker Tags
 
+The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`).
+
 | Tag | Backend |
 | --- | --- |
 | `orexza/orisun:latest` | All backends |
-| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
 | `orexza/orisun:<version>` | All backends for a release version |
-| `orexza/orisun:<version>-pg` | PostgreSQL-only release version |
+| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release version |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release version |
+
+Use the same suffixes with `ghcr.io/oexza/orisun` when you prefer GHCR.

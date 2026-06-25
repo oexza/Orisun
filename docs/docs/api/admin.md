@@ -8,7 +8,7 @@ The Admin service handles users, credentials, and lightweight operational statis
 Admin is available in every server flavor:
 
 - all-backends server
-- PostgreSQL-only server
+- PostgreSQL-compatible server
 - SQLite-only server
 
 ## Authentication

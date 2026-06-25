@@ -48,10 +48,10 @@ You can move to PostgreSQL later without changing the EventStore API.
 
 ## Choose a backend
 
-| Backend | Best for | Multi-node | Binary | Image |
-| --- | --- | --- | --- | --- |
-| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` |
-| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` |
+| Backend | Best for | Multi-node | Binary | Docker Hub image | GHCR image |
+| --- | --- | --- | --- | --- | --- |
+| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/oexza/orisun:sqlite` |
+| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/oexza/orisun:pg` |
 
 Both backends expose the same EventStore and Admin gRPC APIs.
 
@@ -84,7 +84,7 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 | Binary | Includes |
 | --- | --- |
 | `orisun-<os>-<arch>` | all backends |
-| `orisun-pg-<os>-<arch>` | PostgreSQL only |
+| `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 
 For example, on Linux amd64:
@@ -146,6 +146,45 @@ ORISUN_ADMIN_PASSWORD=changeit \
 ORISUN_NATS_STORE_DIR=./data/orisun/nats \
 ./orisun-pg
 ```
+
+## Run YugabyteDB from a binary
+
+YugabyteDB uses the PostgreSQL-compatible Orisun binary with the Yugabyte dialect enabled. Use YugabyteDB `v2025.2.3` or later and enable `LISTEN/NOTIFY` on both Masters and TServers.
+
+For local testing, start a single-node YugabyteDB container:
+
+```bash
+docker run --rm --name yugabyte \
+  -p 5433:5433 \
+  -p 15433:15433 \
+  yugabytedb/yugabyte:2025.2.3.2-b1 \
+  bin/yugabyted start \
+  --background=false \
+  --master_flags=ysql_yb_enable_listen_notify=true \
+  --tserver_flags=ysql_yb_enable_listen_notify=true
+```
+
+Then start Orisun:
+
+```bash
+ORISUN_BACKEND=postgres \
+ORISUN_PG_DIALECT=yugabyte \
+ORISUN_PG_HOST=localhost \
+ORISUN_PG_PORT=5433 \
+ORISUN_PG_USER=yugabyte \
+ORISUN_PG_PASSWORD=yugabyte \
+ORISUN_PG_NAME=yugabyte \
+ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin \
+ORISUN_PG_LISTEN_ENABLED=true \
+ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
+ORISUN_ADMIN_BOUNDARY=orisun_admin \
+ORISUN_ADMIN_USERNAME=admin \
+ORISUN_ADMIN_PASSWORD=changeit \
+ORISUN_NATS_STORE_DIR=./data/orisun/nats \
+./orisun-pg
+```
+
+Orisun creates its boundary tables and functions during startup. YugabyteDB mode uses an Orisun committed-position watermark for stable-prefix reads because YugabyteDB does not expose PostgreSQL internal transaction IDs.
 
 ## Run SQLite with Docker
 
@@ -230,6 +269,62 @@ Start the stack:
 docker compose up -d
 ```
 
+## Run YugabyteDB with Docker Compose
+
+Create `docker-compose.yml`:
+
+```yaml
+services:
+  yugabyte:
+    image: yugabytedb/yugabyte:2025.2.3.2-b1
+    command:
+      - bin/yugabyted
+      - start
+      - --background=false
+      - --master_flags=ysql_yb_enable_listen_notify=true
+      - --tserver_flags=ysql_yb_enable_listen_notify=true
+    ports:
+      - "5433:5433"
+      - "15433:15433"
+    volumes:
+      - yugabyte-data:/root/var
+
+  orisun:
+    image: orexza/orisun:pg
+    environment:
+      ORISUN_BACKEND: postgres
+      ORISUN_PG_DIALECT: yugabyte
+      ORISUN_PG_HOST: yugabyte
+      ORISUN_PG_PORT: 5433
+      ORISUN_PG_USER: yugabyte
+      ORISUN_PG_PASSWORD: yugabyte
+      ORISUN_PG_NAME: yugabyte
+      ORISUN_PG_SCHEMAS: orders:public,orisun_admin:admin
+      ORISUN_PG_LISTEN_ENABLED: "true"
+      ORISUN_BOUNDARIES: '[{"name":"orders"},{"name":"orisun_admin"}]'
+      ORISUN_ADMIN_BOUNDARY: orisun_admin
+      ORISUN_ADMIN_USERNAME: admin
+      ORISUN_ADMIN_PASSWORD: changeit
+    ports:
+      - "5005:5005"
+      - "8991:8991"
+    volumes:
+      - orisun-data:/var/lib/orisun/data
+    depends_on:
+      - yugabyte
+    restart: unless-stopped
+
+volumes:
+  yugabyte-data:
+  orisun-data:
+```
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
 ## Verify the API
 
 The examples use the default `admin:changeit` credentials.
@@ -264,7 +359,7 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   },
   "events": [
     {
-      "event_id": "order-001",
+      "event_id": "018f2d5e-0001-7000-8000-000000000001",
       "event_type": "OrderPlaced",
       "data": "{\"customer_id\":\"c-1\",\"amount\":45}",
       "metadata": "{\"source\":\"checkout\"}"
@@ -285,7 +380,7 @@ The response contains the committed log position:
 }
 ```
 
-Orisun stores `event_type` in event `data` as the canonical `eventType` JSON key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
+Orisun stores the API `event_type` value in event `data` as the canonical `eventType` JSON key and derives returned event types from that key. You do not need to duplicate it in your payload, and later queries or indexes can match `eventType` with normal content criteria.
 
 ## Release artifacts
 
@@ -296,19 +391,21 @@ Binary assets are attached to each GitHub release:
 | Asset | Backend |
 | --- | --- |
 | `orisun-linux-amd64`, `orisun-darwin-arm64`, ... | All backends |
-| `orisun-pg-linux-amd64`, `orisun-pg-darwin-arm64`, ... | PostgreSQL only |
+| `orisun-pg-linux-amd64`, `orisun-pg-darwin-arm64`, ... | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-linux-amd64`, `orisun-sqlite-darwin-arm64`, ... | SQLite only |
 
-Docker images use one repository with backend flavor tags:
+Docker images are published to Docker Hub and GitHub Container Registry with the same backend flavor tags:
 
 | Tag | Backend |
 | --- | --- |
 | `orexza/orisun:latest` | All backends |
-| `orexza/orisun:pg` | PostgreSQL only |
+| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
 | `orexza/orisun:<version>` | All backends for a release |
-| `orexza/orisun:<version>-pg` | PostgreSQL-only release |
+| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+
+Use the same tag names under `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
 
 ## Next steps
 
