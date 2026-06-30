@@ -11,6 +11,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	config "github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/logging"
@@ -144,6 +145,15 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 func TestFoundationDBAdminAndPublishingState(t *testing.T) {
 	backend := newTestBackend(t)
 
+	missing, err := backend.GetProjectorLastPosition("missing-projector")
+	if err != nil {
+		t.Fatalf("GetProjectorLastPosition(missing): %v", err)
+	}
+	notExists := eventstore.NotExistsPosition()
+	if missing.CommitPosition != notExists.CommitPosition || missing.PreparePosition != notExists.PreparePosition {
+		t.Fatalf("missing projector position = %v, want %v", missing, &notExists)
+	}
+
 	user := eventstore.User{
 		Id:             "user-1",
 		Name:           "Admin",
@@ -171,6 +181,31 @@ func TestFoundationDBAdminAndPublishingState(t *testing.T) {
 	}
 	if pos.CommitPosition != 4 || pos.PreparePosition != 4 {
 		t.Fatalf("unexpected published position: %v", &pos)
+	}
+}
+
+func TestFoundationDBUsernameMustBeUnique(t *testing.T) {
+	backend := newTestBackend(t)
+
+	if err := backend.UpsertUser(eventstore.User{
+		Id:             "user-1",
+		Name:           "Ada",
+		Username:       "admin",
+		HashedPassword: "hash-1",
+		Roles:          []eventstore.Role{eventstore.RoleAdmin},
+	}); err != nil {
+		t.Fatalf("first UpsertUser: %v", err)
+	}
+
+	err := backend.UpsertUser(eventstore.User{
+		Id:             "user-2",
+		Name:           "Grace",
+		Username:       "admin",
+		HashedPassword: "hash-2",
+		Roles:          []eventstore.Role{eventstore.RoleAdmin},
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("expected duplicate username to return ALREADY_EXISTS, got %v", err)
 	}
 }
 
@@ -364,6 +399,55 @@ func TestFoundationDBGetEventsCountPaged(t *testing.T) {
 	}
 }
 
+func TestFoundationDBRecreatedIndexUsesFreshGeneration(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx := context.Background()
+
+	if _, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "AccountOpened",
+		Data:      map[string]any{"account_id": "acct-1"},
+		Metadata:  map[string]any{},
+	}}, "test", nil, nil); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	fields := []eventstore.BoundaryIndexField{{JsonKey: "account_id", ValueType: "text"}}
+	if err := backend.CreateBoundaryIndex(ctx, "test", "account", fields, nil, eventstore.IndexCombinatorAND); err != nil {
+		t.Fatalf("CreateBoundaryIndex: %v", err)
+	}
+	firstGeneration := readIndexGeneration(t, backend, "test", "account")
+	if firstGeneration == "" {
+		t.Fatalf("expected generated index metadata generation")
+	}
+
+	if err := backend.DropBoundaryIndex(ctx, "test", "account"); err != nil {
+		t.Fatalf("DropBoundaryIndex: %v", err)
+	}
+	if err := backend.CreateBoundaryIndex(ctx, "test", "account", fields, nil, eventstore.IndexCombinatorAND); err != nil {
+		t.Fatalf("recreate CreateBoundaryIndex: %v", err)
+	}
+	secondGeneration := readIndexGeneration(t, backend, "test", "account")
+	if secondGeneration == "" || secondGeneration == firstGeneration {
+		t.Fatalf("expected fresh generation, got first=%q second=%q", firstGeneration, secondGeneration)
+	}
+
+	resp, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Count:     10,
+		Direction: eventstore.Direction_ASC,
+		Query: &eventstore.Query{Criteria: []*eventstore.Criterion{
+			{Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-1"}}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Get with recreated index: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected recreated index to find 1 event, got %d", len(resp.Events))
+	}
+}
+
 // TestFoundationDBTotalOrderUnderConcurrency: boundary-wide total order is a
 // core Orisun guarantee. Many goroutines append in parallel (no consistency
 // condition, so nothing serialises them app-side); afterwards a paged read of
@@ -487,6 +571,25 @@ func newTestBackend(tb testing.TB) *Backend {
 		db.Close()
 	})
 	return backend
+}
+
+func readIndexGeneration(tb testing.TB, backend *Backend, boundary, name string) string {
+	tb.Helper()
+	result, err := backend.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		raw := rt.Get(backend.indexMetaKey(boundary, name)).MustGet()
+		if raw == nil {
+			return "", nil
+		}
+		var def indexDefinition
+		if err := json.Unmarshal(raw, &def); err != nil {
+			return "", err
+		}
+		return def.Generation, nil
+	})
+	if err != nil {
+		tb.Fatalf("read index generation: %v", err)
+	}
+	return result.(string)
 }
 
 func configForTestLogger() config.LoggingConfig {

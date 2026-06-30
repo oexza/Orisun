@@ -67,6 +67,7 @@ type eventRecord struct {
 
 type indexDefinition struct {
 	Name       string                              `json:"name"`
+	Generation string                              `json:"generation,omitempty"`
 	Fields     []eventstore.BoundaryIndexField     `json:"fields"`
 	Conditions []eventstore.BoundaryIndexCondition `json:"conditions"`
 	Combinator string                              `json:"combinator"`
@@ -534,7 +535,8 @@ func (b *Backend) GetProjectorLastPosition(projectorName string) (*eventstore.Po
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		raw := rt.Get(b.projectorKey(projectorName)).MustGet()
 		if raw == nil {
-			return &eventstore.Position{}, nil
+			pos := eventstore.NotExistsPosition()
+			return &pos, nil
 		}
 		var pos eventstore.Position
 		if err := json.Unmarshal(raw, &pos); err != nil {
@@ -576,6 +578,15 @@ func (b *Backend) UpsertUser(user eventstore.User) error {
 		return err
 	}
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		if raw := tr.Get(b.adminUserByUsernameKey(user.Username)).MustGet(); raw != nil {
+			existing, err := decodeUser(raw)
+			if err != nil {
+				return nil, err
+			}
+			if existing.Id != user.Id {
+				return nil, status.Errorf(codes.AlreadyExists, "username %q already exists", user.Username)
+			}
+		}
 		// A username change must clear the old username key, or the stale
 		// mapping would keep serving the old login name forever.
 		if raw := tr.Get(b.adminUserByIDKey(user.Id)).MustGet(); raw != nil {
@@ -772,7 +783,14 @@ func (b *Backend) CreateBoundaryIndex(
 	if combinator != eventstore.IndexCombinatorAND && combinator != eventstore.IndexCombinatorOR {
 		return fmt.Errorf("invalid combinator %q", combinator)
 	}
-	def := indexDefinition{Name: name, Fields: fields, Conditions: conditions, Combinator: combinator, State: indexStateBuilding}
+	def := indexDefinition{
+		Name:       name,
+		Generation: uuid.NewString(),
+		Fields:     fields,
+		Conditions: conditions,
+		Combinator: combinator,
+		State:      indexStateBuilding,
+	}
 	value, err := json.Marshal(def)
 	if err != nil {
 		return err
@@ -838,13 +856,33 @@ func (b *Backend) CreateBoundaryIndex(
 	if err != nil {
 		return err
 	}
+	var finalErr error
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		finalErr = nil
+		raw := tr.Get(b.indexMetaKey(boundary, name)).MustGet()
+		if raw == nil {
+			tr.ClearRange(prefixRange(b.indexEntryPrefix(boundary, def)))
+			finalErr = fmt.Errorf("index %s was dropped before backfill completed", name)
+			return nil, nil
+		}
+		var current indexDefinition
+		if err := json.Unmarshal(raw, &current); err != nil {
+			return nil, err
+		}
+		if current.Generation != def.Generation || current.State != indexStateBuilding {
+			tr.ClearRange(prefixRange(b.indexEntryPrefix(boundary, def)))
+			finalErr = fmt.Errorf("index %s changed before backfill completed", name)
+			return nil, nil
+		}
 		tr.Set(b.indexMetaKey(boundary, name), readyValue)
 		tr.Set(b.indexEpochKey(boundary), []byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
 		return nil, nil
 	})
 	if err != nil {
 		return err
+	}
+	if finalErr != nil {
+		return finalErr
 	}
 	return nil
 }
@@ -1232,20 +1270,30 @@ func (b *Backend) indexPrefix(boundary, name string) fdb.Key {
 	return b.tupleKey(boundary, "index", name)
 }
 
+func (b *Backend) indexEntryPrefix(boundary string, idx indexDefinition) fdb.Key {
+	return fdb.Key(b.indexKeyParts(boundary, idx).Pack())
+}
+
+func (b *Backend) indexKeyParts(boundary string, idx indexDefinition) tuple.Tuple {
+	parts := tuple.Tuple{b.root, boundary, "index", idx.Name}
+	if idx.Generation != "" {
+		parts = append(parts, idx.Generation)
+	}
+	return parts
+}
+
 func (b *Backend) indexLookupPrefix(boundary string, idx indexDefinition, criterion map[string]string) fdb.Key {
-	parts := tuple.Tuple{boundary, "index", idx.Name}
+	parts := b.indexKeyParts(boundary, idx)
 	for _, field := range idx.Fields {
 		parts = append(parts, criterion[field.JsonKey])
 	}
-	all := tuple.Tuple{b.root}
-	all = append(all, parts...)
-	return fdb.Key(all.Pack())
+	return fdb.Key(parts.Pack())
 }
 
 // indexVersionstampKey builds a live index entry whose position is filled in by
 // FDB at commit, sharing userVersion with its event. Use with SetVersionstampedKey.
 func (b *Backend) indexVersionstampKey(boundary string, idx indexDefinition, data map[string]any, userVersion uint16) (fdb.Key, bool, error) {
-	parts := tuple.Tuple{b.root, boundary, "index", idx.Name}
+	parts := b.indexKeyParts(boundary, idx)
 	for _, field := range idx.Fields {
 		value, ok := data[field.JsonKey]
 		if !ok {
@@ -1264,7 +1312,7 @@ func (b *Backend) indexVersionstampKey(boundary string, idx indexDefinition, dat
 // indexCursorKey returns the index-entry key at a known position inside one
 // criterion's lookup slice. Used to seek paged index scans to a read cursor.
 func (b *Backend) indexCursorKey(boundary string, idx indexDefinition, criterion map[string]string, pos *eventstore.Position) fdb.Key {
-	parts := tuple.Tuple{b.root, boundary, "index", idx.Name}
+	parts := b.indexKeyParts(boundary, idx)
 	for _, field := range idx.Fields {
 		parts = append(parts, criterion[field.JsonKey])
 	}
@@ -1275,7 +1323,7 @@ func (b *Backend) indexCursorKey(boundary string, idx indexDefinition, criterion
 // indexKeyAtPosition builds an index entry for an already-committed event, used
 // when backfilling an index. The position is known, so the versionstamp is complete.
 func (b *Backend) indexKeyAtPosition(boundary string, idx indexDefinition, data map[string]any, pos *eventstore.Position) (fdb.Key, bool) {
-	parts := tuple.Tuple{b.root, boundary, "index", idx.Name}
+	parts := b.indexKeyParts(boundary, idx)
 	for _, field := range idx.Fields {
 		value, ok := data[field.JsonKey]
 		if !ok {
