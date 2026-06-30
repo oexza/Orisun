@@ -302,6 +302,9 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 	}
 
 	if err := s.indexManager.CreateBoundaryIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
 	}
 	return &CreateIndexResponse{}, nil
@@ -318,6 +321,9 @@ func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*Dro
 		return nil, status.Errorf(codes.InvalidArgument, "boundary and name are required")
 	}
 	if err := s.indexManager.DropBoundaryIndex(ctx, req.Boundary, req.Name); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		return nil, status.Errorf(codes.Internal, "failed to drop index: %v", err)
 	}
 	return &DropIndexResponse{}, nil
@@ -386,6 +392,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	)
 
 	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
 			return nil, status.Errorf(codes.AlreadyExists, "failed to save events: %v", err)
 		}

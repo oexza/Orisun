@@ -16,6 +16,10 @@ const (
 	EventCountPubSubscription = "events-count"
 )
 
+func projectorNameForBoundary(boundary string) string {
+	return projectorName + "__" + boundary
+}
+
 type EventCountReadModel struct {
 	Count    int
 	Boundary string
@@ -61,6 +65,7 @@ func NewEventCountProjection(
 
 func (p *EventCountEventHandler) Start(ctx context.Context) error {
 	stream := orisun.NewMessageHandler[orisun.Event](ctx)
+	projectorName := projectorNameForBoundary(p.boundary)
 
 	// Get last checkpoint
 	pos, err := p.getProjectorLastPosition(projectorName)
