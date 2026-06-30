@@ -209,6 +209,38 @@ func TestFoundationDBUsernameMustBeUnique(t *testing.T) {
 	}
 }
 
+func TestFoundationDBCanceledContextFailsFast(t *testing.T) {
+	backend := newTestBackend(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := backend.Save(ctx, []eventstore.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "Canceled",
+		Data:      map[string]any{"id": "1"},
+		Metadata:  map[string]any{},
+	}}, "test", nil, nil)
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("Save with canceled context got %v, want CANCELED", err)
+	}
+
+	_, err = backend.Get(ctx, &eventstore.GetEventsRequest{
+		Boundary:  "test",
+		Count:     1,
+		Direction: eventstore.Direction_ASC,
+	})
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("Get with canceled context got %v, want CANCELED", err)
+	}
+
+	err = backend.CreateBoundaryIndex(ctx, "test", "canceled_idx", []eventstore.BoundaryIndexField{
+		{JsonKey: "id", ValueType: "text"},
+	}, nil, eventstore.IndexCombinatorAND)
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("CreateBoundaryIndex with canceled context got %v, want CANCELED", err)
+	}
+}
+
 // TestFoundationDBPagingFromPosition walks a boundary in pages using the
 // publisher's cursor convention (commit, prepare+1). Regression test for the
 // scan that filtered by position AFTER applying the range limit: page 2 would

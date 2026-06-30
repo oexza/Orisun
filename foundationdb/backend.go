@@ -249,6 +249,9 @@ func (b *Backend) Save(
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
 ) (transactionID string, globalID int64, err error) {
+	if err := contextStatusErr(ctx); err != nil {
+		return "", 0, err
+	}
 	if len(events) == 0 {
 		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
 	}
@@ -273,6 +276,9 @@ func (b *Backend) Save(
 	// refers to the committed attempt's versionstamp.
 	var vsFuture fdb.FutureKey
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
 		// Parity with the PostgreSQL and SQLite backends: the consistency check
 		// runs only when the condition carries criteria. An expected position
 		// without criteria is ignored — there is no context to compare against.
@@ -354,6 +360,9 @@ func (b *Backend) Save(
 }
 
 func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+	if err := contextStatusErr(ctx); err != nil {
+		return nil, err
+	}
 	if err := b.checkBoundary(req.Boundary); err != nil {
 		return nil, err
 	}
@@ -390,6 +399,9 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 // event get. Because FDB positions are commit-ordered, no later commit can
 // place an event below the returned context position.
 func (b *Backend) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
+	if err := contextStatusErr(ctx); err != nil {
+		return nil, err
+	}
 	if err := b.checkBoundary(req.Boundary); err != nil {
 		return nil, err
 	}
@@ -402,6 +414,9 @@ func (b *Backend) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLa
 	}
 
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
 		indexes, err := b.loadIndexes(rt, req.Boundary)
 		if err != nil {
 			return nil, err
@@ -768,6 +783,9 @@ func (b *Backend) CreateBoundaryIndex(
 	conditions []eventstore.BoundaryIndexCondition,
 	combinator string,
 ) error {
+	if err := contextStatusErr(ctx); err != nil {
+		return err
+	}
 	if err := b.checkBoundary(boundary); err != nil {
 		return err
 	}
@@ -801,6 +819,9 @@ func (b *Backend) CreateBoundaryIndex(
 	// fails partway, re-running CreateBoundaryIndex re-scans from the start and
 	// completes it.
 	if _, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
 		tr.Set(b.indexMetaKey(boundary, name), value)
 		tr.Set(b.indexEpochKey(boundary), []byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
 		tr.ClearRange(prefixRange(b.indexPrefix(boundary, name)))
@@ -813,15 +834,24 @@ func (b *Backend) CreateBoundaryIndex(
 	beginKey := pr.Begin.FDBKey()
 	endKey := pr.End.FDBKey()
 	for {
+		if err := contextStatusErr(ctx); err != nil {
+			return err
+		}
 		var lastKey fdb.Key
 		var scanned int
 		if _, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+			if err := contextStatusErr(ctx); err != nil {
+				return nil, err
+			}
 			iter := tr.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
 				Limit: backfillChunkSize,
 				Mode:  fdb.StreamingModeWantAll,
 			}).Iterator()
 			scanned = 0
 			for iter.Advance() {
+				if err := contextStatusErr(ctx); err != nil {
+					return nil, err
+				}
 				kv, err := iter.Get()
 				if err != nil {
 					return nil, err
@@ -858,6 +888,9 @@ func (b *Backend) CreateBoundaryIndex(
 	}
 	var finalErr error
 	_, err = b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
 		finalErr = nil
 		raw := tr.Get(b.indexMetaKey(boundary, name)).MustGet()
 		if raw == nil {
@@ -888,6 +921,9 @@ func (b *Backend) CreateBoundaryIndex(
 }
 
 func (b *Backend) DropBoundaryIndex(ctx context.Context, boundary, name string) error {
+	if err := contextStatusErr(ctx); err != nil {
+		return err
+	}
 	if err := b.checkBoundary(boundary); err != nil {
 		return err
 	}
@@ -918,53 +954,57 @@ func (b *Backend) getUser(key fdb.Key, notFound string) (eventstore.User, error)
 }
 
 func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) ([]*eventstore.Event, error) {
-	idxResult, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
-		return b.loadIndexes(rt, req.Boundary)
+	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
+		indexes, err := b.loadIndexes(rt, req.Boundary)
+		if err != nil {
+			return nil, err
+		}
+		indexes = readyIndexes(indexes)
+
+		eventsByPosition := map[string]*eventstore.Event{}
+		for _, criterion := range criteriaAsMaps(req.Query) {
+			if err := contextStatusErr(ctx); err != nil {
+				return nil, err
+			}
+			idx, ok := chooseCoveringIndex(indexes, criterion)
+			if !ok {
+				return nil, b.unindexedQueryErr(req.Boundary, criterion)
+			}
+			candidates, err := b.scanIndexCandidates(ctx, rt, req.Boundary, idx, criterion, req.FromPosition, req.Direction, int(req.Count))
+			if err != nil {
+				return nil, err
+			}
+			for _, event := range candidates {
+				if eventMatchesCriterion(event.Data, criterion) && positionMatches(event.Position, req.FromPosition, req.Direction) {
+					eventsByPosition[positionKey(event.Position)] = event
+				}
+			}
+		}
+		events := make([]*eventstore.Event, 0, len(eventsByPosition))
+		for _, event := range eventsByPosition {
+			events = append(events, event)
+		}
+		sortEvents(events, req.Direction)
+		count := int(req.Count)
+		if count > 0 && len(events) > count {
+			events = events[:count]
+		}
+		return events, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	indexes := idxResult.([]indexDefinition)
-	indexes = readyIndexes(indexes)
-
-	eventsByPosition := map[string]*eventstore.Event{}
-	for _, criterion := range criteriaAsMaps(req.Query) {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		idx, ok := chooseCoveringIndex(indexes, criterion)
-		if !ok {
-			return nil, b.unindexedQueryErr(req.Boundary, criterion)
-		}
-		candidates, err := b.scanIndexCandidatesPaged(ctx, req.Boundary, idx, criterion, req.FromPosition, req.Direction, int(req.Count))
-		if err != nil {
-			return nil, err
-		}
-		for _, event := range candidates {
-			if eventMatchesCriterion(event.Data, criterion) && positionMatches(event.Position, req.FromPosition, req.Direction) {
-				eventsByPosition[positionKey(event.Position)] = event
-			}
-		}
-	}
-	events := make([]*eventstore.Event, 0, len(eventsByPosition))
-	for _, event := range eventsByPosition {
-		events = append(events, event)
-	}
-	sortEvents(events, req.Direction)
-	count := int(req.Count)
-	if count > 0 && len(events) > count {
-		events = events[:count]
-	}
-	return events, nil
+	return result.([]*eventstore.Event), nil
 }
 
-func (b *Backend) scanIndexCandidatesPaged(ctx context.Context, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
+func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransaction, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
 	pr := prefixRange(b.indexLookupPrefix(boundary, idx, criterion))
 	beginKey := pr.Begin.FDBKey()
 	endKey := pr.End.FDBKey()
 	reverse := direction == eventstore.Direction_DESC
-	// Seek to the cursor inside the index slice (same reasoning as
-	// eventRangeForCursor: a filtered-out prefix would eat the chunk limit).
 	if from != nil {
 		if from.CommitPosition < 0 || from.PreparePosition < 0 {
 			if reverse {
@@ -979,63 +1019,40 @@ func (b *Backend) scanIndexCandidatesPaged(ctx context.Context, boundary string,
 			}
 		}
 	}
-	collected := make([]*eventstore.Event, 0, count)
-	for {
-		var scanned int
-		var lastKey fdb.Key
-		result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
-			local := make([]*eventstore.Event, 0)
-			iter := rt.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
-				Limit:   scanChunkSize,
-				Mode:    fdb.StreamingModeWantAll,
-				Reverse: reverse,
-			}).Iterator()
-			scanned = 0
-			for iter.Advance() {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				kv, err := iter.Get()
-				if err != nil {
-					return nil, err
-				}
-				lastKey = kv.Key
-				scanned++
-				tx, gid, err := indexPositionFromKey(kv.Key)
-				if err != nil {
-					return nil, err
-				}
-				pos := &eventstore.Position{CommitPosition: tx, PreparePosition: gid}
-				if !positionMatches(pos, from, direction) {
-					continue
-				}
-				event, err := b.getEventByPosition(rt, boundary, tx, gid)
-				if err != nil {
-					return nil, err
-				}
-				if event != nil && eventMatchesCriterion(event.Data, criterion) {
-					local = append(local, event)
-				}
-			}
-			return local, nil
-		})
+	if count <= 0 {
+		count = defaultPageCount
+	}
+	iter := rt.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
+		Limit:   count,
+		Mode:    fdb.StreamingModeWantAll,
+		Reverse: reverse,
+	}).Iterator()
+	events := make([]*eventstore.Event, 0, count)
+	for iter.Advance() {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
+		kv, err := iter.Get()
 		if err != nil {
 			return nil, err
 		}
-		collected = append(collected, result.([]*eventstore.Event)...)
-		if count > 0 && len(collected) >= count {
-			break
+		tx, gid, err := indexPositionFromKey(kv.Key)
+		if err != nil {
+			return nil, err
 		}
-		if scanned < scanChunkSize {
-			break
+		pos := &eventstore.Position{CommitPosition: tx, PreparePosition: gid}
+		if !positionMatches(pos, from, direction) {
+			continue
 		}
-		if reverse {
-			endKey = lastKey
-		} else {
-			beginKey = keyAfter(lastKey)
+		event, err := b.getEventByPosition(rt, boundary, tx, gid)
+		if err != nil {
+			return nil, err
+		}
+		if event != nil && eventMatchesCriterion(event.Data, criterion) {
+			events = append(events, event)
 		}
 	}
-	return collected, nil
+	return events, nil
 }
 
 func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *eventstore.GetEventsRequest, limit int) ([]*eventstore.Event, error) {
@@ -1707,6 +1724,22 @@ func sortEvents(events []*eventstore.Event, direction eventstore.Direction) {
 
 func positionKey(pos *eventstore.Position) string {
 	return strconv.FormatInt(pos.CommitPosition, 10) + ":" + strconv.FormatInt(pos.PreparePosition, 10)
+}
+
+func contextStatusErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	switch err := ctx.Err(); {
+	case err == nil:
+		return nil
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, err.Error())
+	default:
+		return err
+	}
 }
 
 func eventPositionFromKey(key fdb.Key) (int64, int64, error) {

@@ -32,34 +32,18 @@ jobs:
     name: Test FoundationDB Backend
     runs-on: ubuntu-latest
     env:
-      FDB_VERSION: '7.3.27'
+      FDB_VERSION: '7.3.77'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.4'
-          check-latest: true
+      - name: Run FoundationDB backend tests
+        run: scripts/fdb_test_container.sh -run TestFoundationDB -v
 
-      - name: Install FoundationDB client
-        run: |
-          curl -fsSL -o fdb-clients.deb \
-            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
-          sudo dpkg -i fdb-clients.deb
-          # cgo binding needs the header + libfdb_c at link time
-          test -f /usr/include/foundationdb/fdb_c.h
-          test -f /usr/lib/libfdb_c.so
-
-      - name: Install dependencies
-        run: go mod download
-
-      - name: Run FoundationDB tests
-        # testcontainers boots a single-node FDB cluster over Docker host networking
-        run: go test -tags foundationdb -v ./foundationdb/
+      - name: Run FoundationDB gRPC ledger workload
+        run: TEST_PKGS=./cmd/ scripts/fdb_test_container.sh -run TestE2E_LedgerWorkload_FoundationDB -v
 
   # lint:
   #   name: Lint
