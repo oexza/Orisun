@@ -39,13 +39,19 @@ On `ALREADY_EXISTS`, re-read the context and re-decide — the invariant may no 
 ```go
 // Stable for this command — NOT uuid.NewString() on each attempt.
 eventID := "018f2d5e-00a1-7000-8000-0000000000a1"
+accountOpenedID := "018f2d5e-2001-7000-8000-000000000001"
+accountCriteria := []*eventstore.Criterion{
+	{Tags: []*eventstore.Tag{
+		{Key: "eventType", Value: "AccountOpened"},
+		{Key: "accountOpenedId", Value: accountOpenedID},
+	}},
+	{Tags: []*eventstore.Tag{{Key: "scopes.accountOpenedId", Value: accountOpenedID}}},
+}
 
 for {
 	latest, err := client.GetLatestByCriteria(ctx, &eventstore.GetLatestByCriteriaRequest{
 		Boundary: "accounts",
-		Criteria: []*eventstore.Criterion{{
-			Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-1"}},
-		}},
+		Criteria: accountCriteria,
 	})
 	if err != nil {
 		return err
@@ -61,15 +67,13 @@ for {
 		Query: &eventstore.SaveQuery{
 			ExpectedPosition: latest.ContextPosition,
 			SubsetQuery: &eventstore.Query{
-				Criteria: []*eventstore.Criterion{{
-					Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-1"}},
-				}},
+				Criteria: accountCriteria,
 			},
 		},
 		Events: []*eventstore.EventToSave{{
 			EventId:   eventID,
 			EventType: "MoneyDebited",
-			Data:      `{"account_id":"acct-1","amount":40,"balance":` + bal(balance-amount) + `}`,
+			Data:      `{"moneyDebitedId":"` + eventID + `","amount":40,"balanceAfter":` + bal(balance-amount) + `,"scopes.accountOpenedId":"` + accountOpenedID + `"}`,
 		}},
 	})
 	if err == nil {
@@ -89,14 +93,24 @@ for {
 
 ```typescript
 const eventId = '018f2d5e-00a1-7000-8000-0000000000a1'; // stable per command
+const accountOpenedId = '018f2d5e-2001-7000-8000-000000000001';
+const accountCriteria = [
+  { tags: [
+    { key: 'eventType', value: 'AccountOpened' },
+    { key: 'accountOpenedId', value: accountOpenedId },
+  ] },
+  { tags: [{ key: 'scopes.accountOpenedId', value: accountOpenedId }] },
+];
 
 for (;;) {
   const latest = await client.getLatestByCriteria({
     boundary: 'accounts',
-    criteria: [{ tags: [{ key: 'account_id', value: 'acct-1' }] }],
+    criteria: accountCriteria,
   });
 
-  const balance = latest.results[0].event?.data.balance ?? 0;
+  const balance = latest.results[1].event?.data.balanceAfter
+    ?? latest.results[0].event?.data.balance
+    ?? 0;
   if (balance < amount) throw new Error('insufficient funds');
 
   try {
@@ -104,12 +118,17 @@ for (;;) {
       boundary: 'accounts',
       query: {
         expectedPosition: latest.contextPosition,
-        subsetQuery: { criteria: [{ tags: [{ key: 'account_id', value: 'acct-1' }] }] },
+        subsetQuery: { criteria: accountCriteria },
       },
       events: [{
         eventId,
         eventType: 'MoneyDebited',
-        data: { account_id: 'acct-1', amount, balance: balance - amount },
+        data: {
+          moneyDebitedId: eventId,
+          amount,
+          balanceAfter: balance - amount,
+          'scopes.accountOpenedId': accountOpenedId,
+        },
       }],
     });
     return;
@@ -125,15 +144,22 @@ for (;;) {
 
 ```java
 String eventId = "018f2d5e-00a1-7000-8000-0000000000a1"; // stable per command
+String accountOpenedId = "018f2d5e-2001-7000-8000-000000000001";
+Eventstore.Query accountQuery = Eventstore.Query.newBuilder()
+    .addCriteria(Eventstore.Criterion.newBuilder()
+        .addTags(Eventstore.Tag.newBuilder().setKey("eventType").setValue("AccountOpened").build())
+        .addTags(Eventstore.Tag.newBuilder().setKey("accountOpenedId").setValue(accountOpenedId).build())
+        .build())
+    .addCriteria(Eventstore.Criterion.newBuilder()
+        .addTags(Eventstore.Tag.newBuilder().setKey("scopes.accountOpenedId").setValue(accountOpenedId).build())
+        .build())
+    .build();
 
 while (true) {
     Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
         Eventstore.GetLatestByCriteriaRequest.newBuilder()
             .setBoundary("accounts")
-            .addCriteria(Eventstore.Criterion.newBuilder()
-                .addTags(Eventstore.Tag.newBuilder()
-                    .setKey("account_id").setValue("acct-1").build())
-                .build())
+            .addAllCriteria(accountQuery.getCriteriaList())
             .build());
 
     long balance = readBalance(latest); // application reads carried state
@@ -144,17 +170,12 @@ while (true) {
             .setBoundary("accounts")
             .setQuery(Eventstore.SaveQuery.newBuilder()
                 .setExpectedPosition(latest.getContextPosition())
-                .setSubsetQuery(Eventstore.Query.newBuilder()
-                    .addCriteria(Eventstore.Criterion.newBuilder()
-                        .addTags(Eventstore.Tag.newBuilder()
-                            .setKey("account_id").setValue("acct-1").build())
-                        .build())
-                    .build())
+                .setSubsetQuery(accountQuery)
                 .build())
             .addEvents(Eventstore.EventToSave.newBuilder()
                 .setEventId(eventId)
                 .setEventType("MoneyDebited")
-                .setData(debitJson("acct-1", amount, balance - amount))
+                .setData(debitJson(eventId, accountOpenedId, amount, balance - amount))
                 .build())
             .build());
         return;
@@ -175,12 +196,18 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/SaveEvents <<EOF
   "boundary": "accounts",
   "query": {
     "expected_position": {"commit_position": 2, "prepare_position": 1},
-    "subsetQuery": {"criteria": [{"tags": [{"key": "account_id", "value": "acct-1"}]}]}
+    "subsetQuery": {"criteria": [
+      {"tags": [
+        {"key": "eventType", "value": "AccountOpened"},
+        {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+      ]},
+      {"tags": [{"key": "scopes.accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}]}
+    ]}
   },
   "events": [{
     "event_id": "018f2d5e-00a1-7000-8000-0000000000a1",
     "event_type": "MoneyDebited",
-    "data": "{\"account_id\":\"acct-1\",\"amount\":40,\"balance\":60}"
+    "data": "{\"moneyDebitedId\":\"018f2d5e-00a1-7000-8000-0000000000a1\",\"amount\":40,\"balanceAfter\":60,\"scopes.accountOpenedId\":\"018f2d5e-2001-7000-8000-000000000001\"}"
   }]
 }
 EOF

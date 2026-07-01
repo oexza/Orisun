@@ -122,10 +122,20 @@ func main() {
 	defer client.Close()
 
 	ctx := context.Background()
-	accountQuery := &eventstore.Query{
+	accountOpenedID := "018f2d5e-0001-7000-8000-000000000001"
+	accountRootQuery := &eventstore.Query{
 		Criteria: []*eventstore.Criterion{{
-			Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-1"}},
+			Tags: []*eventstore.Tag{
+				{Key: "eventType", Value: "AccountOpened"},
+				{Key: "accountOpenedId", Value: accountOpenedID},
+			},
 		}},
+	}
+	accountContextQuery := &eventstore.Query{
+		Criteria: []*eventstore.Criterion{
+			accountRootQuery.Criteria[0],
+			{Tags: []*eventstore.Tag{{Key: "scopes.accountOpenedId", Value: accountOpenedID}}},
+		},
 	}
 
 	// 1. Open the account (context must be empty).
@@ -133,11 +143,11 @@ func main() {
 		Boundary: "accounts",
 		Query: &eventstore.SaveQuery{
 			ExpectedPosition: &eventstore.Position{CommitPosition: -1, PreparePosition: -1},
-			SubsetQuery:      accountQuery,
+			SubsetQuery:      accountRootQuery,
 		},
 		Events: []*eventstore.EventToSave{{
-			EventId: "018f2d5e-0001-7000-8000-000000000001", EventType: "AccountOpened",
-			Data: `{"account_id":"acct-1","balance":0}`,
+			EventId: accountOpenedID, EventType: "AccountOpened",
+			Data: `{"accountOpenedId":"018f2d5e-0001-7000-8000-000000000001","balance":0}`,
 		}},
 	})
 	if err != nil {
@@ -151,7 +161,7 @@ func main() {
 	// 2. Read the latest carried state and its context position.
 	latest, err := client.GetLatestByCriteria(ctx, &eventstore.GetLatestByCriteriaRequest{
 		Boundary:  "accounts",
-		Criteria:  accountQuery.Criteria,
+		Criteria:  accountContextQuery.Criteria,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -187,8 +197,20 @@ const client = new EventStoreClient({
   password: 'changeit',
 });
 
-const accountQuery = {
-  criteria: [{ tags: [{ key: 'account_id', value: 'acct-1' }] }],
+const accountOpenedId = '018f2d5e-0001-7000-8000-000000000001';
+const accountRootQuery = {
+  criteria: [{
+    tags: [
+      { key: 'eventType', value: 'AccountOpened' },
+      { key: 'accountOpenedId', value: accountOpenedId },
+    ],
+  }],
+};
+const accountContextQuery = {
+  criteria: [
+    accountRootQuery.criteria[0],
+    { tags: [{ key: 'scopes.accountOpenedId', value: accountOpenedId }] },
+  ],
 };
 
 // 1. Open the account (context must be empty).
@@ -197,13 +219,13 @@ try {
     boundary: 'accounts',
     query: {
       expectedPosition: { commitPosition: -1, preparePosition: -1 },
-      subsetQuery: accountQuery,
+      subsetQuery: accountRootQuery,
     },
     events: [
       {
-        eventId: '018f2d5e-0001-7000-8000-000000000001',
+        eventId: accountOpenedId,
         eventType: 'AccountOpened',
-        data: { account_id: 'acct-1', balance: 0 },
+        data: { accountOpenedId, balance: 0 },
       },
     ],
   });
@@ -218,9 +240,9 @@ try {
 // 2. Read the latest carried state and its context position.
 const latest = await client.getLatestByCriteria({
   boundary: 'accounts',
-  criteria: accountQuery.criteria,
+  criteria: accountContextQuery.criteria,
 });
-const balance = latest.results[0].event?.data.balance ?? 0;
+const balance = latest.results[1].event?.data.balanceAfter ?? latest.results[0].event?.data.balance ?? 0;
 const expectedPosition = latest.contextPosition; // pass to the next save
 
 // 3. Subscribe a projector (catch-up then live).
@@ -247,10 +269,19 @@ try (OrisunClient client = OrisunClient.newBuilder()
     .withBasicAuth("admin", "changeit")
     .build()) {
 
-  Eventstore.Query accountQuery = Eventstore.Query.newBuilder()
+  String accountOpenedId = "018f2d5e-0001-7000-8000-000000000001";
+  Eventstore.Criterion accountRoot = Eventstore.Criterion.newBuilder()
+      .addTags(Eventstore.Tag.newBuilder().setKey("eventType").setValue("AccountOpened").build())
+      .addTags(Eventstore.Tag.newBuilder().setKey("accountOpenedId").setValue(accountOpenedId).build())
+      .build();
+  Eventstore.Query accountRootQuery = Eventstore.Query.newBuilder()
+      .addCriteria(accountRoot)
+      .build();
+  Eventstore.Query accountContextQuery = Eventstore.Query.newBuilder()
+      .addCriteria(accountRoot)
       .addCriteria(Eventstore.Criterion.newBuilder()
           .addTags(Eventstore.Tag.newBuilder()
-              .setKey("account_id").setValue("acct-1").build())
+              .setKey("scopes.accountOpenedId").setValue(accountOpenedId).build())
           .build())
       .build();
 
@@ -261,12 +292,12 @@ try (OrisunClient client = OrisunClient.newBuilder()
           .setQuery(Eventstore.SaveQuery.newBuilder()
               .setExpectedPosition(Eventstore.Position.newBuilder()
                   .setCommitPosition(-1).setPreparePosition(-1).build())
-              .setSubsetQuery(accountQuery)
+              .setSubsetQuery(accountRootQuery)
               .build())
           .addEvents(Eventstore.EventToSave.newBuilder()
-              .setEventId("018f2d5e-0001-7000-8000-000000000001")
+              .setEventId(accountOpenedId)
               .setEventType("AccountOpened")
-              .setData("{\"account_id\":\"acct-1\",\"balance\":0}")
+              .setData("{\"accountOpenedId\":\"018f2d5e-0001-7000-8000-000000000001\",\"balance\":0}")
               .build())
           .build());
   } catch (OptimisticConcurrencyException conflict) {
@@ -277,7 +308,7 @@ try (OrisunClient client = OrisunClient.newBuilder()
   Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
       Eventstore.GetLatestByCriteriaRequest.newBuilder()
           .setBoundary("accounts")
-          .addCriteria(accountQuery.getCriteria(0))
+          .addAllCriteria(accountContextQuery.getCriteriaList())
           .build());
   Eventstore.Position expectedPosition = latest.getContextPosition();
 

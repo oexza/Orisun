@@ -16,10 +16,10 @@ Only **add** optional fields; never remove or repurpose an existing field. Proje
 
 ```json
 // v1, written at launch
-{"account_id": "acct-1", "amount": 45}
+{"order_id": "ord-1", "amount": 45}
 
 // v2, written later — adds currency, old events simply lack it
-{"account_id": "acct-1", "amount": 45, "currency": "USD"}
+{"order_id": "ord-1", "amount": 45, "currency": "USD"}
 ```
 
 This is the safest change. A projector reading `currency` defaults to `"USD"` (or whatever your baseline is) for v1 events. No upcasting, no new event type, no index changes.
@@ -123,7 +123,7 @@ Keep the upcast logic in one place — a normalizer the projector calls for ever
 Criteria queries and [indexes](../concepts/indexing) match JSON keys directly. That has two consequences:
 
 - **A new key does not retroactively match old events.** A criterion on `currency` will not match v1 events that lack it. If you need a unified read across versions, query on a key present in all of them (typically `eventType` or a stable domain id), or upcast before querying.
-- **Index stable keys.** Put indexes on fields that do not change across versions (`account_id`, `order_id`, `eventType`). Indexing a field introduced in v2 only speeds up v2+ events.
+- **Index stable keys.** Put indexes on fields that do not change across versions (`order_id`, `eventType`). Indexing a field introduced in v2 only speeds up v2+ events.
 
 ## Rules of thumb
 

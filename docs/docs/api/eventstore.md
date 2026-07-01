@@ -583,12 +583,21 @@ Keep the consumer idempotent and deduplicate by `event_id` rather than assuming 
 resp, err := client.GetLatestByCriteria(ctx, &eventstore.GetLatestByCriteriaRequest{
 	Boundary: "ledger",
 	Criteria: []*eventstore.Criterion{
-		{Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-01"}}},
-		{Tags: []*eventstore.Tag{{Key: "account_id", Value: "acct-02"}}},
+		{Tags: []*eventstore.Tag{
+			{Key: "eventType", Value: "AccountOpened"},
+			{Key: "accountOpenedId", Value: "018f2d5e-2001-7000-8000-000000000001"},
+		}},
+		{Tags: []*eventstore.Tag{{Key: "scopes.accountOpenedId", Value: "018f2d5e-2001-7000-8000-000000000001"}}},
+		{Tags: []*eventstore.Tag{
+			{Key: "eventType", Value: "AccountOpened"},
+			{Key: "accountOpenedId", Value: "018f2d5e-2002-7000-8000-000000000002"},
+		}},
+		{Tags: []*eventstore.Tag{{Key: "scopes.accountOpenedId", Value: "018f2d5e-2002-7000-8000-000000000002"}}},
 	},
 })
 
 // One result per criterion, in request order.
+// Use the root event when no scoped movement exists yet.
 // resp.ContextPosition is the next expected_position for a SaveEvents
 // using the same combined criteria.
 for _, r := range resp.Results {
@@ -605,8 +614,16 @@ for _, r := range resp.Results {
 const latest = await client.getLatestByCriteria({
   boundary: 'ledger',
   criteria: [
-    { tags: [{ key: 'account_id', value: 'acct-01' }] },
-    { tags: [{ key: 'account_id', value: 'acct-02' }] },
+    { tags: [
+      { key: 'eventType', value: 'AccountOpened' },
+      { key: 'accountOpenedId', value: '018f2d5e-2001-7000-8000-000000000001' },
+    ] },
+    { tags: [{ key: 'scopes.accountOpenedId', value: '018f2d5e-2001-7000-8000-000000000001' }] },
+    { tags: [
+      { key: 'eventType', value: 'AccountOpened' },
+      { key: 'accountOpenedId', value: '018f2d5e-2002-7000-8000-000000000002' },
+    ] },
+    { tags: [{ key: 'scopes.accountOpenedId', value: '018f2d5e-2002-7000-8000-000000000002' }] },
   ],
 });
 
@@ -622,11 +639,19 @@ Eventstore.GetLatestByCriteriaResponse latest = client.getLatestByCriteria(
     Eventstore.GetLatestByCriteriaRequest.newBuilder()
         .setBoundary("ledger")
         .addCriteria(Eventstore.Criterion.newBuilder()
-            .addTags(Eventstore.Tag.newBuilder()
-                .setKey("account_id").setValue("acct-01").build()).build())
+            .addTags(Eventstore.Tag.newBuilder().setKey("eventType").setValue("AccountOpened").build())
+            .addTags(Eventstore.Tag.newBuilder().setKey("accountOpenedId").setValue("018f2d5e-2001-7000-8000-000000000001").build())
+            .build())
         .addCriteria(Eventstore.Criterion.newBuilder()
-            .addTags(Eventstore.Tag.newBuilder()
-                .setKey("account_id").setValue("acct-02").build()).build())
+            .addTags(Eventstore.Tag.newBuilder().setKey("scopes.accountOpenedId").setValue("018f2d5e-2001-7000-8000-000000000001").build())
+            .build())
+        .addCriteria(Eventstore.Criterion.newBuilder()
+            .addTags(Eventstore.Tag.newBuilder().setKey("eventType").setValue("AccountOpened").build())
+            .addTags(Eventstore.Tag.newBuilder().setKey("accountOpenedId").setValue("018f2d5e-2002-7000-8000-000000000002").build())
+            .build())
+        .addCriteria(Eventstore.Criterion.newBuilder()
+            .addTags(Eventstore.Tag.newBuilder().setKey("scopes.accountOpenedId").setValue("018f2d5e-2002-7000-8000-000000000002").build())
+            .build())
         .build());
 
 Eventstore.Position expectedPosition = latest.getContextPosition();
@@ -640,8 +665,16 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.EventStore/GetLatestByCriteria <<E
 {
   "boundary": "ledger",
   "criteria": [
-    {"tags": [{"key": "account_id", "value": "acct-01"}]},
-    {"tags": [{"key": "account_id", "value": "acct-02"}]}
+    {"tags": [
+      {"key": "eventType", "value": "AccountOpened"},
+      {"key": "accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}
+    ]},
+    {"tags": [{"key": "scopes.accountOpenedId", "value": "018f2d5e-2001-7000-8000-000000000001"}]},
+    {"tags": [
+      {"key": "eventType", "value": "AccountOpened"},
+      {"key": "accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}
+    ]},
+    {"tags": [{"key": "scopes.accountOpenedId", "value": "018f2d5e-2002-7000-8000-000000000002"}]}
   ]
 }
 EOF
