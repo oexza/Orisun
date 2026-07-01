@@ -11,7 +11,7 @@ Configuration is shared across release binaries, Docker images, and embedded dep
 
 | Variable | Description |
 | --- | --- |
-| `ORISUN_BACKEND` | `postgres` or `sqlite`; defaults to `postgres`. |
+| `ORISUN_BACKEND` | `postgres`, `sqlite`, or `foundationdb`; defaults to `postgres`. |
 | `ORISUN_BOUNDARIES` | JSON array of boundary definitions. |
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state. |
 | `ORISUN_ADMIN_PASSWORD` | Bootstrap admin password. The default is for local development only. |
@@ -53,6 +53,18 @@ For SQLite, set:
 | --- | --- | --- |
 | `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory for per-boundary SQLite database files. |
 | `ORISUN_NATS_CLUSTER_ENABLED` | `false` | Must stay `false` for SQLite. |
+
+For FoundationDB beta deployments, set:
+
+| Variable | Description |
+| --- | --- |
+| `ORISUN_FDB_CLUSTER_FILE` | FoundationDB cluster file path. Empty uses the client default. |
+| `ORISUN_FDB_API_VERSION` | FoundationDB API version. Defaults to `730`. |
+| `ORISUN_FDB_ROOT` | Root tuple prefix for Orisun data. Defaults to `orisun`. |
+| `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` | Per-transaction timeout including internal retries. Defaults to `10000`; negative disables. |
+| `ORISUN_FDB_TRANSACTION_RETRY_LIMIT` | Max internal retries per transaction. Defaults to `0` (unlimited; the timeout is the bound). |
+
+FoundationDB support is beta. It is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host. Review the FDB-specific release notes before upgrading, because storage layout and operational defaults may still change while the backend hardens.
 
 ## Boundary configuration
 

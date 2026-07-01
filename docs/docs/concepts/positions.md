@@ -16,6 +16,8 @@ A position has two fields:
 
 Ordering within a boundary is the tuple `(commit_position, prepare_position)`, ascending. Positions are per boundary — they are not comparable across boundaries.
 
+Treat positions as opaque ordering tokens. Some backends store dense integer sequences; FoundationDB encodes commit versionstamp data into the same `int64` pair, so values remain ordered and unique but are not guaranteed to be gap-free.
+
 ## PostgreSQL transaction IDs
 
 In Orisun `0.3.1` and later, PostgreSQL `transaction_id` is an Orisun logical commit position, not PostgreSQL's internal transaction ID. PostgreSQL's `pg_current_xact_id()` is still recorded internally as `pg_xact_id` so the PostgreSQL backend can avoid publishing or reading past open older transactions, but that value is current-cluster metadata and is not exposed as the public EventStore position.
@@ -50,7 +52,7 @@ No event is assigned the exact position `{0, 0}`. The first event in a boundary 
 - each gets an increasing `prepare_position`,
 - the `WriteResult.log_position` returns the position of the batch, which is the value you pass as the next `expected_position`.
 
-This is why a single account, processed one command at a time, advances its `commit_position` by one per command while `prepare_position` tracks the global event sequence.
+This is why a single account, processed one command at a time, advances through ordered positions while `prepare_position` identifies the event within that ordering. Do not rely on positions increasing by exactly one.
 
 ## Positions and consistency
 

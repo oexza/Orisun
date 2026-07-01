@@ -44,6 +44,42 @@ type LockProvider interface {
 	Lock(ctx context.Context, lockName string) error
 }
 
+// LockLease is an optional stronger lock contract for providers that can prove
+// ongoing ownership. The polling publisher uses it to stop before publish or
+// checkpoint work if a lease has expired or been taken by another process.
+type LockLease interface {
+	Context() context.Context
+	Check(ctx context.Context) error
+	Release()
+}
+
+type LockLeaseProvider interface {
+	AcquireLock(ctx context.Context, lockName string) (LockLease, error)
+}
+
+type contextLockLease struct {
+	ctx context.Context
+}
+
+func (l contextLockLease) Context() context.Context { return l.ctx }
+func (l contextLockLease) Check(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return l.ctx.Err()
+}
+func (l contextLockLease) Release() {}
+
+func acquireLockLease(ctx context.Context, provider LockProvider, lockName string) (LockLease, error) {
+	if leaseProvider, ok := provider.(LockLeaseProvider); ok {
+		return leaseProvider.AcquireLock(ctx, lockName)
+	}
+	if err := provider.Lock(ctx, lockName); err != nil {
+		return nil, err
+	}
+	return contextLockLease{ctx: ctx}, nil
+}
+
 //type EventstoreDependencies interface {
 //	Save(ctx context.Context,
 //		events []EventWithMapTags,
@@ -302,6 +338,9 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 	}
 
 	if err := s.indexManager.CreateBoundaryIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
 	}
 	return &CreateIndexResponse{}, nil
@@ -318,6 +357,9 @@ func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*Dro
 		return nil, status.Errorf(codes.InvalidArgument, "boundary and name are required")
 	}
 	if err := s.indexManager.DropBoundaryIndex(ctx, req.Boundary, req.Name); err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		return nil, status.Errorf(codes.Internal, "failed to drop index: %v", err)
 	}
 	return &DropIndexResponse{}, nil
@@ -386,6 +428,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	)
 
 	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
 			return nil, status.Errorf(codes.AlreadyExists, "failed to save events: %v", err)
 		}
@@ -448,11 +493,13 @@ func (s *EventStore) SubscribeToAllEvents(
 
 	// Use errgroup for coordinated error handling and cancellation
 	g, gCtx := errgroup.WithContext(ctx)
-	err := s.lockProvider.Lock(gCtx, subscriptionName)
+	lease, err := acquireLockLease(gCtx, s.lockProvider, subscriptionName)
 
 	if err != nil {
 		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
 	}
+	defer lease.Release()
+	gCtx = lease.Context()
 
 	// Initialize position tracking
 	lastProcessedPosition := afterPosition
@@ -462,10 +509,8 @@ func (s *EventStore) SubscribeToAllEvents(
 
 	const batchSize = 100
 	for {
-		select {
-		case <-gCtx.Done():
-			return gCtx.Err()
-		default:
+		if err := lease.Check(gCtx); err != nil {
+			return err
 		}
 
 		// Get events from the event store starting from our last processed position
@@ -505,10 +550,8 @@ func (s *EventStore) SubscribeToAllEvents(
 
 		// Send all events in this batch
 		for _, event := range resp.Events {
-			select {
-			case <-gCtx.Done():
-				return gCtx.Err()
-			default:
+			if err := lease.Check(gCtx); err != nil {
+				return err
 			}
 
 			if lastProcessedPosition == nil || isEventPositionNewerThanPosition(event.Position, lastProcessedPosition) {
@@ -606,59 +649,52 @@ func (s *EventStore) SubscribeToAllEvents(
 		}()
 
 		for {
-			select {
-			case <-gCtx.Done():
+			if err := lease.Check(gCtx); err != nil {
 				s.logger.Info("Message processing stopped due to context cancellation")
-				return gCtx.Err()
-			default:
-				msg, err := msgs.Next()
-				if err != nil {
-					if gCtx.Err() != nil {
-						s.logger.Info("Context cancelled, stopping message processing")
-						return gCtx.Err()
-					}
-					s.logger.Errorf("Error getting next message: %v", err)
-					// Small backoff to avoid tight loop on repeated errors
-					return fmt.Errorf("failed to get next message: %w", err)
+				return err
+			}
+			msg, err := msgs.Next()
+			if err != nil {
+				if gCtx.Err() != nil {
+					s.logger.Info("Context cancelled, stopping message processing")
+					return gCtx.Err()
+				}
+				s.logger.Errorf("Error getting next message: %v", err)
+				// Small backoff to avoid tight loop on repeated errors
+				return fmt.Errorf("failed to get next message: %w", err)
+			}
+
+			var event Event
+			if err := json.Unmarshal(msg.Data(), &event); err != nil {
+				s.logger.Errorf("Failed to unmarshal event: %v", err)
+				return fmt.Errorf("failed to unmarshal event: %w", err)
+			}
+
+			// Only process events newer than our last processed position
+			isNewer := false
+			if lastProcessedPosition != nil {
+				isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
+			} else {
+				isNewer = true // If no position, all events are considered new
+			}
+
+			if isNewer && s.eventMatchesQueryCriteria(&event, query) {
+				if err := lease.Check(gCtx); err != nil {
+					s.logger.Info("Context cancelled, not sending event")
+					return err
+				}
+				if err := handler.Send(&event); err != nil {
+					s.logger.Errorf("Failed to send event: %v", err)
+					return fmt.Errorf("failed to send event: %w", err)
 				}
 
-				var event Event
-				if err := json.Unmarshal(msg.Data(), &event); err != nil {
-					s.logger.Errorf("Failed to unmarshal event: %v", err)
-					return fmt.Errorf("failed to unmarshal event: %w", err)
+				lastProcessedPosition = event.Position
+
+				if err := msg.Ack(); err != nil {
+					s.logger.Errorf("Failed to acknowledge message: %v", err)
 				}
-
-				// Only process events newer than our last processed position
-				isNewer := false
-				if lastProcessedPosition != nil {
-					isNewer = isEventPositionNewerThanPosition(event.Position, lastProcessedPosition)
-				} else {
-					isNewer = true // If no position, all events are considered new
-				}
-
-				if isNewer && s.eventMatchesQueryCriteria(&event, query) {
-					// Check context before attempting to send
-					select {
-					case <-gCtx.Done():
-						// Context is cancelled, don't try to send
-						s.logger.Info("Context cancelled, not sending event")
-						return gCtx.Err()
-					default:
-						// Context is still active, proceed with send
-						if err := handler.Send(&event); err != nil {
-							s.logger.Errorf("Failed to send event: %v", err)
-							return fmt.Errorf("failed to send event: %w", err)
-						}
-					}
-
-					lastProcessedPosition = event.Position
-
-					if err := msg.Ack(); err != nil {
-						s.logger.Errorf("Failed to acknowledge message: %v", err)
-					}
-				} else {
-					msg.Ack() // Acknowledge messages that don't match criteria or are duplicates
-				}
+			} else {
+				msg.Ack() // Acknowledge messages that don't match criteria or are duplicates
 			}
 		}
 	})
@@ -936,7 +972,7 @@ func StartEventPolling(
 				case <-gctx.Done():
 					return gctx.Err()
 				default:
-					err := lockProvider.Lock(gctx, boundary)
+					lease, err := acquireLockLease(gctx, lockProvider, boundary)
 					if err != nil {
 						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary, err)
 						if waitErr := backoff.Wait(gctx); waitErr != nil {
@@ -947,8 +983,10 @@ func StartEventPolling(
 					backoff.Reset()
 					logger.Infof("Successfully acquired polling lock for boundary %v", boundary)
 
-					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(gctx, boundary)
+					lockCtx := lease.Context()
+					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(lockCtx, boundary)
 					if err != nil {
+						lease.Release()
 						logger.Errorf("Failed to get last published position for boundary %s: %v", boundary, err)
 						if waitErr := backoff.Wait(gctx); waitErr != nil {
 							return waitErr
@@ -957,8 +995,8 @@ func StartEventPolling(
 					}
 					logger.Infof("Last published position for boundary %v: %v", boundary, &lastPosition)
 
-					err = publishEventsLoop(
-						gctx,
+					err = publishEventsLoopWithLease(
+						lockCtx,
 						js,
 						getEvents,
 						config.PollingPublisher.BatchSize,
@@ -966,8 +1004,10 @@ func StartEventPolling(
 						boundary,
 						eventPublishingTracker,
 						signalProvider(boundary),
+						lease,
 						logger,
 					)
+					lease.Release()
 
 					if err != nil {
 						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary, err)
@@ -993,6 +1033,21 @@ func publishEventsLoop(
 	signal EventSignal,
 	logger logging.Logger,
 ) error {
+	return publishEventsLoopWithLease(ctx, js, eventStore, batchSize, lastPosition, boundary, db, signal, contextLockLease{ctx: ctx}, logger)
+}
+
+func publishEventsLoopWithLease(
+	ctx context.Context,
+	js jetstream.JetStream,
+	eventStore EventsRetriever,
+	batchSize uint32,
+	lastPosition *Position,
+	boundary string,
+	db EventPublishingTracker,
+	signal EventSignal,
+	lease LockLease,
+	logger logging.Logger,
+) error {
 	const readRetryBase = 100 * time.Millisecond
 	const readRetryMax = 2 * time.Second
 	const publishRetryBase = 100 * time.Millisecond
@@ -1002,8 +1057,8 @@ func publishEventsLoop(
 	readBackoff := readRetryBase
 
 	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := lease.Check(ctx); err != nil {
+			return err
 		}
 
 		// Drain all pending events from DB in order. We drain BEFORE waiting on
@@ -1011,8 +1066,8 @@ func publishEventsLoop(
 		// the publisher was down) are published immediately rather than waiting
 		// for the next NOTIFY / catch-up tick.
 		for {
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if err := lease.Check(ctx); err != nil {
+				return err
 			}
 
 			req := &GetEventsRequest{
@@ -1049,6 +1104,9 @@ func publishEventsLoop(
 			}
 
 			for _, event := range resp.Events {
+				if err := lease.Check(ctx); err != nil {
+					return err
+				}
 				if event.Position == nil {
 					return fmt.Errorf("event %s has nil position", event.EventId)
 				}
@@ -1077,6 +1135,9 @@ func publishEventsLoop(
 
 				publishBackoff := publishRetryBase
 				for {
+					if err := lease.Check(ctx); err != nil {
+						return err
+					}
 					_, err = js.Publish(
 						ctx,
 						subjectName,
@@ -1099,6 +1160,9 @@ func publishEventsLoop(
 					}
 				}
 
+				if err := lease.Check(ctx); err != nil {
+					return err
+				}
 				if err := db.InsertLastPublishedEvent(
 					ctx,
 					boundary,

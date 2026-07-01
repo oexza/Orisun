@@ -3,7 +3,7 @@ title: Delivery Guarantees
 description: Understand publishing order, catch-up, and duplicate delivery.
 ---
 
-PostgreSQL, YugabyteDB, or SQLite is the durable source of truth. Embedded NATS JetStream is the real-time delivery layer.
+PostgreSQL, YugabyteDB, SQLite, or FoundationDB is the durable source of truth. Embedded NATS JetStream is the real-time delivery layer.
 
 Wake-up signals are hints. Correctness comes from durable checkpoints and ordered catch-up reads.
 
@@ -13,12 +13,12 @@ Wake-up signals are hints. Correctness comes from durable checkpoints and ordere
 | --- | --- |
 | No skipped committed events | The publisher stores the last published position in the selected backend and resumes from the next position. |
 | Sequential publishing | The publisher drains events in ascending event-log position and rejects non-advancing batches. |
-| Stable committed prefix | PostgreSQL avoids exposing in-flight transactions; SQLite serializes commits through one writer per boundary. |
-| Single active publisher | PostgreSQL nodes acquire a boundary lock; SQLite runs exactly one active node. |
+| Stable committed prefix | PostgreSQL avoids exposing in-flight transactions; SQLite serializes commits through one writer per boundary; FoundationDB reads from ordered committed versionstamps. |
+| Single active publisher | PostgreSQL nodes acquire a boundary lock; FoundationDB nodes acquire a token-fenced FDB lease lock; SQLite runs exactly one active node. |
 
 ## Notifications are not the guarantee
 
-PostgreSQL `LISTEN/NOTIFY`, SQLite wake-ups, and polling only tell the publisher that there may be work to do. If a signal is missed, periodic polling still drains the committed event log from the persisted checkpoint.
+PostgreSQL `LISTEN/NOTIFY`, SQLite wake-ups, FoundationDB watch signals, and polling only tell the publisher that there may be work to do. If a signal is missed, periodic polling still drains the committed event log from the persisted checkpoint.
 
 This design is why no committed event is skipped even when a wake-up signal is delayed or lost.
 
@@ -40,7 +40,7 @@ Within a boundary, consumers should process positions monotonically and persist 
 
 ## JetStream retention is in memory
 
-The embedded JetStream stream uses memory storage. It is the live-delivery buffer, not the source of truth — the durable event log in PostgreSQL, YugabyteDB, or SQLite is. Two consequences follow:
+The embedded JetStream stream uses memory storage. It is the live-delivery buffer, not the source of truth — the durable event log in PostgreSQL, YugabyteDB, SQLite, or FoundationDB is. Two consequences follow:
 
 - Live retention is bounded by `ORISUN_NATS_EVENT_STREAM_MAX_BYTES` (default 512 MB), `ORISUN_NATS_EVENT_STREAM_MAX_MSGS`, and `ORISUN_NATS_EVENT_STREAM_MAX_AGE` (default 5m), per boundary. Events older than the window or beyond the size cap are dropped from the live buffer.
 - A subscriber that falls behind the retention window does not lose events. It falls out of live delivery and is served from the durable store by the catch-up phase instead.

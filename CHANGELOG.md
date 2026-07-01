@@ -6,6 +6,9 @@
 
 - `EventStore/GetLatestByCriteria` RPC: returns the latest event per criterion assembled from one consistent server-side read snapshot, plus a `context_position` for use as the next `expected_position`. Closes the mixed-snapshot gap where a context assembled from independent `GetEvents` calls can miss an event that committed between them below the observed max position. Implemented for PostgreSQL (single-statement `UNION ALL` of `LIMIT 1` lookups) and SQLite (one deferred read transaction).
 - General-ledger workload e2e test (`TestE2E_LedgerWorkload_*`) driving concurrent double-entry transfers with carried balances through the public gRPC API, auditing carried-balance consistency, no-overdraft, money conservation, and debit/credit pairing.
+- FoundationDB storage backend (`ORISUN_BACKEND=foundationdb`, built with `-tags foundationdb`). Event positions come from FoundationDB commit versionstamps, so plain appends and commands on different aggregates commit in parallel — no per-boundary sequence counter on the write path. Criteria reads and consistency conditions both require a ready covering index and fail closed (`FAILED_PRECONDITION`) otherwise; conflict ranges are scoped to the matching index slice. System indexes covering Orisun's own admin queries are created on the admin boundary at startup.
+- `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` (default `10000`) and `ORISUN_FDB_TRANSACTION_RETRY_LIMIT` (default unlimited) bound FoundationDB transactions.
+- `scripts/fdb_test_container.sh` runs the FoundationDB backend tests against a throwaway single-node Docker cluster.
 
 ### Fixed
 

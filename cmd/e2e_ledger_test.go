@@ -43,17 +43,28 @@ import (
 //  5. per-account criteria reads return strictly increasing positions.
 func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 	t.Helper()
+	runLedgerWorkloadWithConfig(t, suite, ledgerWorkloadConfig{
+		accounts:           8,
+		initialBalance:     1000,
+		workers:            6,
+		transfersPerWorker: 15,
+		maxAttempts:        200,
+	})
+}
+
+type ledgerWorkloadConfig struct {
+	accounts           int
+	initialBalance     int64
+	workers            int
+	transfersPerWorker int
+	maxAttempts        int
+}
+
+func runLedgerWorkloadWithConfig(t *testing.T, suite *E2ETestSuite, cfg ledgerWorkloadConfig) {
+	t.Helper()
 	ctx := createAuthenticatedContext("admin", "changeit")
 	client := suite.eventStoreClient
 	const boundary = "orisun_test_1"
-
-	const (
-		accounts           = 8
-		initialBalance     = int64(1000)
-		workers            = 6
-		transfersPerWorker = 15
-		maxAttempts        = 200
-	)
 
 	accountID := func(i int) string { return fmt.Sprintf("acct-%02d", i) }
 	accountCriteria := func(ids ...string) *pb.Query {
@@ -120,7 +131,7 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 
 	// Seed accounts: consistency context "this account is still empty".
 	notExists := pb.NotExistsPosition()
-	for i := 0; i < accounts; i++ {
+	for i := 0; i < cfg.accounts; i++ {
 		_, err := client.SaveEvents(ctx, &pb.SaveEventsRequest{
 			Boundary: boundary,
 			Query: &pb.SaveQuery{
@@ -132,8 +143,8 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 				EventType: "AccountOpened",
 				Data: mustJSON(map[string]any{
 					"account_id": accountID(i),
-					"amount":     initialBalance,
-					"balance":    initialBalance,
+					"amount":     cfg.initialBalance,
+					"balance":    cfg.initialBalance,
 				}),
 				Metadata: `{}`,
 			}},
@@ -168,25 +179,25 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 
 	var transferred, declined, conflicts int64
 	var wg sync.WaitGroup
-	errs := make(chan error, workers)
-	for w := 0; w < workers; w++ {
+	errs := make(chan error, cfg.workers)
+	for w := 0; w < cfg.workers; w++ {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(int64(w) + 42))
-			for i := 0; i < transfersPerWorker; i++ {
-				src := accountID(rng.Intn(accounts))
-				dst := accountID(rng.Intn(accounts))
+			for i := 0; i < cfg.transfersPerWorker; i++ {
+				src := accountID(rng.Intn(cfg.accounts))
+				dst := accountID(rng.Intn(cfg.accounts))
 				for dst == src {
-					dst = accountID(rng.Intn(accounts))
+					dst = accountID(rng.Intn(cfg.accounts))
 				}
 				amount := int64(1 + rng.Intn(50))
 
 				attempts := 0
 				for {
 					attempts++
-					if attempts > maxAttempts {
-						errs <- fmt.Errorf("worker %d transfer %d: gave up after %d attempts (livelock?)", w, i, maxAttempts)
+					if attempts > cfg.maxAttempts {
+						errs <- fmt.Errorf("worker %d transfer %d: gave up after %d attempts (livelock?)", w, i, cfg.maxAttempts)
 						return
 					}
 					srcBal, dstBal, last, err := readContext(src, dst)
@@ -274,7 +285,7 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 		all = append(all, resp.Events...)
 		cursor = resp.Events[len(resp.Events)-1].Position
 	}
-	wantEvents := accounts + int(transferred)*2
+	wantEvents := cfg.accounts + int(transferred)*2
 	if len(all) != wantEvents {
 		t.Fatalf("expected %d events in log, got %d", wantEvents, len(all))
 	}
@@ -329,7 +340,7 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 		}
 		total += balance
 	}
-	if want := int64(accounts) * initialBalance; total != want {
+	if want := int64(cfg.accounts) * cfg.initialBalance; total != want {
 		t.Fatalf("money not conserved: total %d, want %d", total, want)
 	}
 
@@ -345,7 +356,7 @@ func runLedgerWorkload(t *testing.T, suite *E2ETestSuite) {
 
 	// Invariant 5: per-account criteria reads come back in strictly increasing
 	// position order.
-	for i := 0; i < accounts; i++ {
+	for i := 0; i < cfg.accounts; i++ {
 		resp, err := client.GetEvents(ctx, &pb.GetEventsRequest{
 			Boundary:  boundary,
 			Count:     10000,

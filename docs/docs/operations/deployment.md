@@ -214,6 +214,57 @@ YugabyteDB does not provide PostgreSQL internal transaction ID semantics, so Ori
 
 For clustered Orisun nodes, use the same guidance as [Clustered PostgreSQL](#clustered-postgresql): all Orisun nodes share the same YugabyteDB database, boundaries, schema mapping, and NATS cluster configuration.
 
+## FoundationDB topology
+
+FoundationDB support in Orisun is beta. Use this topology for controlled production pilots, but expect FDB-specific storage layout, index internals, and operational defaults to remain eligible for breaking changes until the backend graduates from beta.
+
+A FoundationDB deployment has three independently scalable tiers:
+
+```text
+                gRPC clients
+                     │
+       ┌─────────────┼─────────────┐
+       │ Orisun node │ Orisun node │ Orisun node     stateless tier
+       │  + NATS     │  + NATS     │  + NATS         JetStream cluster (quorum: 3)
+       └──────┬──────┴──────┬──────┴──────┬───┘
+              │  libfdb_c + fdb.cluster file
+       ┌──────┴─────────────┴─────────────┴───┐
+       │           FoundationDB cluster        │
+       │  coordinators (3) · proxies/resolvers │
+       │  transaction logs (NVMe) · storage    │
+       └───────────────────────────────────────┘
+```
+
+**Orisun tier.** Orisun nodes are effectively stateless with this backend: all durable state lives in FoundationDB. NATS JetStream is the live-delivery buffer; publisher ownership, checkpoints, indexes, users, and projector state live in FoundationDB. Scale horizontally behind any gRPC load balancer. One publisher per boundary self-elects through an FDB lease lock and fails over automatically. Run at least three Orisun nodes when NATS clustering is enabled, with the same shared/unique variable split as [Clustered PostgreSQL](#clustered-postgresql) (minus the PostgreSQL variables, plus `ORISUN_FDB_CLUSTER_FILE`).
+
+**FoundationDB tier by size:**
+
+| Tier | Layout | Redundancy |
+| --- | --- | --- |
+| Starter | 3 machines, each running storage + log + stateless `fdbserver` processes | `double ssd` |
+| Production | 3 dedicated log-class machines on NVMe + 5 or more storage-class + 2–3 stateless-class (proxies, resolvers) | `triple ssd` |
+| Multi-region | Primary + synchronous satellite for transaction logs + asynchronous remote region | `triple` with satellite redundancy |
+
+Process classes are the scaling levers:
+
+- **Transaction logs** sit on the commit critical path — every write waits for a tLog fsync. Give them dedicated NVMe and nothing else to do.
+- **Storage servers** absorb reads and background data movement; add them for data volume and read throughput.
+- **Proxies and resolvers** are stateless CPU-bound processes; add them when commit throughput saturates.
+
+Orisun's write scaling rides this directly: positions come from commit versionstamps, so adding proxies, logs, and storage raises parallel commit throughput while every boundary stays totally ordered.
+
+**Kubernetes.** Use the official [fdb-kubernetes-operator](https://github.com/FoundationDB/fdb-kubernetes-operator) with a `FoundationDBCluster` resource. The operator maintains the cluster file in a ConfigMap — mount it into Orisun pods and point `ORISUN_FDB_CLUSTER_FILE` at it. Orisun itself is a plain Deployment.
+
+**Operational notes:**
+
+- The `libfdb_c` client major version must match the server. The multi-version client allows rolling server upgrades; bake the client library into the Orisun image. Release FDB binaries are Linux-only and still require the client library at runtime.
+- Backups: `fdbbackup` agents stream continuous backups to S3-compatible storage with point-in-time restore. This replaces the PostgreSQL dump/restore story.
+- Monitoring: `fdbcli status json` (or an exporter built on it) into your metrics stack. Watch commit latency, transaction log queue depth, storage lag, and transaction conflict rate — conflict rate maps directly to Orisun consistency-condition retries on contended aggregates.
+- Coordinators: 3 spread across failure domains in one datacenter, 5 across multiple.
+- Bound client-side stalls with `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` (default 10s) so a partitioned cluster surfaces as errors instead of hung requests.
+- Production runbook: see [FoundationDB operations](./foundationdb) for client libraries, cluster-file handling, backups, failover expectations, and release gates.
+
+
 ## PgBouncer
 
 Session mode works out of the box.
