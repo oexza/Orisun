@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,19 +23,22 @@ import (
 	eventstore "github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	defaultAPIVersion  = 730
-	defaultRoot        = "orisun"
-	backfillChunkSize  = 1000
-	scanChunkSize      = 1000
-	indexStateBuilding = "building"
-	indexStateReady    = "ready"
+	defaultAPIVersion = 730
+	defaultRoot       = "orisun"
+	backfillChunkSize = 1000
+	scanChunkSize     = 1000
 	// maxBatchSize bounds a single Save: the 2-byte versionstamp user version
 	// distinguishes events within one commit, so offsets must fit in uint16.
 	maxBatchSize = 1 << 16
+	// maxTransactionBytes keeps a Save under FoundationDB's hard 10MB
+	// transaction limit. The estimate counts event payloads plus per-event
+	// key/JSON/index overhead; the headroom absorbs index entries and the
+	// signal write so an oversized batch fails fast with InvalidArgument
+	// instead of an opaque commit-time transaction_too_large error.
+	maxTransactionBytes = 9 << 20
 	// defaultPageCount/maxPageCount mirror the PostgreSQL and SQLite read caps.
 	defaultPageCount = 1000
 	maxPageCount     = 10000
@@ -55,31 +57,6 @@ type Backend struct {
 	logger        logging.Logger
 	userCacheMu   sync.RWMutex
 	userCache     map[string]*eventstore.User
-}
-
-type eventRecord struct {
-	EventID     string `json:"event_id"`
-	EventType   string `json:"event_type"`
-	Data        string `json:"data"`
-	Metadata    string `json:"metadata"`
-	DateCreated string `json:"date_created"`
-}
-
-type indexDefinition struct {
-	Name       string                              `json:"name"`
-	Generation string                              `json:"generation,omitempty"`
-	Fields     []eventstore.BoundaryIndexField     `json:"fields"`
-	Conditions []eventstore.BoundaryIndexCondition `json:"conditions"`
-	Combinator string                              `json:"combinator"`
-	State      string                              `json:"state"`
-}
-
-type storedUser struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Username       string   `json:"username"`
-	HashedPassword string   `json:"password_hash"`
-	Roles          []string `json:"roles"`
 }
 
 func InitializeFoundationDB(
@@ -107,12 +84,6 @@ func InitializeFoundationDB(
 	db, err := fdb.OpenDatabase(fdbCfg.ClusterFile)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-
-	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
-	if err != nil {
-		db.Close()
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
 	}
 
 	// Bound every transaction (including internal retries) so a partitioned or
@@ -153,6 +124,10 @@ func InitializeFoundationDB(
 		db.Close()
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("ensure system indexes: %w", err)
 	}
+
+	// FoundationDB-native lease lock: durable and crash-failover capable, unlike
+	// the in-memory NATS lock the other shared path uses.
+	lockProvider := newFDBLockProvider(db, fdbCfg.Root, logger)
 
 	signalProvider := func(boundary string) eventstore.EventSignal {
 		return &fdbSignal{
@@ -270,7 +245,6 @@ func (b *Backend) Save(
 	if len(prepared) > maxBatchSize {
 		return "", 0, status.Errorf(codes.InvalidArgument, "batch of %d events exceeds max %d", len(prepared), maxBatchSize)
 	}
-
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	// vsFuture is reassigned on every (re)attempt; after Transact returns it
 	// refers to the committed attempt's versionstamp.
@@ -303,6 +277,11 @@ func (b *Backend) Save(
 		indexes, err := b.loadIndexes(tr, boundary)
 		if err != nil {
 			return nil, err
+		}
+		if total := estimateSaveBytes(prepared, indexes); total > maxTransactionBytes {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"batch of %d events is ~%d bytes, exceeding the %d-byte FoundationDB transaction budget; split it",
+				len(prepared), total, maxTransactionBytes)
 		}
 		// Positions are assigned by FDB at commit via versionstamps — no counter
 		// read, so concurrent appends to this boundary commit in parallel. Every
@@ -345,6 +324,10 @@ func (b *Backend) Save(
 		}
 		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
 			return "", 0, err
+		}
+		if isTransactionTooLarge(err) {
+			return "", 0, status.Errorf(codes.InvalidArgument,
+				"batch exceeds FoundationDB transaction size limit; split it: %v", err)
 		}
 		return "", 0, status.Errorf(codes.Internal, "save events: %v", err)
 	}
@@ -728,9 +711,71 @@ func (b *Backend) GetEventsCount(boundary string) (int, error) {
 
 // countEventsPaged counts the boundary's event keys across bounded chunks. A
 // single-transaction count of a large boundary would exceed FoundationDB's 5s
-// read window; chunking trades snapshot atomicity (the count is approximate
-// under concurrent writes) for not failing at all.
+// read window, so the scan is chunked — but every chunk reads the SAME pinned
+// read version, so the count is an exact snapshot as of that version even under
+// concurrent writes (the dashboard projector seeds its running count from this,
+// so a sloppy seed would drift forever). If the boundary is large enough that
+// the snapshot ages out of the storage MVCC window mid-count, fall back to an
+// unpinned best-effort scan rather than failing the call.
 func (b *Backend) countEventsPaged(boundary string) (int, error) {
+	readVersion, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		return rt.GetReadVersion().Get()
+	})
+	if err != nil {
+		return 0, err
+	}
+	total, err := b.countEventsAtVersion(boundary, readVersion.(int64))
+	if err == nil {
+		return total, nil
+	}
+	if !isVersionTooOld(err) {
+		return 0, err
+	}
+	b.logger.Warnf("event count for boundary %s outran a consistent snapshot (%v); falling back to approximate count", boundary, err)
+	return b.countEventsApprox(boundary)
+}
+
+// countEventsAtVersion counts event keys chunk by chunk, every chunk reading the
+// same pinned read version so the total is a single consistent snapshot.
+func (b *Backend) countEventsAtVersion(boundary string, readVersion int64) (int, error) {
+	pr := prefixRange(b.eventPrefix(boundary))
+	beginKey := pr.Begin.FDBKey()
+	endKey := pr.End.FDBKey()
+	total := 0
+	for {
+		tr, err := b.db.CreateTransaction()
+		if err != nil {
+			return 0, err
+		}
+		tr.SetReadVersion(readVersion)
+		scanned := 0
+		var lastKey fdb.Key
+		iter := tr.Snapshot().GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
+			Limit: scanChunkSize,
+			Mode:  fdb.StreamingModeWantAll,
+		}).Iterator()
+		for iter.Advance() {
+			kv, err := iter.Get()
+			if err != nil {
+				tr.Cancel()
+				return 0, err
+			}
+			lastKey = kv.Key
+			scanned++
+		}
+		tr.Cancel()
+		total += scanned
+		if scanned < scanChunkSize {
+			return total, nil
+		}
+		beginKey = keyAfter(lastKey)
+	}
+}
+
+// countEventsApprox is the fallback for boundaries too large to hold one
+// snapshot: independent chunk transactions, so the total is approximate under
+// concurrent writes but the call always completes.
+func (b *Backend) countEventsApprox(boundary string) (int, error) {
 	pr := prefixRange(b.eventPrefix(boundary))
 	beginKey := pr.Begin.FDBKey()
 	endKey := pr.End.FDBKey()
@@ -763,6 +808,24 @@ func (b *Backend) countEventsPaged(boundary string) (int, error) {
 		}
 		beginKey = keyAfter(lastKey)
 	}
+}
+
+// isVersionTooOld reports whether err is FoundationDB's transaction_too_old
+// (1007) — the pinned read version fell out of the storage MVCC window.
+func isVersionTooOld(err error) bool {
+	var fe fdb.Error
+	if errors.As(err, &fe) {
+		return fe.Code == 1007
+	}
+	return false
+}
+
+func isTransactionTooLarge(err error) bool {
+	var fe fdb.Error
+	if errors.As(err, &fe) {
+		return fe.Code == 2101
+	}
+	return false
 }
 
 func (b *Backend) SaveEventCount(count int, boundary string) error {
@@ -977,10 +1040,12 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 			if err != nil {
 				return nil, err
 			}
+			// scanIndexCandidates already restricted to this criterion's covering
+			// index slice (exact field/condition match) and applied the cursor, so
+			// candidates need only be de-duplicated across criteria here — no
+			// per-event re-parse of the payload.
 			for _, event := range candidates {
-				if eventMatchesCriterion(event.Data, criterion) && positionMatches(event.Position, req.FromPosition, req.Direction) {
-					eventsByPosition[positionKey(event.Position)] = event
-				}
+				eventsByPosition[positionKey(event.Position)] = event
 			}
 		}
 		events := make([]*eventstore.Event, 0, len(eventsByPosition))
@@ -1048,7 +1113,10 @@ func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransactio
 		if err != nil {
 			return nil, err
 		}
-		if event != nil && eventMatchesCriterion(event.Data, criterion) {
+		// The index slice is keyed by this criterion's exact field values and
+		// equality conditions (checked when the entry was written), so every
+		// entry here matches the full criterion — no payload re-parse needed.
+		if event != nil {
 			events = append(events, event)
 		}
 	}
@@ -1398,350 +1466,6 @@ func (b *Backend) eventsCountKey(boundary string) fdb.Key {
 	return b.tupleKey(boundary, "events_count")
 }
 
-type preparedEvent struct {
-	record eventRecord
-	data   map[string]any
-}
-
-func prepareEvents(events []eventstore.EventWithMapTags) ([]preparedEvent, error) {
-	out := make([]preparedEvent, len(events))
-	for i, event := range events {
-		dataBytes, err := json.Marshal(event.Data)
-		if err != nil {
-			return nil, err
-		}
-		var data map[string]any
-		if err := json.Unmarshal(dataBytes, &data); err != nil {
-			return nil, err
-		}
-		metadataBytes, err := json.Marshal(event.Metadata)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = preparedEvent{
-			record: eventRecord{
-				EventID:   event.EventId,
-				EventType: event.EventType,
-				Data:      string(dataBytes),
-				Metadata:  string(metadataBytes),
-			},
-			data: data,
-		}
-	}
-	return out, nil
-}
-
-func decodeEventRecord(value []byte) (eventRecord, map[string]any, error) {
-	var record eventRecord
-	if err := json.Unmarshal(value, &record); err != nil {
-		return eventRecord{}, nil, err
-	}
-	data := map[string]any{}
-	if err := json.Unmarshal([]byte(record.Data), &data); err != nil {
-		return eventRecord{}, nil, err
-	}
-	return record, data, nil
-}
-
-func eventFromRecord(value []byte, tx, gid int64) (*eventstore.Event, error) {
-	record, _, err := decodeEventRecord(value)
-	if err != nil {
-		return nil, err
-	}
-	created, err := time.Parse(time.RFC3339Nano, record.DateCreated)
-	if err != nil {
-		created = time.Now().UTC()
-	}
-	return &eventstore.Event{
-		EventId:   record.EventID,
-		EventType: record.EventType,
-		Data:      record.Data,
-		Metadata:  record.Metadata,
-		Position: &eventstore.Position{
-			CommitPosition:  tx,
-			PreparePosition: gid,
-		},
-		DateCreated: timestamppb.New(created),
-	}, nil
-}
-
-func encodeUser(user eventstore.User) ([]byte, error) {
-	roles := make([]string, len(user.Roles))
-	for i, role := range user.Roles {
-		roles[i] = string(role)
-	}
-	return json.Marshal(storedUser{
-		ID:             user.Id,
-		Name:           user.Name,
-		Username:       user.Username,
-		HashedPassword: user.HashedPassword,
-		Roles:          roles,
-	})
-}
-
-func decodeUser(value []byte) (eventstore.User, error) {
-	var stored storedUser
-	if err := json.Unmarshal(value, &stored); err != nil {
-		return eventstore.User{}, err
-	}
-	roles := make([]eventstore.Role, len(stored.Roles))
-	for i, role := range stored.Roles {
-		roles[i] = eventstore.Role(role)
-	}
-	return eventstore.User{
-		Id:             stored.ID,
-		Name:           stored.Name,
-		Username:       stored.Username,
-		HashedPassword: stored.HashedPassword,
-		Roles:          roles,
-	}, nil
-}
-
-func criteriaAsMaps(query *eventstore.Query) []map[string]string {
-	if query == nil {
-		return nil
-	}
-	out := make([]map[string]string, 0, len(query.Criteria))
-	for _, criterion := range query.Criteria {
-		m := make(map[string]string, len(criterion.Tags))
-		for _, tag := range criterion.Tags {
-			m[tag.Key] = tag.Value
-		}
-		if len(m) > 0 {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-func hasCriteria(query *eventstore.Query) bool {
-	return len(criteriaAsMaps(query)) > 0
-}
-
-func eventMatchesCriterion(dataJSON string, criterion map[string]string) bool {
-	data := map[string]any{}
-	if err := json.Unmarshal([]byte(dataJSON), &data); err != nil {
-		return false
-	}
-	for key, expected := range criterion {
-		actual, ok := data[key]
-		if !ok || !eventValueEquals(actual, expected) {
-			return false
-		}
-	}
-	return true
-}
-
-func eventMatchesIndexConditions(data map[string]any, idx indexDefinition) bool {
-	if len(idx.Conditions) == 0 {
-		return true
-	}
-	matches := 0
-	for _, condition := range idx.Conditions {
-		value, ok := data[condition.Key]
-		if ok && compareCondition(value, condition.Operator, condition.Value) {
-			matches++
-		}
-	}
-	if idx.Combinator == eventstore.IndexCombinatorOR {
-		return matches > 0
-	}
-	return matches == len(idx.Conditions)
-}
-
-func compareCondition(value any, operator, expected string) bool {
-	switch operator {
-	case "", "=":
-		return eventValueEquals(value, expected)
-	case ">", "<", ">=", "<=":
-		actualFloat, actualErr := strconv.ParseFloat(indexValueString(value), 64)
-		expectedFloat, expectedErr := strconv.ParseFloat(expected, 64)
-		if actualErr == nil && expectedErr == nil {
-			switch operator {
-			case ">":
-				return actualFloat > expectedFloat
-			case "<":
-				return actualFloat < expectedFloat
-			case ">=":
-				return actualFloat >= expectedFloat
-			case "<=":
-				return actualFloat <= expectedFloat
-			}
-		}
-		actual := indexValueString(value)
-		switch operator {
-		case ">":
-			return actual > expected
-		case "<":
-			return actual < expected
-		case ">=":
-			return actual >= expected
-		case "<=":
-			return actual <= expected
-		}
-	default:
-		return false
-	}
-	return false
-}
-
-func chooseIndex(indexes []indexDefinition, criterion map[string]string) (indexDefinition, bool) {
-	for _, idx := range indexes {
-		if len(idx.Fields) == 0 {
-			continue
-		}
-		covered := true
-		for _, field := range idx.Fields {
-			if _, ok := criterion[field.JsonKey]; !ok {
-				covered = false
-				break
-			}
-		}
-		if !covered || !criterionImpliesIndexConditions(idx, criterion) {
-			continue
-		}
-		return idx, true
-	}
-	return indexDefinition{}, false
-}
-
-func chooseCoveringIndex(indexes []indexDefinition, criterion map[string]string) (indexDefinition, bool) {
-	for _, idx := range indexes {
-		if _, ok := chooseIndex([]indexDefinition{idx}, criterion); !ok {
-			continue
-		}
-		if indexCoversCriterion(idx, criterion) {
-			return idx, true
-		}
-	}
-	return indexDefinition{}, false
-}
-
-func readyIndexes(indexes []indexDefinition) []indexDefinition {
-	ready := make([]indexDefinition, 0, len(indexes))
-	for _, idx := range indexes {
-		if idx.State == indexStateReady {
-			ready = append(ready, idx)
-		}
-	}
-	return ready
-}
-
-func indexCoversCriterion(idx indexDefinition, criterion map[string]string) bool {
-	covered := make(map[string]struct{}, len(idx.Fields)+len(idx.Conditions))
-	for _, field := range idx.Fields {
-		covered[field.JsonKey] = struct{}{}
-	}
-	for _, condition := range idx.Conditions {
-		if condition.Operator == "" || condition.Operator == "=" {
-			covered[condition.Key] = struct{}{}
-		}
-	}
-	for key := range criterion {
-		if _, ok := covered[key]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func criterionImpliesIndexConditions(idx indexDefinition, criterion map[string]string) bool {
-	for _, condition := range idx.Conditions {
-		if condition.Operator != "" && condition.Operator != "=" {
-			return false
-		}
-		if criterion[condition.Key] != condition.Value {
-			return false
-		}
-	}
-	return true
-}
-
-func eventValueEquals(value any, target string) bool {
-	switch v := value.(type) {
-	case string:
-		return v == target
-	case bool:
-		return strconv.FormatBool(v) == target
-	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64) == target
-	case json.Number:
-		return string(v) == target
-	case nil:
-		return target == "" || target == "null"
-	default:
-		return fmt.Sprintf("%v", v) == target
-	}
-}
-
-func indexValueString(value any) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case bool:
-		return strconv.FormatBool(v)
-	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64)
-	case json.Number:
-		return string(v)
-	case nil:
-		return "null"
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-func positionMatches(pos, from *eventstore.Position, direction eventstore.Direction) bool {
-	if from == nil {
-		return true
-	}
-	cmp := comparePositions(pos, from)
-	if direction == eventstore.Direction_DESC {
-		return cmp <= 0
-	}
-	return cmp >= 0
-}
-
-func comparePositions(a, b *eventstore.Position) int {
-	if a.CommitPosition == b.CommitPosition && a.PreparePosition == b.PreparePosition {
-		return 0
-	}
-	if a.CommitPosition < b.CommitPosition || (a.CommitPosition == b.CommitPosition && a.PreparePosition < b.PreparePosition) {
-		return -1
-	}
-	return 1
-}
-
-func sortEvents(events []*eventstore.Event, direction eventstore.Direction) {
-	sort.Slice(events, func(i, j int) bool {
-		cmp := comparePositions(events[i].Position, events[j].Position)
-		if direction == eventstore.Direction_DESC {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
-}
-
-func positionKey(pos *eventstore.Position) string {
-	return strconv.FormatInt(pos.CommitPosition, 10) + ":" + strconv.FormatInt(pos.PreparePosition, 10)
-}
-
-func contextStatusErr(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	switch err := ctx.Err(); {
-	case err == nil:
-		return nil
-	case errors.Is(err, context.Canceled):
-		return status.Error(codes.Canceled, err.Error())
-	case errors.Is(err, context.DeadlineExceeded):
-		return status.Error(codes.DeadlineExceeded, err.Error())
-	default:
-		return err
-	}
-}
-
 func eventPositionFromKey(key fdb.Key) (int64, int64, error) {
 	return positionFromKey(key, "event")
 }
@@ -1783,49 +1507,6 @@ func keyAfter(key fdb.Key) fdb.Key {
 	copy(next, key)
 	next[len(key)] = 0x00
 	return next
-}
-
-func validateIdentifier(name string) error {
-	if len(name) == 0 || len(name) > 63 {
-		return fmt.Errorf("identifier must be 1-63 characters, got %d", len(name))
-	}
-	if !isAlpha(name[0]) && name[0] != '_' {
-		return fmt.Errorf("identifier must start with a letter or underscore, got %q", name[0])
-	}
-	for i := 1; i < len(name); i++ {
-		c := name[i]
-		if !isAlpha(c) && !isDigit(c) && c != '_' {
-			return fmt.Errorf("identifier may only contain letters, digits, underscores, invalid char %q at %d", c, i)
-		}
-	}
-	return nil
-}
-
-func isAlpha(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-type optimisticConflictError struct {
-	expectedTx, expectedGid int64
-	actualTx, actualGid     int64
-}
-
-func (e optimisticConflictError) Error() string {
-	return fmt.Sprintf(
-		"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
-		e.expectedTx, e.expectedGid, e.actualTx, e.actualGid,
-	)
-}
-
-func optimisticConflict(expectedTx, expectedGid, actualTx, actualGid int64) error {
-	return optimisticConflictError{
-		expectedTx: expectedTx, expectedGid: expectedGid,
-		actualTx: actualTx, actualGid: actualGid,
-	}
-}
-
-func isOptimisticConflict(err error) bool {
-	var conflict optimisticConflictError
-	return errors.As(err, &conflict) || strings.Contains(err.Error(), "OptimisticConcurrencyException")
 }
 
 type fdbSignal struct {

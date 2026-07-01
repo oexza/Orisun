@@ -45,6 +45,9 @@ jobs:
       - name: Run FoundationDB gRPC ledger workload
         run: TEST_PKGS=./cmd/ scripts/fdb_test_container.sh -run TestE2E_LedgerWorkload_FoundationDB -v
 
+      - name: Build FoundationDB binary
+        run: TEST_PKGS=./cmd/orisun-fdb scripts/fdb_test_container.sh -run '^$'
+
   # lint:
   #   name: Lint
   #   runs-on: ubuntu-latest

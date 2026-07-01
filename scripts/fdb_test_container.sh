@@ -29,6 +29,7 @@ docker run --rm \
   -e DEB_ARCH="$DEB_ARCH" \
   -e TEST_ARGS="$TEST_ARGS" \
   -e TEST_PKGS="$TEST_PKGS" \
+  -e ORISUN_FDB_SOAK="${ORISUN_FDB_SOAK:-}" \
   "$GO_IMAGE" bash -ec '
     base="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}"
     curl -fsSL -o /tmp/clients.deb "${base}/foundationdb-clients_${FDB_VERSION}-1_${DEB_ARCH}.deb"

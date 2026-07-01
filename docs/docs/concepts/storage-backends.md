@@ -52,6 +52,7 @@ FoundationDB stores:
 - admin state
 - index metadata and secondary index keys
 - watch signal keys for publisher wake-ups
+- token-fenced publisher lease locks
 
 ```bash
 go build -tags foundationdb ./cmd/orisun-fdb
@@ -65,7 +66,7 @@ Criteria queries keep the same public API, but FoundationDB requires ready cover
 
 FoundationDB assigns event positions with commit versionstamps instead of a per-boundary counter. Plain appends can commit in parallel; writes with a consistency context conflict only on the covered index range for that context, so commands on different aggregates in one boundary commit concurrently. As in the other backends, an `expected_position` takes effect only together with consistency criteria.
 
-For cluster layout, process classes, Kubernetes, backups, and monitoring, see [FoundationDB topology](../operations/deployment#foundationdb-topology).
+For cluster layout, process classes, Kubernetes, backups, monitoring, lock failover, and release gates, see [FoundationDB topology](../operations/deployment#foundationdb-topology) and [FoundationDB operations](../operations/foundationdb).
 
 ## YugabyteDB
 

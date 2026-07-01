@@ -154,7 +154,7 @@ jobs:
         run: |
           mkdir -p build
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build \
-            -ldflags="-w -s -X 'orisun/common.Version=v${{ needs.validate.outputs.version }}' -X 'orisun/common.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'orisun/common.GitCommit=${GITHUB_SHA::8}'" \
+            -ldflags="-w -s -X 'github.com/oexza/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/oexza/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/oexza/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
             -o build/${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }} \
             ${{ matrix.package }}
 
@@ -167,9 +167,60 @@ jobs:
 
 
 
+  build-fdb:
+    name: Build FoundationDB Binary (${{ matrix.arch }})
+    needs: validate
+    if: ${{ !inputs.docker_only }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      FDB_VERSION: '7.3.77'
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            deb_arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            deb_arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          check-latest: true
+
+      # The FDB Go binding is cgo and links libfdb_c at build and run time, so the
+      # binary is built natively per arch (no cross-compile) against the installed
+      # client package.
+      - name: Install FoundationDB client library
+        run: |
+          curl -fsSL -o /tmp/clients.deb \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_${{ matrix.deb_arch }}.deb"
+          sudo dpkg -i /tmp/clients.deb
+
+      - name: Build binary
+        run: |
+          mkdir -p build
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go build \
+            -tags foundationdb \
+            -ldflags="-X 'github.com/oexza/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/oexza/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/oexza/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
+            -o build/orisun-fdb-linux-${{ matrix.arch }} \
+            ./cmd/orisun-fdb
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: orisun-fdb-linux-${{ matrix.arch }}
+          path: build/orisun-fdb-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
   create-release:
     name: Create GitHub Release
-    needs: [validate, build-binaries]
+    needs: [validate, build-binaries, build-fdb]
     if: ${{ !inputs.docker_only }}
     runs-on: ubuntu-latest
     permissions:
@@ -243,6 +294,11 @@ jobs:
           # SQLite-only binary
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64 -o orisun-sqlite
           chmod +x orisun-sqlite
+
+          # FoundationDB-only binary (Linux only; requires the FoundationDB
+          # client library installed: foundationdb-clients ${FDB_VERSION:-7.3.x})
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-fdb-linux-amd64 -o orisun-fdb
+          chmod +x orisun-fdb
           \`\`\`
 
           ### macOS
