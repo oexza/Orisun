@@ -8,6 +8,8 @@ dist
 data
 tmp
 node_modules
+docs/build
+docs/node_modules
 clients/node_modules
 clients/dist
 

@@ -64,32 +64,6 @@ jobs:
         include:
           - os: linux
             arch: amd64
-            flavor: all
-            package: ./cmd
-            binary: orisun
-          - os: linux
-            arch: arm64
-            flavor: all
-            package: ./cmd
-            binary: orisun
-          - os: darwin
-            arch: amd64
-            flavor: all
-            package: ./cmd
-            binary: orisun
-          - os: darwin
-            arch: arm64
-            flavor: all
-            package: ./cmd
-            binary: orisun
-          - os: windows
-            arch: amd64
-            flavor: all
-            package: ./cmd
-            binary: orisun
-            extension: .exe
-          - os: linux
-            arch: amd64
             flavor: pg
             package: ./cmd/orisun-pg
             binary: orisun-pg
@@ -279,14 +253,6 @@ jobs:
 
           ### Linux
           \`\`\`bash
-          # All-backends binary for amd64
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-amd64 -o orisun
-          chmod +x orisun
-
-          # All-backends binary for arm64
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-linux-arm64 -o orisun
-          chmod +x orisun
-
           # PostgreSQL-only binary
           curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-pg-linux-amd64 -o orisun-pg
           chmod +x orisun-pg
@@ -303,26 +269,26 @@ jobs:
 
           ### macOS
           \`\`\`bash
-          # All-backends binary for amd64
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-amd64 -o orisun
-          chmod +x orisun
+          # PostgreSQL-only binary for Apple Silicon
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-pg-darwin-arm64 -o orisun-pg
+          chmod +x orisun-pg
 
-          # All-backends binary for arm64 (Apple Silicon)
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-darwin-arm64 -o orisun
-          chmod +x orisun
+          # SQLite-only binary for Apple Silicon
+          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-darwin-arm64 -o orisun-sqlite
+          chmod +x orisun-sqlite
           \`\`\`
 
           ### Windows
-          Download the appropriate binary from the assets below.
+          Download the PostgreSQL-only or SQLite-only binary from the assets below.
 
           ### Docker
           \`\`\`bash
-          docker pull orexza/orisun:${VERSION}
           docker pull orexza/orisun:${VERSION}-pg
           docker pull orexza/orisun:${VERSION}-sqlite
+          docker pull orexza/orisun:${VERSION}-fdb
           \`\`\`
 
-          Channel tags are also available: \`latest\`, \`pg\`, and \`sqlite\`.
+          Channel tags are also available: \`pg\`, \`sqlite\`, and \`fdb\`.
           EOF
 
           echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
@@ -347,15 +313,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - flavor: all
-            channel_tag: latest
-            version_suffix: ''
           - flavor: pg
             channel_tag: pg
             version_suffix: -pg
+            dockerfile: Dockerfile
           - flavor: sqlite
             channel_tag: sqlite
             version_suffix: -sqlite
+            dockerfile: Dockerfile
+          - flavor: fdb
+            channel_tag: fdb
+            version_suffix: -fdb
+            dockerfile: Dockerfile.fdb
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -389,6 +358,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |

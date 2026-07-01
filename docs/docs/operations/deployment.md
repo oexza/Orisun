@@ -13,9 +13,9 @@ Release assets are backend-specific:
 
 | Binary | Use when |
 | --- | --- |
-| `orisun-<os>-<arch>` | You want one binary with all backends compiled in. |
 | `orisun-pg-<os>-<arch>` | The deployment only uses PostgreSQL. |
 | `orisun-sqlite-<os>-<arch>` | The deployment only uses SQLite. |
+| `orisun-fdb-linux-<arch>` | The deployment uses FoundationDB; beta, Linux only, requires native FDB client libraries. |
 
 For direct binary deployment:
 
@@ -56,9 +56,9 @@ Images are published to both Docker Hub and GitHub Container Registry. The Docke
 
 | Image | Backend |
 | --- | --- |
-| `orexza/orisun:latest` | all backends |
 | `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
+| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
 
 The same tags are also available under `ghcr.io/oexza/orisun`.
 
@@ -257,7 +257,7 @@ Orisun's write scaling rides this directly: positions come from commit versionst
 
 **Operational notes:**
 
-- The `libfdb_c` client major version must match the server. The multi-version client allows rolling server upgrades; bake the client library into the Orisun image. Release FDB binaries are Linux-only and still require the client library at runtime.
+- The `libfdb_c` client major version must match the server. The multi-version client allows rolling server upgrades; use the published `orexza/orisun:fdb` image or bake the client library into your own Orisun image. Release FDB binaries are Linux-only and still require the client library at runtime.
 - Backups: `fdbbackup` agents stream continuous backups to S3-compatible storage with point-in-time restore. This replaces the PostgreSQL dump/restore story.
 - Monitoring: `fdbcli status json` (or an exporter built on it) into your metrics stack. Watch commit latency, transaction log queue depth, storage lag, and transaction conflict rate — conflict rate maps directly to Orisun consistency-condition retries on contended aggregates.
 - Coordinators: 3 spread across failure domains in one datacenter, 5 across multiple.

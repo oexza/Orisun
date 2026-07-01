@@ -99,7 +99,6 @@ Release binaries are attached to each GitHub release:
 
 | Asset pattern | Backend |
 | --- | --- |
-| `orisun-<os>-<arch>` | All backends |
 | `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` (beta) |
@@ -108,14 +107,14 @@ Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container R
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:latest` | All backends |
 | `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:<version>` | All backends for a release |
+| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
 | `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+| `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same suffixes with `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
+Use the same suffixes with `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:fdb`.
 
 ## Development
 

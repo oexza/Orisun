@@ -6,7 +6,6 @@ WORKDIR /app
 
 # Copy go.mod and go.sum files first for better layer caching
 COPY go.mod go.sum ./
-RUN go mod download
 
 # Copy the source code
 COPY . .
@@ -23,7 +22,7 @@ ARG BUILD_TIME
 ARG GIT_COMMIT
 ARG TARGET_OS=linux
 ARG TARGET_ARCH=amd64
-ARG FLAVOR=all
+ARG FLAVOR=pg
 
 # Use target platform if available, otherwise use build args
 RUN echo "Building for platform: $TARGETPLATFORM (OS: $TARGETOS, ARCH: $TARGETARCH)"
@@ -33,7 +32,9 @@ RUN chmod +x ./build.sh && mkdir -p ./build
 
 # Use build.sh to build the application with cross-compilation
 # Use TARGETOS/TARGETARCH if available, otherwise fall back to TARGET_OS/TARGET_ARCH
-RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
     echo "Building flavor: $FLAVOR with OS: $FINAL_OS, ARCH: $FINAL_ARCH" && \
     BUILD_TIME="${BUILD_TIME}" GIT_COMMIT="${GIT_COMMIT}" ./build.sh "$FINAL_OS" "$FINAL_ARCH" "${VERSION}" "${FLAVOR}"
@@ -42,7 +43,6 @@ RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
     case "$FLAVOR" in \
-      all) BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" ;; \
       pg|postgres) BINARY_NAME="orisun-pg-$FINAL_OS-$FINAL_ARCH" ;; \
       sqlite) BINARY_NAME="orisun-sqlite-$FINAL_OS-$FINAL_ARCH" ;; \
       *) echo "Unknown FLAVOR=$FLAVOR" && exit 1 ;; \
@@ -66,14 +66,13 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG TARGET_OS=linux
 ARG TARGET_ARCH=amd64
-ARG FLAVOR=all
+ARG FLAVOR=pg
 
 # Copy the binary from the builder stage with dynamic architecture detection
 COPY --from=builder /app/build/ /tmp/build/
 RUN FINAL_OS=${TARGETOS:-${TARGET_OS}} && \
     FINAL_ARCH=${TARGETARCH:-${TARGET_ARCH}} && \
     case "$FLAVOR" in \
-      all) BINARY_NAME="orisun-$FINAL_OS-$FINAL_ARCH" ;; \
       pg|postgres) BINARY_NAME="orisun-pg-$FINAL_OS-$FINAL_ARCH" ;; \
       sqlite) BINARY_NAME="orisun-sqlite-$FINAL_OS-$FINAL_ARCH" ;; \
       *) echo "Unknown FLAVOR=$FLAVOR" && exit 1 ;; \

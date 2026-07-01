@@ -22,10 +22,10 @@ tasks:
       - go install github.com/go-delve/delve/cmd/dlv@1.25.2
 
   build:
-    desc: Build the all-backends server
+    desc: Build the PostgreSQL-only server
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/orisun ./cmd
+      - go build -o {{.BIN_DIR}}/orisun-pg ./cmd/orisun-pg
 
   build:pg:
     desc: Build the PostgreSQL-only server
@@ -48,15 +48,16 @@ tasks:
   build:release:
     desc: Build release binaries for the current platform
     cmds:
-      - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev all
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev pg
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev sqlite
 
   run:
-    desc: Run the all-backends server
+    desc: Run the PostgreSQL-only server
     deps: [build]
+    env:
+      ORISUN_BACKEND: postgres
     cmds:
-      - ./{{.BIN_DIR}}/orisun
+      - ./{{.BIN_DIR}}/orisun-pg
 
   run:pg:
     desc: Run the PostgreSQL-only server
@@ -89,12 +90,12 @@ tasks:
         ./{{.BIN_DIR}}/orisun-fdb
 
   live:
-    desc: Run the all-backends server with Go live reload
+    desc: Run the PostgreSQL-only server with Go live reload
     cmds:
       - |
         air \
-          -build.cmd "go build -o {{.BIN_DIR}}/orisun ./cmd" \
-          -build.bin "{{.BIN_DIR}}/orisun" \
+          -build.cmd "go build -o {{.BIN_DIR}}/orisun-pg ./cmd/orisun-pg" \
+          -build.bin "{{.BIN_DIR}}/orisun-pg" \
           -build.delay "100" \
           -build.exclude_dir "build,data,node_modules,tmp,clients" \
           -build.include_ext "go" \
@@ -170,10 +171,10 @@ tasks:
           '
 
   debug:
-    desc: Debug the all-backends server with Delve
+    desc: Debug the PostgreSQL-only server with Delve
     deps: [build]
     cmds:
-      - dlv exec ./{{.BIN_DIR}}/orisun --check-go-version=false
+      - dlv exec ./{{.BIN_DIR}}/orisun-pg --check-go-version=false
 
   test:
     desc: Run Go tests

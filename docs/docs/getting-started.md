@@ -52,8 +52,9 @@ You can move to PostgreSQL later without changing the EventStore API.
 | --- | --- | --- | --- | --- | --- |
 | SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/oexza/orisun:sqlite` |
 | PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/oexza/orisun:pg` |
+| FoundationDB | Distributed transactional key-value deployments | Yes | `orisun-fdb` | `orexza/orisun:fdb` | `ghcr.io/oexza/orisun:fdb` |
 
-Both backends expose the same EventStore and Admin gRPC APIs.
+All backends expose the same EventStore and Admin gRPC APIs. FoundationDB support is beta.
 
 ## Choose NATS mode
 
@@ -83,9 +84,9 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 
 | Binary | Includes |
 | --- | --- |
-| `orisun-<os>-<arch>` | all backends |
 | `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
+| `orisun-fdb-linux-<arch>` | FoundationDB only; beta; Linux only |
 
 For example, on Linux amd64:
 
@@ -390,7 +391,6 @@ Binary assets are attached to each GitHub release:
 
 | Asset | Backend |
 | --- | --- |
-| `orisun-linux-amd64`, `orisun-darwin-arm64`, ... | All backends |
 | `orisun-pg-linux-amd64`, `orisun-pg-darwin-arm64`, ... | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-linux-amd64`, `orisun-sqlite-darwin-arm64`, ... | SQLite only |
 | `orisun-fdb-linux-amd64`, `orisun-fdb-linux-arm64` | FoundationDB only; beta; requires native FDB client libraries |
@@ -399,14 +399,14 @@ Docker images are published to Docker Hub and GitHub Container Registry with the
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:latest` | All backends |
 | `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:<version>` | All backends for a release |
+| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
 | `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
+| `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same tag names under `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:sqlite`.
+Use the same tag names under `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:fdb`.
 
 ## Next steps
 

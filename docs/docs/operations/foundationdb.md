@@ -3,7 +3,7 @@ title: FoundationDB Operations
 description: Beta production checklist and runbook for Orisun on FoundationDB.
 ---
 
-FoundationDB mode is the beta clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Build it with `-tags foundationdb` or use the `orisun-fdb` release binary.
+FoundationDB mode is the beta clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Use the `orisun-fdb` release binary, the `orexza/orisun:fdb` / `ghcr.io/oexza/orisun:fdb` image, or build it with `-tags foundationdb`.
 
 ## Beta Status
 
@@ -20,7 +20,7 @@ Before adopting it, plan for:
 
 Every Orisun node running the FoundationDB backend needs:
 
-- `libfdb_c` installed on the host or baked into the image.
+- `libfdb_c` installed on the host or baked into the image. The published `orisun:fdb` images include it.
 - A readable `fdb.cluster` file.
 - The same `ORISUN_FDB_ROOT` across all nodes that share one Orisun deployment.
 - The same `ORISUN_BOUNDARIES` and `ORISUN_ADMIN_BOUNDARY` as the rest of the cluster.
@@ -32,7 +32,7 @@ ORISUN_FDB_ROOT=orisun
 ORISUN_FDB_TRANSACTION_TIMEOUT_MS=10000
 ```
 
-The Go binding API defaults to `730`, matching FoundationDB 7.3.x. Keep the installed client library compatible with the server major version. Release FDB binaries are Linux-only and still dynamically link the client library.
+The Go binding API defaults to `730`, matching FoundationDB 7.3.x. Keep the installed client library compatible with the server major version. Release FDB binaries are Linux-only and still dynamically link the client library; the FDB Docker images include the FoundationDB client package.
 
 ## Cluster File Handling
 
@@ -122,4 +122,5 @@ Before marking a FoundationDB-backed Orisun release production-ready:
 - `TEST_PKGS=./cmd/ scripts/fdb_test_container.sh -run TestE2E_LedgerWorkload_FoundationDB -v` is green.
 - The extended soak command above has passed for the target release candidate.
 - Release workflow publishes the `orisun-fdb-linux-amd64` and `orisun-fdb-linux-arm64` artifacts.
+- Release workflow publishes `orexza/orisun:<version>-fdb`, `orexza/orisun:fdb`, `ghcr.io/oexza/orisun:<version>-fdb`, and `ghcr.io/oexza/orisun:fdb`.
 - Operators have documented backup, restore, cluster-file update, and client-library upgrade procedures.

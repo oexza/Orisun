@@ -64,7 +64,7 @@ For FoundationDB beta deployments, set:
 | `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` | Per-transaction timeout including internal retries. Defaults to `10000`; negative disables. |
 | `ORISUN_FDB_TRANSACTION_RETRY_LIMIT` | Max internal retries per transaction. Defaults to `0` (unlimited; the timeout is the bound). |
 
-FoundationDB support is beta. It is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host. Review the FDB-specific release notes before upgrading, because storage layout and operational defaults may still change while the backend hardens.
+FoundationDB support is beta. It is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host, unless you use the published `orisun:fdb` Docker image. Review the FDB-specific release notes before upgrading, because storage layout and operational defaults may still change while the backend hardens.
 
 ## Boundary configuration
 

@@ -5,16 +5,12 @@ set -euo pipefail
 TARGET_OS=${1:-"darwin"}
 TARGET_ARCH=${2:-"arm64"}
 VERSION=${3:-"dev"}
-FLAVOR=${4:-"all"}
+FLAVOR=${4:-"sqlite"}
 BUILD_TIME=${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
 GIT_COMMIT=${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")}
 
 # Set the output binary name and the target OS/architecture
 case "$FLAVOR" in
-  all)
-    OUTPUT_NAME="orisun-$TARGET_OS-$TARGET_ARCH"
-    PACKAGE="./cmd/main.go"
-    ;;
   pg|postgres)
     OUTPUT_NAME="orisun-pg-$TARGET_OS-$TARGET_ARCH"
     PACKAGE="./cmd/orisun-pg"
@@ -24,7 +20,7 @@ case "$FLAVOR" in
     PACKAGE="./cmd/orisun-sqlite"
     ;;
   *)
-    echo "Unknown flavor '$FLAVOR' (expected: all, pg, postgres, sqlite)"
+    echo "Unknown flavor '$FLAVOR' (expected: pg, postgres, sqlite)"
     exit 1
     ;;
 esac

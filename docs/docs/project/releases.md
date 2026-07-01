@@ -60,9 +60,9 @@ Each release publishes standalone binaries for Linux, macOS, and Windows. Use th
 
 | Asset pattern | Backend |
 | --- | --- |
-| `orisun-<os>-<arch>` | All backends |
 | `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
+| `orisun-fdb-linux-<arch>` | FoundationDB only; beta; Linux only |
 
 Linux and macOS binaries should be marked executable after download:
 
@@ -76,11 +76,11 @@ The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:latest` | All backends |
 | `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:<version>` | All backends for a release version |
+| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
 | `orexza/orisun:<version>-pg` | PostgreSQL-compatible release version |
 | `orexza/orisun:<version>-sqlite` | SQLite-only release version |
+| `orexza/orisun:<version>-fdb` | FoundationDB-only release version |
 
 Use the same suffixes with `ghcr.io/oexza/orisun` when you prefer GHCR.
