@@ -1,9 +1,20 @@
 ---
 title: FoundationDB Operations
-description: Production checklist and runbook for Orisun on FoundationDB.
+description: Beta production checklist and runbook for Orisun on FoundationDB.
 ---
 
-FoundationDB mode is the clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Build it with `-tags foundationdb` or use the `orisun-fdb` release binary.
+FoundationDB mode is the beta clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Build it with `-tags foundationdb` or use the `orisun-fdb` release binary.
+
+## Beta Status
+
+The FoundationDB backend is ready for controlled production pilots, but it is still beta. The event API remains the public contract; the FDB key layout, index internals, release artifact shape, and operational defaults may change in a future release if production feedback exposes a better design.
+
+Before adopting it, plan for:
+
+- testing upgrades in a staging cluster before rolling production,
+- retaining backup/restore coverage that can survive a breaking storage migration,
+- reading release notes for FDB-specific migration steps,
+- pinning Orisun and FoundationDB client/server versions together during rollout.
 
 ## Required Runtime
 

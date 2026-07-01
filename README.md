@@ -102,7 +102,7 @@ Release binaries are attached to each GitHub release:
 | `orisun-<os>-<arch>` | All backends |
 | `orisun-pg-<os>-<arch>` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
-| `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` |
+| `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` (beta) |
 
 Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`) with the same flavor tags:
 
@@ -127,6 +127,8 @@ task build:pg
 task build:sqlite
 go build -tags foundationdb ./cmd/orisun-fdb
 ```
+
+FoundationDB support is beta. It is covered by backend, failover, and ledger workload tests, but storage layout or operational behavior may still change in a future release if production feedback exposes a better contract.
 
 Release:
 

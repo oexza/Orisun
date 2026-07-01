@@ -54,7 +54,7 @@ For SQLite, set:
 | `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory for per-boundary SQLite database files. |
 | `ORISUN_NATS_CLUSTER_ENABLED` | `false` | Must stay `false` for SQLite. |
 
-For FoundationDB, set:
+For FoundationDB beta deployments, set:
 
 | Variable | Description |
 | --- | --- |
@@ -64,7 +64,7 @@ For FoundationDB, set:
 | `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` | Per-transaction timeout including internal retries. Defaults to `10000`; negative disables. |
 | `ORISUN_FDB_TRANSACTION_RETRY_LIMIT` | Max internal retries per transaction. Defaults to `0` (unlimited; the timeout is the bound). |
 
-FoundationDB support is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host.
+FoundationDB support is beta. It is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host. Review the FDB-specific release notes before upgrading, because storage layout and operational defaults may still change while the backend hardens.
 
 ## Boundary configuration
 

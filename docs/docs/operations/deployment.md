@@ -216,6 +216,8 @@ For clustered Orisun nodes, use the same guidance as [Clustered PostgreSQL](#clu
 
 ## FoundationDB topology
 
+FoundationDB support in Orisun is beta. Use this topology for controlled production pilots, but expect FDB-specific storage layout, index internals, and operational defaults to remain eligible for breaking changes until the backend graduates from beta.
+
 A FoundationDB deployment has three independently scalable tiers:
 
 ```text

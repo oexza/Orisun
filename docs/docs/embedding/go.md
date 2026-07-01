@@ -94,7 +94,7 @@ SQLite remains single-node only. Keep `cfg.Nats.Cluster.Enabled = false`.
 
 ## FoundationDB Embedding
 
-FoundationDB embedding requires the native FoundationDB client libraries and a build with the `foundationdb` tag.
+FoundationDB embedding is beta. It requires the native FoundationDB client libraries and a build with the `foundationdb` tag. Treat FDB storage layout and operational defaults as subject to breaking change until the backend graduates from beta.
 
 ```go
 import (

@@ -5,6 +5,8 @@ description: Choose between PostgreSQL-compatible, SQLite, and FoundationDB depl
 
 Orisun supports PostgreSQL, YugabyteDB, SQLite, and FoundationDB. The backend is selected with `ORISUN_BACKEND` or by using a backend-specific binary or Docker image. YugabyteDB uses the PostgreSQL-compatible backend with `ORISUN_PG_DIALECT=yugabyte`.
 
+FoundationDB support is beta. It is tested for correctness and failover, but storage layout, index internals, and operational contracts may still receive breaking changes while the backend hardens.
+
 ## Backend Matrix
 
 | Backend | Use case | Multi-node | Driver |
@@ -12,7 +14,7 @@ Orisun supports PostgreSQL, YugabyteDB, SQLite, and FoundationDB. The backend is
 | `postgres` | Production clusters, larger datasets, shared database platforms | Yes | `pgx` |
 | `postgres` + `ORISUN_PG_DIALECT=yugabyte` | YugabyteDB clusters using YSQL | Yes | `pgx` |
 | `sqlite` | Embedded apps, edge, development, low-ops single-node production | No | `zombiezen.com/go/sqlite` |
-| `foundationdb` | Distributed transactional key-value deployments | Yes | FoundationDB Go binding |
+| `foundationdb` | Distributed transactional key-value deployments | Yes | FoundationDB Go binding; beta |
 
 ## PostgreSQL
 
@@ -42,7 +44,7 @@ Do not use PostgreSQL internal transaction IDs as application cursors. From Oris
 
 ## FoundationDB
 
-FoundationDB is a clustered backend built on ordered key-value transactions. Build binaries that include it with the `foundationdb` build tag and install the native FoundationDB client libraries on every host.
+FoundationDB is a beta clustered backend built on ordered key-value transactions. Build binaries that include it with the `foundationdb` build tag and install the native FoundationDB client libraries on every host.
 
 FoundationDB stores:
 

@@ -393,6 +393,7 @@ Binary assets are attached to each GitHub release:
 | `orisun-linux-amd64`, `orisun-darwin-arm64`, ... | All backends |
 | `orisun-pg-linux-amd64`, `orisun-pg-darwin-arm64`, ... | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
 | `orisun-sqlite-linux-amd64`, `orisun-sqlite-darwin-arm64`, ... | SQLite only |
+| `orisun-fdb-linux-amd64`, `orisun-fdb-linux-arm64` | FoundationDB only; beta; requires native FDB client libraries |
 
 Docker images are published to Docker Hub and GitHub Container Registry with the same backend flavor tags:
 
