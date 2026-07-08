@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Orisun',
   tagline: 'Event storage and live delivery in one server',
-  favicon: 'img/orisun-flow.svg',
+  favicon: 'img/favicon.svg',
   url: 'https://oexza.github.io',
   baseUrl: '/Orisun/',
   organizationName: 'oexza',
@@ -16,6 +16,15 @@ const config: Config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [{from: '/docs/start-here', to: '/docs'}],
+      },
+    ],
+  ],
 
   presets: [
     [
@@ -35,7 +44,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/orisun-flow.svg',
+    image: 'img/orisun-social.png',
     metadata: [
       {
         name: 'description',
@@ -47,7 +56,8 @@ const config: Config = {
       title: 'Orisun',
       logo: {
         alt: 'Orisun',
-        src: 'img/orisun-flow.svg',
+        src: 'img/logo.svg',
+        srcDark: 'img/logo-dark.svg',
       },
       items: [
         {to: '/docs', label: 'Docs', position: 'left'},

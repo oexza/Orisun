@@ -233,65 +233,8 @@
   white-space: pre-wrap;
 }
 
-.signalBand {
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
-  background: #f0f4ef;
-}
-
-.signalGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  padding-top: 1px;
-  padding-bottom: 1px;
-  background: var(--ifm-color-emphasis-200);
-}
-
-.signalGrid div {
-  padding: 1.25rem 1.5rem;
-  background: #f8faf7;
-}
-
-.signalGrid strong,
-.signalGrid span {
-  display: block;
-}
-
-.signalGrid strong {
-  color: #10201d;
-  font-size: 0.95rem;
-}
-
-.signalGrid span {
-  margin-top: 0.25rem;
-  color: #52625d;
-  font-size: 0.92rem;
-}
-
 .sectionHeader {
   max-width: 810px;
-}
-
-.splitHeader {
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(320px, 0.58fr);
-  gap: 3rem;
-  align-items: end;
-}
-
-.splitHeader h2 {
-  margin: 0.5rem 0 0;
-  color: var(--ifm-heading-color);
-  font-size: 3.65rem;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.splitHeader p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 1.05rem;
-  line-height: 1.75;
 }
 
 .sectionHeader h2 {
@@ -317,16 +260,14 @@
 
 .featureGrid,
 .backendGrid,
-.flowGrid,
-.useCaseGrid,
-.pathGrid {
+.flowGrid {
   display: grid;
   gap: 1rem;
   margin-top: 2.5rem;
 }
 
 .featureGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .backendGrid {
@@ -337,19 +278,9 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.useCaseGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.pathGrid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .featureCard,
 .backendCard,
-.flowStep,
-.useCaseCard,
-.pathCard {
+.flowStep {
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 0.5rem;
   background: var(--ifm-background-surface-color);
@@ -357,9 +288,7 @@
 }
 
 .featureCard,
-.flowStep,
-.useCaseCard,
-.pathCard {
+.flowStep {
   padding: 1.5rem;
 }
 
@@ -371,32 +300,25 @@
 }
 
 .featureCard h3,
-.flowStep h3,
-.useCaseCard h3,
-.pathCard h3 {
+.flowStep h3 {
   margin-top: 0.55rem;
 }
 
 .featureCard p,
 .backendCard p,
 .flowStep p,
-.docCard p,
-.useCaseCard p,
-.pathCard p {
+.docCard p {
   margin-bottom: 0;
   color: var(--ifm-color-emphasis-700);
 }
 
 .backendSection,
-.docsSection,
-.fitSection,
-.pathSection {
+.docsSection {
   background: #f0f4ef;
 }
 
 .backendCard,
-.docCard,
-.pathCard {
+.docCard {
   color: inherit;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
@@ -407,8 +329,7 @@
 }
 
 .backendCard:hover,
-.docCard:hover,
-.pathCard:hover {
+.docCard:hover {
   color: inherit;
   text-decoration: none;
   border-color: rgb(14 125 105 / 42%);
@@ -417,8 +338,7 @@
 }
 
 .backendCard:focus-visible,
-.docCard:focus-visible,
-.pathCard:focus-visible {
+.docCard:focus-visible {
   outline: 2px solid var(--ifm-color-primary);
   outline-offset: 3px;
   text-decoration: none;
@@ -458,63 +378,6 @@
   color: var(--ifm-color-emphasis-800);
   font-size: 0.82rem;
   font-weight: 700;
-}
-
-.pathCard {
-  position: relative;
-  display: grid;
-  min-height: 15.75rem;
-  align-content: start;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 96%), rgb(248 250 247 / 96%)),
-    var(--ifm-background-surface-color);
-}
-
-.pathCard::after {
-  position: absolute;
-  right: 1.2rem;
-  bottom: 1.05rem;
-  width: 2.4rem;
-  height: 2px;
-  background: #c7872d;
-  content: '';
-}
-
-.pathCardTop {
-  display: flex;
-  gap: 0.8rem;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.15rem;
-}
-
-.pathStep {
-  color: #ca6347;
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.pathMeta {
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 0.5rem;
-  padding: 0.24rem 0.48rem;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.72rem;
-  font-weight: 850;
-}
-
-.pathCard h3 {
-  margin-bottom: 0.6rem;
-  font-size: 1.24rem;
-}
-
-.pathAction {
-  margin-top: 1.2rem;
-  color: var(--ifm-color-primary);
-  font-size: 0.88rem;
-  font-weight: 850;
 }
 
 .flowStep strong {
@@ -599,39 +462,22 @@
   justify-content: flex-end;
 }
 
-:global([data-theme='dark']) .signalBand,
 :global([data-theme='dark']) .backendSection,
-:global([data-theme='dark']) .docsSection,
-:global([data-theme='dark']) .fitSection,
-:global([data-theme='dark']) .pathSection {
+:global([data-theme='dark']) .docsSection {
   background: #0d1513;
 }
 
-:global([data-theme='dark']) .signalGrid {
-  background: rgb(236 244 240 / 12%);
-}
-
-:global([data-theme='dark']) .signalGrid div,
-:global([data-theme='dark']) .docCard,
-:global([data-theme='dark']) .pathCard {
+:global([data-theme='dark']) .docCard {
   background: #101816;
 }
 
-:global([data-theme='dark']) .signalGrid strong,
 :global([data-theme='dark']) .docGroup h3,
-:global([data-theme='dark']) .docCard span,
-:global([data-theme='dark']) .pathCard h3 {
+:global([data-theme='dark']) .docCard span {
   color: #ecf4f0;
 }
 
-:global([data-theme='dark']) .docCard,
-:global([data-theme='dark']) .pathCard {
+:global([data-theme='dark']) .docCard {
   border-color: rgb(236 244 240 / 14%);
-}
-
-:global([data-theme='dark']) .pathMeta {
-  border-color: rgb(236 244 240 / 14%);
-  color: rgb(236 244 240 / 66%);
 }
 
 @media (max-width: 996px) {
@@ -639,12 +485,8 @@
   .featureGrid,
   .backendGrid,
   .flowGrid,
-  .useCaseGrid,
-  .pathGrid,
   .docGroups,
-  .signalGrid,
   .heroFacts,
-  .splitHeader,
   .ctaInner {
     grid-template-columns: 1fr;
   }
@@ -662,7 +504,7 @@
     font-size: 3.2rem;
   }
 
-  .splitHeader h2,
+
   .ctaInner h2 {
     font-size: 2.8rem;
   }
@@ -676,11 +518,8 @@
   .featureGrid,
   .backendGrid,
   .flowGrid,
-  .useCaseGrid,
-  .pathGrid,
   .docGroups,
-  .heroFacts,
-  .signalGrid {
+  .heroFacts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -704,7 +543,7 @@
     font-size: 2.55rem;
   }
 
-  .splitHeader h2,
+
   .ctaInner h2 {
     font-size: 2.35rem;
   }
@@ -734,14 +573,12 @@
   }
 
   .backendCard,
-  .docCard,
-  .pathCard {
+  .docCard {
     transition: none;
   }
 
   .backendCard:hover,
-  .docCard:hover,
-  .pathCard:hover {
+  .docCard:hover {
     transform: none;
   }
 }

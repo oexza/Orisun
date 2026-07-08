@@ -4,7 +4,6 @@ const sidebars: SidebarsConfig = {
   docs: [
     'overview',
     'comparison',
-    'start-here',
     'getting-started',
     'tutorial',
     {

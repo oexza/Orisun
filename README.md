@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/static/img/logo-dark.svg">
+    <img src="docs/static/img/logo.svg" alt="Orisun" width="96" height="96">
+  </picture>
+</p>
+
 # Orisun
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -9,7 +16,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 **Full documentation:** [oexza.github.io/Orisun](https://oexza.github.io/Orisun/)
 
-**Start here:** [choose the right docs path](https://oexza.github.io/Orisun/docs/start-here)
+**Start here:** [What is Orisun?](https://oexza.github.io/Orisun/docs/)
 
 ## What It Provides
 
@@ -86,7 +93,7 @@ See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-star
 | Artifact | Location |
 | --- | --- |
 | Documentation | [GitHub Pages](https://oexza.github.io/Orisun/) |
-| Start here | [Choose the right docs path](https://oexza.github.io/Orisun/docs/start-here) |
+| Start here | [What is Orisun?](https://oexza.github.io/Orisun/docs/) |
 | Setup guide | [SQLite, PostgreSQL, and YugabyteDB setup](https://oexza.github.io/Orisun/docs/getting-started) |
 | API guide | [EventStore and Admin API](https://oexza.github.io/Orisun/docs/api/eventstore) |
 | Releases | [github.com/oexza/Orisun/releases](https://github.com/oexza/Orisun/releases) |

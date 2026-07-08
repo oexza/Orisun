@@ -25,13 +25,19 @@ const guarantees = [
     label: 'Delivery',
     title: 'No skipped committed events',
     description:
-      'Publisher checkpoints live in PostgreSQL-compatible storage or SQLite. Wake-up signals can be missed; committed events still drain sequentially.',
+      'Durable publisher checkpoints drain committed events in ascending log position per boundary, even when wake-up signals are missed.',
   },
   {
     label: 'Deployment',
     title: 'One deployable server',
     description:
       'Event storage, indexed reads, auth, the gRPC and Admin APIs, embedded NATS JetStream, and telemetry ship in a single binary.',
+  },
+  {
+    label: 'Portability',
+    title: 'Same API on every backend',
+    description:
+      'SQLite, PostgreSQL, and YugabyteDB expose the identical gRPC surface, so deployments grow without client changes.',
   },
 ];
 
@@ -63,71 +69,11 @@ const flow: FlowStep[] = [
   ['4', 'Project safely', 'Catch up from storage, then consume live events with idempotent checkpoints.'],
 ];
 
-const useCases = [
-  {
-    title: 'Embedded event store',
-    description:
-      'Link Orisun into a Go service when event storage should live inside the same process and deployment unit.',
-  },
-  {
-    title: 'Standalone event service',
-    description:
-      'Run Orisun as a small gRPC service when multiple applications or languages need the same event API.',
-  },
-  {
-    title: 'Reliable projectors',
-    description:
-      'Build read models from catch-up subscriptions that recover from downtime without depending only on broker retention.',
-  },
-];
-
-const quickPaths: {
-  step: string;
-  title: string;
-  href: string;
-  description: string;
-  meta: string;
-  action: string;
-}[] = [
-  {
-    step: '01',
-    title: 'Try it locally',
-    href: '/docs/start-here',
-    description: 'Start SQLite, verify gRPC, and save the first event before choosing deeper docs.',
-    meta: '5-minute path',
-    action: 'Start',
-  },
-  {
-    step: '02',
-    title: 'Embed in Go',
-    href: '/docs/embedding/go',
-    description: 'Run Orisun in your service process and choose embedded or caller-owned NATS.',
-    meta: 'in-process store',
-    action: 'Embed',
-  },
-  {
-    step: '03',
-    title: 'Model consistency',
-    href: '/docs/concepts/command-context-consistency',
-    description: 'Learn how commands protect business invariants with event-content queries.',
-    meta: 'CCC concepts',
-    action: 'Learn',
-  },
-  {
-    step: '04',
-    title: 'Operate a node',
-    href: '/docs/operations/configuration',
-    description: 'Configure storage, auth, TLS, NATS, telemetry, and deployment settings.',
-    meta: 'production setup',
-    action: 'Configure',
-  },
-];
-
 const docGroups: {title: string; links: LinkItem[]}[] = [
   {
     title: 'Start',
     links: [
-      ['Start Here', '/docs/start-here', 'Pick the right path for local setup, embedding, APIs, or operations.'],
+      ['What is Orisun?', '/docs', 'The guarantees Orisun makes and the shortest path to each task.'],
       ['Getting Started', '/docs/getting-started', 'Run SQLite or PostgreSQL as a binary, container, or embedded store.'],
       ['Tutorial', '/docs/tutorial', 'Build a ledger with CCC, indexes, and a live projector.'],
     ],
@@ -184,8 +130,8 @@ export default function Home(): ReactNode {
               asking teams to assemble a broker, publisher, and event log by hand.
             </p>
             <div className={styles.actions}>
-              <Link className="button button--primary button--lg" to="/docs/start-here">
-                Start here
+              <Link className="button button--primary button--lg" to="/docs/getting-started">
+                Get started
               </Link>
               <Link className="button button--secondary button--lg" to="/docs/api/eventstore">
                 Read the API
@@ -210,9 +156,9 @@ export default function Home(): ReactNode {
             <div className={styles.heroRoute}>
               <div>
                 <span>Recommended first read</span>
-                <strong>Start Here</strong>
+                <strong>What is Orisun?</strong>
               </div>
-              <Link to="/docs/start-here">Choose path</Link>
+              <Link to="/docs">Read</Link>
             </div>
             <div className={styles.terminal}>
               <div className={styles.terminalTop}>
@@ -230,51 +176,6 @@ export default function Home(): ReactNode {
       </header>
 
       <main>
-        <section className={styles.signalBand} aria-label="Core Orisun guarantees">
-          <div className={clsx('container', styles.signalGrid)}>
-            <div>
-              <strong>Per-boundary order</strong>
-              <span>Events publish in ascending log position.</span>
-            </div>
-            <div>
-              <strong>Durable checkpoints</strong>
-              <span>Publisher state is stored with the selected backend.</span>
-            </div>
-            <div>
-              <strong>Same APIs</strong>
-              <span>SQLite and PostgreSQL expose the same gRPC surface.</span>
-            </div>
-          </div>
-        </section>
-
-        <section className={clsx('section', styles.pathSection)}>
-          <div className="container">
-            <div className={styles.splitHeader}>
-              <div>
-                <span className={styles.eyebrow}>Docs path</span>
-                <h2>Choose the shortest route to the work you are doing.</h2>
-              </div>
-              <p>
-                Start from task paths first, then go deeper into consistency, backends, APIs,
-                embedding, and operations once the first loop is working.
-              </p>
-            </div>
-            <div className={styles.pathGrid}>
-              {quickPaths.map((path) => (
-                <Link className={styles.pathCard} to={path.href} key={path.title}>
-                  <div className={styles.pathCardTop}>
-                    <span className={styles.pathStep}>{path.step}</span>
-                    <span className={styles.pathMeta}>{path.meta}</span>
-                  </div>
-                  <h3>{path.title}</h3>
-                  <p>{path.description}</p>
-                  <span className={styles.pathAction}>{path.action}</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <section className="section">
           <div className="container">
             <div className={styles.sectionHeader}>
@@ -292,30 +193,6 @@ export default function Home(): ReactNode {
                   <span>{feature.label}</span>
                   <h3>{feature.title}</h3>
                   <p>{feature.description}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className={clsx('section', styles.fitSection)}>
-          <div className="container">
-            <div className={styles.splitHeader}>
-              <div>
-                <span className={styles.eyebrow}>Where it fits</span>
-                <h2>Use Orisun when correctness depends on the event log, not just message delivery.</h2>
-              </div>
-              <p>
-                Orisun is for systems where commands need to read event history, make a business
-                decision, commit exactly the events for that decision, and publish the committed log
-                in order.
-              </p>
-            </div>
-            <div className={styles.useCaseGrid}>
-              {useCases.map((item) => (
-                <article className={styles.useCaseCard} key={item.title}>
-                  <h3>{item.title}</h3>
-                  <p>{item.description}</p>
                 </article>
               ))}
             </div>
