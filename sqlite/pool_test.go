@@ -14,8 +14,8 @@ func TestNormalizeSqlitePoolConfig_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize default config: %v", err)
 	}
-	if cfg.synchronous != "NORMAL" {
-		t.Fatalf("expected NORMAL synchronous, got %q", cfg.synchronous)
+	if cfg.synchronous != "FULL" {
+		t.Fatalf("expected FULL synchronous, got %q", cfg.synchronous)
 	}
 	if cfg.busyTimeoutMs != 5000 {
 		t.Fatalf("expected 5000ms busy timeout, got %d", cfg.busyTimeoutMs)
