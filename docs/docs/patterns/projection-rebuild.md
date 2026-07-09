@@ -6,7 +6,7 @@ description: Rebuild a read model from the durable event log without losing even
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-The durable event log in PostgreSQL, YugabyteDB, or SQLite is the source of truth; every read model is derived from it. That means any projection can be rebuilt from scratch at any time — after a bug fix, a schema change in the read model, or a corrupted store. You do not depend on JetStream retention for correctness; you depend on the log. See [Delivery Guarantees](../concepts/delivery-guarantees).
+The durable event log in PostgreSQL, YugabyteDB, or SQLite is the source of truth; every read model is derived from it. That means any projection can be rebuilt from scratch at any time, including after a bug fix, a schema change in the read model, or a corrupted store. You do not depend on JetStream retention for correctness; you depend on the log. See [Delivery Guarantees](../concepts/delivery-guarantees).
 
 ## When to rebuild
 
@@ -20,9 +20,9 @@ The durable event log in PostgreSQL, YugabyteDB, or SQLite is the source of trut
 A rebuild is a catch-up subscription that starts from the beginning position and re-applies every event to a fresh target:
 
 1. **Stop or divert** the live projector so it is not writing while you rebuild.
-2. **Reset the target** — truncate or drop the read model so re-applied events rebuild cleanly.
-3. **Subscribe from the start** with `after_position` `{0, 0}` (the beginning cursor for reads and subscriptions — see [Positions](../concepts/positions#empty-and-beginning-positions)).
-4. **Apply idempotently** — delivery is at least once, and a rebuild may revisit events. Deduplicate by `event_id`.
+2. **Reset the target** by truncating or dropping the read model so re-applied events rebuild cleanly.
+3. **Subscribe from the start** with `after_position` `{0, 0}`. This is the beginning cursor for reads and subscriptions; see [Positions](../concepts/positions#empty-and-beginning-positions).
+4. **Apply idempotently** because delivery is at least once, and a rebuild may revisit events. Deduplicate by `event_id`.
 5. **Checkpoint after each side effect is durable**, then transition to live delivery. The subscription switches to JetStream once catch-up drains, so the rebuilt model continues without a gap.
 
 ## Example
@@ -141,7 +141,7 @@ Once the rebuild's catch-up has drained and the subscriber is live, switch reade
 ## Speed up large rebuilds
 
 - **Index the filter fields.** A filtered rebuild (for example only `OrderPlaced` events) scans the boundary table without an index. [Create a partial index](../concepts/indexing#partial-index) on the filtered field first.
-- **Rebuild in parallel by boundary.** Boundaries are independent — rebuild each on its own subscriber.
+- **Rebuild in parallel by boundary.** Boundaries are independent, so rebuild each on its own subscriber.
 - **Page instead of stream** if you want bounded concurrency: use `GetEvents` with increasing `from_position` and apply page by page, then start the live subscription from the last position.
 
 ## Summary
@@ -149,7 +149,7 @@ Once the rebuild's catch-up has drained and the subscriber is live, switch reade
 | Step | Why |
 | --- | --- |
 | Reset the target first | So re-applied events rebuild, not append |
-| Start from `{0, 0}` | Beginning cursor — replays the whole log |
+| Start from `{0, 0}` | Beginning cursor that replays the whole log |
 | Apply idempotently | Redelivery must not double-apply |
 | Checkpoint after durability | A restart resumes, never re-emits |
 | Index filter fields | Avoid full-table scans on filtered rebuilds |

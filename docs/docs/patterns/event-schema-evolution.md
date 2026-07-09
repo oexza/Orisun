@@ -6,7 +6,7 @@ description: Evolve event data shapes over time without rewriting history.
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-Orisun stores the raw `data` JSON for every event and never rewrites history. Old events keep their original shape forever. That is a feature — the log is immutable — but it means your application has to cope with multiple versions of an event type existing side by side as your domain evolves.
+Orisun stores the raw `data` JSON for every event and never rewrites history. Old events keep their original shape forever. That immutability is a feature, but it means your application has to cope with multiple versions of an event type existing side by side as your domain evolves.
 
 This page covers the three standard strategies and how each interacts with Orisun's content queries and indexes.
 
@@ -18,13 +18,13 @@ Only **add** optional fields; never remove or repurpose an existing field. Proje
 // v1, written at launch
 {"order_id": "ord-1", "amount": 45}
 
-// v2, written later — adds currency, old events simply lack it
+// v2, written later. It adds currency; old events simply lack it.
 {"order_id": "ord-1", "amount": 45, "currency": "USD"}
 ```
 
 This is the safest change. A projector reading `currency` defaults to `"USD"` (or whatever your baseline is) for v1 events. No upcasting, no new event type, no index changes.
 
-Reach for the next two strategies when a change is not purely additive — a field's meaning, type, or structure changes.
+Reach for the next two strategies when a change is not purely additive, such as when a field's meaning, type, or structure changes.
 
 ## Strategy 2: Versioned event types
 
@@ -116,7 +116,7 @@ Both v1 (`"amount":"45.00"`) and v2 (`"amount_cents":4500`) rows come back verba
   </TabItem>
 </Tabs>
 
-Keep the upcast logic in one place — a normalizer the projector calls for every event — so there is a single source of truth for "current shape."
+Keep the upcast logic in one place: a normalizer the projector calls for every event. That gives you a single source of truth for "current shape."
 
 ## How evolution interacts with queries and indexes
 
@@ -140,4 +140,4 @@ Criteria queries and [indexes](../concepts/indexing) match JSON keys directly. T
 | Restructure or repurpose fields | Versioned `eventType` (`X` → `XV2`) | No |
 | Same type, new shape | `version` field + upcast on read | No |
 
-All three keep the log immutable; the difference is where the compatibility work lives — in the writer, in the type name, or in the reader.
+All three keep the log immutable; the difference is where the compatibility work lives: in the writer, in the type name, or in the reader.

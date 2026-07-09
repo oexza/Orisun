@@ -14,7 +14,7 @@ A position has two fields:
 | `commit_position` | `transaction_id` | Groups events committed together. Every event saved in one `SaveEvents` batch shares the same `commit_position`. |
 | `prepare_position` | `global_id` | The per-boundary monotonic sequence of the individual event. Unique and strictly increasing within a boundary. |
 
-Ordering within a boundary is the tuple `(commit_position, prepare_position)`, ascending. Positions are per boundary — they are not comparable across boundaries.
+Ordering within a boundary is the tuple `(commit_position, prepare_position)`, ascending. Positions are per boundary, so they are not comparable across boundaries.
 
 Treat positions as opaque ordering tokens. Some backends store dense integer sequences; FoundationDB encodes commit versionstamp data into the same `int64` pair, so values remain ordered and unique but are not guaranteed to be gap-free.
 

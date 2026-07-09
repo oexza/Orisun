@@ -5,7 +5,7 @@ description: How Orisun differs from Kafka, EventStoreDB, PostgreSQL LISTEN/NOTI
 slug: /comparison
 ---
 
-Orisun sits at a specific point on a tradeoff curve: a batteries-included event store where the durable log, content-scoped consistency, and live delivery ship in one server. This page is for evaluators deciding between Orisun and adjacent tools. It is not a claim that Orisun is universally better — every tool below is the right choice for some workload.
+Orisun sits at a specific point on a tradeoff curve: a batteries-included event store where the durable log, content-scoped consistency, and live delivery ship in one server. This page is for evaluators deciding between Orisun and adjacent tools. It is not a claim that Orisun is universally better; every tool below is the right choice for some workload.
 
 ## What makes Orisun different
 
@@ -14,7 +14,7 @@ Two properties define Orisun's position:
 1. **Consistency is scoped by event content, not by a fixed stream.** A command declares the event subset it depends on with JSON criteria, then saves only if that subset is still at the expected position. See [Command Context Consistency](./concepts/command-context-consistency).
 2. **The event store and the delivery layer are one system.** The durable log in PostgreSQL, YugabyteDB, or SQLite is the source of truth; embedded NATS JetStream is the live-delivery buffer; durable publisher checkpoints guarantee no committed event is skipped. See [Delivery Guarantees](./concepts/delivery-guarantees).
 
-Most adjacent tools optimize one of consistency, throughput, simplicity, or decoupling and trade the rest. Orisun optimizes for the closed loop — the command, its consistency check, and its committed-event delivery — running in one deployable server.
+Most adjacent tools optimize one of consistency, throughput, simplicity, or decoupling and trade the rest. Orisun optimizes for the closed loop: the command, its consistency check, and its committed-event delivery running in one deployable server.
 
 ## At a glance
 
@@ -28,17 +28,17 @@ Most adjacent tools optimize one of consistency, throughput, simplicity, or deco
 
 ## Orisun vs Kafka
 
-[Kafka](https://kafka.apache.org) is a high-throughput distributed log. It excels as a decoupled event backbone across many producers and consumers, replay pipelines, and very high ingest rates. It has no notion of a command consistency check — ordering is per partition, consumers track offsets, and events are retained for a configurable window rather than forever.
+[Kafka](https://kafka.apache.org) is a high-throughput distributed log. It excels as a decoupled event backbone across many producers and consumers, replay pipelines, and very high ingest rates. It has no notion of a command consistency check. Ordering is per partition, consumers track offsets, and events are retained for a configurable window rather than forever.
 
 Choose Kafka when you need a general-purpose streaming backbone across many services, maximum ingest throughput, and producers/consumers that are fully decoupled.
 
-Choose Orisun when commands must read event history, make a consistency-checked decision, and commit and publish in one ordered loop — and you do not want to assemble a broker, publisher, and store yourself. Kafka and Orisun are not mutually exclusive: Orisun can front Kafka-free delivery with embedded JetStream, or sit beside an existing Kafka deployment.
+Choose Orisun when commands must read event history, make a consistency-checked decision, and commit and publish in one ordered loop, without assembling a broker, publisher, and store yourself. Kafka and Orisun are not mutually exclusive: Orisun can front Kafka-free delivery with embedded JetStream, or sit beside an existing Kafka deployment.
 
 ## Orisun vs EventStoreDB
 
 [EventStoreDB](https://www.eventstore.com/) is a mature, purpose-built event store. Its consistency model is stream- and aggregate-centric: you write to a named stream with an expected revision, and the server rejects concurrent writes to that stream. Projections and subscriptions read from streams.
 
-The core difference is the consistency boundary. EventStoreDB asks you to choose the aggregate stream up front and scope consistency to it. Orisun lets each command define its consistency context dynamically by querying event content — a transfer can depend on two accounts, or a limit check on a customer, product, and risk class, without pre-declaring a stream.
+The core difference is the consistency boundary. EventStoreDB asks you to choose the aggregate stream up front and scope consistency to it. Orisun lets each command define its consistency context dynamically by querying event content; a transfer can depend on two accounts, or a limit check on a customer, product, and risk class, without pre-declaring a stream.
 
 Choose EventStoreDB when your domain maps cleanly to aggregate streams and you want a mature, stream-focused tool with a broad ecosystem.
 
@@ -50,11 +50,11 @@ Choose Orisun when consistency spans a subset of events that does not map to one
 
 Choose `LISTEN/NOTIFY` when you only need to tell listeners that data in tables you already own has changed, and durability, ordering, and replay are not required.
 
-Choose Orisun when you need a durable, ordered, replayable event log with consistency checks rather than a signal. Orisun itself uses `LISTEN/NOTIFY` internally as a publisher wake-up — but correctness comes from the persisted log and durable checkpoints, never from the signal. See [Delivery Guarantees](./concepts/delivery-guarantees#notifications-are-not-the-guarantee).
+Choose Orisun when you need a durable, ordered, replayable event log with consistency checks rather than a signal. Orisun itself uses `LISTEN/NOTIFY` internally as a publisher wake-up, but correctness comes from the persisted log and durable checkpoints, never from the signal. See [Delivery Guarantees](./concepts/delivery-guarantees#notifications-are-not-the-guarantee).
 
 ## Orisun vs NATS JetStream
 
-[JetStream](https://docs.nats.io/nats-concepts/jetstream) is NATS's durable streaming layer: persistent subjects, retention policies, consumer acknowledgements, and work queues. It is an excellent delivery layer — which is why Orisun embeds it for live delivery. JetStream alone is not an event store: it has no content-based consistency check, no command-context optimistic locking, and no concept of a consistency boundary.
+[JetStream](https://docs.nats.io/nats-concepts/jetstream) is NATS's durable streaming layer: persistent subjects, retention policies, consumer acknowledgements, and work queues. It is an excellent delivery layer, which is why Orisun embeds it for live delivery. JetStream alone is not an event store: it has no content-based consistency check, no command-context optimistic locking, and no concept of a consistency boundary.
 
 Choose JetStream directly when you need durable messaging and streaming across services, and the consistency model lives in your application or another system.
 
@@ -71,9 +71,9 @@ Choose Orisun when:
 
 Reach for another tool when:
 
-- you only need transient messaging or a general-purpose queue — Kafka, NATS, or RabbitMQ,
-- your domain maps cleanly to aggregate streams and you want a mature stream store — EventStoreDB,
-- you already own the data model in PostgreSQL and only need a change signal — `LISTEN/NOTIFY`,
-- you need a massively sharded, cross-organization streaming backbone at very high throughput — Kafka.
+- you only need transient messaging or a general-purpose queue, such as Kafka, NATS, or RabbitMQ,
+- your domain maps cleanly to aggregate streams and you want a mature stream store, such as EventStoreDB,
+- you already own the data model in PostgreSQL and only need a change signal via `LISTEN/NOTIFY`,
+- you need a massively sharded, cross-organization streaming backbone at very high throughput, such as Kafka.
 
 If Orisun fits, start with [Getting Started](./getting-started) and the [Tutorial](./tutorial).

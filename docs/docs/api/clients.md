@@ -231,7 +231,7 @@ try {
   });
 } catch (error) {
   if (error.message.includes('AlreadyExists')) {
-    // concurrency conflict — re-read the context and retry
+    // Concurrency conflict. Re-read the context and retry.
   } else {
     throw error;
   }
@@ -301,7 +301,7 @@ try (OrisunClient client = OrisunClient.newBuilder()
               .build())
           .build());
   } catch (OptimisticConcurrencyException conflict) {
-      // concurrency conflict — re-read the context and retry
+      // Concurrency conflict. Re-read the context and retry.
   }
 
   // 2. Read the latest carried state and its context position.

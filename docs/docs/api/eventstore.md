@@ -18,7 +18,7 @@ The EventStore service owns event operations:
 
 ## Connect and authenticate
 
-Every example on this page assumes an authenticated client connected to a running server. The default credentials are `admin:changeit` — change `ORISUN_ADMIN_PASSWORD` before exposing the server.
+Every example on this page assumes an authenticated client connected to a running server. The default credentials are `admin:changeit`; change `ORISUN_ADMIN_PASSWORD` before exposing the server.
 
 Pick your client once; every tabbed example below follows that choice across this page and the tutorial.
 
@@ -627,8 +627,8 @@ const latest = await client.getLatestByCriteria({
   ],
 });
 
-// latest.results[i].event  — latest event per criterion, in request order
-// latest.contextPosition   — pass to the next saveEvents expectedPosition
+// latest.results[i].event: latest event per criterion, in request order
+// latest.contextPosition: pass to the next saveEvents expectedPosition
 ```
 
   </TabItem>
@@ -683,9 +683,9 @@ EOF
   </TabItem>
 </Tabs>
 
-The response carries one `result` per request criterion in order (`event` unset when nothing matches) and `context_position` — the max position observed in the same snapshot, or `{-1, -1}` when nothing matched.
+The response carries one `result` per request criterion in order (`event` unset when nothing matches) and `context_position`, which is the max position observed in the same snapshot, or `{-1, -1}` when nothing matched.
 
-Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two snapshots. An event can commit between them with a position *below* the maximum you observed, and a scalar `expected_position` can only prove "nothing newer than X exists" — it cannot prove your reads saw everything up to X. `GetLatestByCriteria` closes that gap by sampling the whole context atomically. See [Command Context Consistency](../concepts/command-context-consistency).
+Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two snapshots. An event can commit between them with a position *below* the maximum you observed, and a scalar `expected_position` can only prove "nothing newer than X exists." It cannot prove your reads saw everything up to X. `GetLatestByCriteria` closes that gap by sampling the whole context atomically. See [Command Context Consistency](../concepts/command-context-consistency).
 
 ## CatchUpSubscribeToEvents
 
@@ -1027,7 +1027,7 @@ try {
   await client.saveEvents({ /* ... */ });
 } catch (error) {
   if (error.message.includes('AlreadyExists')) {
-    // concurrency conflict — re-read the context and retry
+    // Concurrency conflict. Re-read the context and retry.
   } else {
     throw error;
   }
@@ -1041,7 +1041,7 @@ try {
 try {
     client.saveEvents(request);
 } catch (OptimisticConcurrencyException conflict) {
-    // concurrency conflict — re-read the context and retry
+    // Concurrency conflict. Re-read the context and retry.
     // conflict.getExpectedVersion() / conflict.getActualVersion()
 }
 ```

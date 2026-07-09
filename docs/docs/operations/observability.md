@@ -51,6 +51,6 @@ Leave pprof disabled in production unless you are actively profiling, and never 
 
 ## What to watch
 
-- **Publisher lag** — the gap between committed and published positions. Investigate with the [Troubleshooting](./troubleshooting#publisher-lag) steps.
-- **Catch-up vs live** — subscribers repeatedly catching up suggest the JetStream retention window is too small for their pace. See [Delivery Guarantees](../concepts/delivery-guarantees#jetstream-retention-is-in-memory).
-- **Consistency conflicts** — a high `ALREADY_EXISTS` rate is a domain hotspot, not an error. Narrow the consistency context or add an [index](../concepts/indexing).
+- **Publisher lag** measures the gap between committed and published positions. Investigate with the [Troubleshooting](./troubleshooting#publisher-lag) steps.
+- **Catch-up vs live** tells you whether subscribers are repeatedly falling out of live delivery. If they are, the JetStream retention window may be too small for their pace. See [Delivery Guarantees](../concepts/delivery-guarantees#jetstream-retention-is-in-memory).
+- **Consistency conflicts** show a high `ALREADY_EXISTS` rate, which is a domain hotspot, not an error. Narrow the consistency context or add an [index](../concepts/indexing).

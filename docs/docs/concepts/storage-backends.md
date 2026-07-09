@@ -113,7 +113,7 @@ ORISUN_NATS_CLUSTER_ENABLED=false
 
 SQLite is rejected at startup when NATS clustering is enabled. There must be exactly one active Orisun writer node.
 
-Choose SQLite when a single active node is acceptable and simplicity matters. It is a production single-node backend, not a reduced local-development mode. For throughput, durability, and failover options — boundary sharding, Litestream, LiteFS — see [Scaling SQLite](../operations/deployment#scaling-sqlite).
+Choose SQLite when a single active node is acceptable and simplicity matters. It is a production single-node backend, not a reduced local-development mode. For throughput, durability, and failover options such as boundary sharding, Litestream, and LiteFS, see [Scaling SQLite](../operations/deployment#scaling-sqlite).
 
 ## Boundary State
 

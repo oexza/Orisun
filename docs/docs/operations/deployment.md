@@ -90,7 +90,7 @@ SQLite has no clustered mode, but a single boundary file goes further than most 
 
 Each boundary file already runs WAL mode with a read pool sized to `runtime.NumCPU()` and a single serialized writer. On NVMe storage with batched `SaveEvents`, a single boundary sustains tens of thousands of events per second. Before adding infrastructure:
 
-- batch writes — the per-transaction cost dominates, not the per-event cost
+- batch writes, because the per-transaction cost dominates the per-event cost
 - keep `ORISUN_SQLITE_DIR` on local NVMe, never on NFS or other network filesystems (file locking is unreliable there)
 - raise `LimitNOFILE` and give the node enough memory for the page cache
 
@@ -104,9 +104,9 @@ A boundary is a complete, independent unit: its own database file, its own posit
 - give each node a disjoint subset in `ORISUN_BOUNDARIES`
 - route client requests by boundary to the owning node (client-side routing table, or a gRPC proxy that switches on the boundary field)
 
-Each node remains a normal standalone SQLite deployment — no shared storage, no consensus, no rebalancing protocol. Moving a boundary to another node is a file move during a maintenance window: stop the source node, copy `{boundary}.db` and run a final WAL checkpoint, start it on the target node, update routing.
+Each node remains a normal standalone SQLite deployment. There is no shared storage, consensus, or rebalancing protocol. Moving a boundary to another node is a file move during a maintenance window: stop the source node, copy `{boundary}.db` and run a final WAL checkpoint, start it on the target node, update routing.
 
-If one boundary alone outgrows a node, sharding cannot help — split the domain into more boundaries or move that deployment to PostgreSQL.
+If one boundary alone outgrows a node, sharding cannot help. Split the domain into more boundaries or move that deployment to PostgreSQL.
 
 ### 3. Durability and failover
 
@@ -114,7 +114,7 @@ The gap in a single-node deployment is availability, not throughput. Two complem
 
 **[Litestream](https://litestream.io)** continuously replicates SQLite WAL segments to S3-compatible storage. It runs as a sidecar, needs no Orisun changes, and gives a recovery point of seconds. Replicate every `{boundary}.db` in `ORISUN_SQLITE_DIR`. Recovery is a restore-and-restart: minutes of downtime, near-zero data loss. This should be the baseline for any production SQLite deployment.
 
-**[LiteFS](https://fly.io/docs/litefs/)** replicates the files to warm standby machines with lease-based primary election, cutting failover from minutes to seconds. Run Orisun only on the current primary: Orisun is not read-only-aware (publishers and checkpoints write continuously), so a second Orisun process must not run against a replica copy. Standbys hold warm files; on failover, the new primary starts Orisun. LiteFS adds operational moving parts (FUSE, a lease backend) — adopt it only when restore-time recovery is too slow.
+**[LiteFS](https://fly.io/docs/litefs/)** replicates the files to warm standby machines with lease-based primary election, cutting failover from minutes to seconds. Run Orisun only on the current primary: Orisun is not read-only-aware (publishers and checkpoints write continuously), so a second Orisun process must not run against a replica copy. Standbys hold warm files; on failover, the new primary starts Orisun. LiteFS adds operational moving parts (FUSE, a lease backend), so adopt it only when restore-time recovery is too slow.
 
 Do not copy live database files with `cp` or filesystem snapshots alone; under WAL a bare file copy can be torn. Use Litestream, the SQLite backup API, or stop the node first.
 
@@ -126,7 +126,7 @@ When a deployment needs multi-node availability or write scale beyond boundary s
 
 ### Analytics on the side
 
-SQLite boundary files are readable by [DuckDB's sqlite extension](https://duckdb.org/docs/extensions/sqlite), so a restored backup or standby copy doubles as a zero-ETL analytics source — point DuckDB at a copy of `{boundary}.db` and run columnar SQL over the event log without touching the write path. Always use a copy or a Litestream restore, never the live file.
+SQLite boundary files are readable by [DuckDB's sqlite extension](https://duckdb.org/docs/extensions/sqlite), so a restored backup or standby copy doubles as a zero-ETL analytics source. Point DuckDB at a copy of `{boundary}.db` and run columnar SQL over the event log without touching the write path. Always use a copy or a Litestream restore, never the live file.
 
 ## Standalone PostgreSQL
 
@@ -247,19 +247,19 @@ A FoundationDB deployment has three independently scalable tiers:
 
 Process classes are the scaling levers:
 
-- **Transaction logs** sit on the commit critical path — every write waits for a tLog fsync. Give them dedicated NVMe and nothing else to do.
+- **Transaction logs** sit on the commit critical path because every write waits for a tLog fsync. Give them dedicated NVMe and nothing else to do.
 - **Storage servers** absorb reads and background data movement; add them for data volume and read throughput.
 - **Proxies and resolvers** are stateless CPU-bound processes; add them when commit throughput saturates.
 
 Orisun's write scaling rides this directly: positions come from commit versionstamps, so adding proxies, logs, and storage raises parallel commit throughput while every boundary stays totally ordered.
 
-**Kubernetes.** Use the official [fdb-kubernetes-operator](https://github.com/FoundationDB/fdb-kubernetes-operator) with a `FoundationDBCluster` resource. The operator maintains the cluster file in a ConfigMap — mount it into Orisun pods and point `ORISUN_FDB_CLUSTER_FILE` at it. Orisun itself is a plain Deployment.
+**Kubernetes.** Use the official [fdb-kubernetes-operator](https://github.com/FoundationDB/fdb-kubernetes-operator) with a `FoundationDBCluster` resource. The operator maintains the cluster file in a ConfigMap; mount it into Orisun pods and point `ORISUN_FDB_CLUSTER_FILE` at it. Orisun itself is a plain Deployment.
 
 **Operational notes:**
 
 - The `libfdb_c` client major version must match the server. The multi-version client allows rolling server upgrades; use the published `orexza/orisun:fdb` image or bake the client library into your own Orisun image. Release FDB binaries are Linux-only and still require the client library at runtime.
 - Backups: `fdbbackup` agents stream continuous backups to S3-compatible storage with point-in-time restore. This replaces the PostgreSQL dump/restore story.
-- Monitoring: `fdbcli status json` (or an exporter built on it) into your metrics stack. Watch commit latency, transaction log queue depth, storage lag, and transaction conflict rate — conflict rate maps directly to Orisun consistency-condition retries on contended aggregates.
+- Monitoring: feed `fdbcli status json` (or an exporter built on it) into your metrics stack. Watch commit latency, transaction log queue depth, storage lag, and transaction conflict rate. Conflict rate maps directly to Orisun consistency-condition retries on contended aggregates.
 - Coordinators: 3 spread across failure domains in one datacenter, 5 across multiple.
 - Bound client-side stalls with `ORISUN_FDB_TRANSACTION_TIMEOUT_MS` (default 10s) so a partitioned cluster surfaces as errors instead of hung requests.
 - Production runbook: see [FoundationDB operations](./foundationdb) for client libraries, cluster-file handling, backups, failover expectations, and release gates.

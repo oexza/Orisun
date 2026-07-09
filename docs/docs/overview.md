@@ -7,11 +7,11 @@ slug: /
 
 Orisun is an open-source event store built for **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context is still current.
 
-It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, and delivers committed events — catch-up replay plus live subscriptions — through embedded NATS JetStream. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
+It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
 
 ## Guarantees
 
-- **Consistency scoped to the command.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged — no need to force every invariant into a single stream.
+- **Consistency scoped to the command.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
 - **No skipped committed events.** A durable per-boundary checkpoint drives publishing. Wake-up signals can be missed; committed events still drain in order.
 - **Per-boundary ordering.** Events publish in ascending log position within each boundary.
 - **Same API on every backend.** SQLite, PostgreSQL, and YugabyteDB expose the identical gRPC surface, so deployments can grow without client changes.
@@ -25,7 +25,7 @@ It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, an
 
 ## Quick start
 
-SQLite is the fastest local loop — event log, admin state, indexes, publisher checkpoints, and embedded JetStream run from one binary with no separate database.
+SQLite is the fastest local loop. Event log, admin state, indexes, publisher checkpoints, and embedded JetStream run from one binary with no separate database.
 
 1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/oexza/Orisun/releases).
 2. Start it with the [SQLite binary example](/docs/getting-started#run-sqlite-from-a-binary).

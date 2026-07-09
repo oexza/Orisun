@@ -1,6 +1,6 @@
 ---
 id: tutorial
-title: Tutorial — A Consistent Ledger
+title: "Tutorial: A Consistent Ledger"
 description: Build an account ledger end to end with Command Context Consistency, indexes, and a live subscription.
 ---
 
@@ -13,9 +13,9 @@ Start a server with [Getting Started](./getting-started) before continuing. The 
 
 ## The scenario
 
-Money moves between two accounts by transfer. A transfer posts two events in the same atomic write: a debit on the source account and a credit on the destination account. That is the double-entry invariant — the two legs of a transfer commit together or not at all, so the ledger's total balance never drifts. The additional invariant: an account must not be debited below zero. If two transfers are decided from the same source balance, both must not commit. Command Context Consistency gives the application that protection.
+Money moves between two accounts by transfer. A transfer posts two events in the same atomic write: a debit on the source account and a credit on the destination account. That is the double-entry invariant: the two legs of a transfer commit together or not at all, so the ledger's total balance never drifts. The additional invariant: an account must not be debited below zero. If two transfers are decided from the same source balance, both must not commit. Command Context Consistency gives the application that protection.
 
-Following the [scoping events](./patterns/event-scopes) pattern, an account has no separate entity identity — it *is* its `AccountOpened` event. Later events reference that event's own id, not a hand-rolled `account_id` foreign key. See [Command Context Consistency](./concepts/command-context-consistency#example-context) for the same `accountOpenedId` / `scopes.*AccountOpenedId` convention used here.
+Following the [scoping events](./patterns/event-scopes) pattern, an account has no separate entity identity. It *is* its `AccountOpened` event. Later events reference that event's own id, not a hand-rolled `account_id` foreign key. See [Command Context Consistency](./concepts/command-context-consistency#example-context) for the same `accountOpenedId` / `scopes.*AccountOpenedId` convention used here.
 
 The ledger uses an `accounts` boundary. Add it to the server configuration before startup:
 
@@ -101,7 +101,7 @@ AUTH='Authorization: Basic YWRtaW46Y2hhbmdlaXQ='
 
 ## 1. Open two accounts
 
-`AccountOpened` is a scope root: its own event id becomes the account's identity, carried in the payload as `accountOpenedId`. There is no `Account` row anywhere and no separately-assigned business key — the event *is* the account. The first event for a brand-new scope uses the before-first-event position `{-1, -1}`.
+`AccountOpened` is a scope root: its own event id becomes the account's identity, carried in the payload as `accountOpenedId`. There is no `Account` row anywhere and no separately-assigned business key; the event *is* the account. The first event for a brand-new scope uses the before-first-event position `{-1, -1}`.
 
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
@@ -227,7 +227,7 @@ The stored event data includes canonical `eventType` from the caller-supplied AP
 
 ## 2. Read both balances from one snapshot
 
-A transfer's context spans both accounts: the source balance decides whether the debit is valid, and both accounts must not have moved since the read. Each account needs two criteria — its `AccountOpened` root, and any later event scoped to it via `scopes.accountOpenedId` — read from a single server-side snapshot:
+A transfer's context spans both accounts: the source balance decides whether the debit is valid, and both accounts must not have moved since the read. Each account needs two criteria, its `AccountOpened` root and any later event scoped to it via `scopes.accountOpenedId`, read from a single server-side snapshot:
 
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
@@ -336,11 +336,11 @@ EOF
   </TabItem>
 </Tabs>
 
-The `scopes.accountOpenedId` criterion deliberately omits an `eventType` tag: it matches any later event scoped to that account, regardless of whether it is a debit or a credit, so the response always carries that account's freshest movement. The application derives each balance, decides whether the transfer is valid, and remembers `context_position` — the consistency anchor for the write, reusing these same four criteria. See [Command Context Consistency](./concepts/command-context-consistency#reading-a-command-context) for why independent per-account reads cannot substitute for this.
+The `scopes.accountOpenedId` criterion deliberately omits an `eventType` tag: it matches any later event scoped to that account, regardless of whether it is a debit or a credit, so the response always carries that account's freshest movement. The application derives each balance, decides whether the transfer is valid, and remembers `context_position` as the consistency anchor for the write, reusing these same four criteria. See [Command Context Consistency](./concepts/command-context-consistency#reading-a-command-context) for why independent per-account reads cannot substitute for this.
 
 ## 3. Transfer with a double-entry write
 
-The transfer decision, such as `fromBalance >= amount`, lives in application code. The write itself posts both legs — `MoneyDebited` scoped to the source account and `MoneyCredited` scoped to the destination account — as one atomic `SaveEvents` call using the same four criteria as the read. Either both events commit or neither does; the ledger can never observe a debit without its matching credit. The credit also backlinks to the debit's own event id via `scopes.moneyDebitedId`, so the two legs of one transfer can be found from either side without an invented "transfer id."
+The transfer decision, such as `fromBalance >= amount`, lives in application code. The write itself posts both legs, `MoneyDebited` scoped to the source account and `MoneyCredited` scoped to the destination account, as one atomic `SaveEvents` call using the same four criteria as the read. Either both events commit or neither does; the ledger can never observe a debit without its matching credit. The credit also backlinks to the debit's own event id via `scopes.moneyDebitedId`, so the two legs of one transfer can be found from either side without an invented "transfer id."
 
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
@@ -475,7 +475,7 @@ EOF
   </TabItem>
 </Tabs>
 
-Set `expected_position` to the `context_position` observed in step 2, and reuse the exact same four criteria as the read. The save commits only if neither account has moved since — if it has, both legs are rejected together, never just one.
+Set `expected_position` to the `context_position` observed in step 2, and reuse the exact same four criteria as the read. The save commits only if neither account has moved since. If either account has moved, both legs are rejected together, never just one.
 
 ## 4. Handle the conflict
 
@@ -739,8 +739,8 @@ The stream emits each event with its `position` and `date_created`. A read model
 
 ## What you built
 
-- A consistency boundary scoped by event content across two accounts, not a fixed stream or an entity table — [Command Context Consistency](./concepts/command-context-consistency).
-- Accounts identified by their own `AccountOpened` event id, with later events referencing it through `scopes.accountOpenedId` — [Event Scopes](./patterns/event-scopes).
+- A consistency boundary scoped by event content across two accounts, not a fixed stream or an entity table. See [Command Context Consistency](./concepts/command-context-consistency).
+- Accounts identified by their own `AccountOpened` event id, with later events referencing it through `scopes.accountOpenedId`. See [Event Scopes](./patterns/event-scopes).
 - A double-entry write where a debit and its matching credit commit atomically or not at all.
 - An optimistic write that rejects stale context with `ALREADY_EXISTS`.
 - An index that keeps the context query and read model fast.
