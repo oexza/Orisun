@@ -50,6 +50,10 @@ ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ./build/orisun-sqlite-linux-amd64
 ```
 
+For SQLite production durability, use `ORISUN_SQLITE_SYNCHRONOUS=FULL`
+(recommended). `NORMAL` is a throughput opt-out that can lose already
+acknowledged commits after an OS crash or power loss before checkpointing.
+
 The same server can also run from Docker:
 
 ```bash

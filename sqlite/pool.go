@@ -115,7 +115,7 @@ func normalizeSqlitePoolConfig(sqliteCfg config.SqliteConfig) (sqlitePoolConfig,
 		tempStore:     strings.ToUpper(strings.TrimSpace(sqliteCfg.TempStore)),
 	}
 	if cfg.synchronous == "" {
-		cfg.synchronous = "NORMAL"
+		cfg.synchronous = "FULL"
 	}
 	if cfg.busyTimeoutMs == 0 {
 		cfg.busyTimeoutMs = 5000

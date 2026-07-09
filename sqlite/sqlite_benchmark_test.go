@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	common "github.com/oexza/Orisun/admin/slices/common"
+	"github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/logging"
 	"github.com/oexza/Orisun/orisun"
 )
@@ -23,15 +24,23 @@ const (
 	benchEventsPerStream = 20
 )
 
-// setupBenchmarkPools opens a single-boundary pool set against a temp directory.
+// setupBenchmarkPools opens a single-boundary pool set against a temp directory
+// using SQLite's durable FULL synchronous mode.
 // Returns the SqliteSaveEvents/SqliteAdminDB and a teardown closure.
 func setupBenchmarkPools(b *testing.B) (*SqliteSaveEvents, *SqliteGetEvents, *SqliteAdminDB, func()) {
+	return setupBenchmarkPoolsWithSynchronous(b, "FULL")
+}
+
+func setupBenchmarkPoolsWithSynchronous(b *testing.B, synchronous string) (*SqliteSaveEvents, *SqliteGetEvents, *SqliteAdminDB, func()) {
 	b.Helper()
 	dir := b.TempDir()
 	logger, err := logging.ZapLogger("warn")
 	require.NoError(b, err)
 
-	bp, err := OpenBoundaryPools(context.Background(), dir, benchBoundary, benchBoundary)
+	bp, err := OpenBoundaryPoolsWithConfig(context.Background(), config.SqliteConfig{
+		Dir:         dir,
+		Synchronous: synchronous,
+	}, benchBoundary, benchBoundary)
 	require.NoError(b, err, "open pools")
 	pools := map[string]*BoundaryPools{benchBoundary: bp}
 
@@ -289,54 +298,66 @@ func BenchmarkSqlite_ConcurrentSave(b *testing.B) {
 func BenchmarkSqlite_Burst10000(b *testing.B) {
 	const burst = 10000
 
-	for i := 0; i < b.N; i++ {
-		// Fresh DB per burst — avoids cross-iteration contamination on b.N>1.
-		saver, _, _, teardown := setupBenchmarkPools(b)
+	for _, synchronous := range []string{"FULL", "NORMAL"} {
+		b.Run("sync="+synchronous, func(b *testing.B) {
+			var totalOK int64
+			var totalElapsed time.Duration
 
-		// Pre-build events so allocation isn't in the hot path.
-		events := make([]orisun.EventWithMapTags, burst)
-		for j := 0; j < burst; j++ {
-			id, _ := uuid.NewV7()
-			events[j] = orisun.EventWithMapTags{
-				EventId:   id.String(),
-				EventType: "BurstEvent",
-				Data:      `{"k":"v"}`,
-				Metadata:  `{}`,
-			}
-		}
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
 
-		ctx := context.Background()
-		var wg sync.WaitGroup
-		var ok, fail int64
-		startCh := make(chan struct{})
-		wg.Add(burst)
-		for j := 0; j < burst; j++ {
-			ev := events[j]
-			go func() {
-				defer wg.Done()
-				<-startCh
-				if _, _, err := saver.Save(ctx, []orisun.EventWithMapTags{ev}, benchBoundary, nil, nil); err != nil {
-					atomic.AddInt64(&fail, 1)
-					return
+				// Fresh DB per burst — avoids cross-iteration contamination on b.N>1.
+				saver, _, _, teardown := setupBenchmarkPoolsWithSynchronous(b, synchronous)
+
+				// Pre-build events so allocation isn't in the hot path.
+				events := make([]orisun.EventWithMapTags, burst)
+				for j := 0; j < burst; j++ {
+					id, _ := uuid.NewV7()
+					events[j] = orisun.EventWithMapTags{
+						EventId:   id.String(),
+						EventType: "BurstEvent",
+						Data:      `{"k":"v"}`,
+						Metadata:  `{}`,
+					}
 				}
-				atomic.AddInt64(&ok, 1)
-			}()
-		}
 
-		b.ResetTimer()
-		startTime := time.Now()
-		close(startCh)
-		wg.Wait()
-		elapsed := time.Since(startTime)
-		b.StopTimer()
+				ctx := context.Background()
+				var wg sync.WaitGroup
+				var ok, fail int64
+				startCh := make(chan struct{})
+				wg.Add(burst)
+				for j := 0; j < burst; j++ {
+					ev := events[j]
+					go func() {
+						defer wg.Done()
+						<-startCh
+						if _, _, err := saver.Save(ctx, []orisun.EventWithMapTags{ev}, benchBoundary, nil, nil); err != nil {
+							atomic.AddInt64(&fail, 1)
+							return
+						}
+						atomic.AddInt64(&ok, 1)
+					}()
+				}
 
-		b.ReportMetric(float64(ok)/elapsed.Seconds(), "events/sec")
-		b.ReportMetric(float64(elapsed.Milliseconds()), "ms/burst")
-		if fail > 0 {
-			b.Logf("burst had %d failures", fail)
-		}
+				b.StartTimer()
+				startTime := time.Now()
+				close(startCh)
+				wg.Wait()
+				elapsed := time.Since(startTime)
+				b.StopTimer()
 
-		teardown()
+				if fail > 0 {
+					b.Logf("burst had %d failures", fail)
+				}
+				totalOK += ok
+				totalElapsed += elapsed
+
+				teardown()
+			}
+
+			b.ReportMetric(float64(totalOK)/totalElapsed.Seconds(), "events/sec")
+			b.ReportMetric(float64(totalElapsed.Milliseconds())/float64(b.N), "ms/burst")
+		})
 	}
 }
 

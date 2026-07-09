@@ -128,6 +128,10 @@ ORISUN_ADMIN_PASSWORD=changeit \
 ./orisun-sqlite
 ```
 
+SQLite production deployments should use `ORISUN_SQLITE_SYNCHRONOUS=FULL`
+(the recommended setting). `NORMAL` is only for deployments that knowingly trade
+crash/power-loss durability for write throughput.
+
 ## Run PostgreSQL from a binary
 
 PostgreSQL mode expects an existing PostgreSQL database. Create the database and schemas with your normal database tooling, then start Orisun with connection settings:

@@ -52,6 +52,7 @@ For SQLite, set:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory for per-boundary SQLite database files. |
+| `ORISUN_SQLITE_SYNCHRONOUS` | `FULL` | Recommended SQLite durability mode. Use `NORMAL` only when you explicitly accept the power-loss durability tradeoff. |
 | `ORISUN_NATS_CLUSTER_ENABLED` | `false` | Must stay `false` for SQLite. |
 
 For FoundationDB beta deployments, set:
@@ -111,7 +112,7 @@ Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory containing one `{boundary}.db` file per boundary. |
-| `ORISUN_SQLITE_SYNCHRONOUS` | `NORMAL` | SQLite synchronous mode. Use stronger durability only after measuring the write cost. |
+| `ORISUN_SQLITE_SYNCHRONOUS` | `FULL` | Recommended SQLite synchronous mode. `FULL` makes acknowledged WAL commits durable across OS crashes and power loss. `NORMAL` can improve write throughput, but acknowledged commits may be lost until a checkpoint reaches durable storage; use it only as an explicit, measured opt-out. |
 | `ORISUN_SQLITE_BUSY_TIMEOUT_MS` | `5000` | Busy timeout for contended SQLite operations. |
 | `ORISUN_SQLITE_READ_POOL_SIZE` | `0` | Read pool size. `0` lets Orisun choose a CPU-based default. |
 | `ORISUN_SQLITE_CACHE_SIZE` | `0` | SQLite cache size override. |

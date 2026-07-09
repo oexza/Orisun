@@ -111,6 +111,13 @@ ORISUN_SQLITE_DIR=/var/lib/orisun/sqlite
 ORISUN_NATS_CLUSTER_ENABLED=false
 ```
 
+Use `ORISUN_SQLITE_SYNCHRONOUS=FULL` for production durability. `FULL` is the
+recommended setting because an acknowledged SQLite WAL commit is fsynced before
+success returns. `NORMAL` is a throughput-oriented opt-out: SQLite can defer the
+fsync until checkpointing, so an OS crash or power loss can lose commits that
+callers already saw as successful. Choose `NORMAL` only when that durability
+window is acceptable for the deployment.
+
 SQLite is rejected at startup when NATS clustering is enabled. There must be exactly one active Orisun writer node.
 
 Choose SQLite when a single active node is acceptable and simplicity matters. It is a production single-node backend, not a reduced local-development mode. For throughput, durability, and failover options such as boundary sharding, Litestream, and LiteFS, see [Scaling SQLite](../operations/deployment#scaling-sqlite).
