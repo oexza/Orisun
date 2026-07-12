@@ -75,6 +75,32 @@ func readSeqNextID(t *testing.T, bp *BoundaryPools) int64 {
 	return next
 }
 
+func countEventsMatching(t *testing.T, bp *BoundaryPools, criteria map[string]any) int {
+	t.Helper()
+	where, err := buildCriteriaSQLForBoundary([]map[string]any{criteria}, bp.indexes, gcBoundary)
+	if err != nil {
+		t.Fatalf("build criteria SQL: %v", err)
+	}
+	conn, err := bp.Read.Take(context.Background())
+	if err != nil {
+		t.Fatalf("take read conn: %v", err)
+	}
+	defer bp.Read.Put(conn)
+
+	var count int
+	if err := sqlitex.ExecuteTransient(conn,
+		"SELECT COUNT(*) FROM orisun_es_event WHERE "+where,
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				count = int(stmt.ColumnInt64(0))
+				return nil
+			},
+		}); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	return count
+}
+
 type saveOutcome struct {
 	tx  string
 	gid int64
@@ -358,6 +384,64 @@ func TestGroupCommit_InBatchConflictEarlierWinsLaterAlreadyExists(t *testing.T) 
 	// Rejected savepoint rolled back its seq update: blocker + winner = 2 events.
 	if next := readSeqNextID(t, bp); next != 3 {
 		t.Errorf("expected gap-free seq next_id 3, got %d", next)
+	}
+}
+
+func TestGroupCommit_InBatchSameExpectedPositionOnlyOneWins(t *testing.T) {
+	saver, bp, cleanup := newGCTestSaver(t)
+	defer cleanup()
+
+	criteria := &eventstore.Query{Criteria: []*eventstore.Criterion{
+		{Tags: []*eventstore.Tag{{Key: "agg", Value: "same-expected-in-batch"}}},
+	}}
+	_, gid, err := saver.Save(context.Background(), []eventstore.EventWithMapTags{
+		mustEvent(t, "Seed", map[string]any{"agg": "same-expected-in-batch"}, map[string]any{}),
+	}, gcBoundary, nil, criteria)
+	if err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	expected := &eventstore.Position{CommitPosition: gid, PreparePosition: gid}
+
+	var errB, errC error
+	var wg sync.WaitGroup
+	blockWorkerThenQueue(t, saver, bp, 2, func() {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _, errB = saver.Save(context.Background(), []eventstore.EventWithMapTags{
+				mustEvent(t, "B", map[string]any{"agg": "same-expected-in-batch"}, map[string]any{}),
+			}, gcBoundary, expected, criteria)
+		}()
+		go func() {
+			defer wg.Done()
+			_, _, errC = saver.Save(context.Background(), []eventstore.EventWithMapTags{
+				mustEvent(t, "C", map[string]any{"agg": "same-expected-in-batch"}, map[string]any{}),
+			}, gcBoundary, expected, criteria)
+		}()
+	})
+	wg.Wait()
+
+	succeeded, rejected := 0, 0
+	for _, err := range []error{errB, errC} {
+		switch status.Code(err) {
+		case codes.OK:
+			succeeded++
+		case codes.AlreadyExists:
+			rejected++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("expected exactly one success and one ALREADY_EXISTS, got %d/%d (errB=%v errC=%v)",
+			succeeded, rejected, errB, errC)
+	}
+	if count := countEventsMatching(t, bp, map[string]any{"agg": "same-expected-in-batch"}); count != 2 {
+		t.Fatalf("expected seed plus one winning update, got %d matching events", count)
+	}
+	// Seed + blocker + winner. The losing savepoint must not consume an ID.
+	if next := readSeqNextID(t, bp); next != 4 {
+		t.Errorf("expected gap-free seq next_id 4, got %d", next)
 	}
 }
 
@@ -708,5 +792,64 @@ func TestGroupCommit_ConcurrentBurstAllCommitGapFree(t *testing.T) {
 	}
 	if next := readSeqNextID(t, bp); next != n+1 {
 		t.Errorf("expected seq next_id %d, got %d", n+1, next)
+	}
+}
+
+func TestGroupCommit_ConcurrentSameExpectedPositionAcrossFlushesOnlyOneWins(t *testing.T) {
+	saver, bp, cleanup := newGCTestSaver(t)
+	defer cleanup()
+	saver.gcMaxBatchRequests = 1
+
+	criteria := &eventstore.Query{Criteria: []*eventstore.Criterion{
+		{Tags: []*eventstore.Tag{{Key: "agg", Value: "same-expected-across-flushes"}}},
+	}}
+	_, gid, err := saver.Save(context.Background(), []eventstore.EventWithMapTags{
+		mustEvent(t, "Seed", map[string]any{"agg": "same-expected-across-flushes"}, map[string]any{}),
+	}, gcBoundary, nil, criteria)
+	if err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	expected := &eventstore.Position{CommitPosition: gid, PreparePosition: gid}
+
+	const n = 20
+	start := make(chan struct{})
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, _, errs[i] = saver.Save(context.Background(), []eventstore.EventWithMapTags{
+				mustEvent(t, "Raced", map[string]any{
+					"agg":    "same-expected-across-flushes",
+					"worker": strconv.Itoa(i),
+				}, map[string]any{}),
+			}, gcBoundary, expected, criteria)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	succeeded, rejected := 0, 0
+	for i, err := range errs {
+		switch status.Code(err) {
+		case codes.OK:
+			succeeded++
+		case codes.AlreadyExists:
+			rejected++
+		default:
+			t.Fatalf("save %d: unexpected error %v", i, err)
+		}
+	}
+	if succeeded != 1 || rejected != n-1 {
+		t.Fatalf("expected exactly one success and %d ALREADY_EXISTS, got %d/%d",
+			n-1, succeeded, rejected)
+	}
+	if count := countEventsMatching(t, bp, map[string]any{"agg": "same-expected-across-flushes"}); count != 2 {
+		t.Fatalf("expected seed plus one winning update, got %d matching events", count)
+	}
+	if next := readSeqNextID(t, bp); next != 3 {
+		t.Errorf("expected only seed and winner to allocate IDs, seq next_id got %d", next)
 	}
 }
