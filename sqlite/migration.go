@@ -7,9 +7,8 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
-// Common per-boundary tables: event log, id sequence counter, last-published cursor,
-// events_count cache, projector_checkpoint.
-const commonDDL = `
+// Event per-boundary tables: event log, id sequence counter, and index metadata.
+const eventDDL = `
 CREATE TABLE IF NOT EXISTS orisun_es_event (
     transaction_id INTEGER NOT NULL,
     global_id      INTEGER PRIMARY KEY,
@@ -39,6 +38,19 @@ CREATE TABLE IF NOT EXISTS orisun_es_seq (
 );
 INSERT OR IGNORE INTO orisun_es_seq (id, next_id) VALUES (1, 1);
 
+CREATE TABLE IF NOT EXISTS orisun_boundary_index_metadata (
+    name         TEXT PRIMARY KEY,
+    fields       TEXT NOT NULL CHECK (json_valid(fields)),
+    conditions   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(conditions)),
+    combinator   TEXT NOT NULL DEFAULT 'AND',
+    date_created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    date_updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+`
+
+// Metadata tables are stored in a separate SQLite file so publisher/projector/admin
+// writes do not contend with the per-boundary event-log writer.
+const metadataDDL = `
 CREATE TABLE IF NOT EXISTS orisun_last_published_event_position (
     boundary       TEXT    PRIMARY KEY,
     transaction_id INTEGER NOT NULL DEFAULT 0,
@@ -48,7 +60,7 @@ CREATE TABLE IF NOT EXISTS orisun_last_published_event_position (
 );
 
 CREATE TABLE IF NOT EXISTS events_count (
-    id          TEXT PRIMARY KEY,
+    boundary    TEXT PRIMARY KEY,
     event_count TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -61,13 +73,21 @@ CREATE TABLE IF NOT EXISTS projector_checkpoint (
     prepare_position INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS orisun_boundary_index_metadata (
-    name         TEXT PRIMARY KEY,
-    fields       TEXT NOT NULL CHECK (json_valid(fields)),
-    conditions   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(conditions)),
-    combinator   TEXT NOT NULL DEFAULT 'AND',
-    date_created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    date_updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    roles         TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS users_count (
+    id         TEXT PRIMARY KEY,
+    user_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 `
 
@@ -109,29 +129,9 @@ CREATE INDEX IF NOT EXISTS idx_event_type_order
     );
 `
 
-// Admin-only tables, created only inside the admin boundary's database.
-const adminDDL = `
-CREATE TABLE IF NOT EXISTS users (
-    id            TEXT PRIMARY KEY,
-    name          TEXT NOT NULL,
-    username      TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    roles         TEXT NOT NULL,
-    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);
-
-CREATE TABLE IF NOT EXISTS users_count (
-    id         TEXT PRIMARY KEY,
-    user_count INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);
-`
-
-func applyMigrations(conn *sqlite.Conn, isAdminBoundary bool) error {
-	if err := sqlitex.ExecuteScript(conn, commonDDL, nil); err != nil {
-		return fmt.Errorf("common ddl: %w", err)
+func applyMigrations(conn *sqlite.Conn) error {
+	if err := sqlitex.ExecuteScript(conn, eventDDL, nil); err != nil {
+		return fmt.Errorf("event ddl: %w", err)
 	}
 	hasLegacyEventType, err := tableHasColumn(conn, "orisun_es_event", "event_type")
 	if err != nil {
@@ -142,10 +142,12 @@ func applyMigrations(conn *sqlite.Conn, isAdminBoundary bool) error {
 			return fmt.Errorf("drop event_type column: %w", err)
 		}
 	}
-	if isAdminBoundary {
-		if err := sqlitex.ExecuteScript(conn, adminDDL, nil); err != nil {
-			return fmt.Errorf("admin ddl: %w", err)
-		}
+	return nil
+}
+
+func applyMetadataMigrations(conn *sqlite.Conn) error {
+	if err := sqlitex.ExecuteScript(conn, metadataDDL, nil); err != nil {
+		return fmt.Errorf("metadata ddl: %w", err)
 	}
 	return nil
 }
@@ -160,5 +162,19 @@ func tableHasColumn(conn *sqlite.Conn, tableName, columnName string) (bool, erro
 			return nil
 		},
 	})
+	return found, err
+}
+
+func tableExists(conn *sqlite.Conn, tableName string) (bool, error) {
+	found := false
+	err := sqlitex.Execute(conn,
+		"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+		&sqlitex.ExecOptions{
+			Args: []any{tableName},
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				found = true
+				return nil
+			},
+		})
 	return found, err
 }

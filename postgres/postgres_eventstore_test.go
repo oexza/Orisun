@@ -973,7 +973,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 		{
 			EventId:   string(eventId.String()),
 			EventType: "TestEvent",
-			Data:      "{\"key\": \"value2\"}",
+			Data:      "{\"key\": \"value\"}",
 			Metadata:  "{}",
 		},
 	}
@@ -994,7 +994,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 			},
 		},
 	)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OptimisticConcurrencyException")
 }
 

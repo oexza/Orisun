@@ -111,7 +111,7 @@ Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory containing one `{boundary}.db` file per boundary. |
+| `ORISUN_SQLITE_DIR` | `./data/orisun/sqlite` | Directory containing one `{boundary}.db` event-log file and one `{boundary}_metadata.db` file per boundary. Metadata files hold publisher checkpoints, projector checkpoints, admin users, and count caches. |
 | `ORISUN_SQLITE_SYNCHRONOUS` | `FULL` | Recommended SQLite synchronous mode. `FULL` makes acknowledged WAL commits durable across OS crashes and power loss. `NORMAL` can improve write throughput, but acknowledged commits may be lost until a checkpoint reaches durable storage; use it only as an explicit, measured opt-out. |
 | `ORISUN_SQLITE_BUSY_TIMEOUT_MS` | `5000` | Busy timeout for contended SQLite operations. |
 | `ORISUN_SQLITE_READ_POOL_SIZE` | `0` | Read pool size. `0` lets Orisun choose a CPU-based default. |
@@ -119,6 +119,12 @@ Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63
 | `ORISUN_SQLITE_MMAP_SIZE` | `0` | SQLite mmap size override. |
 | `ORISUN_SQLITE_WAL_AUTO_CHECKPOINT` | `0` | SQLite WAL auto-checkpoint override. |
 | `ORISUN_SQLITE_TEMP_STORE` | `MEMORY` | SQLite temp-store mode. |
+| `ORISUN_SQLITE_PUBLISHER_WAKE_DELAY` | `5ms` | Coalesce publisher wake-ups after SQLite commits so write bursts can drain before publisher read/checkpoint work starts. Set `0s` for immediate wake-ups; polling still protects delivery correctness. |
+| `ORISUN_SQLITE_GC_MAX_BATCH_REQUESTS` | `128` | Maximum `SaveEvents` requests flushed by one SQLite group-commit batch. |
+| `ORISUN_SQLITE_GC_MAX_BATCH_EVENTS` | `1024` | Maximum events flushed by one SQLite group-commit batch. A request that would exceed the cap is carried to the next flush. |
+| `ORISUN_SQLITE_GC_MAX_DELAY` | `0s` | Optional wait to fill a SQLite group-commit batch. `0s` keeps batching opportunistic. |
+| `ORISUN_SQLITE_GC_MAX_PENDING` | `4096` | Per-boundary queued `SaveEvents` request capacity before callers block. |
+| `ORISUN_SQLITE_GC_FLUSH_TIMEOUT` | `30s` | Timeout for one SQLite group-commit flush. |
 
 ## PostgreSQL-compatible pool settings
 

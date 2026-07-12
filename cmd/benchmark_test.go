@@ -46,6 +46,41 @@ type BenchmarkSetup struct {
 	adminPort         string
 }
 
+type benchmarkGRPCClient struct {
+	client orisun.EventStoreClient
+	ctx    context.Context
+}
+
+const (
+	benchmarkGRPCMaxMessageSize  = 100 * 1024 * 1024
+	benchmarkGRPCWindowSize      = 1024 * 1024
+	benchmarkGRPCWriteBufferSize = 65536
+	benchmarkGRPCReadBufferSize  = 65536
+	benchmarkRecommendedInFlight = 1024
+)
+
+func benchmarkAuthTokenInterceptor() grpc.UnaryClientInterceptor {
+	var token atomic.Value
+
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if v := token.Load(); v != nil {
+			ctx = metadata.AppendToOutgoingContext(ctx, "x-auth-token", v.(string))
+		}
+
+		var responseMD metadata.MD
+		var responseTrailer metadata.MD
+		opts = append(opts, grpc.Header(&responseMD), grpc.Trailer(&responseTrailer))
+
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		if err == nil {
+			if tokens := responseMD.Get("x-auth-token"); len(tokens) > 0 {
+				token.Store(tokens[0])
+			}
+		}
+		return err
+	}
+}
+
 // benchBackend reads ORISUN_BENCH_BACKEND, defaulting to "postgres".
 // Set ORISUN_BENCH_BACKEND=sqlite to run gRPC benchmarks against the sqlite backend.
 func benchBackend() string {
@@ -190,15 +225,16 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 	// Common env (boundaries, NATS, gRPC, admin) shared across backends
 	env := []string{
 		fmt.Sprintf("ORISUN_BACKEND=%s", s.backend),
-		"ORISUN_PPROF_ENABLED=true",
+		"ORISUN_PPROF_ENABLED=false",
+		"ORISUN_OTEL_ENABLED=false",
 		"ORISUN_PPROF_PORT=6060",
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
-		"ORISUN_GRPC_ENABLE_REFLECTION=true",
+		"ORISUN_GRPC_ENABLE_REFLECTION=false",
 		"ORISUN_NATS_PORT=14224",
 		"ORISUN_NATS_CLUSTER_PORT=16222",
 		"ORISUN_NATS_CLUSTER_ENABLED=false",
-		"ORISUN_LOGGING_LEVEL=INFO",
+		"ORISUN_LOGGING_LEVEL=WARN",
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=benchmark_admin",
@@ -220,6 +256,10 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 			"ORISUN_PG_READ_MAX_IDLE_CONNS=5",
 		)
 	case "sqlite":
+		env = append(env,
+			fmt.Sprintf("ORISUN_SQLITE_DIR=%s", s.sqliteDir),
+		)
+	case "foundationdb":
 		env = append(env,
 			fmt.Sprintf("ORISUN_SQLITE_DIR=%s", s.sqliteDir),
 		)
@@ -266,57 +306,95 @@ func (s *BenchmarkSetup) waitForGRPCServer(b *testing.B) {
 }
 
 func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
-	var token *string = nil
+	conn, client := s.createGRPCEventStoreClient(b, true)
+	s.conn = conn
+	s.client = client
 
-	// Create an interceptor to extract token from response metadata
-	unaryInterceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		//if token is not nil, add it to the outgoing context
-		if token != nil {
-			ctx = metadata.AppendToOutgoingContext(ctx, "x-auth-token", *token)
-		}
+	// Wait for admin user to be created by the projector.
+	s.authenticateGRPCClient(b, s.client)
+}
 
-		// Create variables to capture response metadata
-		var responseMD metadata.MD
-		var responseTrailer metadata.MD
+func (s *BenchmarkSetup) createGRPCEventStoreClient(b *testing.B, captureAuthToken bool) (*grpc.ClientConn, orisun.EventStoreClient) {
+	b.Helper()
 
-		// Add options to capture response headers and trailers
-		opts = append(opts, grpc.Header(&responseMD), grpc.Trailer(&responseTrailer))
-
-		err := invoker(ctx, method, req, reply, cc, opts...)
-		if err == nil {
-			// Extract token from response headers if present
-			if tokens := responseMD.Get("x-auth-token"); len(tokens) > 0 {
-				// b.Logf("Extracted token from response headers: %s", tokens[0])
-				token = &tokens[0]
-			}
-		}
-		return err
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(benchmarkGRPCMaxMessageSize)),
+		grpc.WithInitialWindowSize(benchmarkGRPCWindowSize),
+		grpc.WithInitialConnWindowSize(benchmarkGRPCWindowSize),
+		grpc.WithWriteBufferSize(benchmarkGRPCWriteBufferSize),
+		grpc.WithReadBufferSize(benchmarkGRPCReadBufferSize),
+	}
+	if captureAuthToken {
+		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(benchmarkAuthTokenInterceptor()))
 	}
 
-	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(unaryInterceptor),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*100)), // 100MB max message size
-	)
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort), dialOptions...)
 	require.NoError(b, err)
-	s.conn = conn
-	s.client = orisun.NewEventStoreClient(conn)
+	return conn, orisun.NewEventStoreClient(conn)
+}
 
-	// Wait for admin user to be created by the projector
-	// Retry authentication until it succeeds
+func (s *BenchmarkSetup) authenticateGRPCClient(b *testing.B, client orisun.EventStoreClient) {
+	b.Helper()
+
 	var pingResp *orisun.PingResponse
+	var err error
 	for i := range 30 {
-		pingResp, err = s.client.Ping(s.authContext(), &orisun.PingRequest{})
+		pingResp, err = client.Ping(s.authContext(), &orisun.PingRequest{})
 		if err == nil {
 			b.Logf("Authentication successful on attempt %d", i+1)
-			break
+			return
 		}
 		b.Logf("Authentication attempt %d failed: %v, retrying...", i+1, err)
 		time.Sleep(time.Second)
 	}
-	if err != nil {
-		b.Logf("Final ping response: %v, %v", pingResp, err)
+	b.Fatalf("Final ping response: %v, %v", pingResp, err)
+}
+
+func (s *BenchmarkSetup) authTokenForGRPCClient(b *testing.B, client orisun.EventStoreClient) string {
+	b.Helper()
+
+	var responseMD metadata.MD
+	_, err := client.Ping(s.authContext(), &orisun.PingRequest{}, grpc.Header(&responseMD))
+	require.NoError(b, err)
+
+	tokens := responseMD.Get("x-auth-token")
+	require.NotEmpty(b, tokens)
+	return tokens[0]
+}
+
+func (s *BenchmarkSetup) tokenAuthContext(token string) context.Context {
+	return metadata.AppendToOutgoingContext(s.ctx, "x-auth-token", token)
+}
+
+func (s *BenchmarkSetup) createGRPCBenchmarkClients(b *testing.B, count int, authMode string) ([]*grpc.ClientConn, []benchmarkGRPCClient) {
+	b.Helper()
+
+	conns := make([]*grpc.ClientConn, 0, count)
+	clients := make([]benchmarkGRPCClient, 0, count)
+	for range count {
+		useAuthTokenInterceptor := authMode == "rolling_token_interceptor"
+		conn, client := s.createGRPCEventStoreClient(b, useAuthTokenInterceptor)
+		conns = append(conns, conn)
+
+		switch authMode {
+		case "rolling_token_interceptor":
+			s.authenticateGRPCClient(b, client)
+			clients = append(clients, benchmarkGRPCClient{
+				client: client,
+				ctx:    s.authContext(),
+			})
+		case "static_token":
+			token := s.authTokenForGRPCClient(b, client)
+			clients = append(clients, benchmarkGRPCClient{
+				client: client,
+				ctx:    s.tokenAuthContext(token),
+			})
+		default:
+			b.Fatalf("unknown benchmark auth mode: %s", authMode)
+		}
 	}
+	return conns, clients
 }
 
 func (s *BenchmarkSetup) cleanup(b *testing.B) {
@@ -540,6 +618,73 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	setup := setupBenchmark(b)
 	defer setup.cleanup(b)
 
+	benchmarkSaveEventsBurst10000(b, []benchmarkGRPCClient{{
+		client: setup.client,
+		ctx:    setup.authContext(),
+	}})
+}
+
+func BenchmarkSaveEvents_Burst10000_ClientConns(b *testing.B) {
+	for _, authMode := range []string{"rolling_token_interceptor", "static_token"} {
+		b.Run(fmt.Sprintf("auth=%s", authMode), func(b *testing.B) {
+			setup := setupBenchmark(b)
+			defer setup.cleanup(b)
+
+			conns, clients := setup.createGRPCBenchmarkClients(b, 1, authMode)
+			defer func() {
+				for _, conn := range conns {
+					conn.Close()
+				}
+			}()
+
+			benchmarkSaveEventsBurst10000(b, clients)
+		})
+	}
+}
+
+func benchmarkSaveEventsBurst10000(b *testing.B, clients []benchmarkGRPCClient) {
+	benchmarkSaveEventsBurst10000WithMaxInFlight(b, clients, 0)
+}
+
+func BenchmarkSaveEvents_Burst10000_ClientInFlight(b *testing.B) {
+	for _, maxInFlight := range []int{128, 256, 512, 1024, 2048, 0} {
+		name := fmt.Sprintf("max_in_flight=%d", maxInFlight)
+		if maxInFlight == 0 {
+			name = "max_in_flight=all"
+		}
+		b.Run(name, func(b *testing.B) {
+			setup := setupBenchmark(b)
+			defer setup.cleanup(b)
+
+			conns, clients := setup.createGRPCBenchmarkClients(b, 1, "static_token")
+			defer func() {
+				for _, conn := range conns {
+					conn.Close()
+				}
+			}()
+
+			benchmarkSaveEventsBurst10000WithMaxInFlight(b, clients, maxInFlight)
+		})
+	}
+}
+
+func BenchmarkSaveEvents_Burst10000_TunedClient(b *testing.B) {
+	setup := setupBenchmark(b)
+	defer setup.cleanup(b)
+
+	conns, clients := setup.createGRPCBenchmarkClients(b, 1, "static_token")
+	defer func() {
+		for _, conn := range conns {
+			conn.Close()
+		}
+	}()
+
+	benchmarkSaveEventsBurst10000WithMaxInFlight(b, clients, benchmarkRecommendedInFlight)
+}
+
+func benchmarkSaveEventsBurst10000WithMaxInFlight(b *testing.B, clients []benchmarkGRPCClient, maxInFlight int) {
+	b.Helper()
+
 	boundary := "benchmark_test"
 	concurrency := 10000
 
@@ -547,8 +692,6 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	var totalErrors int64
 
 	start := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
 
 	// Pre-create all events to reduce allocation during timing
 	events := make([]*orisun.EventToSave, concurrency)
@@ -557,11 +700,21 @@ func BenchmarkSaveEvents_Burst10000(b *testing.B) {
 	}
 
 	var workerWg sync.WaitGroup
+	var inFlight chan struct{}
+	if maxInFlight > 0 {
+		inFlight = make(chan struct{}, maxInFlight)
+	}
 
 	// Start worker goroutines
 	for w := range events {
 		workerWg.Go(func() {
-			_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
+			<-start
+			if inFlight != nil {
+				inFlight <- struct{}{}
+				defer func() { <-inFlight }()
+			}
+			client := clients[w%len(clients)]
+			_, err := client.client.SaveEvents(client.ctx, &orisun.SaveEventsRequest{
 				Boundary: boundary,
 				Events:   []*orisun.EventToSave{events[w]},
 			})

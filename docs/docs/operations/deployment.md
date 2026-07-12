@@ -80,7 +80,7 @@ Operational notes:
 
 - Persist `/var/lib/orisun` or the configured `ORISUN_SQLITE_DIR`.
 - Run exactly one active Orisun writer node.
-- Back up both SQLite files and the NATS store directory if live delivery retention matters during restore.
+- Back up every `{boundary}.db` file, every `{boundary}_metadata.db` file, and the NATS store directory if live delivery retention matters during restore.
 
 ## Scaling SQLite
 
@@ -98,13 +98,13 @@ The per-boundary write ceiling is fundamental: one writer per file, and the publ
 
 ### 2. Shard by boundary
 
-A boundary is a complete, independent unit: its own database file, its own position counter, its own publisher checkpoint. Orisun has no cross-boundary transactions, so boundaries shard cleanly across nodes with no coordination:
+A boundary is a complete, independent event-log unit: its own database file, metadata file, and position counter. Orisun has no cross-boundary transactions, so boundaries shard cleanly across nodes with no coordination:
 
 - run N independent single-node Orisun deployments
 - give each node a disjoint subset in `ORISUN_BOUNDARIES`
 - route client requests by boundary to the owning node (client-side routing table, or a gRPC proxy that switches on the boundary field)
 
-Each node remains a normal standalone SQLite deployment. There is no shared storage, consensus, or rebalancing protocol. Moving a boundary to another node is a file move during a maintenance window: stop the source node, copy `{boundary}.db` and run a final WAL checkpoint, start it on the target node, update routing.
+Each node remains a normal standalone SQLite deployment. There is no shared storage, consensus, or rebalancing protocol. Moving a boundary to another node is a maintenance operation: stop the source node, run a final WAL checkpoint, copy `{boundary}.db` and `{boundary}_metadata.db`, then start it on the target node and update routing.
 
 If one boundary alone outgrows a node, sharding cannot help. Split the domain into more boundaries or move that deployment to PostgreSQL.
 
@@ -112,7 +112,7 @@ If one boundary alone outgrows a node, sharding cannot help. Split the domain in
 
 The gap in a single-node deployment is availability, not throughput. Two complementary tools:
 
-**[Litestream](https://litestream.io)** continuously replicates SQLite WAL segments to S3-compatible storage. It runs as a sidecar, needs no Orisun changes, and gives a recovery point of seconds. Replicate every `{boundary}.db` in `ORISUN_SQLITE_DIR`. Recovery is a restore-and-restart: minutes of downtime, near-zero data loss. This should be the baseline for any production SQLite deployment.
+**[Litestream](https://litestream.io)** continuously replicates SQLite WAL segments to S3-compatible storage. It runs as a sidecar, needs no Orisun changes, and gives a recovery point of seconds. Replicate every `{boundary}.db` and `{boundary}_metadata.db` in `ORISUN_SQLITE_DIR`. Recovery is a restore-and-restart: minutes of downtime, near-zero data loss. This should be the baseline for any production SQLite deployment.
 
 **[LiteFS](https://fly.io/docs/litefs/)** replicates the files to warm standby machines with lease-based primary election, cutting failover from minutes to seconds. Run Orisun only on the current primary: Orisun is not read-only-aware (publishers and checkpoints write continuously), so a second Orisun process must not run against a replica copy. Standbys hold warm files; on failover, the new primary starts Orisun. LiteFS adds operational moving parts (FUSE, a lease backend), so adopt it only when restore-time recovery is too slow.
 
@@ -299,6 +299,8 @@ Effective values are logged at startup.
 Sizing guidance:
 
 - Keep batches comfortably under the configured gRPC receive limit. For bulk imports, chunk into many ordered `SaveEvents` calls.
+- Reuse one official client/channel per target for hot writes. The Node and Java clients set Orisun's high-throughput gRPC defaults and cache auth tokens after the first authenticated response.
+- For bursty writers, cap concurrent `SaveEvents` calls on that one client around 512-1024 in flight. Launching every pending write at once adds client-side HTTP/2 stream and scheduler overhead without improving the single-boundary write ceiling.
 - Set retention age above the slowest subscriber's expected lag and above the catch-up handover grace (~10s).
 - Subscribers that routinely fall out of the live window are served from durable storage; this is correct but increases read load. Scale retention or subscriber throughput accordingly.
 

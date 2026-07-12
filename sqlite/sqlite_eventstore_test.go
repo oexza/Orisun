@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 
+	"github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/logging"
 	eventstore "github.com/oexza/Orisun/orisun"
 )
@@ -33,6 +35,27 @@ func newTestPools(t *testing.T) (map[string]*BoundaryPools, func()) {
 	return pools, func() { _ = bp.Close() }
 }
 
+func newTestPoolsWithMetadata(t *testing.T) (map[string]*BoundaryPools, map[string]*BoundaryPools, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	const boundary = "test"
+	bp, err := OpenBoundaryPools(context.Background(), dir, boundary, boundary)
+	if err != nil {
+		t.Fatalf("open pools: %v", err)
+	}
+	metadataPool, err := OpenMetadataPoolsWithConfig(context.Background(), config.SqliteConfig{Dir: dir}, boundary)
+	if err != nil {
+		_ = bp.Close()
+		t.Fatalf("open metadata pool: %v", err)
+	}
+	pools := map[string]*BoundaryPools{boundary: bp}
+	metadataPools := map[string]*BoundaryPools{boundary: metadataPool}
+	return pools, metadataPools, func() {
+		_ = metadataPool.Close()
+		_ = bp.Close()
+	}
+}
+
 func mustEvent(t *testing.T, eventType string, data, meta map[string]any) eventstore.EventWithMapTags {
 	t.Helper()
 	return eventstore.EventWithMapTags{
@@ -49,6 +72,7 @@ func TestSave_RoundTrip(t *testing.T) {
 	logger, _ := logging.ZapLogger("error")
 
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 
 	ctx := context.Background()
@@ -93,6 +117,7 @@ func TestSave_ChunksBatchLargerThanSqliteParamLimit(t *testing.T) {
 	logger, _ := logging.ZapLogger("error")
 
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
@@ -135,6 +160,7 @@ func TestSave_AddsEventTypeToData(t *testing.T) {
 	logger, _ := logging.ZapLogger("error")
 
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
@@ -274,6 +300,7 @@ func TestSave_RejectsEmpty(t *testing.T) {
 	logger, _ := logging.ZapLogger("error")
 
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	_, _, err := saver.Save(context.Background(), nil, "test", nil, nil)
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected InvalidArgument, got %v", err)
@@ -286,6 +313,7 @@ func TestSave_RejectsUnknownBoundary(t *testing.T) {
 	logger, _ := logging.ZapLogger("error")
 
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	_, _, err := saver.Save(context.Background(),
 		[]eventstore.EventWithMapTags{mustEvent(t, "X", map[string]any{}, map[string]any{})},
 		"missing", nil, nil)
@@ -299,6 +327,7 @@ func TestSave_RejectsInvalidJSONStrings(t *testing.T) {
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 
 	_, _, err := saver.Save(context.Background(),
 		[]eventstore.EventWithMapTags{{
@@ -330,6 +359,7 @@ func TestSave_CCCViolation(t *testing.T) {
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	ctx := context.Background()
 
 	// First write — establishes a position matching criteria {"agg":"a1"}
@@ -371,6 +401,7 @@ func TestGet_FilterByCriteria(t *testing.T) {
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
@@ -406,6 +437,7 @@ func TestGet_FilterByUntypedScalarCriteria(t *testing.T) {
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
@@ -454,6 +486,7 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	ctx := context.Background()
 
@@ -519,10 +552,10 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 }
 
 func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
-	pools, cleanup := newTestPools(t)
+	_, metadataPools, cleanup := newTestPoolsWithMetadata(t)
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
-	tracker := NewSqliteEventPublishing(pools, logger)
+	tracker := NewSqliteEventPublishingWithMetadata(metadataPools, logger)
 
 	pos, err := tracker.GetLastPublishedEventPosition(context.Background(), "test")
 	if err != nil {
@@ -534,6 +567,252 @@ func TestEventPublishing_EmptyCheckpointReturnsNotExists(t *testing.T) {
 	}
 }
 
+func TestSqliteMetadataTablesAreSeparateFromBoundaryEventDB(t *testing.T) {
+	pools, metadataPools, cleanup := newTestPoolsWithMetadata(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	boundaryConn, err := pools["test"].Read.Take(ctx)
+	if err != nil {
+		t.Fatalf("take boundary conn: %v", err)
+	}
+	defer pools["test"].Read.Put(boundaryConn)
+	metadataConn, err := metadataPools["test"].Read.Take(ctx)
+	if err != nil {
+		t.Fatalf("take metadata conn: %v", err)
+	}
+	defer metadataPools["test"].Read.Put(metadataConn)
+
+	for _, table := range []string{"orisun_es_event", "orisun_es_seq", "orisun_boundary_index_metadata"} {
+		exists, err := tableExists(boundaryConn, table)
+		if err != nil {
+			t.Fatalf("boundary table check %s: %v", table, err)
+		}
+		if !exists {
+			t.Fatalf("expected boundary DB to contain %s", table)
+		}
+	}
+	for _, table := range []string{"orisun_last_published_event_position", "events_count", "projector_checkpoint", "users", "users_count"} {
+		exists, err := tableExists(boundaryConn, table)
+		if err != nil {
+			t.Fatalf("boundary table check %s: %v", table, err)
+		}
+		if exists {
+			t.Fatalf("boundary DB should not contain metadata table %s", table)
+		}
+		exists, err = tableExists(metadataConn, table)
+		if err != nil {
+			t.Fatalf("metadata table check %s: %v", table, err)
+		}
+		if !exists {
+			t.Fatalf("expected metadata DB to contain %s", table)
+		}
+	}
+}
+
+func TestSqliteMetadataDBIsPerBoundary(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	logger, _ := logging.ZapLogger("error")
+
+	pools := make(map[string]*BoundaryPools)
+	metadataPools := make(map[string]*BoundaryPools)
+	for _, boundary := range []string{"test", "other"} {
+		bp, err := OpenBoundaryPools(ctx, dir, boundary, "test")
+		if err != nil {
+			t.Fatalf("open boundary pool %s: %v", boundary, err)
+		}
+		defer bp.Close()
+		mp, err := OpenMetadataPoolsWithConfig(ctx, config.SqliteConfig{Dir: dir}, boundary)
+		if err != nil {
+			t.Fatalf("open metadata pool %s: %v", boundary, err)
+		}
+		defer mp.Close()
+		pools[boundary] = bp
+		metadataPools[boundary] = mp
+
+		if _, err := os.Stat(filepath.Join(dir, boundary+"_metadata.db")); err != nil {
+			t.Fatalf("expected metadata file for %s: %v", boundary, err)
+		}
+	}
+
+	tracker := NewSqliteEventPublishingWithMetadata(metadataPools, logger)
+	if err := tracker.InsertLastPublishedEvent(ctx, "test", 10, 9); err != nil {
+		t.Fatalf("insert test publish checkpoint: %v", err)
+	}
+	if err := tracker.InsertLastPublishedEvent(ctx, "other", 20, 19); err != nil {
+		t.Fatalf("insert other publish checkpoint: %v", err)
+	}
+	testPos, err := tracker.GetLastPublishedEventPosition(ctx, "test")
+	if err != nil {
+		t.Fatalf("get test publish checkpoint: %v", err)
+	}
+	otherPos, err := tracker.GetLastPublishedEventPosition(ctx, "other")
+	if err != nil {
+		t.Fatalf("get other publish checkpoint: %v", err)
+	}
+	if testPos.CommitPosition != 10 || testPos.PreparePosition != 9 {
+		t.Fatalf("unexpected test publish position: (%d, %d)", testPos.CommitPosition, testPos.PreparePosition)
+	}
+	if otherPos.CommitPosition != 20 || otherPos.PreparePosition != 19 {
+		t.Fatalf("unexpected other publish position: (%d, %d)", otherPos.CommitPosition, otherPos.PreparePosition)
+	}
+
+	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, "test", logger)
+	if err := admin.SaveEventCount(11, "test"); err != nil {
+		t.Fatalf("save test event count: %v", err)
+	}
+	if err := admin.SaveEventCount(22, "other"); err != nil {
+		t.Fatalf("save other event count: %v", err)
+	}
+
+	assertBoundaryCount := func(boundary, unexpectedBoundary string, want int64) {
+		t.Helper()
+		conn, err := metadataPools[boundary].Read.Take(ctx)
+		if err != nil {
+			t.Fatalf("take metadata conn %s: %v", boundary, err)
+		}
+		defer metadataPools[boundary].Read.Put(conn)
+
+		var got int64
+		err = sqlitex.Execute(conn,
+			"SELECT COUNT(*) FROM events_count WHERE boundary = ?",
+			&sqlitex.ExecOptions{
+				Args: []any{unexpectedBoundary},
+				ResultFunc: func(stmt *sqlite.Stmt) error {
+					got = stmt.ColumnInt64(0)
+					return nil
+				},
+			})
+		if err != nil {
+			t.Fatalf("count boundary rows in %s metadata: %v", boundary, err)
+		}
+		if got != want {
+			t.Fatalf("expected %d rows for %s in %s metadata, got %d", want, unexpectedBoundary, boundary, got)
+		}
+	}
+	assertBoundaryCount("test", "test", 1)
+	assertBoundaryCount("test", "other", 0)
+	assertBoundaryCount("other", "other", 1)
+	assertBoundaryCount("other", "test", 0)
+}
+
+func TestMigrateLegacyMetadataCopiesBoundaryAndAdminState(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	bp, err := OpenBoundaryPools(ctx, dir, "test", "test")
+	if err != nil {
+		t.Fatalf("open boundary pool: %v", err)
+	}
+	defer bp.Close()
+	pools := map[string]*BoundaryPools{"test": bp}
+
+	conn, err := bp.Write.Take(ctx)
+	if err != nil {
+		t.Fatalf("take boundary conn: %v", err)
+	}
+	legacyDDL := `
+CREATE TABLE orisun_last_published_event_position (
+    boundary TEXT PRIMARY KEY,
+    transaction_id INTEGER NOT NULL,
+    global_id INTEGER NOT NULL,
+    date_created TEXT NOT NULL,
+    date_updated TEXT NOT NULL
+);
+INSERT INTO orisun_last_published_event_position VALUES ('test', 10, 9, 'created', 'updated');
+
+CREATE TABLE events_count (
+    id TEXT PRIMARY KEY,
+    event_count TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT INTO events_count VALUES ('event-count-id', '123', 'created', 'updated');
+
+CREATE TABLE projector_checkpoint (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    commit_position INTEGER NOT NULL,
+    prepare_position INTEGER NOT NULL
+);
+INSERT INTO projector_checkpoint VALUES ('checkpoint-id', 'projector-a', 7, 6);
+
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    roles TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT INTO users VALUES ('user-id', 'User Name', 'legacy-user', 'hash', 'ADMIN,OPERATIONS', 'created', 'updated');
+
+CREATE TABLE users_count (
+    id TEXT PRIMARY KEY,
+    user_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT INTO users_count VALUES ('users-count-id', 3, 'created', 'updated');
+`
+	if err := sqlitex.ExecuteScript(conn, legacyDDL, nil); err != nil {
+		bp.Write.Put(conn)
+		t.Fatalf("create legacy metadata: %v", err)
+	}
+	bp.Write.Put(conn)
+
+	metadataPool, err := OpenMetadataPoolsWithConfig(ctx, config.SqliteConfig{Dir: dir}, "test")
+	if err != nil {
+		t.Fatalf("open metadata pool: %v", err)
+	}
+	defer metadataPool.Close()
+	metadataPools := map[string]*BoundaryPools{"test": metadataPool}
+	if err := migrateLegacyMetadata(ctx, metadataPools, pools, "test", config.SqliteConfig{Dir: dir}); err != nil {
+		t.Fatalf("migrate legacy metadata: %v", err)
+	}
+
+	logger, _ := logging.ZapLogger("error")
+	publishing := NewSqliteEventPublishingWithMetadata(metadataPools, logger)
+	pos, err := publishing.GetLastPublishedEventPosition(ctx, "test")
+	if err != nil {
+		t.Fatalf("get migrated publish position: %v", err)
+	}
+	if pos.CommitPosition != 10 || pos.PreparePosition != 9 {
+		t.Fatalf("unexpected publish position: (%d, %d)", pos.CommitPosition, pos.PreparePosition)
+	}
+
+	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, "test", logger)
+	projectorPos, err := admin.GetProjectorLastPosition("projector-a")
+	if err != nil {
+		t.Fatalf("get migrated projector position: %v", err)
+	}
+	if projectorPos.CommitPosition != 7 || projectorPos.PreparePosition != 6 {
+		t.Fatalf("unexpected projector position: %+v", projectorPos)
+	}
+	user, err := admin.GetUserByUsername("legacy-user")
+	if err != nil {
+		t.Fatalf("get migrated user: %v", err)
+	}
+	if user.Id != "user-id" || len(user.Roles) != 2 {
+		t.Fatalf("unexpected migrated user: %+v", user)
+	}
+	userCount, err := admin.GetUsersCount()
+	if err != nil {
+		t.Fatalf("get migrated user count: %v", err)
+	}
+	if userCount != 3 {
+		t.Fatalf("unexpected user count: %d", userCount)
+	}
+	eventCount, err := admin.GetEventsCount("test")
+	if err != nil {
+		t.Fatalf("get migrated event count: %v", err)
+	}
+	if eventCount != 123 {
+		t.Fatalf("unexpected event count: %d", eventCount)
+	}
+}
+
 func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 	pools, cleanup := newTestPools(t)
 	defer cleanup()
@@ -542,6 +821,7 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 
 	admin := NewSqliteAdminDB(pools, "test", logger)
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	getter := NewSqliteGetEvents(pools, logger)
 	pool := pools["test"]
 
@@ -854,6 +1134,7 @@ func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
 
 		logger, _ := logging.ZapLogger("error")
 		saver := NewSqliteSaveEvents(pools, logger)
+		defer saver.close()
 		getter := NewSqliteGetEvents(pools, logger)
 		if _, _, err := saver.Save(ctx, []eventstore.EventWithMapTags{
 			mustEvent(t, "S", map[string]any{"status": 404, "amount": 5}, map[string]any{}),
@@ -927,10 +1208,10 @@ func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
 }
 
 func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {
-	pools, cleanup := newTestPools(t)
+	pools, metadataPools, cleanup := newTestPoolsWithMetadata(t)
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
-	admin := NewSqliteAdminDB(pools, "test", logger)
+	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, "test", logger)
 
 	user := eventstore.User{
 		Id:             uuid.NewString(),
@@ -954,10 +1235,10 @@ func TestAdminUserCacheInvalidatedOnDelete(t *testing.T) {
 }
 
 func TestAdminUserCacheEvictedOnUsernameChange(t *testing.T) {
-	pools, cleanup := newTestPools(t)
+	pools, metadataPools, cleanup := newTestPoolsWithMetadata(t)
 	defer cleanup()
 	logger, _ := logging.ZapLogger("error")
-	admin := NewSqliteAdminDB(pools, "test", logger)
+	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, "test", logger)
 
 	user := eventstore.User{
 		Id:             uuid.NewString(),
@@ -992,6 +1273,7 @@ func TestSaveNotifiesSqliteEventSignalAfterCommit(t *testing.T) {
 
 	notifier := NewSqliteEventNotifier(time.Hour)
 	saver := NewSqliteSaveEvents(pools, logger)
+	defer saver.close()
 	saver.notifier = notifier
 	signal := notifier.Signal("test")
 	defer signal.Stop()

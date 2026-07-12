@@ -53,6 +53,9 @@ ORISUN_ADMIN_BOUNDARY=orisun_admin \
 For SQLite production durability, use `ORISUN_SQLITE_SYNCHRONOUS=FULL`
 (recommended). `NORMAL` is a throughput opt-out that can lose already
 acknowledged commits after an OS crash or power loss before checkpointing.
+SQLite stores event logs in one `{boundary}.db` file per boundary and stores
+publisher checkpoints, projector checkpoints, admin users, and count caches in
+one `{boundary}_metadata.db` file per boundary under `ORISUN_SQLITE_DIR`.
 
 The same server can also run from Docker:
 

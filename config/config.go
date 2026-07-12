@@ -99,16 +99,37 @@ type FoundationDBConfig struct {
 }
 
 // SqliteConfig holds settings for the embedded SQLite backend.
-// Each boundary gets its own file at {Dir}/{boundary}.db.
+// Each boundary gets its own event file at {Dir}/{boundary}.db and metadata
+// file at {Dir}/{boundary}_metadata.db.
 type SqliteConfig struct {
-	Dir               string
-	Synchronous       string
-	BusyTimeoutMs     int
-	ReadPoolSize      int
-	CacheSize         int
-	MmapSize          int64
-	WalAutoCheckpoint int
-	TempStore         string
+	Dir                string
+	Synchronous        string
+	BusyTimeoutMs      int
+	ReadPoolSize       int
+	CacheSize          int
+	MmapSize           int64
+	WalAutoCheckpoint  int
+	TempStore          string
+	PublisherWakeDelay time.Duration
+	GroupCommit        SqliteGroupCommitConfig
+}
+
+// SqliteGroupCommitConfig tunes the per-boundary write batcher (the only
+// SQLite write path). Zero values fall back to the package defaults in
+// sqlite/group_commit.go; negative values are rejected at startup.
+type SqliteGroupCommitConfig struct {
+	// MaxBatchRequests caps requests per flush (savepoint-loop length).
+	MaxBatchRequests int
+	// MaxBatchEvents caps events per flush (transaction size). A request that
+	// would exceed it is carried to the next flush.
+	MaxBatchEvents int
+	// MaxDelay > 0 makes the worker wait up to this long to fill a batch.
+	// 0 (default) = opportunistic batching only: flush whatever is queued.
+	MaxDelay time.Duration
+	// MaxPending bounds the per-boundary queue; a full queue blocks callers.
+	MaxPending int
+	// FlushTimeout bounds one whole flush (worker-owned context).
+	FlushTimeout time.Duration
 }
 
 // admin
@@ -285,6 +306,9 @@ func validateConfig(config AppConfig) error {
 		}
 		if config.Sqlite.Dir == "" {
 			return fmt.Errorf("sqlite backend requires ORISUN_SQLITE_DIR")
+		}
+		if config.Sqlite.PublisherWakeDelay < 0 {
+			return fmt.Errorf("sqlite publisher wake delay must be >= 0, got %s", config.Sqlite.PublisherWakeDelay)
 		}
 	case "foundationdb":
 		if config.FoundationDB.Root == "" {

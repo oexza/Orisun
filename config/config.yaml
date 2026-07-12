@@ -4,7 +4,10 @@ backend:
   type: ${ORISUN_BACKEND:postgres}
 
 # SQLite backend settings (used when backend.type=sqlite).
-# Each boundary gets its own file at {dir}/{boundary}.db.
+# Each boundary gets its own event-log file at {dir}/{boundary}.db.
+# Publisher checkpoints, projector checkpoints, admin users, and count caches
+# live in {dir}/{boundary}_metadata.db to keep control-plane writes off each
+# boundary's event writer lock.
 sqlite:
   dir: ${ORISUN_SQLITE_DIR:./data/orisun/sqlite}
   # Recommended: FULL. NORMAL is a throughput opt-out that can lose already
@@ -16,6 +19,20 @@ sqlite:
   mmapSize: ${ORISUN_SQLITE_MMAP_SIZE:0}
   walAutoCheckpoint: ${ORISUN_SQLITE_WAL_AUTO_CHECKPOINT:0}
   tempStore: ${ORISUN_SQLITE_TEMP_STORE:MEMORY}
+  # Coalesce SQLite publisher wake-ups after commits. This prioritizes draining
+  # write bursts before the publisher starts read/publish/checkpoint work.
+  # 0s restores immediate wake-ups; periodic polling still guarantees no skips.
+  publisherWakeDelay: ${ORISUN_SQLITE_PUBLISHER_WAKE_DELAY:5ms}
+  # Group-commit write batcher (the only SQLite write path). Larger batches
+  # amortize fsync further but hold the single write connection longer and
+  # grow tail latency; sweet spot is usually 64-256 requests. maxDelay 0s =
+  # opportunistic (never wait to fill a batch); flushTimeout bounds one flush.
+  groupCommit:
+    maxBatchRequests: ${ORISUN_SQLITE_GC_MAX_BATCH_REQUESTS:128}
+    maxBatchEvents: ${ORISUN_SQLITE_GC_MAX_BATCH_EVENTS:1024}
+    maxDelay: ${ORISUN_SQLITE_GC_MAX_DELAY:0s}
+    maxPending: ${ORISUN_SQLITE_GC_MAX_PENDING:4096}
+    flushTimeout: ${ORISUN_SQLITE_GC_FLUSH_TIMEOUT:30s}
 
 # FoundationDB backend settings (used when backend.type=foundationdb).
 # Build with -tags foundationdb and install native FoundationDB client libraries.

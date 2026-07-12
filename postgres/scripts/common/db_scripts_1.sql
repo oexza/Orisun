@@ -216,8 +216,6 @@ DECLARE
     current_pg_xact_id    BIGINT;
     latest_tx_id          BIGINT;
     latest_gid            BIGINT;
-    key_record            TEXT;
-    criteria_tags         TEXT[];
     new_global_id         BIGINT;
     latest_transaction_id BIGINT;
     latest_global_id      BIGINT;
@@ -250,86 +248,61 @@ BEGIN
         RAISE EXCEPTION 'event_type cannot be empty';
     END IF;
 
-    -- Per-boundary position lock: held from position draw until commit, so
-    -- positions are assigned in COMMIT order per boundary. Without it, a
-    -- concurrent batch can draw lower global_ids, stay in flight while a
-    -- later-drawn batch commits, then commit "into the past" of the boundary —
-    -- below a context max another writer already observed — which a scalar
-    -- expected-position check cannot detect. Acquired AFTER the per-criterion
-    -- locks above and always last, so lock ordering stays deadlock-free.
-    -- This serialises writers per boundary from draw to commit; that is the
-    -- price of commit-ordered positions on PostgreSQL.
+    -- Per-boundary position lock: held through the context read, position draw,
+    -- insert, and commit. This serialises writers per boundary so the
+    -- expected-position check and assigned positions share one ordering.
     PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
 
-    -- If criteria are present, acquire granular locks for each criterion object.
-    -- This allows concurrent saves with non-overlapping content contexts.
-    -- Each criterion object is locked as a unit (not individual fields within it).
---     IF criteria IS NOT NULL THEN
---         -- Extract all unique criteria. Each criterion object maps to one lock.
---         SELECT ARRAY_AGG(DISTINCT criterion::text)
---         INTO criteria_tags
---         FROM jsonb_array_elements(criteria) AS criterion;
---
---         -- Lock criterion objects in deterministic order for deadlock prevention.
---         IF criteria_tags IS NOT NULL THEN
---             criteria_tags := ARRAY(
---                     SELECT DISTINCT unnest(criteria_tags)
---                     ORDER BY 1 -- Alphabetical sort to ensure consistent lock order and deadlock prevention.
---                              );
---
---             FOREACH key_record IN ARRAY criteria_tags
---                 LOOP
---                     PERFORM pg_advisory_xact_lock(hashtext(key_record));
---                 END LOOP;
---         END IF;
---
---         -- Build the content query as an OR of criteria, where each criterion is
---         -- an AND of tag equality checks.
---         all_parts := '{}';
---         FOR crit IN SELECT jsonb_array_elements(criteria)
---             LOOP
---                 crit_parts := '{}';
---                 FOR k, v IN SELECT * FROM jsonb_each_text(crit)
---                     LOOP
---                         crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
---                     END LOOP;
---                 IF array_length(crit_parts, 1) > 0 THEN
---                     all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
---                 END IF;
---             END LOOP;
---         criteria_sql := CASE
---                             WHEN array_length(all_parts, 1) > 0
---                                 THEN '(' || array_to_string(all_parts, ' OR ') || ')'
---                             ELSE 'TRUE'
---             END;
---
---         -- Version check: read the latest event matching this content query from
---         -- the schema-qualified boundary table.
---         EXECUTE format('
---             SELECT DISTINCT oe.transaction_id, oe.global_id
---             FROM %I.%I oe
---             WHERE %s
---             ORDER BY oe.transaction_id DESC, oe.global_id DESC
---             LIMIT 1',
---                        schema, boundary_name || '_orisun_es_event', criteria_sql
---                 ) INTO latest_tx_id, latest_gid;
---
---         IF latest_tx_id IS NULL THEN
---             latest_tx_id := -1;
---             latest_gid := -1;
---         END IF;
---
---         -- If expected_position is not provided, default to the empty context.
---         IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
---             expected_tx_id := -1;
---             expected_gid := -1;
---         END IF;
---
---         IF latest_tx_id <> expected_tx_id OR latest_gid <> expected_gid THEN
---             RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected (%, %), Actual (%, %)',
---                 expected_tx_id, expected_gid, latest_tx_id, latest_gid;
---         END IF;
---     END IF;
+    -- If criteria are present, verify the caller's expected content-query
+    -- position against the latest committed event matching that context.
+    IF criteria IS NOT NULL THEN
+        -- Build the content query as an OR of criteria, where each criterion is
+        -- an AND of tag equality checks.
+        all_parts := '{}';
+        FOR crit IN SELECT jsonb_array_elements(criteria)
+            LOOP
+                crit_parts := '{}';
+                FOR k, v IN SELECT * FROM jsonb_each_text(crit)
+                    LOOP
+                        crit_parts := crit_parts || format('(data->>%L = %L)', k, v);
+                    END LOOP;
+                IF array_length(crit_parts, 1) > 0 THEN
+                    all_parts := all_parts || ('(' || array_to_string(crit_parts, ' AND ') || ')');
+                END IF;
+            END LOOP;
+        criteria_sql := CASE
+                            WHEN array_length(all_parts, 1) > 0
+                                THEN '(' || array_to_string(all_parts, ' OR ') || ')'
+                            ELSE 'TRUE'
+            END;
+
+        -- Version check: read the latest event matching this content query from
+        -- the schema-qualified boundary table.
+        EXECUTE format('
+            SELECT DISTINCT oe.transaction_id, oe.global_id
+            FROM %I.%I oe
+            WHERE %s
+            ORDER BY oe.transaction_id DESC, oe.global_id DESC
+            LIMIT 1',
+                       schema, boundary_name || '_orisun_es_event', criteria_sql
+                ) INTO latest_tx_id, latest_gid;
+
+        IF latest_tx_id IS NULL THEN
+            latest_tx_id := -1;
+            latest_gid := -1;
+        END IF;
+
+        -- If expected_position is not provided, default to the empty context.
+        IF expected_tx_id IS NULL OR expected_gid IS NULL THEN
+            expected_tx_id := -1;
+            expected_gid := -1;
+        END IF;
+
+        IF latest_tx_id <> expected_tx_id OR latest_gid <> expected_gid THEN
+            RAISE EXCEPTION 'OptimisticConcurrencyException:StreamVersionConflict: Expected (%, %), Actual (%, %)',
+                expected_tx_id, expected_gid, latest_tx_id, latest_gid;
+        END IF;
+    END IF;
 
     -- CTE-based insert using only schema-qualified table/sequence names.
     EXECUTE format('

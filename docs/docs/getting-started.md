@@ -72,7 +72,7 @@ SQLite is single-node only. Keep `ORISUN_NATS_CLUSTER_ENABLED=false` for SQLite 
 
 ### When to choose SQLite
 
-Choose SQLite when one active Orisun node is enough and operational simplicity matters more than clustering. SQLite mode is complete: it stores the event log, admin state, index metadata, publisher checkpoints, projector checkpoints, and JSON criteria indexes.
+Choose SQLite when one active Orisun node is enough and operational simplicity matters more than clustering. SQLite mode is complete: it stores the event log, admin state, index metadata, publisher checkpoints, projector checkpoints, and JSON criteria indexes. Event logs live in one `{boundary}.db` file per boundary; derived operational state lives in one `{boundary}_metadata.db` file per boundary.
 
 ### When to choose PostgreSQL
 

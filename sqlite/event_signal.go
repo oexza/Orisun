@@ -9,18 +9,29 @@ import (
 )
 
 type SqliteEventNotifier struct {
-	interval time.Duration
-	mu       sync.Mutex
-	signals  map[string]map[*sqliteEventSignal]struct{}
+	interval  time.Duration
+	wakeDelay time.Duration
+	mu        sync.Mutex
+	signals   map[string]map[*sqliteEventSignal]struct{}
+	timers    map[string]*time.Timer
 }
 
 func NewSqliteEventNotifier(interval time.Duration) *SqliteEventNotifier {
+	return NewSqliteEventNotifierWithWakeDelay(interval, 0)
+}
+
+func NewSqliteEventNotifierWithWakeDelay(interval, wakeDelay time.Duration) *SqliteEventNotifier {
 	if interval <= 0 {
 		interval = time.Second
 	}
+	if wakeDelay < 0 {
+		wakeDelay = 0
+	}
 	return &SqliteEventNotifier{
-		interval: interval,
-		signals:  make(map[string]map[*sqliteEventSignal]struct{}),
+		interval:  interval,
+		wakeDelay: wakeDelay,
+		signals:   make(map[string]map[*sqliteEventSignal]struct{}),
+		timers:    make(map[string]*time.Timer),
 	}
 }
 
@@ -46,6 +57,25 @@ func (n *SqliteEventNotifier) Notify(boundary string) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if len(n.signals[boundary]) == 0 {
+		return
+	}
+	if n.wakeDelay > 0 {
+		if n.timers[boundary] != nil {
+			return
+		}
+		n.timers[boundary] = time.AfterFunc(n.wakeDelay, func() {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			delete(n.timers, boundary)
+			n.notifyLocked(boundary)
+		})
+		return
+	}
+	n.notifyLocked(boundary)
+}
+
+func (n *SqliteEventNotifier) notifyLocked(boundary string) {
 	for signal := range n.signals[boundary] {
 		select {
 		case signal.ch <- struct{}{}:
@@ -61,6 +91,10 @@ func (n *SqliteEventNotifier) unregister(signal *sqliteEventSignal) {
 	delete(signals, signal)
 	if len(signals) == 0 {
 		delete(n.signals, signal.boundary)
+		if timer := n.timers[signal.boundary]; timer != nil {
+			timer.Stop()
+			delete(n.timers, signal.boundary)
+		}
 	}
 }
 

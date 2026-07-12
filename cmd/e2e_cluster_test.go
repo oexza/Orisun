@@ -68,7 +68,7 @@ func setupClusterTest(t *testing.T) *ClusterTestSuite {
 	require.NoError(t, err)
 	suite.postgresHost = host
 
-	port, err := postgresContainer.MappedPort(ctx, "5432")
+	port, err := postgresContainer.MappedPort(ctx, "5432/tcp")
 	require.NoError(t, err)
 	suite.postgresPort = port.Port()
 

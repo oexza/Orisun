@@ -26,19 +26,49 @@ type BoundaryPools struct {
 	indexes  *sqliteIndexRegistry
 }
 
+const legacySharedSqliteMetadataDBName = "_orisun_metadata"
+
 // OpenBoundaryPools opens write+read pools for one boundary at {dir}/{boundary}.db.
 // Migrations are applied on the first connection drawn from the write pool.
-// adminBoundary controls whether admin-only tables (users, users_count) are created.
+// adminBoundary is retained for API compatibility; admin metadata now lives in
+// the admin boundary's metadata DB opened by OpenMetadataPoolsWithConfig.
 func OpenBoundaryPools(ctx context.Context, dir, boundary, adminBoundary string) (*BoundaryPools, error) {
 	return OpenBoundaryPoolsWithConfig(ctx, config.SqliteConfig{Dir: dir}, boundary, adminBoundary)
 }
 
 func OpenBoundaryPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteConfig, boundary, adminBoundary string) (*BoundaryPools, error) {
+	_ = adminBoundary
 	poolCfg, err := normalizeSqlitePoolConfig(sqliteCfg)
 	if err != nil {
 		return nil, err
 	}
 	dbPath := filepath.Join(poolCfg.dir, boundary+".db")
+	return openSQLitePools(ctx, poolCfg, dbPath, boundary, boundary, applyMigrations, true)
+}
+
+func metadataDBNameForBoundary(boundary string) string {
+	return boundary + "_metadata"
+}
+
+func OpenMetadataPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteConfig, boundary string) (*BoundaryPools, error) {
+	poolCfg, err := normalizeSqlitePoolConfig(sqliteCfg)
+	if err != nil {
+		return nil, err
+	}
+	dbName := metadataDBNameForBoundary(boundary)
+	dbPath := filepath.Join(poolCfg.dir, dbName+".db")
+	return openSQLitePools(ctx, poolCfg, dbPath, dbName, boundary, applyMetadataMigrations, false)
+}
+
+func openSQLitePools(
+	ctx context.Context,
+	poolCfg sqlitePoolConfig,
+	dbPath string,
+	name string,
+	boundary string,
+	apply func(*sqlite.Conn) error,
+	loadIndexes bool,
+) (*BoundaryPools, error) {
 	uri := sqliteURI(dbPath, poolCfg)
 
 	prepare := func(conn *sqlite.Conn) error {
@@ -56,7 +86,7 @@ func OpenBoundaryPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteCon
 		PrepareConn: prepare,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("open write pool for %s: %w", boundary, err)
+		return nil, fmt.Errorf("open write pool for %s: %w", name, err)
 	}
 
 	readPool, err := sqlitex.NewPool(uri, sqlitex.PoolOptions{
@@ -65,7 +95,7 @@ func OpenBoundaryPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteCon
 	})
 	if err != nil {
 		writePool.Close()
-		return nil, fmt.Errorf("open read pool for %s: %w", boundary, err)
+		return nil, fmt.Errorf("open read pool for %s: %w", name, err)
 	}
 
 	indexes := newSqliteIndexRegistry()
@@ -74,19 +104,22 @@ func OpenBoundaryPoolsWithConfig(ctx context.Context, sqliteCfg config.SqliteCon
 	if err != nil {
 		writePool.Close()
 		readPool.Close()
-		return nil, fmt.Errorf("take migration conn for %s: %w", boundary, err)
+		return nil, fmt.Errorf("take migration conn for %s: %w", name, err)
 	}
-	if err := applyMigrations(conn, boundary == adminBoundary); err != nil {
+	if err := apply(conn); err != nil {
 		writePool.Put(conn)
 		writePool.Close()
 		readPool.Close()
-		return nil, fmt.Errorf("migrate %s: %w", boundary, err)
+		return nil, fmt.Errorf("migrate %s: %w", name, err)
 	}
-	if err := loadBoundaryIndexMetadata(conn, boundary, indexes); err != nil {
+	if loadIndexes {
+		err = loadBoundaryIndexMetadata(conn, name, indexes)
+	}
+	if err != nil {
 		writePool.Put(conn)
 		writePool.Close()
 		readPool.Close()
-		return nil, fmt.Errorf("load index metadata %s: %w", boundary, err)
+		return nil, fmt.Errorf("load index metadata %s: %w", name, err)
 	}
 	writePool.Put(conn)
 
@@ -114,6 +147,11 @@ func normalizeSqlitePoolConfig(sqliteCfg config.SqliteConfig) (sqlitePoolConfig,
 		mmapSize:      sqliteCfg.MmapSize,
 		tempStore:     strings.ToUpper(strings.TrimSpace(sqliteCfg.TempStore)),
 	}
+	// FULL by default: an event store's ack must survive power loss, matching
+	// the PostgreSQL backend's per-commit fsync. Under WAL, NORMAL only syncs
+	// at checkpoints, so acked commits could vanish on power/OS failure.
+	// Group commit amortizes the per-commit fsync; NORMAL stays an explicit
+	// opt-out via ORISUN_SQLITE_SYNCHRONOUS.
 	if cfg.synchronous == "" {
 		cfg.synchronous = "FULL"
 	}

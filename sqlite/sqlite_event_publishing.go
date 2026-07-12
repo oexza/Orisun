@@ -14,17 +14,37 @@ import (
 )
 
 type SqliteEventPublishing struct {
-	pools  map[string]*BoundaryPools
-	logger logging.Logger
+	pools         map[string]*BoundaryPools
+	metadataPools map[string]*BoundaryPools
+	logger        logging.Logger
 }
 
 func NewSqliteEventPublishing(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteEventPublishing {
 	return &SqliteEventPublishing{pools: pools, logger: logger}
 }
 
-func (p *SqliteEventPublishing) GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error) {
+func NewSqliteEventPublishingWithMetadata(metadataPools map[string]*BoundaryPools, logger logging.Logger) *SqliteEventPublishing {
+	return &SqliteEventPublishing{metadataPools: metadataPools, logger: logger}
+}
+
+func (p *SqliteEventPublishing) poolForBoundary(boundary string) (*BoundaryPools, error) {
+	if p.metadataPools != nil {
+		pool, ok := p.metadataPools[boundary]
+		if !ok {
+			return nil, fmt.Errorf("unknown boundary: %s", boundary)
+		}
+		return pool, nil
+	}
 	pool, ok := p.pools[boundary]
 	if !ok {
+		return nil, fmt.Errorf("unknown boundary: %s", boundary)
+	}
+	return pool, nil
+}
+
+func (p *SqliteEventPublishing) GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error) {
+	pool, err := p.poolForBoundary(boundary)
+	if err != nil {
 		return eventstore.Position{}, fmt.Errorf("unknown boundary: %s", boundary)
 	}
 	conn, err := pool.Read.Take(ctx)
@@ -56,9 +76,9 @@ func (p *SqliteEventPublishing) GetLastPublishedEventPosition(ctx context.Contex
 }
 
 func (p *SqliteEventPublishing) InsertLastPublishedEvent(ctx context.Context, boundary string, transactionID, globalID int64) error {
-	pool, ok := p.pools[boundary]
-	if !ok {
-		return fmt.Errorf("unknown boundary: %s", boundary)
+	pool, err := p.poolForBoundary(boundary)
+	if err != nil {
+		return err
 	}
 	conn, err := pool.Write.Take(ctx)
 	if err != nil {

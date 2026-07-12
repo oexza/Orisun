@@ -96,14 +96,14 @@ Publisher wake-ups still use `LISTEN/NOTIFY`, and polling remains the no-miss fa
 SQLite is a complete single-node implementation, not a development-only fallback. It includes:
 
 - event log tables
-- admin state
 - index metadata
+- admin state
 - publisher checkpoints
 - projector checkpoints
 - JSON criteria queries
 - the same CCC save semantics as PostgreSQL
 
-SQLite creates one database file per boundary in `ORISUN_SQLITE_DIR`.
+SQLite creates one event-log database file and one metadata database file per boundary in `ORISUN_SQLITE_DIR`. `{boundary}_metadata.db` stores publisher checkpoints, projector checkpoints, admin users, and count caches for that boundary. Keeping derived operational state out of the boundary event files prevents publisher/projector writes from contending with the event writer.
 
 ```bash
 ORISUN_BACKEND=sqlite
@@ -124,7 +124,7 @@ Choose SQLite when a single active node is acceptable and simplicity matters. It
 
 ## Boundary State
 
-A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints.
+A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. In SQLite, event logs and indexes are physically per-boundary files, and publisher/projector/admin metadata lives in the matching `{boundary}_metadata.db` file.
 
 PostgreSQL maps boundaries to schemas with `ORISUN_PG_SCHEMAS`:
 
@@ -136,7 +136,9 @@ SQLite maps each boundary to a file:
 
 ```text
 /var/lib/orisun/sqlite/orders.db
+/var/lib/orisun/sqlite/orders_metadata.db
 /var/lib/orisun/sqlite/orisun_admin.db
+/var/lib/orisun/sqlite/orisun_admin_metadata.db
 ```
 
 FoundationDB maps each boundary to tuple-encoded key ranges under `ORISUN_FDB_ROOT`.

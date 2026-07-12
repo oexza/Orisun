@@ -2,7 +2,10 @@ package sqlite
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -10,8 +13,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/oexza/Orisun/admin"
 	common "github.com/oexza/Orisun/admin/slices/common"
 	"github.com/oexza/Orisun/config"
 	"github.com/oexza/Orisun/logging"
@@ -48,7 +57,694 @@ func setupBenchmarkPoolsWithSynchronous(b *testing.B, synchronous string) (*Sqli
 	getter := NewSqliteGetEvents(pools, logger)
 	admin := NewSqliteAdminDB(pools, benchBoundary, logger)
 
-	return saver, getter, admin, func() { _ = bp.Close() }
+	return saver, getter, admin, func() {
+		saver.close()
+		_ = bp.Close()
+	}
+}
+
+type benchFakeJetStream struct {
+	jetstream.JetStream
+}
+
+func (benchFakeJetStream) CreateOrUpdateStream(context.Context, jetstream.StreamConfig) (jetstream.Stream, error) {
+	return nil, nil
+}
+
+func (benchFakeJetStream) Publish(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	return &jetstream.PubAck{}, nil
+}
+
+type benchNoopLockProvider struct{}
+
+func (benchNoopLockProvider) Lock(context.Context, string) error { return nil }
+
+type benchNoopPublishingTracker struct{}
+
+func (benchNoopPublishingTracker) GetLastPublishedEventPosition(context.Context, string) (orisun.Position, error) {
+	return orisun.NotExistsPosition(), nil
+}
+
+func (benchNoopPublishingTracker) InsertLastPublishedEvent(context.Context, string, int64, int64) error {
+	return nil
+}
+
+// benchSaveFn picks the write path for a benchmark mode: "group" is the real
+// Save API (always batched); "direct" bypasses the queue via the package
+// helper to measure the pre-group-commit per-request transaction baseline.
+func benchSaveFn(saver *SqliteSaveEvents, mode string) func(context.Context, []orisun.EventWithMapTags, string, *orisun.Position, *orisun.Query) (string, int64, error) {
+	if mode == "direct" {
+		return func(ctx context.Context, events []orisun.EventWithMapTags, boundary string, pos *orisun.Position, query *orisun.Query) (string, int64, error) {
+			return saveBypassingQueue(saver, ctx, events, boundary, pos, query)
+		}
+	}
+	return saver.Save
+}
+
+// BenchmarkSqlite_GroupCommitVsDirect pits the batched write path against the
+// per-request transaction path under FULL synchronous — the configuration
+// group commit is meant to pay for. Independent contexts (no CCC).
+func BenchmarkSqlite_GroupCommitVsDirect(b *testing.B) {
+	for _, mode := range []string{"group", "direct"} {
+		for _, conc := range []int{1, 16, 100} {
+			b.Run(fmt.Sprintf("mode=%s/workers=%d", mode, conc), func(b *testing.B) {
+				saver, _, _, teardown := setupBenchmarkPools(b)
+				defer teardown()
+				save := benchSaveFn(saver, mode)
+
+				ctx := context.Background()
+				b.ResetTimer()
+
+				var done int64
+				var wg sync.WaitGroup
+				startCh := make(chan struct{})
+				start := time.Now()
+				for w := 0; w < conc; w++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-startCh
+						for {
+							i := atomic.AddInt64(&done, 1)
+							if i > int64(b.N) {
+								return
+							}
+							id, _ := uuid.NewV7()
+							_, _, err := save(ctx, []orisun.EventWithMapTags{{
+								EventId:   id.String(),
+								EventType: "Bench",
+								Data:      `{"k":"v"}`,
+								Metadata:  `{}`,
+							}}, benchBoundary, nil, nil)
+							if err != nil {
+								b.Errorf("save failed: %v", err)
+								return
+							}
+						}
+					}()
+				}
+				close(startCh)
+				wg.Wait()
+				b.ReportMetric(float64(b.N)/time.Since(start).Seconds(), "events/sec")
+			})
+		}
+	}
+}
+
+// BenchmarkSqlite_GroupCommitDelay sweeps gcMaxDelay to show its throughput /
+// latency trade: a nonzero delay makes the worker wait to fill batches, which
+// can help sustained high concurrency but directly taxes the lone writer —
+// every solo save waits out the full delay before its flush.
+func BenchmarkSqlite_GroupCommitDelay(b *testing.B) {
+	for _, delay := range []time.Duration{0, time.Millisecond, 10 * time.Millisecond} {
+		for _, conc := range []int{1, 100} {
+			b.Run(fmt.Sprintf("delay=%s/workers=%d", delay, conc), func(b *testing.B) {
+				saver, _, _, teardown := setupBenchmarkPools(b)
+				defer teardown()
+				saver.gcMaxDelay = delay
+
+				ctx := context.Background()
+				b.ResetTimer()
+
+				var done int64
+				var wg sync.WaitGroup
+				startCh := make(chan struct{})
+				start := time.Now()
+				for w := 0; w < conc; w++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						<-startCh
+						for {
+							i := atomic.AddInt64(&done, 1)
+							if i > int64(b.N) {
+								return
+							}
+							id, _ := uuid.NewV7()
+							_, _, err := saver.Save(ctx, []orisun.EventWithMapTags{{
+								EventId:   id.String(),
+								EventType: "Bench",
+								Data:      `{"k":"v"}`,
+								Metadata:  `{}`,
+							}}, benchBoundary, nil, nil)
+							if err != nil {
+								b.Errorf("save failed: %v", err)
+								return
+							}
+						}
+					}()
+				}
+				close(startCh)
+				wg.Wait()
+				b.ReportMetric(float64(b.N)/time.Since(start).Seconds(), "events/sec")
+			})
+		}
+	}
+}
+
+// BenchmarkSqlite_GroupCommitVsDirect_CCC is the same comparison on the hot
+// CCC path: every save carries a per-stream criterion and expected position,
+// so batched requests exercise the savepoint + consistency-check loop.
+//
+// Per-save cost grows with table size (the CCC check scans the criterion's
+// index slice), so cross-mode numbers are only comparable at equal iteration
+// counts — run with a fixed -benchtime=Nx, not a duration.
+func BenchmarkSqlite_GroupCommitVsDirect_CCC(b *testing.B) {
+	for _, mode := range []string{"group", "direct"} {
+		for _, conc := range []int{16, 100} {
+			b.Run(fmt.Sprintf("mode=%s/workers=%d", mode, conc), func(b *testing.B) {
+				saver, _, admin, teardown := setupBenchmarkPools(b)
+				defer teardown()
+				save := benchSaveFn(saver, mode)
+
+				ctx := context.Background()
+				streamIds, positions := prepopulateStreams(b, ctx, saver, conc, 5)
+				require.NoError(b, admin.CreateBoundaryIndex(ctx, benchBoundary, "stream_id",
+					[]common.IndexField{{JsonKey: "stream_id", ValueType: "text"}}, nil, ""))
+
+				// One goroutine per stream: within a stream saves are causally
+				// ordered (each carries the previous position), across streams
+				// they are independent and can share a flush.
+				perWorker := b.N / conc
+				if perWorker == 0 {
+					perWorker = 1
+				}
+				b.ResetTimer()
+				var wg sync.WaitGroup
+				startCh := make(chan struct{})
+				start := time.Now()
+				for w := 0; w < conc; w++ {
+					wg.Add(1)
+					go func(w int) {
+						defer wg.Done()
+						<-startCh
+						pos := positions[w]
+						for i := 0; i < perWorker; i++ {
+							id, _ := uuid.NewV7()
+							data := fmt.Sprintf(`{"stream_id":"%s","eventType":"OrderPlaced","sequence":%d}`, streamIds[w], 5+i)
+							query := &orisun.Query{Criteria: []*orisun.Criterion{{
+								Tags: []*orisun.Tag{{Key: "stream_id", Value: streamIds[w]}},
+							}}}
+							tranID, gid, err := save(ctx, []orisun.EventWithMapTags{{
+								EventId:   id.String(),
+								EventType: "OrderPlaced",
+								Data:      data,
+								Metadata:  `{}`,
+							}}, benchBoundary, pos, query)
+							if err != nil {
+								b.Errorf("save failed: %v", err)
+								return
+							}
+							pos = &orisun.Position{CommitPosition: parseTxID(tranID), PreparePosition: gid}
+						}
+					}(w)
+				}
+				close(startCh)
+				wg.Wait()
+				b.ReportMetric(float64(perWorker*conc)/time.Since(start).Seconds(), "events/sec")
+			})
+		}
+	}
+}
+
+// BenchmarkSqlite_EventStoreBurst10000 exercises the server-side SaveEvents
+// handler directly, without gRPC transport. Compare this with
+// BenchmarkSqlite_Burst10000 to isolate handler overhead, and with
+// cmd.BenchmarkSaveEvents_Burst10000 to isolate gRPC/protobuf overhead.
+func BenchmarkSqlite_EventStoreBurst10000(b *testing.B) {
+	const burst = 10000
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+
+		saver, getter, _, teardown := setupBenchmarkPools(b)
+		logger, err := logging.ZapLogger("warn")
+		require.NoError(b, err)
+		boundaries := []string{benchBoundary}
+		server := orisun.NewEventStoreServer(
+			context.Background(),
+			benchFakeJetStream{},
+			saver,
+			getter,
+			nil,
+			nil,
+			&boundaries,
+			orisun.EventStreamConfig{},
+			logger,
+		)
+
+		events := make([]*orisun.EventToSave, burst)
+		for j := 0; j < burst; j++ {
+			id, _ := uuid.NewV7()
+			events[j] = &orisun.EventToSave{
+				EventId:   id.String(),
+				EventType: "BurstEvent",
+				Data:      `{"k":"v"}`,
+				Metadata:  `{}`,
+			}
+		}
+
+		ctx := context.Background()
+		var wg sync.WaitGroup
+		var ok, fail int64
+		startCh := make(chan struct{})
+		wg.Add(burst)
+		for j := 0; j < burst; j++ {
+			ev := events[j]
+			go func() {
+				defer wg.Done()
+				<-startCh
+				if _, err := server.SaveEvents(ctx, &orisun.SaveEventsRequest{
+					Boundary: benchBoundary,
+					Events:   []*orisun.EventToSave{ev},
+				}); err != nil {
+					atomic.AddInt64(&fail, 1)
+					return
+				}
+				atomic.AddInt64(&ok, 1)
+			}()
+		}
+
+		b.StartTimer()
+		startTime := time.Now()
+		close(startCh)
+		wg.Wait()
+		elapsed := time.Since(startTime)
+		b.StopTimer()
+
+		if fail > 0 {
+			b.Logf("burst had %d failures", fail)
+		}
+		b.ReportMetric(float64(ok)/elapsed.Seconds(), "events/sec")
+		b.ReportMetric(float64(elapsed.Milliseconds()), "ms/burst")
+		teardown()
+	}
+}
+
+// BenchmarkSqlite_GRPCEventStoreBurst10000 runs the same EventStore handler
+// through grpc.Server/client on an in-memory listener. It isolates protobuf and
+// gRPC dispatch overhead from the full cmd server's NATS publisher/projectors.
+func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
+	const burst = 10000
+	const bufSize = 100 * 1024 * 1024
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+
+		saver, getter, _, teardown := setupBenchmarkPools(b)
+		logger, err := logging.ZapLogger("warn")
+		require.NoError(b, err)
+		boundaries := []string{benchBoundary}
+		eventStore := orisun.NewEventStoreServer(
+			context.Background(),
+			benchFakeJetStream{},
+			saver,
+			getter,
+			nil,
+			nil,
+			&boundaries,
+			orisun.EventStreamConfig{},
+			logger,
+		)
+
+		listener := bufconn.Listen(bufSize)
+		grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(bufSize), grpc.MaxSendMsgSize(bufSize))
+		orisun.RegisterEventStoreServer(grpcServer, eventStore)
+		serveErr := make(chan error, 1)
+		go func() {
+			serveErr <- grpcServer.Serve(listener)
+		}()
+
+		dialer := func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}
+		conn, err := grpc.DialContext(
+			context.Background(),
+			"bufnet",
+			grpc.WithContextDialer(dialer),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(bufSize)),
+		)
+		require.NoError(b, err)
+		client := orisun.NewEventStoreClient(conn)
+
+		events := make([]*orisun.EventToSave, burst)
+		for j := 0; j < burst; j++ {
+			id, _ := uuid.NewV7()
+			events[j] = &orisun.EventToSave{
+				EventId:   id.String(),
+				EventType: "BurstEvent",
+				Data:      `{"k":"v"}`,
+				Metadata:  `{}`,
+			}
+		}
+
+		ctx := context.Background()
+		var wg sync.WaitGroup
+		var ok, fail int64
+		startCh := make(chan struct{})
+		wg.Add(burst)
+		for j := 0; j < burst; j++ {
+			ev := events[j]
+			go func() {
+				defer wg.Done()
+				<-startCh
+				if _, err := client.SaveEvents(ctx, &orisun.SaveEventsRequest{
+					Boundary: benchBoundary,
+					Events:   []*orisun.EventToSave{ev},
+				}); err != nil {
+					atomic.AddInt64(&fail, 1)
+					return
+				}
+				atomic.AddInt64(&ok, 1)
+			}()
+		}
+
+		b.StartTimer()
+		startTime := time.Now()
+		close(startCh)
+		wg.Wait()
+		elapsed := time.Since(startTime)
+		b.StopTimer()
+
+		if fail > 0 {
+			b.Logf("burst had %d failures", fail)
+		}
+		b.ReportMetric(float64(ok)/elapsed.Seconds(), "events/sec")
+		b.ReportMetric(float64(elapsed.Milliseconds()), "ms/burst")
+
+		require.NoError(b, conn.Close())
+		grpcServer.Stop()
+		require.NoError(b, listener.Close())
+		err = <-serveErr
+		if err != nil {
+			require.ErrorIs(b, err, grpc.ErrServerStopped)
+		}
+		teardown()
+	}
+}
+
+type sqliteGRPCBenchClient struct {
+	conn   *grpc.ClientConn
+	client orisun.EventStoreClient
+	ctx    context.Context
+}
+
+const (
+	sqliteBenchGRPCMaxMessageSize  = 100 * 1024 * 1024
+	sqliteBenchGRPCWindowSize      = 1024 * 1024
+	sqliteBenchGRPCWriteBufferSize = 65536
+	sqliteBenchGRPCReadBufferSize  = 65536
+)
+
+func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter *SqliteGetEvents) orisun.EventStoreServer {
+	b.Helper()
+	logger, err := logging.ZapLogger("warn")
+	require.NoError(b, err)
+	boundaries := []string{benchBoundary}
+	return orisun.NewEventStoreServer(
+		context.Background(),
+		benchFakeJetStream{},
+		saver,
+		getter,
+		nil,
+		nil,
+		&boundaries,
+		orisun.EventStreamConfig{},
+		logger,
+	)
+}
+
+func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStore orisun.EventStoreServer) []grpc.ServerOption {
+	b.Helper()
+	opts := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(sqliteBenchGRPCMaxMessageSize),
+		grpc.MaxSendMsgSize(sqliteBenchGRPCMaxMessageSize),
+	}
+	if optionSet == "cmd_like" {
+		opts = append(opts,
+			grpc.MaxConcurrentStreams(10000),
+			grpc.InitialWindowSize(sqliteBenchGRPCWindowSize),
+			grpc.InitialConnWindowSize(sqliteBenchGRPCWindowSize),
+			grpc.WriteBufferSize(sqliteBenchGRPCWriteBufferSize),
+			grpc.ReadBufferSize(sqliteBenchGRPCReadBufferSize),
+		)
+	}
+	if authMode == "token" {
+		logger, err := logging.ZapLogger("warn")
+		require.NoError(b, err)
+		hash, err := common.HashPassword("changeit")
+		require.NoError(b, err)
+		user := orisun.User{
+			Id:             "bench-user",
+			Name:           "Benchmark User",
+			Username:       "admin",
+			HashedPassword: hash,
+			Roles:          []orisun.Role{orisun.RoleAdmin, orisun.RoleOperations},
+		}
+		authenticator := admin.NewAuthenticator(
+			eventStore.GetEvents,
+			logger,
+			benchBoundary,
+			func(username string) (orisun.User, error) {
+				if username != user.Username {
+					return orisun.User{}, errors.New("user not found")
+				}
+				return user, nil
+			},
+		)
+		opts = append(opts, grpc.ChainUnaryInterceptor(admin.UnaryAuthInterceptor(authenticator, logger)))
+	}
+	return opts
+}
+
+func startTCPEventStoreServer(
+	b *testing.B,
+	eventStore orisun.EventStoreServer,
+	optionSet, authMode string,
+) (addr string, stop func()) {
+	b.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(b, err)
+	grpcServer := grpc.NewServer(sqliteGRPCServerOptions(b, optionSet, authMode, eventStore)...)
+	orisun.RegisterEventStoreServer(grpcServer, eventStore)
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- grpcServer.Serve(lis)
+	}()
+	return lis.Addr().String(), func() {
+		grpcServer.Stop()
+		err := <-serveErr
+		if err != nil {
+			require.ErrorIs(b, err, grpc.ErrServerStopped)
+		}
+	}
+}
+
+func authContextBasic() context.Context {
+	creds := base64.StdEncoding.EncodeToString([]byte("admin:changeit"))
+	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Basic "+creds)
+}
+
+func staticTokenContextForClient(b *testing.B, client orisun.EventStoreClient) context.Context {
+	b.Helper()
+	var responseMD metadata.MD
+	_, err := client.Ping(authContextBasic(), &orisun.PingRequest{}, grpc.Header(&responseMD))
+	require.NoError(b, err)
+	tokens := responseMD.Get("x-auth-token")
+	require.NotEmpty(b, tokens)
+	return metadata.AppendToOutgoingContext(context.Background(), "x-auth-token", tokens[0])
+}
+
+func createTCPBenchClients(b *testing.B, addr string, n int, authMode string) []sqliteGRPCBenchClient {
+	b.Helper()
+	clients := make([]sqliteGRPCBenchClient, 0, n)
+	for range n {
+		conn, err := grpc.Dial(addr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(sqliteBenchGRPCMaxMessageSize)),
+			grpc.WithInitialWindowSize(sqliteBenchGRPCWindowSize),
+			grpc.WithInitialConnWindowSize(sqliteBenchGRPCWindowSize),
+			grpc.WithWriteBufferSize(sqliteBenchGRPCWriteBufferSize),
+			grpc.WithReadBufferSize(sqliteBenchGRPCReadBufferSize),
+		)
+		require.NoError(b, err)
+		client := orisun.NewEventStoreClient(conn)
+		ctx := context.Background()
+		if authMode == "token" {
+			ctx = staticTokenContextForClient(b, client)
+		}
+		clients = append(clients, sqliteGRPCBenchClient{conn: conn, client: client, ctx: ctx})
+	}
+	return clients
+}
+
+func closeTCPBenchClients(clients []sqliteGRPCBenchClient) {
+	for _, client := range clients {
+		_ = client.conn.Close()
+	}
+}
+
+func runGRPCSaveBurst10000(b *testing.B, clients []sqliteGRPCBenchClient) {
+	b.Helper()
+	const burst = 10000
+
+	events := make([]*orisun.EventToSave, burst)
+	for j := range burst {
+		id, _ := uuid.NewV7()
+		events[j] = &orisun.EventToSave{
+			EventId:   id.String(),
+			EventType: "BurstEvent",
+			Data:      `{"k":"v"}`,
+			Metadata:  `{}`,
+		}
+	}
+
+	var wg sync.WaitGroup
+	var ok, fail int64
+	startCh := make(chan struct{})
+	wg.Add(burst)
+	for j := range burst {
+		ev := events[j]
+		client := clients[j%len(clients)]
+		go func() {
+			defer wg.Done()
+			<-startCh
+			if _, err := client.client.SaveEvents(client.ctx, &orisun.SaveEventsRequest{
+				Boundary: benchBoundary,
+				Events:   []*orisun.EventToSave{ev},
+			}); err != nil {
+				atomic.AddInt64(&fail, 1)
+				return
+			}
+			atomic.AddInt64(&ok, 1)
+		}()
+	}
+
+	b.ResetTimer()
+	startTime := time.Now()
+	close(startCh)
+	wg.Wait()
+	b.StopTimer()
+
+	elapsed := time.Since(startTime)
+	if fail > 0 {
+		b.Logf("burst had %d failures", fail)
+	}
+	b.ReportMetric(float64(ok)/elapsed.Seconds(), "events/sec")
+	b.ReportMetric(float64(elapsed.Milliseconds()), "ms/burst")
+}
+
+func BenchmarkSqlite_GRPCTransportBurst10000(b *testing.B) {
+	for _, optionSet := range []string{"minimal", "cmd_like"} {
+		for _, authMode := range []string{"none", "token"} {
+			b.Run(fmt.Sprintf("transport=tcp/options=%s/auth=%s/client_conns=1", optionSet, authMode), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					b.StopTimer()
+					saver, getter, _, teardown := setupBenchmarkPools(b)
+					eventStore := newBenchmarkEventStoreServer(b, saver, getter)
+					addr, stopServer := startTCPEventStoreServer(b, eventStore, optionSet, authMode)
+					clients := createTCPBenchClients(b, addr, 1, authMode)
+
+					runGRPCSaveBurst10000(b, clients)
+
+					closeTCPBenchClients(clients)
+					stopServer()
+					teardown()
+				}
+			})
+		}
+	}
+}
+
+func setupBenchmarkPoolsWithMetadata(b *testing.B) (*SqliteSaveEvents, *SqliteGetEvents, map[string]*BoundaryPools, func()) {
+	b.Helper()
+	dir := b.TempDir()
+	logger, err := logging.ZapLogger("warn")
+	require.NoError(b, err)
+
+	bp, err := OpenBoundaryPoolsWithConfig(context.Background(), config.SqliteConfig{
+		Dir:         dir,
+		Synchronous: "FULL",
+	}, benchBoundary, benchBoundary)
+	require.NoError(b, err)
+	metadataPool, err := OpenMetadataPoolsWithConfig(context.Background(), config.SqliteConfig{
+		Dir:         dir,
+		Synchronous: "FULL",
+	}, benchBoundary)
+	require.NoError(b, err)
+	pools := map[string]*BoundaryPools{benchBoundary: bp}
+	metadataPools := map[string]*BoundaryPools{benchBoundary: metadataPool}
+
+	saver := NewSqliteSaveEvents(pools, logger)
+	getter := NewSqliteGetEvents(pools, logger)
+
+	return saver, getter, metadataPools, func() {
+		saver.close()
+		_ = metadataPool.Close()
+		_ = bp.Close()
+	}
+}
+
+func startBenchmarkPollingPublisher(
+	b *testing.B,
+	ctx context.Context,
+	getter *SqliteGetEvents,
+	tracker orisun.EventPublishingTracker,
+	signalProvider func(string) orisun.EventSignal,
+) {
+	b.Helper()
+	logger, err := logging.ZapLogger("warn")
+	require.NoError(b, err)
+	cfg := config.AppConfig{}
+	cfg.Boundaries = fmt.Sprintf(`[{"name":"%s","description":"benchmark boundary"}]`, benchBoundary)
+	require.NoError(b, cfg.ParseBoundaries())
+	cfg.PollingPublisher.BatchSize = 1000
+	orisun.StartEventPolling(
+		ctx,
+		cfg,
+		benchNoopLockProvider{},
+		getter,
+		benchFakeJetStream{},
+		tracker,
+		signalProvider,
+		logger,
+	)
+}
+
+func BenchmarkSqlite_GRPCTransportWithPublisherBurst10000(b *testing.B) {
+	for _, trackerMode := range []string{"none", "metadata"} {
+		for _, authMode := range []string{"none", "token"} {
+			for _, wakeDelay := range []time.Duration{0, 5 * time.Millisecond} {
+				b.Run(fmt.Sprintf("transport=tcp/options=cmd_like/auth=%s/client_conns=1/publisher=fake_js/tracker=%s/wake_delay=%s", authMode, trackerMode, wakeDelay), func(b *testing.B) {
+					for i := 0; i < b.N; i++ {
+						b.StopTimer()
+						saver, getter, metadataPools, teardown := setupBenchmarkPoolsWithMetadata(b)
+						notifier := NewSqliteEventNotifierWithWakeDelay(time.Second, wakeDelay)
+						saver.notifier = notifier
+						var tracker orisun.EventPublishingTracker = benchNoopPublishingTracker{}
+						if trackerMode == "metadata" {
+							logger, err := logging.ZapLogger("warn")
+							require.NoError(b, err)
+							tracker = NewSqliteEventPublishingWithMetadata(metadataPools, logger)
+						}
+						pubCtx, cancelPublisher := context.WithCancel(context.Background())
+						startBenchmarkPollingPublisher(b, pubCtx, getter, tracker, notifier.Signal)
+						eventStore := newBenchmarkEventStoreServer(b, saver, getter)
+						addr, stopServer := startTCPEventStoreServer(b, eventStore, "cmd_like", authMode)
+						clients := createTCPBenchClients(b, addr, 1, authMode)
+
+						runGRPCSaveBurst10000(b, clients)
+
+						closeTCPBenchClients(clients)
+						stopServer()
+						cancelPublisher()
+						teardown()
+					}
+				})
+			}
+		}
+	}
 }
 
 func parseTxID(s string) int64 {

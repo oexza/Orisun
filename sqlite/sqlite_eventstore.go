@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -256,6 +259,27 @@ type SqliteSaveEvents struct {
 	pools    map[string]*BoundaryPools
 	logger   logging.Logger
 	notifier *SqliteEventNotifier
+
+	// Group-commit tuning; package-local, initialized from the
+	// sqliteGroupCommit* constants. Fields (not constants) so package tests
+	// and benchmarks can vary them.
+	gcMaxBatchRequests int
+	gcMaxBatchEvents   int
+	gcMaxDelay         time.Duration
+	gcFlushTimeout     time.Duration
+
+	queues    map[string]chan *sqliteSaveRequest
+	closed    chan struct{}
+	closeOnce sync.Once
+	enqueueMu sync.RWMutex
+	workerWG  sync.WaitGroup
+
+	// Flush accounting, exposed for tests and debug logging.
+	gcMultiFlushes  atomic.Int64
+	gcSingleFlushes atomic.Int64
+	// gcTestFlushHook runs inside a flush's recover scope after the write
+	// connection is taken, with the live batch size. Test-only; nil in production.
+	gcTestFlushHook func(batchSize int)
 }
 
 type sqliteEventToInsert struct {
@@ -270,8 +294,71 @@ const (
 	sqliteMaxEventsPerInsert   = sqliteMaxInsertParams / sqliteInsertParamsPerEvent
 )
 
+// NewSqliteSaveEvents constructs the saver with the package-default
+// group-commit tuning. Use NewSqliteSaveEventsWithConfig to override.
 func NewSqliteSaveEvents(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteSaveEvents {
-	return &SqliteSaveEvents{pools: pools, logger: logger}
+	// Zero config never fails normalization.
+	s, _ := NewSqliteSaveEventsWithConfig(pools, logger, config.SqliteGroupCommitConfig{})
+	return s
+}
+
+func NewSqliteSaveEventsWithConfig(
+	pools map[string]*BoundaryPools,
+	logger logging.Logger,
+	gcCfg config.SqliteGroupCommitConfig,
+) (*SqliteSaveEvents, error) {
+	gcCfg, err := normalizeGroupCommitConfig(gcCfg)
+	if err != nil {
+		return nil, err
+	}
+	s := &SqliteSaveEvents{
+		pools:  pools,
+		logger: logger,
+
+		gcMaxBatchRequests: gcCfg.MaxBatchRequests,
+		gcMaxBatchEvents:   gcCfg.MaxBatchEvents,
+		gcMaxDelay:         gcCfg.MaxDelay,
+		gcFlushTimeout:     gcCfg.FlushTimeout,
+
+		queues: make(map[string]chan *sqliteSaveRequest, len(pools)),
+		closed: make(chan struct{}),
+	}
+	for boundary, pool := range pools {
+		queue := make(chan *sqliteSaveRequest, gcCfg.MaxPending)
+		s.queues[boundary] = queue
+		s.workerWG.Add(1)
+		go s.runWorker(boundary, pool, queue)
+	}
+	return s, nil
+}
+
+// close stops accepting new saves and fails queued-but-unflushed requests.
+// An in-progress flush finishes. Called from InitializeSqliteDatabase's
+// shutdown goroutine before the pools close; also used by package tests.
+func (s *SqliteSaveEvents) close() {
+	s.closeOnce.Do(func() {
+		close(s.closed)
+
+		// Wait for enqueue calls that passed the closed check but have not yet
+		// completed their channel send. After this barrier, no goroutine can
+		// send to a queue, so it is safe to close the queues and let workers exit.
+		s.enqueueMu.Lock()
+		s.enqueueMu.Unlock()
+
+		for _, queue := range s.queues {
+			close(queue)
+		}
+		s.workerWG.Wait()
+	})
+}
+
+func (s *SqliteSaveEvents) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *SqliteSaveEvents) Save(
@@ -284,10 +371,11 @@ func (s *SqliteSaveEvents) Save(
 	if len(events) == 0 {
 		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
 	}
-	pool, ok := s.pools[boundary]
-	if !ok {
+	if _, ok := s.pools[boundary]; !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
+	// Normalize in the caller's goroutine: JSON work stays parallel across
+	// callers instead of serializing on the boundary worker.
 	events, err = eventstore.NormalizeEventsForSave(events)
 	if err != nil {
 		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
@@ -297,31 +385,26 @@ func (s *SqliteSaveEvents) Save(
 		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
 	}
 
-	conn, takeErr := pool.Write.Take(ctx)
-	if takeErr != nil {
-		return "", 0, status.Errorf(codes.Internal, "take write conn: %v", takeErr)
-	}
-	defer pool.Write.Put(conn)
+	return s.enqueue(ctx, boundary, eventsToInsert, expectedPosition, streamConsistencyCondition)
+}
 
-	endFn, beginErr := sqlitex.ImmediateTransaction(conn)
-	if beginErr != nil {
-		return "", 0, status.Errorf(codes.Internal, "begin tx: %v", beginErr)
-	}
-	defer func() {
-		endFn(&err)
-		if err == nil && s.notifier != nil {
-			s.notifier.Notify(boundary)
-		}
-	}()
-
+// saveEventsOnConn runs the CCC check, ID allocation, and insert on an open
+// transaction (or savepoint). The caller owns transaction begin/commit/rollback.
+func (s *SqliteSaveEvents) saveEventsOnConn(
+	conn *sqlite.Conn,
+	pool *BoundaryPools,
+	boundary string,
+	eventsToInsert []sqliteEventToInsert,
+	expectedPosition *eventstore.Position,
+	streamConsistencyCondition *eventstore.Query,
+) (transactionID string, globalID int64, err error) {
 	// CCC check
 	if streamConsistencyCondition != nil && len(streamConsistencyCondition.Criteria) > 0 {
 		criteria := criteriaAsList(streamConsistencyCondition)
 		if len(criteria) > 0 {
 			where, buildErr := buildCriteriaSQLForBoundary(criteria, pool.indexes, boundary)
 			if buildErr != nil {
-				err = status.Errorf(codes.InvalidArgument, "invalid consistency criteria: %v", buildErr)
-				return "", 0, err
+				return "", 0, status.Errorf(codes.InvalidArgument, "invalid consistency criteria: %v", buildErr)
 			}
 			checkSQL := "SELECT transaction_id, global_id FROM orisun_es_event WHERE " + where +
 				" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
@@ -346,16 +429,15 @@ func (s *SqliteSaveEvents) Save(
 			}
 
 			if latestTx != expectedTx || latestGid != expectedGid {
-				err = status.Errorf(codes.AlreadyExists,
+				return "", 0, status.Errorf(codes.AlreadyExists,
 					"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
 					expectedTx, expectedGid, latestTx, latestGid)
-				return "", 0, err
 			}
 		}
 	}
 
 	// Allocate N global_ids atomically.
-	n := int64(len(events))
+	n := int64(len(eventsToInsert))
 	var firstID, lastID int64
 	if err = sqlitex.Execute(conn,
 		"UPDATE orisun_es_seq SET next_id = next_id + ? WHERE id = 1 RETURNING next_id - ?, next_id - 1",
@@ -646,6 +728,7 @@ func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
 
 type SqliteAdminDB struct {
 	pools         map[string]*BoundaryPools
+	metadataPools map[string]*BoundaryPools
 	adminBoundary string
 	logger        logging.Logger
 	userCacheMu   sync.RWMutex
@@ -661,7 +744,43 @@ func NewSqliteAdminDB(pools map[string]*BoundaryPools, adminBoundary string, log
 	}
 }
 
-func (a *SqliteAdminDB) adminPool() *BoundaryPools { return a.pools[a.adminBoundary] }
+func NewSqliteAdminDBWithMetadata(pools map[string]*BoundaryPools, metadataPools map[string]*BoundaryPools, adminBoundary string, logger logging.Logger) *SqliteAdminDB {
+	return &SqliteAdminDB{
+		pools:         pools,
+		metadataPools: metadataPools,
+		adminBoundary: adminBoundary,
+		logger:        logger,
+		userCache:     make(map[string]*eventstore.User),
+	}
+}
+
+func (a *SqliteAdminDB) adminPool() *BoundaryPools {
+	if a.metadataPools != nil {
+		if pool := a.metadataPools[a.adminBoundary]; pool != nil {
+			return pool
+		}
+	}
+	return a.pools[a.adminBoundary]
+}
+
+func (a *SqliteAdminDB) metadataPoolForBoundary(boundary string) *BoundaryPools {
+	if a.metadataPools != nil {
+		if pool := a.metadataPools[boundary]; pool != nil {
+			return pool
+		}
+	}
+	return a.pools[boundary]
+}
+
+func (a *SqliteAdminDB) poolForProjectorName(projectorName string) *BoundaryPools {
+	const eventCountPrefix = "Event_Count_Projection__"
+	if boundary, ok := strings.CutPrefix(projectorName, eventCountPrefix); ok {
+		if pool := a.metadataPoolForBoundary(boundary); pool != nil {
+			return pool
+		}
+	}
+	return a.adminPool()
+}
 
 func rolesToCSV(roles []eventstore.Role) string {
 	parts := make([]string, len(roles))
@@ -714,7 +833,7 @@ func (a *SqliteAdminDB) ListAdminUsers() ([]*eventstore.User, error) {
 }
 
 func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventstore.Position, error) {
-	pool := a.adminPool()
+	pool := a.poolForProjectorName(projectorName)
 	conn, err := pool.Read.Take(context.Background())
 	if err != nil {
 		return nil, err
@@ -745,7 +864,7 @@ func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventst
 }
 
 func (a *SqliteAdminDB) UpdateProjectorPosition(name string, position *eventstore.Position) error {
-	pool := a.adminPool()
+	pool := a.poolForProjectorName(name)
 	conn, err := pool.Write.Take(context.Background())
 	if err != nil {
 		return err
@@ -913,8 +1032,7 @@ func (a *SqliteAdminDB) GetUsersCount() (uint32, error) {
 }
 
 const (
-	userCountID  = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
-	eventCountID = "0195c053-57e7-7a6d-8e17-a2a695f67d2f"
+	userCountID = "0195c053-57e7-7a6d-8e17-a2a695f67d1f"
 )
 
 func (a *SqliteAdminDB) SaveUsersCount(count uint32) error {
@@ -936,19 +1054,20 @@ func (a *SqliteAdminDB) SaveUsersCount(count uint32) error {
 }
 
 func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
-	pool, ok := a.pools[boundary]
+	eventPool, ok := a.pools[boundary]
 	if !ok {
 		return 0, fmt.Errorf("unknown boundary: %s", boundary)
 	}
-	conn, err := pool.Read.Take(context.Background())
+	cachePool := a.metadataPoolForBoundary(boundary)
+	conn, err := cachePool.Read.Take(context.Background())
 	if err != nil {
 		return 0, err
 	}
-	defer pool.Read.Put(conn)
 
 	var countStr string
 	cacheHit := false
-	err = sqlitex.Execute(conn, "SELECT event_count FROM events_count LIMIT 1", &sqlitex.ExecOptions{
+	err = sqlitex.Execute(conn, "SELECT event_count FROM events_count WHERE boundary = ?", &sqlitex.ExecOptions{
+		Args: []any{boundary},
 		ResultFunc: func(stmt *sqlite.Stmt) error {
 			countStr = stmt.ColumnText(0)
 			cacheHit = true
@@ -957,11 +1076,18 @@ func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
 	})
 	if err == nil && cacheHit {
 		if n, perr := strconv.Atoi(countStr); perr == nil {
+			cachePool.Read.Put(conn)
 			return n, nil
 		}
 	}
+	cachePool.Read.Put(conn)
 
 	var total int64
+	conn, err = eventPool.Read.Take(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	defer eventPool.Read.Put(conn)
 	err = sqlitex.Execute(conn, "SELECT COUNT(*) FROM orisun_es_event", &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
 			total = stmt.ColumnInt64(0)
@@ -975,10 +1101,10 @@ func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
 }
 
 func (a *SqliteAdminDB) SaveEventCount(count int, boundary string) error {
-	pool, ok := a.pools[boundary]
-	if !ok {
+	if _, ok := a.pools[boundary]; !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
+	pool := a.metadataPoolForBoundary(boundary)
 	conn, err := pool.Write.Take(context.Background())
 	if err != nil {
 		return err
@@ -987,11 +1113,11 @@ func (a *SqliteAdminDB) SaveEventCount(count int, boundary string) error {
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return sqlitex.Execute(conn,
-		`INSERT INTO events_count (id, event_count, created_at, updated_at)
+		`INSERT INTO events_count (boundary, event_count, created_at, updated_at)
 		 VALUES (?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET event_count = excluded.event_count, updated_at = excluded.updated_at`,
+		 ON CONFLICT(boundary) DO UPDATE SET event_count = excluded.event_count, updated_at = excluded.updated_at`,
 		&sqlitex.ExecOptions{
-			Args: []any{eventCountID, strconv.Itoa(count), now, now},
+			Args: []any{boundary, strconv.Itoa(count), now, now},
 		})
 }
 
@@ -1240,6 +1366,316 @@ func sqlEscapeLiteral(v string) string {
 // InitializeSqliteDatabase
 // ---------------------------------------------------------------------------
 
+func withMetadataWriteTx(ctx context.Context, pool *BoundaryPools, fn func(*sqlite.Conn) error) (err error) {
+	dst, err := pool.Write.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Write.Put(dst)
+
+	endFn, err := sqlitex.ImmediateTransaction(dst)
+	if err != nil {
+		return err
+	}
+	defer endFn(&err)
+	return fn(dst)
+}
+
+func metadataBoundaryForProjector(projectorName, adminBoundary string, metadataPools map[string]*BoundaryPools) string {
+	const eventCountPrefix = "Event_Count_Projection__"
+	if boundary, ok := strings.CutPrefix(projectorName, eventCountPrefix); ok {
+		if metadataPools[boundary] != nil {
+			return boundary
+		}
+	}
+	return adminBoundary
+}
+
+func migrateLegacyMetadata(ctx context.Context, metadataPools map[string]*BoundaryPools, pools map[string]*BoundaryPools, adminBoundary string, sqliteCfg config.SqliteConfig) error {
+	for boundary, pool := range pools {
+		dstPool := metadataPools[boundary]
+		if dstPool == nil {
+			return fmt.Errorf("missing metadata pool for boundary %s", boundary)
+		}
+		src, err := pool.Read.Take(ctx)
+		if err != nil {
+			return err
+		}
+		err = withMetadataWriteTx(ctx, dstPool, func(dst *sqlite.Conn) error {
+			if err := copyLegacyPublisherCheckpoint(src, dst, boundary); err != nil {
+				return err
+			}
+			return copyLegacyEventCount(src, dst, boundary)
+		})
+		pool.Read.Put(src)
+		if err != nil {
+			return err
+		}
+	}
+
+	adminPool := pools[adminBoundary]
+	adminMetadataPool := metadataPools[adminBoundary]
+	if adminPool != nil && adminMetadataPool != nil {
+		src, err := adminPool.Read.Take(ctx)
+		if err != nil {
+			return err
+		}
+		err = copyLegacyProjectorCheckpoints(ctx, src, metadataPools, adminBoundary)
+		if err == nil {
+			err = withMetadataWriteTx(ctx, adminMetadataPool, func(dst *sqlite.Conn) error {
+				if err := copyLegacyUsers(src, dst); err != nil {
+					return err
+				}
+				return copyLegacyUsersCount(src, dst)
+			})
+		}
+		adminPool.Read.Put(src)
+		if err != nil {
+			return err
+		}
+	}
+
+	return migrateLegacySharedMetadata(ctx, sqliteCfg, metadataPools, adminBoundary)
+}
+
+func migrateLegacySharedMetadata(ctx context.Context, sqliteCfg config.SqliteConfig, metadataPools map[string]*BoundaryPools, adminBoundary string) error {
+	poolCfg, err := normalizeSqlitePoolConfig(sqliteCfg)
+	if err != nil {
+		return err
+	}
+	legacyPath := filepath.Join(poolCfg.dir, legacySharedSqliteMetadataDBName+".db")
+	if _, err := os.Stat(legacyPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	legacyPool, err := openSQLitePools(ctx, poolCfg, legacyPath, legacySharedSqliteMetadataDBName, legacySharedSqliteMetadataDBName, applyMetadataMigrations, false)
+	if err != nil {
+		return err
+	}
+	defer legacyPool.Close()
+
+	src, err := legacyPool.Read.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer legacyPool.Read.Put(src)
+
+	if err := copySharedPublisherCheckpoints(ctx, src, metadataPools); err != nil {
+		return err
+	}
+	if err := copySharedEventCounts(ctx, src, metadataPools); err != nil {
+		return err
+	}
+	if err := copyLegacyProjectorCheckpoints(ctx, src, metadataPools, adminBoundary); err != nil {
+		return err
+	}
+	adminMetadataPool := metadataPools[adminBoundary]
+	if adminMetadataPool == nil {
+		return nil
+	}
+	return withMetadataWriteTx(ctx, adminMetadataPool, func(dst *sqlite.Conn) error {
+		if err := copyLegacyUsers(src, dst); err != nil {
+			return err
+		}
+		return copyLegacyUsersCount(src, dst)
+	})
+}
+
+func copyLegacyPublisherCheckpoint(src, dst *sqlite.Conn, boundary string) error {
+	exists, err := tableExists(src, "orisun_last_published_event_position")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT boundary, transaction_id, global_id, date_created, date_updated FROM orisun_last_published_event_position",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				rowBoundary := stmt.ColumnText(0)
+				if rowBoundary == "" {
+					rowBoundary = boundary
+				}
+				return sqlitex.Execute(dst,
+					`INSERT INTO orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
+					 VALUES (?, ?, ?, ?, ?)
+					 ON CONFLICT(boundary) DO NOTHING`,
+					&sqlitex.ExecOptions{Args: []any{
+						rowBoundary,
+						stmt.ColumnInt64(1),
+						stmt.ColumnInt64(2),
+						stmt.ColumnText(3),
+						stmt.ColumnText(4),
+					}})
+			},
+		})
+}
+
+func copyLegacyEventCount(src, dst *sqlite.Conn, boundary string) error {
+	exists, err := tableExists(src, "events_count")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT event_count, created_at, updated_at FROM events_count LIMIT 1",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				return sqlitex.Execute(dst,
+					`INSERT INTO events_count (boundary, event_count, created_at, updated_at)
+					 VALUES (?, ?, ?, ?)
+					 ON CONFLICT(boundary) DO NOTHING`,
+					&sqlitex.ExecOptions{Args: []any{
+						boundary,
+						stmt.ColumnText(0),
+						stmt.ColumnText(1),
+						stmt.ColumnText(2),
+					}})
+			},
+		})
+}
+
+func copySharedPublisherCheckpoints(ctx context.Context, src *sqlite.Conn, metadataPools map[string]*BoundaryPools) error {
+	exists, err := tableExists(src, "orisun_last_published_event_position")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT boundary, transaction_id, global_id, date_created, date_updated FROM orisun_last_published_event_position",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				boundary := stmt.ColumnText(0)
+				dstPool := metadataPools[boundary]
+				if dstPool == nil {
+					return nil
+				}
+				return withMetadataWriteTx(ctx, dstPool, func(dst *sqlite.Conn) error {
+					return sqlitex.Execute(dst,
+						`INSERT INTO orisun_last_published_event_position (boundary, transaction_id, global_id, date_created, date_updated)
+						 VALUES (?, ?, ?, ?, ?)
+						 ON CONFLICT(boundary) DO NOTHING`,
+						&sqlitex.ExecOptions{Args: []any{
+							boundary,
+							stmt.ColumnInt64(1),
+							stmt.ColumnInt64(2),
+							stmt.ColumnText(3),
+							stmt.ColumnText(4),
+						}})
+				})
+			},
+		})
+}
+
+func copySharedEventCounts(ctx context.Context, src *sqlite.Conn, metadataPools map[string]*BoundaryPools) error {
+	exists, err := tableExists(src, "events_count")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT boundary, event_count, created_at, updated_at FROM events_count",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				boundary := stmt.ColumnText(0)
+				dstPool := metadataPools[boundary]
+				if dstPool == nil {
+					return nil
+				}
+				return withMetadataWriteTx(ctx, dstPool, func(dst *sqlite.Conn) error {
+					return sqlitex.Execute(dst,
+						`INSERT INTO events_count (boundary, event_count, created_at, updated_at)
+						 VALUES (?, ?, ?, ?)
+						 ON CONFLICT(boundary) DO NOTHING`,
+						&sqlitex.ExecOptions{Args: []any{
+							boundary,
+							stmt.ColumnText(1),
+							stmt.ColumnText(2),
+							stmt.ColumnText(3),
+						}})
+				})
+			},
+		})
+}
+
+func copyLegacyProjectorCheckpoints(ctx context.Context, src *sqlite.Conn, metadataPools map[string]*BoundaryPools, adminBoundary string) error {
+	exists, err := tableExists(src, "projector_checkpoint")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT id, name, commit_position, prepare_position FROM projector_checkpoint",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				name := stmt.ColumnText(1)
+				boundary := metadataBoundaryForProjector(name, adminBoundary, metadataPools)
+				dstPool := metadataPools[boundary]
+				if dstPool == nil {
+					return nil
+				}
+				return withMetadataWriteTx(ctx, dstPool, func(dst *sqlite.Conn) error {
+					return sqlitex.Execute(dst,
+						`INSERT INTO projector_checkpoint (id, name, commit_position, prepare_position)
+						 VALUES (?, ?, ?, ?)
+						 ON CONFLICT(name) DO NOTHING`,
+						&sqlitex.ExecOptions{Args: []any{
+							stmt.ColumnText(0),
+							name,
+							stmt.ColumnInt64(2),
+							stmt.ColumnInt64(3),
+						}})
+				})
+			},
+		})
+}
+
+func copyLegacyUsers(src, dst *sqlite.Conn) error {
+	exists, err := tableExists(src, "users")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT id, name, username, password_hash, roles, created_at, updated_at FROM users",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				return sqlitex.Execute(dst,
+					`INSERT INTO users (id, name, username, password_hash, roles, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?)
+					 ON CONFLICT(id) DO NOTHING`,
+					&sqlitex.ExecOptions{Args: []any{
+						stmt.ColumnText(0),
+						stmt.ColumnText(1),
+						stmt.ColumnText(2),
+						stmt.ColumnText(3),
+						stmt.ColumnText(4),
+						stmt.ColumnText(5),
+						stmt.ColumnText(6),
+					}})
+			},
+		})
+}
+
+func copyLegacyUsersCount(src, dst *sqlite.Conn) error {
+	exists, err := tableExists(src, "users_count")
+	if err != nil || !exists {
+		return err
+	}
+	return sqlitex.Execute(src,
+		"SELECT id, user_count, created_at, updated_at FROM users_count",
+		&sqlitex.ExecOptions{
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				return sqlitex.Execute(dst,
+					`INSERT INTO users_count (id, user_count, created_at, updated_at)
+					 VALUES (?, ?, ?, ?)
+					 ON CONFLICT(id) DO NOTHING`,
+					&sqlitex.ExecOptions{Args: []any{
+						stmt.ColumnText(0),
+						stmt.ColumnInt64(1),
+						stmt.ColumnText(2),
+						stmt.ColumnText(3),
+					}})
+			},
+		})
+}
+
 // InitializeSqliteDatabase opens per-boundary SQLite pools and constructs the
 // five backend interfaces. Boundary identity is the file: {dir}/{boundary}.db.
 func InitializeSqliteDatabase(
@@ -1258,6 +1694,7 @@ func InitializeSqliteDatabase(
 	}
 
 	pools := make(map[string]*BoundaryPools, len(boundaries))
+	metadataPools := make(map[string]*BoundaryPools, len(boundaries))
 	for _, b := range boundaries {
 		if err := validateIdentifier(b); err != nil {
 			closeAll(pools)
@@ -1269,24 +1706,47 @@ func InitializeSqliteDatabase(
 			return nil, nil, nil, nil, nil, nil, err
 		}
 		pools[b] = bp
+
+		mp, err := OpenMetadataPoolsWithConfig(ctx, sqliteCfg, b)
+		if err != nil {
+			closeAll(pools)
+			closeAll(metadataPools)
+			return nil, nil, nil, nil, nil, nil, err
+		}
+		metadataPools[b] = mp
+	}
+	if err := migrateLegacyMetadata(ctx, metadataPools, pools, adminCfg.Boundary, sqliteCfg); err != nil {
+		closeAll(pools)
+		closeAll(metadataPools)
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
 		closeAll(pools)
+		closeAll(metadataPools)
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
 	}
 
-	notifier := NewSqliteEventNotifier(time.Second)
-	saver := NewSqliteSaveEvents(pools, logger)
+	notifier := NewSqliteEventNotifierWithWakeDelay(time.Second, sqliteCfg.PublisherWakeDelay)
+	saver, err := NewSqliteSaveEventsWithConfig(pools, logger, sqliteCfg.GroupCommit)
+	if err != nil {
+		closeAll(pools)
+		closeAll(metadataPools)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init sqlite saver: %w", err)
+	}
 	saver.notifier = notifier
 	getter := NewSqliteGetEvents(pools, logger)
-	admin := NewSqliteAdminDB(pools, adminCfg.Boundary, logger)
-	publishing := NewSqliteEventPublishing(pools, logger)
+	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, adminCfg.Boundary, logger)
+	publishing := NewSqliteEventPublishingWithMetadata(metadataPools, logger)
 
 	go func() {
 		<-ctx.Done()
+		// Stop the group-commit workers before the pools close so no flush
+		// runs against a closed pool.
+		saver.close()
 		closeAll(pools)
+		closeAll(metadataPools)
 	}()
 
 	return saver, getter, lockProvider, admin, publishing, notifier.Signal, nil
