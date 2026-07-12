@@ -52,7 +52,7 @@ jobs:
         run: echo "VERSION=v${{ steps.get_version.outputs.version }}" >> $GITHUB_ENV
 
       - name: Run tests
-        run: go test -timeout 20m -v ./...
+        run: go test -p 1 -timeout 45m -v ./...
 
   build-binaries:
     name: Build Binaries
@@ -307,7 +307,7 @@ jobs:
     name: Build and Push Docker Image (${{ matrix.flavor }})
     needs: validate
     runs-on: ubuntu-latest
-    if: ${{ !inputs.docker_only || always() }}
+    if: ${{ needs.validate.result == 'success' }}
     permissions:
       packages: write
     strategy:
