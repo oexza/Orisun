@@ -91,3 +91,6 @@ jobs:
 
       - name: Build SQLite-only Docker image
         run: docker build -t orisun-sqlite:test --build-arg FLAVOR=sqlite .
+
+      - name: Build FoundationDB-only Docker image
+        run: docker build -t orisun-fdb:test -f Dockerfile.fdb .

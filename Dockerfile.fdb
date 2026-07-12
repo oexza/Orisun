@@ -11,8 +11,8 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG FDB_VERSION
 ARG VERSION=dev
-ARG BUILD_TIME
-ARG GIT_COMMIT
+ARG BUILD_TIME=unknown
+ARG GIT_COMMIT=unknown
 
 RUN set -eux; \
     mkdir -p /usr/include/foundationdb; \
