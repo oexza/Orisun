@@ -10,16 +10,16 @@ type FlowStep = readonly [number: string, title: string, description: string];
 
 const heroFacts = [
   ['Storage', 'PostgreSQL, YugabyteDB, SQLite, or FDB beta'],
-  ['Consistency', 'CCC-first, DCB-compatible'],
+  ['Decisions', 'Context-validated writes'],
   ['Delivery', 'Catch-up plus live JetStream'],
 ];
 
 const guarantees = [
   {
-    label: 'Consistency',
-    title: 'Command Context Consistency',
+    label: 'Decide',
+    title: 'Commit only against current context',
     description:
-      'Commands declare the event subset they depend on with JSON criteria, then save only if that context is still current. The same API supports DCB-style append conditions.',
+      'A command declares the event subset its decision depends on with JSON criteria. Orisun saves only if that declared context is still current. CCC is the native model; DCB-style append conditions use the same mechanism.',
   },
   {
     label: 'Delivery',
@@ -31,7 +31,7 @@ const guarantees = [
     label: 'Deployment',
     title: 'One deployable server',
     description:
-      'Event storage, indexed reads, auth, the gRPC and Admin APIs, embedded NATS JetStream, and telemetry ship in a single binary.',
+      'Event storage, indexed reads, auth, the gRPC and Admin APIs, embedded NATS JetStream, and telemetry ship together in each backend-specific binary.',
   },
   {
     label: 'Portability',
@@ -69,9 +69,9 @@ const backends = [
 ];
 
 const flow: FlowStep[] = [
-  ['1', 'Declare context', 'Select the event subset your command depends on with JSON criteria.'],
-  ['2', 'Save atomically', 'Commit only if the selected context is still at the expected position.'],
-  ['3', 'Publish in order', 'Drain committed events from durable checkpoints into embedded JetStream.'],
+  ['1', 'Read context', 'Select the event history your command depends on with JSON criteria.'],
+  ['2', 'Validate the decision', 'Reject the write if that context moved; otherwise commit atomically.'],
+  ['3', 'Publish in order', 'Drain committed events per boundary from durable checkpoints into embedded JetStream.'],
   ['4', 'Project safely', 'Catch up from storage, then consume live events with idempotent checkpoints.'],
 ];
 
@@ -109,8 +109,8 @@ export default function Home(): ReactNode {
 
   return (
     <Layout
-      title="Event Store With Embedded Delivery"
-      description="Orisun is a CCC-first, DCB-compatible event store with PostgreSQL, YugabyteDB, SQLite, or FoundationDB storage, embedded JetStream delivery, and gRPC APIs."
+      title="The Event Database for Decisions That Must Stay Correct"
+      description="Orisun preserves complete event history, validates each declared command context at commit time, and publishes committed events sequentially within each boundary."
     >
       <header className={styles.hero}>
         <div className={styles.heroGrid} />
@@ -127,14 +127,16 @@ export default function Home(): ReactNode {
                   alt="Latest release"
                 />
               </a>
-              <span className={styles.badge}>CCC + DCB</span>
+              <span className={styles.badge}>Context-validated writes</span>
               <span className={styles.badge}>gRPC + JetStream</span>
             </div>
-            <h1>Event storage and live delivery, built as one system.</h1>
+            <h1>The event database for decisions that stay correct.</h1>
             <p>
-              Orisun stores events transactionally, checks consistency by querying event content,
-              supports DCB-style append conditions, and delivers catch-up plus live updates through embedded NATS JetStream without
-              asking teams to assemble a broker, publisher, and event log by hand.
+              State-based databases show what is true now, but not how it became true. Orisun
+              preserves the complete event history and lets each command declare exactly which
+              events its decision depends on. If that context changes, the write is rejected;
+              otherwise its new events commit atomically and publish sequentially within the
+              boundary. The same gRPC API runs on SQLite, PostgreSQL, YugabyteDB, or FoundationDB.
             </p>
             <div className={styles.actions}>
               <Link className="button button--primary button--lg" to="/docs/getting-started">
@@ -187,11 +189,11 @@ export default function Home(): ReactNode {
           <div className="container">
             <div className={styles.sectionHeader}>
               <span className={styles.eyebrow}>Why Orisun</span>
-              <h2>The event log, consistency boundary, and delivery loop live together.</h2>
+              <h2>Store the facts. Validate the decision. Deliver the result.</h2>
               <p>
-                PostgreSQL-compatible storage or SQLite is the durable source of truth. Embedded
-                JetStream is the delivery layer. Your application keeps business decisions in
-                application code.
+                The selected storage backend is the durable source of truth and embedded
+                JetStream is the live delivery layer. Your application owns the business
+                decision; Orisun checks its declared context before committing the resulting events.
               </p>
             </div>
             <div className={styles.featureGrid}>
@@ -239,10 +241,10 @@ export default function Home(): ReactNode {
           <div className="container">
             <div className={styles.sectionHeader}>
               <span className={styles.eyebrow}>Command flow</span>
-              <h2>From decision to projection, the ordering contract stays explicit.</h2>
+              <h2>Each write is checked against the context that made it valid.</h2>
               <p>
                 Orisun keeps storage, consistency checks, publishing, and subscriber recovery on
-                one ordered path so application code can focus on domain decisions.
+                one ordered path per boundary so application code can focus on domain decisions.
               </p>
             </div>
             <div className={styles.flowGrid}>

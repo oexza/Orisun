@@ -12,7 +12,13 @@
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 [![Latest Release](https://img.shields.io/github/v/release/oexza/Orisun?label=release)](https://github.com/oexza/Orisun/releases/latest)
 
-Orisun is a CCC-first, DCB-compatible event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
+Orisun is an open-source event database for decisions that must stay correct as facts change.
+
+State-based databases show what is true now, but not how it became true. Orisun preserves the complete event history. When a command, whether it is a service, a workflow, or an AI agent, declares the events its decision depends on, Orisun commits its new events only if that context is still current. Committed events are then published sequentially within each boundary through catch-up plus live JetStream delivery.
+
+Orisun is an MIT-licensed server with backend-specific binaries and images. Run SQLite on a laptop or a single node, then use PostgreSQL, YugabyteDB, or FoundationDB as the deployment grows. The gRPC API stays the same, with storage, ordered publishing, auth, and index management built into the server.
+
+The mechanism behind this is **Command Context Consistency (CCC)**: commands declare the event subset they depend on with content-based queries, and writes succeed only if that subset is unchanged. Orisun also supports **Dynamic Consistency Boundary (DCB)** style append conditions over event types and queryable JSON tags.
 
 **Full documentation:** [oexza.github.io/Orisun](https://oexza.github.io/Orisun/)
 
@@ -21,7 +27,7 @@ Orisun is a CCC-first, DCB-compatible event store for systems that need durable 
 ## What It Provides
 
 - Transactional event storage on PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta.
-- Command Context Consistency: save only if the queried event context has not changed.
+- Context-correct command writes: save only if the queried event context has not changed.
 - Dynamic Consistency Boundary style append conditions over event types and queryable JSON tags.
 - Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.

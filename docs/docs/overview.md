@@ -5,15 +5,17 @@ description: What Orisun is, the guarantees it makes, and where to start.
 slug: /
 ---
 
-Orisun is an open-source event store built for **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context is still current. It can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
+Orisun is an open-source event database for decisions that must stay correct as facts change. It preserves complete event history and lets applications declare the events a command depends on. Orisun commits the resulting events only if that declared context is still current, then publishes committed events sequentially within each boundary.
+
+The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed. Orisun can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
 
 It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
 
 ## Guarantees
 
-- **Consistency scoped to the command.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
+- **Decisions scoped to real context.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
 - **DCB-compatible append conditions.** Use `expected_position` plus `subsetQuery` to append only when a dynamic event set has not changed.
-- **No skipped committed events.** A durable per-boundary checkpoint drives publishing. Wake-up signals can be missed; committed events still drain in order.
+- **No skipped committed events.** A durable per-boundary checkpoint drives at-least-once publishing. Wake-up signals can be missed; committed events still drain sequentially within the boundary.
 - **Per-boundary ordering.** Events publish in ascending log position within each boundary.
 - **Same API on every backend.** SQLite, PostgreSQL, YugabyteDB, and FoundationDB expose the identical gRPC surface, so deployments can grow without client changes.
 
@@ -52,6 +54,7 @@ Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun no
 Use Orisun when:
 
 - commands need to read event history before deciding what to write,
+- stale context would make an otherwise valid command unsafe,
 - consistency depends on a subset of events, not always a fixed stream,
 - projectors need to recover from downtime without relying only on broker retention,
 - you want the event store, publisher, gRPC API, auth, indexes, and telemetry in one server.

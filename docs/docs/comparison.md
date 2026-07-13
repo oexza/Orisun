@@ -5,7 +5,7 @@ description: How Orisun differs from Kafka, EventStoreDB, PostgreSQL LISTEN/NOTI
 slug: /comparison
 ---
 
-Orisun sits at a specific point on a tradeoff curve: a batteries-included event store where the durable log, content-scoped consistency, and live delivery ship in one server. This page is for evaluators deciding between Orisun and adjacent tools. It is not a claim that Orisun is universally better; every tool below is the right choice for some workload.
+Orisun sits at a specific point on a tradeoff curve: an event database for decisions that must stay correct as facts change, where the durable log, content-scoped consistency, and live delivery ship in one server. This page is for evaluators deciding between Orisun and adjacent tools. It is not a claim that Orisun is universally better; every tool below is the right choice for some workload.
 
 ## What makes Orisun different
 
@@ -14,13 +14,13 @@ Two properties define Orisun's position:
 1. **Consistency is scoped by event content, not by a fixed stream.** A command declares the event subset it depends on with JSON criteria, then saves only if that subset is still at the expected position. This is Orisun's CCC model and also supports DCB-style append conditions. See [Command Context Consistency](./concepts/command-context-consistency) and [Dynamic Consistency Boundaries](./concepts/dynamic-consistency-boundaries).
 2. **The event store and the delivery layer are one system.** The durable log in PostgreSQL, YugabyteDB, SQLite, or FoundationDB is the source of truth; embedded NATS JetStream is the live-delivery buffer; durable publisher checkpoints guarantee no committed event is skipped. See [Delivery Guarantees](./concepts/delivery-guarantees).
 
-Most adjacent tools optimize one of consistency, throughput, simplicity, or decoupling and trade the rest. Orisun optimizes for the closed loop: the command, its consistency check, and its committed-event delivery running in one deployable server.
+Most adjacent tools optimize one of consistency, throughput, simplicity, or decoupling and trade the rest. Orisun optimizes for the closed loop: read the relevant event history, make a decision, commit only if that context is still valid, then deliver the committed result from one deployable server.
 
 ## At a glance
 
 | Tool | Consistency model | Source of truth | Delivery | Ops model |
 | --- | --- | --- | --- | --- |
-| Orisun | Content-scoped optimistic (CCC, DCB-compatible) | PostgreSQL, YugabyteDB, SQLite, or FoundationDB | Catch-up replay + live JetStream, ordered, no skips | One binary |
+| Orisun | Content-scoped optimistic (CCC, DCB-compatible) | PostgreSQL, YugabyteDB, SQLite, or FoundationDB | Catch-up replay + live JetStream, per-boundary order, no skips | One deployable server |
 | Kafka | Partition order; no command consistency check | Kafka log (retention-bounded) | Log tailing by offset | Broker cluster (KRaft or ZooKeeper) |
 | EventStoreDB | Stream / aggregate optimistic (expected revision) | EventStoreDB store | Subscriptions + projections | Dedicated server |
 | PostgreSQL `LISTEN/NOTIFY` | None | Your tables | Best-effort notifications (≤ 8 KB, not durable, no replay) | Existing Postgres |

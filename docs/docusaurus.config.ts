@@ -3,7 +3,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Orisun',
-  tagline: 'Event storage and live delivery in one server',
+  tagline: 'Decisions that stay correct as facts change',
   favicon: 'img/favicon.svg',
   url: 'https://oexza.github.io',
   baseUrl: '/Orisun/',
@@ -49,7 +49,7 @@ const config: Config = {
       {
         name: 'description',
         content:
-          'Orisun is a CCC-first, DCB-compatible event store with PostgreSQL, YugabyteDB, SQLite, or FoundationDB storage, embedded JetStream delivery, and gRPC APIs.',
+          'Orisun is an event database for decisions that must stay correct as facts change, with declared context checks and sequential publishing per boundary.',
       },
     ],
     navbar: {

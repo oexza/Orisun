@@ -1,5 +1,20 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <title>Orisun</title>
-  <path d="M54.83 24.58 A24 24 0 1 1 39.42 9.17" stroke="#3BBD8F" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="49" cy="15" r="8" fill="#E39A2E"/>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">Orisun</title>
+  <defs>
+    <linearGradient id="orisun-ring-dark" x1="10" y1="50" x2="54" y2="10" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E9A71"/>
+      <stop offset="0.56" stop-color="#37B585"/>
+      <stop offset="1" stop-color="#68CFA9"/>
+    </linearGradient>
+    <linearGradient id="orisun-source-dark" x1="14" y1="27" x2="26" y2="39" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3C35E"/>
+      <stop offset="1" stop-color="#E48B39"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="24" stroke="url(#orisun-ring-dark)" stroke-width="6.5"/>
+  <path d="M20 33H29.2C34.7 33 35.9 25 41.5 25H47" stroke="#37B585" stroke-width="4.25" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20 33H29.4C34.7 33 35.8 41 41.2 41H46.5" stroke="#C7E6DC" stroke-width="4.25" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="20" cy="33" r="6.2" fill="url(#orisun-source-dark)" stroke="#0B1110" stroke-width="2.2"/>
+  <circle cx="47" cy="25" r="4.4" fill="#0B1110" stroke="#68CFA9" stroke-width="2.6"/>
+  <circle cx="46.5" cy="41" r="4.4" fill="#0B1110" stroke="#68CFA9" stroke-width="2.6"/>
 </svg>

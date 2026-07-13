@@ -5,7 +5,7 @@ description: Choose a backend, run Orisun, and verify the gRPC API.
 slug: /getting-started
 ---
 
-Orisun is a CCC-first, DCB-compatible event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
+Orisun is an event database for decisions that must stay correct as facts change: preserve the event history a command depends on, commit only when its declared context is still current, and publish committed events sequentially within each boundary without running a separate broker.
 
 You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
