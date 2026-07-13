@@ -12,7 +12,7 @@
 [![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
 [![Latest Release](https://img.shields.io/github/v/release/oexza/Orisun?label=release)](https://github.com/oexza/Orisun/releases/latest)
 
-Orisun is a batteries-included event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
+Orisun is a CCC-first, DCB-compatible event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
 
 **Full documentation:** [oexza.github.io/Orisun](https://oexza.github.io/Orisun/)
 
@@ -22,6 +22,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 - Transactional event storage on PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta.
 - Command Context Consistency: save only if the queried event context has not changed.
+- Dynamic Consistency Boundary style append conditions over event types and queryable JSON tags.
 - Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.
 - Durable publisher checkpoints so committed events are not skipped.

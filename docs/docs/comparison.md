@@ -11,8 +11,8 @@ Orisun sits at a specific point on a tradeoff curve: a batteries-included event 
 
 Two properties define Orisun's position:
 
-1. **Consistency is scoped by event content, not by a fixed stream.** A command declares the event subset it depends on with JSON criteria, then saves only if that subset is still at the expected position. See [Command Context Consistency](./concepts/command-context-consistency).
-2. **The event store and the delivery layer are one system.** The durable log in PostgreSQL, YugabyteDB, or SQLite is the source of truth; embedded NATS JetStream is the live-delivery buffer; durable publisher checkpoints guarantee no committed event is skipped. See [Delivery Guarantees](./concepts/delivery-guarantees).
+1. **Consistency is scoped by event content, not by a fixed stream.** A command declares the event subset it depends on with JSON criteria, then saves only if that subset is still at the expected position. This is Orisun's CCC model and also supports DCB-style append conditions. See [Command Context Consistency](./concepts/command-context-consistency) and [Dynamic Consistency Boundaries](./concepts/dynamic-consistency-boundaries).
+2. **The event store and the delivery layer are one system.** The durable log in PostgreSQL, YugabyteDB, SQLite, or FoundationDB is the source of truth; embedded NATS JetStream is the live-delivery buffer; durable publisher checkpoints guarantee no committed event is skipped. See [Delivery Guarantees](./concepts/delivery-guarantees).
 
 Most adjacent tools optimize one of consistency, throughput, simplicity, or decoupling and trade the rest. Orisun optimizes for the closed loop: the command, its consistency check, and its committed-event delivery running in one deployable server.
 
@@ -20,7 +20,7 @@ Most adjacent tools optimize one of consistency, throughput, simplicity, or deco
 
 | Tool | Consistency model | Source of truth | Delivery | Ops model |
 | --- | --- | --- | --- | --- |
-| Orisun | Content-scoped optimistic (CCC) | PostgreSQL, YugabyteDB, or SQLite | Catch-up replay + live JetStream, ordered, no skips | One binary |
+| Orisun | Content-scoped optimistic (CCC, DCB-compatible) | PostgreSQL, YugabyteDB, SQLite, or FoundationDB | Catch-up replay + live JetStream, ordered, no skips | One binary |
 | Kafka | Partition order; no command consistency check | Kafka log (retention-bounded) | Log tailing by offset | Broker cluster (KRaft or ZooKeeper) |
 | EventStoreDB | Stream / aggregate optimistic (expected revision) | EventStoreDB store | Subscriptions + projections | Dedicated server |
 | PostgreSQL `LISTEN/NOTIFY` | None | Your tables | Best-effort notifications (≤ 8 KB, not durable, no replay) | Existing Postgres |
@@ -42,7 +42,7 @@ The core difference is the consistency boundary. EventStoreDB asks you to choose
 
 Choose EventStoreDB when your domain maps cleanly to aggregate streams and you want a mature, stream-focused tool with a broad ecosystem.
 
-Choose Orisun when consistency spans a subset of events that does not map to one fixed stream, or when you want the store, delivery, auth, indexes, and API in one server.
+Choose Orisun when consistency spans a subset of events that does not map to one fixed stream, when you want DCB-style append conditions over event types and tags, or when you want the store, delivery, auth, indexes, and API in one server.
 
 ## Orisun vs PostgreSQL LISTEN/NOTIFY
 
@@ -54,7 +54,7 @@ Choose Orisun when you need a durable, ordered, replayable event log with consis
 
 ## Orisun vs NATS JetStream
 
-[JetStream](https://docs.nats.io/nats-concepts/jetstream) is NATS's durable streaming layer: persistent subjects, retention policies, consumer acknowledgements, and work queues. It is an excellent delivery layer, which is why Orisun embeds it for live delivery. JetStream alone is not an event store: it has no content-based consistency check, no command-context optimistic locking, and no concept of a consistency boundary.
+[JetStream](https://docs.nats.io/nats-concepts/jetstream) is NATS's durable streaming layer: persistent subjects, retention policies, consumer acknowledgements, and work queues. It is an excellent delivery layer, which is why Orisun embeds it for live delivery. JetStream alone is not an event store: it has no content-based consistency check, no command-context optimistic locking, and no DCB-style append condition over a consistency boundary.
 
 Choose JetStream directly when you need durable messaging and streaming across services, and the consistency model lives in your application or another system.
 

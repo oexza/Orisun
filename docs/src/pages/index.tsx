@@ -10,7 +10,7 @@ type FlowStep = readonly [number: string, title: string, description: string];
 
 const heroFacts = [
   ['Storage', 'PostgreSQL, YugabyteDB, SQLite, or FDB beta'],
-  ['Consistency', 'JSON-scoped optimistic writes'],
+  ['Consistency', 'CCC-first, DCB-compatible'],
   ['Delivery', 'Catch-up plus live JetStream'],
 ];
 
@@ -19,7 +19,7 @@ const guarantees = [
     label: 'Consistency',
     title: 'Command Context Consistency',
     description:
-      'Commands declare the event subset they depend on with JSON criteria, then save only if that context is still current.',
+      'Commands declare the event subset they depend on with JSON criteria, then save only if that context is still current. The same API supports DCB-style append conditions.',
   },
   {
     label: 'Delivery',
@@ -89,6 +89,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
     links: [
       ['Comparing Orisun', '/docs/comparison', 'How Orisun differs from Kafka, EventStoreDB, Postgres LISTEN/NOTIFY, and NATS JetStream.'],
       ['Consistency', '/docs/concepts/command-context-consistency', 'Model business invariants over event-content queries.'],
+      ['Dynamic Consistency Boundaries', '/docs/concepts/dynamic-consistency-boundaries', 'Map DCB event types, tags, and append conditions to Orisun APIs.'],
       ['Delivery guarantees', '/docs/concepts/delivery-guarantees', 'See how checkpoints preserve ordered publishing.'],
       ['Storage backends', '/docs/concepts/storage-backends', 'Choose the right backend for your deployment shape.'],
     ],
@@ -109,7 +110,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Event Store With Embedded Delivery"
-      description="Orisun is a batteries-included event store with PostgreSQL, YugabyteDB, or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs."
+      description="Orisun is a CCC-first, DCB-compatible event store with PostgreSQL, YugabyteDB, SQLite, or FoundationDB storage, embedded JetStream delivery, and gRPC APIs."
     >
       <header className={styles.hero}>
         <div className={styles.heroGrid} />
@@ -126,13 +127,13 @@ export default function Home(): ReactNode {
                   alt="Latest release"
                 />
               </a>
-              <span className={styles.badge}>PostgreSQL + SQLite</span>
+              <span className={styles.badge}>CCC + DCB</span>
               <span className={styles.badge}>gRPC + JetStream</span>
             </div>
             <h1>Event storage and live delivery, built as one system.</h1>
             <p>
               Orisun stores events transactionally, checks consistency by querying event content,
-              and delivers catch-up plus live updates through embedded NATS JetStream without
+              supports DCB-style append conditions, and delivers catch-up plus live updates through embedded NATS JetStream without
               asking teams to assemble a broker, publisher, and event log by hand.
             </p>
             <div className={styles.actions}>

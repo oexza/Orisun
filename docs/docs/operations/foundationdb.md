@@ -75,7 +75,7 @@ Before using a criterion in production traffic:
 
 1. Create the boundary index through the admin API.
 2. Wait for the index to report ready.
-3. Deploy writers that use that criterion for CCC.
+3. Deploy writers that use that criterion for CCC checks or DCB append conditions.
 
 This keeps conflict ranges narrow: commands that touch different indexed subsets can commit concurrently.
 
