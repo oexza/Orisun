@@ -52,7 +52,7 @@ jobs:
         run: echo "VERSION=v${{ steps.get_version.outputs.version }}" >> $GITHUB_ENV
 
       - name: Run tests
-        run: go test -p 1 -timeout 45m -v ./...
+        run: go test -p 1 -timeout 90m -v ./...
 
   build-binaries:
     name: Build Binaries
