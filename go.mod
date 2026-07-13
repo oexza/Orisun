@@ -21,7 +21,7 @@ require (
 )
 
 require (
-	github.com/apple/foundationdb/bindings/go v0.0.0-20260712195113-9f8d55a048a1
+	github.com/apple/foundationdb/bindings/go v0.0.0-20260416192139-3ea44ce1d900
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/goccy/go-json v0.10.6
 	github.com/moby/moby/api v1.55.0
