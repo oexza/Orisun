@@ -9,7 +9,7 @@ type LinkItem = readonly [title: string, href: string, description: string];
 type FlowStep = readonly [number: string, title: string, description: string];
 
 const heroFacts = [
-  ['Storage', 'PostgreSQL, YugabyteDB, or SQLite'],
+  ['Storage', 'PostgreSQL, YugabyteDB, SQLite, or FDB beta'],
   ['Consistency', 'JSON-scoped optimistic writes'],
   ['Delivery', 'Catch-up plus live JetStream'],
 ];
@@ -37,7 +37,7 @@ const guarantees = [
     label: 'Portability',
     title: 'Same API on every backend',
     description:
-      'SQLite, PostgreSQL, and YugabyteDB expose the identical gRPC surface, so deployments grow without client changes.',
+      'SQLite, PostgreSQL, YugabyteDB, and FoundationDB expose the identical gRPC surface, so deployments grow without client changes.',
   },
 ];
 
@@ -59,6 +59,12 @@ const backends = [
     href: '/docs/getting-started#run-yugabytedb-from-a-binary',
     summary: 'PostgreSQL-compatible distributed SQL with Orisun committed-watermark reads.',
     details: ['YSQL', 'pg_notify wake-ups', 'advisory locks', 'committed watermark'],
+  },
+  {
+    name: 'FoundationDB',
+    href: '/docs/operations/foundationdb',
+    summary: 'Beta clustered backend for ordered key-value deployments and parallel commits.',
+    details: ['FDB leases', 'versionstamps', 'covering indexes', 'Linux artifacts'],
   },
 ];
 

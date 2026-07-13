@@ -7,14 +7,14 @@ slug: /
 
 Orisun is an open-source event store built for **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context is still current.
 
-It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
+It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
 
 ## Guarantees
 
 - **Consistency scoped to the command.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
 - **No skipped committed events.** A durable per-boundary checkpoint drives publishing. Wake-up signals can be missed; committed events still drain in order.
 - **Per-boundary ordering.** Events publish in ascending log position within each boundary.
-- **Same API on every backend.** SQLite, PostgreSQL, and YugabyteDB expose the identical gRPC surface, so deployments can grow without client changes.
+- **Same API on every backend.** SQLite, PostgreSQL, YugabyteDB, and FoundationDB expose the identical gRPC surface, so deployments can grow without client changes.
 
 ## How it works
 
@@ -32,7 +32,7 @@ SQLite is the fastest local loop. Event log, admin state, indexes, publisher che
 3. Verify gRPC with [Verify the API](/docs/getting-started#verify-the-api).
 4. Save an event with [Save your first event](/docs/getting-started#save-your-first-event).
 
-Move to PostgreSQL or YugabyteDB when you need multiple Orisun nodes or database-managed operations. SQLite is single-node only and requires NATS clustering disabled.
+Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun nodes or database-managed operations. SQLite is single-node only and requires NATS clustering disabled. FoundationDB support is beta; read the FoundationDB operations guide before using it in production.
 
 ## Pick your path
 

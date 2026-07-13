@@ -20,7 +20,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 ## What It Provides
 
-- Transactional event storage on PostgreSQL, YugabyteDB, or SQLite.
+- Transactional event storage on PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta.
 - Command Context Consistency: save only if the queried event context has not changed.
 - Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.
