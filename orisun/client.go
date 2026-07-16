@@ -65,18 +65,12 @@ func NewOrisunServer(
 // SaveEvents saves a batch of events to the event store
 func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags, boundary string,
 	expectedPosition *Position, streamSubSet *Query) (*Position, error) {
-	normalizedEvents, err := normalizeEventsForSave(events)
-	if err != nil {
-		return nil, fmt.Errorf("failed to normalize events: %w", err)
+	prepared, prepareErr := PrepareEventsForSave(events)
+	if prepareErr != nil {
+		return nil, fmt.Errorf("failed to prepare events: %w", prepareErr)
 	}
-
-	// Save events
-	transactionID, globalID, err := c.saveEvents.Save(
-		ctx,
-		normalizedEvents,
-		boundary,
-		expectedPosition,
-		streamSubSet,
+	transactionID, globalID, err := c.saveEvents.SavePrepared(
+		ctx, prepared, boundary, expectedPosition, streamSubSet,
 	)
 
 	if err != nil {

@@ -282,12 +282,6 @@ type SqliteSaveEvents struct {
 	gcTestFlushHook func(batchSize int)
 }
 
-type sqliteEventToInsert struct {
-	EventID      string
-	DataJSON     string
-	MetadataJSON string
-}
-
 const (
 	sqliteInsertParamsPerEvent = 5
 	sqliteMaxInsertParams      = 999
@@ -361,9 +355,9 @@ func (s *SqliteSaveEvents) isClosed() bool {
 	}
 }
 
-func (s *SqliteSaveEvents) Save(
+func (s *SqliteSaveEvents) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
@@ -374,18 +368,7 @@ func (s *SqliteSaveEvents) Save(
 	if _, ok := s.pools[boundary]; !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
-	// Normalize in the caller's goroutine: JSON work stays parallel across
-	// callers instead of serializing on the boundary worker.
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
-	}
-	eventsToInsert, err := normalizeEventsForSqliteInsert(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
-	}
-
-	return s.enqueue(ctx, boundary, eventsToInsert, expectedPosition, streamConsistencyCondition)
+	return s.enqueue(ctx, boundary, events, expectedPosition, streamConsistencyCondition)
 }
 
 // saveEventsOnConn runs the CCC check, ID allocation, and insert on an open
@@ -394,7 +377,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 	conn *sqlite.Conn,
 	pool *BoundaryPools,
 	boundary string,
-	eventsToInsert []sqliteEventToInsert,
+	eventsToInsert eventstore.PreparedEventBatch,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
 ) (transactionID string, globalID int64, err error) {
@@ -459,30 +442,10 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 	return strconv.FormatInt(lastID, 10), lastID, nil
 }
 
-func normalizeEventsForSqliteInsert(events []eventstore.EventWithMapTags) ([]sqliteEventToInsert, error) {
-	out := make([]sqliteEventToInsert, len(events))
-	for i, event := range events {
-		dataJSON, err := normalizeJSON(event.Data)
-		if err != nil {
-			return nil, fmt.Errorf("event %d data: %w", i, err)
-		}
-		metadataJSON, err := normalizeJSON(event.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("event %d metadata: %w", i, err)
-		}
-		out[i] = sqliteEventToInsert{
-			EventID:      event.EventId,
-			DataJSON:     dataJSON,
-			MetadataJSON: metadataJSON,
-		}
-	}
-	return out, nil
-}
-
 // insertEventBatch inserts events in chunks of sqliteMaxEventsPerInsert to stay under
 // SQLite's bound-parameter limit. Callers hold an open transaction, so the full batch
 // commits atomically regardless of chunking.
-func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, transactionID int64) error {
+func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, firstID, transactionID int64) error {
 	for start := 0; start < len(events); start += sqliteMaxEventsPerInsert {
 		end := min(start+sqliteMaxEventsPerInsert, len(events))
 		chunk := events[start:end]
@@ -498,7 +461,7 @@ func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, 
 			sb.WriteString("(?, ?, ?, ?, ?)")
 			gid := firstID + int64(start+i)
 			insertArgs = append(insertArgs,
-				transactionID, gid, e.EventID, e.DataJSON, e.MetadataJSON,
+				transactionID, gid, e.EventId, e.DataJSON, e.MetadataJSON,
 			)
 		}
 

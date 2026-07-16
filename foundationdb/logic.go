@@ -61,27 +61,19 @@ type preparedEvent struct {
 	data   map[string]any
 }
 
-func prepareEvents(events []eventstore.EventWithMapTags) ([]preparedEvent, error) {
+func prepareEvents(events eventstore.PreparedEventBatch) ([]preparedEvent, error) {
 	out := make([]preparedEvent, len(events))
 	for i, event := range events {
-		dataBytes, err := json.Marshal(event.Data)
-		if err != nil {
-			return nil, err
-		}
 		var data map[string]any
-		if err := json.Unmarshal(dataBytes, &data); err != nil {
-			return nil, err
-		}
-		metadataBytes, err := json.Marshal(event.Metadata)
-		if err != nil {
+		if err := json.Unmarshal([]byte(event.DataJSON), &data); err != nil {
 			return nil, err
 		}
 		out[i] = preparedEvent{
 			record: eventRecord{
 				EventID:   event.EventId,
 				EventType: event.EventType,
-				Data:      string(dataBytes),
-				Metadata:  string(metadataBytes),
+				Data:      event.DataJSON,
+				Metadata:  event.MetadataJSON,
 			},
 			data: data,
 		}

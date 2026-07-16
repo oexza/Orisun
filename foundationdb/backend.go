@@ -217,9 +217,9 @@ func (b *Backend) indexReadyWithFields(boundary, name string, fields []eventstor
 	return result.(bool), nil
 }
 
-func (b *Backend) Save(
+func (b *Backend) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
@@ -232,10 +232,6 @@ func (b *Backend) Save(
 	}
 	if err := b.checkBoundary(boundary); err != nil {
 		return "", 0, err
-	}
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
 	}
 	prepared, err := prepareEvents(events)
 	if err != nil {

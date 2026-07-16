@@ -242,12 +242,16 @@ func TestUserEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 func TestPrepareEventsAndRoundTrip(t *testing.T) {
-	prepared, err := prepareEvents([]eventstore.EventWithMapTags{{
+	batch, err := eventstore.PrepareEventsForSave([]eventstore.EventWithMapTags{{
 		EventId:   "e1",
 		EventType: "Created",
 		Data:      map[string]any{"user_id": "u1"},
 		Metadata:  map[string]any{"src": "test"},
 	}})
+	if err != nil {
+		t.Fatalf("PrepareEventsForSave: %v", err)
+	}
+	prepared, err := prepareEvents(batch)
 	if err != nil {
 		t.Fatalf("prepareEvents: %v", err)
 	}

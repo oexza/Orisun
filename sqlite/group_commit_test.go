@@ -124,14 +124,11 @@ func saveBypassingQueue(
 	if !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
-	events, err = eventstore.NormalizeEventsForSave(events)
+	prepared, err := eventstore.PrepareEventsForSave(events)
 	if err != nil {
 		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
 	}
-	inserts, err := normalizeEventsForSqliteInsert(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
-	}
+	inserts := prepared
 
 	conn, takeErr := pool.Write.Take(ctx)
 	if takeErr != nil {

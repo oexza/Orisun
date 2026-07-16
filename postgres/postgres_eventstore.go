@@ -108,9 +108,9 @@ func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	}
 }
 
-func (s *PostgresSaveEvents) Save(
+func (s *PostgresSaveEvents) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
@@ -126,11 +126,6 @@ func (s *PostgresSaveEvents) Save(
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
-	}
-
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)

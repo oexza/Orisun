@@ -883,9 +883,14 @@ func BenchmarkSaveEvents_DirectDatabase10K(b *testing.B) {
 				// ALL goroutines try to save to the SAME stream with expected version -1
 				// This will test optimistic concurrency - only one should succeed, others should fail
 				p := orisun.NotExistsPosition()
-				_, _, err := saveEvents.Save(
+				prepared, err := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{event})
+				if err != nil {
+					b.Errorf("failed to prepare event: %v", err)
+					return
+				}
+				_, _, err = saveEvents.SavePrepared(
 					ctx,
-					[]orisun.EventWithMapTags{event},
+					prepared,
 					"benchmark_test",
 					&p,                   // Expected position for a new stream.
 					consistencyCondition, // Unique consistency condition for each event
@@ -1043,6 +1048,10 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 			Metadata:  fmt.Sprintf(`{"event_index": %d, "batch_test": true}`, i),
 		}
 	}
+	prepared, err := orisun.PrepareEventsForSave(events)
+	if err != nil {
+		b.Fatalf("Failed to prepare batch events: %v", err)
+	}
 
 	// Reset timer to exclude setup time
 	b.ResetTimer()
@@ -1054,7 +1063,7 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 
 		// Save all events in a single batch operation
 		p := orisun.NotExistsPosition()
-		_, _, err := saveEvents.Save(ctx, events, "benchmark_test", &p, nil)
+		_, _, err := saveEvents.SavePrepared(ctx, prepared, "benchmark_test", &p, nil)
 		if err != nil {
 			b.Fatalf("Failed to save batch events: %v", err)
 		}
