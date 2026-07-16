@@ -1061,7 +1061,7 @@ ERROR:
 
 ## Proto source
 
-The EventStore protobuf source lives at [`proto/eventstore.proto`](https://github.com/oexza/Orisun/blob/main/proto/eventstore.proto).
+The EventStore protobuf source lives at [`proto/eventstore.proto`](https://github.com/OrisunLabs/Orisun/blob/main/proto/eventstore.proto).
 
 ## Common status codes
 

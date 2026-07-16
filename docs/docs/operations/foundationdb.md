@@ -3,7 +3,7 @@ title: FoundationDB Operations
 description: Beta production checklist and runbook for Orisun on FoundationDB.
 ---
 
-FoundationDB mode is the beta clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Use the `orisun-fdb` release binary, the `orexza/orisun:fdb` / `ghcr.io/oexza/orisun:fdb` image, or build it with `-tags foundationdb`.
+FoundationDB mode is the beta clustered backend for high-write deployments that need parallel commits without PostgreSQL position locking. Use the `orisun-fdb` release binary, the `orexza/orisun:fdb` / `ghcr.io/orisunlabs/orisun:fdb` image, or build it with `-tags foundationdb`.
 
 ## Beta Status
 
@@ -122,5 +122,5 @@ Before marking a FoundationDB-backed Orisun release production-ready:
 - `TEST_PKGS=./cmd/ scripts/fdb_test_container.sh -run TestE2E_LedgerWorkload_FoundationDB -v` is green.
 - The extended soak command above has passed for the target release candidate.
 - Release workflow publishes the `orisun-fdb-linux-amd64` and `orisun-fdb-linux-arm64` artifacts.
-- Release workflow publishes `orexza/orisun:<version>-fdb`, `orexza/orisun:fdb`, `ghcr.io/oexza/orisun:<version>-fdb`, and `ghcr.io/oexza/orisun:fdb`.
+- Release workflow publishes `orexza/orisun:<version>-fdb`, `orexza/orisun:fdb`, `ghcr.io/orisunlabs/orisun:<version>-fdb`, and `ghcr.io/orisunlabs/orisun:fdb`.
 - Operators have documented backup, restore, cluster-file update, and client-library upgrade procedures.

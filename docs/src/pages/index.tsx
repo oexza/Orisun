@@ -175,7 +175,7 @@ export default function Home(): ReactNode {
         </div>
         <div className={clsx('container', styles.heroInner)}>
           <div className={styles.badges}>
-            <a className={styles.badgeLink} href="https://github.com/oexza/Orisun/releases/latest">
+            <a className={styles.badgeLink} href="https://github.com/OrisunLabs/Orisun/releases/latest">
               Latest release
             </a>
             <span className={styles.badge}>MIT open source</span>

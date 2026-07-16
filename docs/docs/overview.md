@@ -30,7 +30,7 @@ It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or Fo
 
 SQLite is the fastest local loop. Event log, admin state, indexes, publisher checkpoints, and embedded JetStream run from one binary with no separate database.
 
-1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/oexza/Orisun/releases).
+1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases).
 2. Start it with the [SQLite binary example](/docs/getting-started#run-sqlite-from-a-binary).
 3. Verify gRPC with [Verify the API](/docs/getting-started#verify-the-api).
 4. Save an event with [Save your first event](/docs/getting-started#save-your-first-event).

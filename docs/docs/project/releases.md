@@ -72,7 +72,7 @@ chmod +x ./orisun-sqlite
 
 ## Docker Tags
 
-The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`).
+The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`).
 
 | Tag | Backend |
 | --- | --- |
@@ -83,4 +83,4 @@ The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and
 | `orexza/orisun:<version>-sqlite` | SQLite-only release version |
 | `orexza/orisun:<version>-fdb` | FoundationDB-only release version |
 
-Use the same suffixes with `ghcr.io/oexza/orisun` when you prefer GHCR.
+Use the same suffixes with `ghcr.io/orisunlabs/orisun` when you prefer GHCR.

@@ -119,4 +119,4 @@ grpcurl -H "$AUTH" \
 
 ## Proto source
 
-The Admin protobuf source lives at [`proto/admin.proto`](https://github.com/oexza/Orisun/blob/main/proto/admin.proto).
+The Admin protobuf source lives at [`proto/admin.proto`](https://github.com/OrisunLabs/Orisun/blob/main/proto/admin.proto).
