@@ -1140,6 +1140,10 @@ func publishEventsLoopWithLease(
 
 	defer signal.Stop()
 	readBackoff := readRetryBase
+	cursor := &Position{
+		CommitPosition:  lastPosition.CommitPosition,
+		PreparePosition: lastPosition.PreparePosition,
+	}
 
 	for {
 		if err := lease.Check(ctx); err != nil {
@@ -1157,8 +1161,8 @@ func publishEventsLoopWithLease(
 
 			req := &GetEventsRequest{
 				FromPosition: &Position{
-					CommitPosition:  lastPosition.CommitPosition,
-					PreparePosition: lastPosition.PreparePosition + 1,
+					CommitPosition:  cursor.CommitPosition,
+					PreparePosition: cursor.PreparePosition + 1,
 				},
 				Count:     batchSize,
 				Direction: Direction_ASC,
@@ -1184,10 +1188,14 @@ func publishEventsLoopWithLease(
 				break
 			}
 
-			if err := validatePublishBatch(resp.Events, lastPosition); err != nil {
+			if err := validatePublishBatch(resp.Events, cursor); err != nil {
 				return err
 			}
 
+			batchCursor := &Position{
+				CommitPosition:  cursor.CommitPosition,
+				PreparePosition: cursor.PreparePosition,
+			}
 			for _, event := range resp.Events {
 				if err := lease.Check(ctx); err != nil {
 					return err
@@ -1195,14 +1203,14 @@ func publishEventsLoopWithLease(
 				if event.Position == nil {
 					return fmt.Errorf("event %s has nil position", event.EventId)
 				}
-				if !positionAfter(event.Position, lastPosition) {
+				if !positionAfter(event.Position, batchCursor) {
 					return fmt.Errorf(
 						"event %s position (%d, %d) is not after cursor (%d, %d)",
 						event.EventId,
 						event.Position.CommitPosition,
 						event.Position.PreparePosition,
-						lastPosition.CommitPosition,
-						lastPosition.PreparePosition,
+						batchCursor.CommitPosition,
+						batchCursor.PreparePosition,
 					)
 				}
 
@@ -1245,19 +1253,25 @@ func publishEventsLoopWithLease(
 					}
 				}
 
-				if err := lease.Check(ctx); err != nil {
-					return err
-				}
-				if err := db.InsertLastPublishedEvent(
-					ctx,
-					boundary,
-					event.Position.CommitPosition,
-					event.Position.PreparePosition,
-				); err != nil {
-					return fmt.Errorf("insert last published: %w", err)
-				}
-				lastPosition = event.Position
+				batchCursor.CommitPosition = event.Position.CommitPosition
+				batchCursor.PreparePosition = event.Position.PreparePosition
 			}
+
+			// The whole batch is now a contiguous acknowledged prefix. Persist only
+			// its final position. A crash or lease loss before this write replays the
+			// batch, which is safe under the documented at-least-once contract.
+			if err := lease.Check(ctx); err != nil {
+				return err
+			}
+			if err := db.InsertLastPublishedEvent(
+				ctx,
+				boundary,
+				batchCursor.CommitPosition,
+				batchCursor.PreparePosition,
+			); err != nil {
+				return fmt.Errorf("insert last published batch checkpoint: %w", err)
+			}
+			cursor = batchCursor
 		}
 
 		// Wait for the next signal (NOTIFY, catch-up tick, or poll) before

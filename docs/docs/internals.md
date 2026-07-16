@@ -51,8 +51,8 @@ This excludes events whose commit is not yet visible to the read snapshot. It is
 One active publisher per boundary drains the committed log and publishes to embedded NATS JetStream:
 
 1. Read committed events after the persisted checkpoint, ordered ascending by `(transaction_id, global_id)`.
-2. Publish each event to the boundary's JetStream subject.
-3. Record the new checkpoint in the backend (`{boundary}_orisun_last_published_event_position`).
+2. Publish each event in the batch sequentially to the boundary's JetStream subject.
+3. After the whole batch is acknowledged, record its final position in the backend (`{boundary}_orisun_last_published_event_position`).
 4. Repeat until the log is drained, then wait for the next wake-up.
 
 ### Wake-ups are hints, not the guarantee
@@ -63,7 +63,7 @@ For YugabyteDB (`ORISUN_PG_DIALECT=yugabyte`), Orisun uses an application-manage
 
 ### At-least-once around publish + checkpoint
 
-Publishing is at-least-once across the publish→checkpoint boundary: if JetStream accepts an event and the checkpoint write then fails, the event is republished on the next cycle. Events are never skipped and never published out of per-boundary order. Consumers deduplicate by `event_id`. See [Delivery Guarantees](./concepts/delivery-guarantees).
+Publishing is at-least-once across the batch publish→checkpoint boundary. If JetStream accepts some or all of a batch and the final checkpoint write fails, the batch is replayed from the previous checkpoint on the next cycle. This can produce duplicates but cannot skip events or publish them out of per-boundary order. Consumers deduplicate by `event_id`. See [Delivery Guarantees](./concepts/delivery-guarantees).
 
 ## Clustering and ownership
 
