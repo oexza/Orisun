@@ -24,7 +24,7 @@ The mechanism behind this is **Command Context Consistency (CCC)**: commands dec
 
 **Start here:** [What is Orisun?](https://orisunlabs.github.io/Orisun/docs/)
 
-**Current release:** [`v0.6.0`](https://github.com/OrisunLabs/Orisun/releases/tag/v0.6.0)
+**Current release:** [`v0.6.1`](https://github.com/OrisunLabs/Orisun/releases/tag/v0.6.1)
 
 ## What It Provides
 
@@ -78,7 +78,7 @@ docker run --rm \
   -e ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
   -e ORISUN_ADMIN_BOUNDARY=orisun_admin \
   -v orisun-data:/var/lib/orisun \
-  orexza/orisun:0.6.0-sqlite
+  orisunlabs/orisun:0.6.1-sqlite
 ```
 
 PostgreSQL with a binary:
@@ -113,7 +113,7 @@ See the [getting started guide](https://orisunlabs.github.io/Orisun/docs/getting
 | Setup guide | [SQLite, PostgreSQL, and YugabyteDB setup](https://orisunlabs.github.io/Orisun/docs/getting-started) |
 | API guide | [EventStore and Admin API](https://orisunlabs.github.io/Orisun/docs/api/eventstore) |
 | Releases | [github.com/OrisunLabs/Orisun/releases](https://github.com/OrisunLabs/Orisun/releases) |
-| Docker images | [Docker Hub](https://hub.docker.com/r/orexza/orisun), [GHCR](https://github.com/OrisunLabs/Orisun/pkgs/container/orisun) |
+| Docker images | [Docker Hub](https://hub.docker.com/repository/docker/orisunlabs/orisun), [GHCR](https://github.com/OrisunLabs/Orisun/pkgs/container/orisun) |
 | Go client | [orisun-client-go](https://github.com/OrisunLabs/orisun-client-go) |
 | Node.js client | [orisun-node-client](https://github.com/OrisunLabs/orisun-node-client) |
 | Java client | [orisun-client-java](https://github.com/OrisunLabs/orisun-client-java) |
@@ -126,18 +126,18 @@ Release binaries are attached to each GitHub release:
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` (beta) |
 
-Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`) with the same flavor tags:
+Docker tags are published to Docker Hub (`orisunlabs/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`) with the same flavor tags:
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
-| `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
-| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
-| `orexza/orisun:<version>-sqlite` | SQLite-only release |
-| `orexza/orisun:<version>-fdb` | FoundationDB-only release |
+| `orisunlabs/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
+| `orisunlabs/orisun:sqlite` | SQLite only |
+| `orisunlabs/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
+| `orisunlabs/orisun:<version>-pg` | PostgreSQL-compatible release |
+| `orisunlabs/orisun:<version>-sqlite` | SQLite-only release |
+| `orisunlabs/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same suffixes with `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.0-fdb`.
+Use the same suffixes with `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.1-fdb`.
 
 ## Development
 

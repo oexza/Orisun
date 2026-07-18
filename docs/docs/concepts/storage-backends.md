@@ -44,7 +44,7 @@ Do not use PostgreSQL internal transaction IDs as application cursors. From Oris
 
 ## FoundationDB
 
-FoundationDB is a beta clustered backend built on ordered key-value transactions. Use the `orisun-fdb` release binary, the `orexza/orisun:fdb` / `ghcr.io/orisunlabs/orisun:fdb` image, or build your own binary with the `foundationdb` build tag and native FoundationDB client libraries.
+FoundationDB is a beta clustered backend built on ordered key-value transactions. Use the `orisun-fdb` release binary, the `orisunlabs/orisun:fdb` / `ghcr.io/orisunlabs/orisun:fdb` image, or build your own binary with the `foundationdb` build tag and native FoundationDB client libraries.
 
 FoundationDB stores:
 

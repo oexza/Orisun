@@ -72,15 +72,15 @@ chmod +x ./orisun-sqlite
 
 ## Docker Tags
 
-The release workflow publishes the same tags to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`).
+The release workflow publishes the same tags to Docker Hub (`orisunlabs/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`).
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
-| `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
-| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release version |
-| `orexza/orisun:<version>-sqlite` | SQLite-only release version |
-| `orexza/orisun:<version>-fdb` | FoundationDB-only release version |
+| `orisunlabs/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
+| `orisunlabs/orisun:sqlite` | SQLite only |
+| `orisunlabs/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
+| `orisunlabs/orisun:<version>-pg` | PostgreSQL-compatible release version |
+| `orisunlabs/orisun:<version>-sqlite` | SQLite-only release version |
+| `orisunlabs/orisun:<version>-fdb` | FoundationDB-only release version |
 
 Use the same suffixes with `ghcr.io/orisunlabs/orisun` when you prefer GHCR.

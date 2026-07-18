@@ -1,6 +1,6 @@
 services:
   orisun:
-    image: orexza/orisun:pg
+    image: orisunlabs/orisun:0.6.1-pg
     ports:
       - "8991:8991"
       - "5005:5005"

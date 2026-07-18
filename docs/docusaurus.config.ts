@@ -93,7 +93,7 @@ const config: Config = {
         {to: '/docs/api', label: 'API', position: 'left'},
         {to: '/docs/operations', label: 'Operations', position: 'left'},
         {href: 'https://github.com/OrisunLabs/Orisun/releases', label: 'Releases', position: 'right'},
-        {href: 'https://hub.docker.com/r/orexza/orisun', label: 'Docker', position: 'right'},
+        {href: 'https://hub.docker.com/repository/docker/orisunlabs/orisun', label: 'Docker', position: 'right'},
         {href: 'https://github.com/OrisunLabs/Orisun', label: 'GitHub', position: 'right'},
       ],
     },
@@ -126,7 +126,7 @@ const config: Config = {
           items: [
             {label: 'GitHub', href: 'https://github.com/OrisunLabs/Orisun'},
             {label: 'Releases', href: 'https://github.com/OrisunLabs/Orisun/releases'},
-            {label: 'Docker Hub', href: 'https://hub.docker.com/r/orexza/orisun'},
+            {label: 'Docker Hub', href: 'https://hub.docker.com/repository/docker/orisunlabs/orisun'},
           ],
         },
       ],

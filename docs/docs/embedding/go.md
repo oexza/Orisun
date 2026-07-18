@@ -5,10 +5,10 @@ description: Run Orisun directly inside a Go service.
 
 Go services can embed Orisun directly instead of running the gRPC server as a separate process.
 
-This guide targets Orisun `0.6.0`. Install the canonical module path with:
+This guide targets Orisun `0.6.1`. Install the canonical module path with:
 
 ```bash
-go get github.com/OrisunLabs/Orisun@v0.6.0
+go get github.com/OrisunLabs/Orisun@v0.6.1
 ```
 
 If you are upgrading from `v0.5.0`, replace `github.com/oexza/Orisun` with `github.com/OrisunLabs/Orisun` in `go.mod` and imports, then run `go mod tidy`. The module-path move does not change the gRPC wire contract or persisted data.
@@ -130,7 +130,7 @@ go build -tags foundationdb ./...
 
 ## Reading events in-process
 
-Embedded reads skip protobuf materialization. In Orisun `0.6.0`, `GetEvents` returns a packed `ReadEventBatch` whose events carry scalar `CommitPosition` and `PreparePosition` fields and a `time.Time` `DateCreated`:
+Embedded reads skip protobuf materialization. In Orisun `0.6.1`, `GetEvents` returns a packed `ReadEventBatch` whose events carry scalar `CommitPosition` and `PreparePosition` fields and a `time.Time` `DateCreated`:
 
 ```go
 batch, err := store.GetEvents(ctx, &orisun.GetEventsRequest{

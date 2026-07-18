@@ -7,7 +7,7 @@ slug: /getting-started
 
 Orisun is an event database for decisions that must stay correct as facts change: preserve the event history a command depends on, commit only when its declared context is still current, and publish committed events sequentially within each boundary without running a separate broker.
 
-This guide targets Orisun `0.6.0`.
+This guide targets Orisun `0.6.1`.
 
 You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
@@ -52,9 +52,9 @@ You can move to PostgreSQL later without changing the EventStore API.
 
 | Backend | Best for | Multi-node | Binary | Docker Hub image | GHCR image |
 | --- | --- | --- | --- | --- | --- |
-| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/orisunlabs/orisun:sqlite` |
-| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/orisunlabs/orisun:pg` |
-| FoundationDB | Distributed transactional key-value deployments | Yes | `orisun-fdb` | `orexza/orisun:fdb` | `ghcr.io/orisunlabs/orisun:fdb` |
+| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orisunlabs/orisun:sqlite` | `ghcr.io/orisunlabs/orisun:sqlite` |
+| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orisunlabs/orisun:pg` | `ghcr.io/orisunlabs/orisun:pg` |
+| FoundationDB | Distributed transactional key-value deployments | Yes | `orisun-fdb` | `orisunlabs/orisun:fdb` | `ghcr.io/orisunlabs/orisun:fdb` |
 
 All backends expose the same EventStore and Admin gRPC APIs. FoundationDB support is beta.
 
@@ -93,7 +93,7 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 For example, on Linux amd64:
 
 ```bash
-VERSION=0.6.0
+VERSION=0.6.1
 
 curl -L \
   "https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \
@@ -200,7 +200,7 @@ Create `docker-compose.yml`:
 ```yaml
 services:
   orisun:
-    image: orexza/orisun:0.6.0-sqlite
+    image: orisunlabs/orisun:0.6.1-sqlite
     environment:
       ORISUN_BACKEND: sqlite
       ORISUN_SQLITE_DIR: /var/lib/orisun/sqlite
@@ -244,7 +244,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   orisun:
-    image: orexza/orisun:0.6.0-pg
+    image: orisunlabs/orisun:0.6.1-pg
     environment:
       ORISUN_PG_HOST: postgres
       ORISUN_PG_PORT: 5432
@@ -297,7 +297,7 @@ services:
       - yugabyte-data:/root/var
 
   orisun:
-    image: orexza/orisun:0.6.0-pg
+    image: orisunlabs/orisun:0.6.1-pg
     environment:
       ORISUN_BACKEND: postgres
       ORISUN_PG_DIALECT: yugabyte
@@ -405,14 +405,14 @@ Docker images are published to Docker Hub and GitHub Container Registry with the
 
 | Tag | Backend |
 | --- | --- |
-| `orexza/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
-| `orexza/orisun:sqlite` | SQLite only |
-| `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
-| `orexza/orisun:<version>-pg` | PostgreSQL-compatible release |
-| `orexza/orisun:<version>-sqlite` | SQLite-only release |
-| `orexza/orisun:<version>-fdb` | FoundationDB-only release |
+| `orisunlabs/orisun:pg` | PostgreSQL-compatible backends: PostgreSQL and YugabyteDB |
+| `orisunlabs/orisun:sqlite` | SQLite only |
+| `orisunlabs/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
+| `orisunlabs/orisun:<version>-pg` | PostgreSQL-compatible release |
+| `orisunlabs/orisun:<version>-sqlite` | SQLite-only release |
+| `orisunlabs/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same tag names under `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.0-fdb`.
+Use the same tag names under `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.1-fdb`.
 
 ## Next steps
 

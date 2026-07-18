@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Moved Docker Hub publishing and image documentation from `orexza/orisun` to the OrisunLabs-owned `orisunlabs/orisun` repository.
+
 ## 0.6.1 - 2026-07-18
 
 ### Changed

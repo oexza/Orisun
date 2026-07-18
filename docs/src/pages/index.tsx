@@ -154,7 +154,7 @@ docker run --rm \\
   -e ORISUN_BOUNDARIES \\
   -e ORISUN_ADMIN_BOUNDARY=orisun_admin \\
   -v orisun-data:/var/lib/orisun \\
-  orexza/orisun:sqlite`;
+  orisunlabs/orisun:0.6.1-sqlite`;
 
 export default function Home(): ReactNode {
   const diagramUrl = useBaseUrl('/img/orisun-flow.svg');
@@ -421,7 +421,7 @@ export default function Home(): ReactNode {
                 <Link className="button button--primary button--lg" to="/docs/getting-started">
                   Follow getting started
                 </Link>
-                <a className="button button--secondary button--lg" href="https://hub.docker.com/r/orexza/orisun">
+                <a className="button button--secondary button--lg" href="https://hub.docker.com/repository/docker/orisunlabs/orisun">
                   View Docker images
                 </a>
               </div>

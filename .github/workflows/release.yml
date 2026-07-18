@@ -283,9 +283,9 @@ jobs:
 
           ### Docker
           \`\`\`bash
-          docker pull orexza/orisun:${VERSION}-pg
-          docker pull orexza/orisun:${VERSION}-sqlite
-          docker pull orexza/orisun:${VERSION}-fdb
+          docker pull orisunlabs/orisun:${VERSION}-pg
+          docker pull orisunlabs/orisun:${VERSION}-sqlite
+          docker pull orisunlabs/orisun:${VERSION}-fdb
           \`\`\`
 
           Channel tags are also available: \`pg\`, \`sqlite\`, and \`fdb\`.
@@ -346,7 +346,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-        # Note: You must add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets in your GitHub repository settings
+        # The Docker Hub account/token must have Read & Write access to
+        # https://hub.docker.com/repository/docker/orisunlabs/orisun
 
       - name: Set Docker build metadata
         id: docker_meta
@@ -369,5 +370,5 @@ jobs:
           tags: |
             ghcr.io/orisunlabs/orisun:${{ matrix.channel_tag }}
             ghcr.io/orisunlabs/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
-            orexza/orisun:${{ matrix.channel_tag }}
-            orexza/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
+            orisunlabs/orisun:${{ matrix.channel_tag }}
+            orisunlabs/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
