@@ -5,23 +5,20 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go/jetstream"
-	common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/logging"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
-	"github.com/lib/pq"
-	eventstore "github.com/oexza/Orisun/orisun"
-
-	config "github.com/oexza/Orisun/config"
-
-	"github.com/oexza/Orisun/orisun"
-
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lib/pq"
+	"github.com/nats-io/nats.go/jetstream"
+	common "github.com/oexza/Orisun/admin/slices/common"
+	config "github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
+	eventstore "github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -170,7 +167,7 @@ func (s *PostgresSaveEvents) SavePrepared(
 	return tranID, globID, nil
 }
 
-func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("Getting events from request: %v", req)
 	}
@@ -178,6 +175,12 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	schema, err := s.Schema(req.Boundary)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+	}
+	count := req.Count
+	if count == 0 {
+		count = eventstore.DefaultReadBatchSize
+	} else if count > eventstore.MaxReadBatchSize {
+		count = eventstore.MaxReadBatchSize
 	}
 
 	var fromPositionMarshaled *[]byte = nil
@@ -231,77 +234,29 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		paramsJSON,
 		fromPositionMarshaled,
 		req.Direction.String(),
-		req.Count,
+		count,
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
 	}
 	defer rows.Close()
 
-	// Pre-allocate events slice with expected capacity
-	events := make([]*eventstore.Event, 0, req.Count)
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get column names: %v", err)
-	}
-
-	// Create a slice of pointers to scan into
-	scanArgs := make([]any, len(columns))
-
-	// Reuse these variables for each row to reduce allocations
-	var event eventstore.Event
-	// var tagsBytes []byte
-	var transactionID, globalID int64
-	var dateCreated time.Time
-
-	// Create a map of pointers to hold our row data - only once
-	rowData := map[string]any{
-		"event_id":       &event.EventId,
-		"event_type":     &event.EventType,
-		"data":           &event.Data,
-		"metadata":       &event.Metadata,
-		"transaction_id": &transactionID,
-		"global_id":      &globalID,
-		"date_created":   &dateCreated,
-	}
-
-	for i, col := range columns {
-		if ptr, ok := rowData[col]; ok {
-			scanArgs[i] = ptr
-		} else {
-			return nil, status.Errorf(codes.Internal, "unexpected column: %s", col)
-		}
-	}
+	batch := make(eventstore.ReadEventBatch, 0, count)
 
 	for rows.Next() {
-		// Reset event for reuse
-		event = eventstore.Event{}
-
-		// Scan the row into our map
-		if err := rows.Scan(scanArgs...); err != nil {
+		var event eventstore.ReadEvent
+		if err := rows.Scan(
+			&event.CommitPosition,
+			&event.PreparePosition,
+			&event.EventId,
+			&event.EventType,
+			&event.Data,
+			&event.Metadata,
+			&event.DateCreated,
+		); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
-
-		// Set the Position
-		event.Position = &eventstore.Position{
-			CommitPosition:  transactionID,
-			PreparePosition: globalID,
-		}
-
-		// Set the DateCreated
-		event.DateCreated = timestamppb.New(dateCreated)
-
-		// Create a new event pointer for each row
-		eventCopy := eventstore.Event{
-			EventId:     event.EventId,
-			EventType:   event.EventType,
-			Data:        event.Data,
-			Metadata:    event.Metadata,
-			Position:    event.Position,
-			DateCreated: event.DateCreated,
-		}
-		events = append(events, &eventCopy)
+		batch = append(batch, event)
 	}
 
 	// Check for errors from iterating over rows
@@ -309,7 +264,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
 	}
 
-	return &eventstore.GetEventsResponse{Events: events}, nil
+	return batch, nil
 }
 
 // GetLatestByCriteria returns the latest event per criterion plus the max

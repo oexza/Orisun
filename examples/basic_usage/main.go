@@ -132,16 +132,16 @@ func main() {
 		Boundary:  boundary,
 	}
 
-	eventsResponse, err := orisunServer.GetEvents(ctx, getEventsReq)
+	readEvents, err := orisunServer.GetEvents(ctx, getEventsReq)
 	if err != nil {
 		logger.Fatalf("Failed to get events: %v", err)
 	}
 
-	logger.Infof("Retrieved %d events:", len(eventsResponse.Events))
-	for i, event := range eventsResponse.Events {
+	logger.Infof("Retrieved %d events:", len(readEvents))
+	for i, event := range readEvents {
 		logger.Infof("Event %d: ID=%s, Type=%s, Position=Commit=%d,Prepare=%d",
 			i+1, event.EventId, event.EventType,
-			event.Position.CommitPosition, event.Position.PreparePosition)
+			event.CommitPosition, event.PreparePosition)
 	}
 
 	// Example 3: Subscribe to events

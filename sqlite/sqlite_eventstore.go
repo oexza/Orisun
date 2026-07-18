@@ -485,7 +485,7 @@ func NewSqliteGetEvents(pools map[string]*BoundaryPools, logger logging.Logger) 
 	return &SqliteGetEvents{pools: pools, logger: logger}
 }
 
-func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	pool, ok := s.pools[req.Boundary]
 	if !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
@@ -533,10 +533,10 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 
 	count := req.Count
 	if count == 0 {
-		count = 1000
+		count = eventstore.DefaultReadBatchSize
 	}
-	if count > 10000 {
-		count = 10000
+	if count > eventstore.MaxReadBatchSize {
+		count = eventstore.MaxReadBatchSize
 	}
 
 	q := fmt.Sprintf(
@@ -547,36 +547,18 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 
 	// Transient: criteria literals and LIMIT are inlined, so the SQL text has
 	// unbounded cardinality and must not enter the per-conn prepared-stmt cache.
-	events := make([]*eventstore.Event, 0, count)
+	batch := make(eventstore.ReadEventBatch, 0, count)
 	if err := sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
 		Args: args,
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			tx := stmt.ColumnInt64(0)
-			gid := stmt.ColumnInt64(1)
-			eid := stmt.ColumnText(2)
-			etype := stmt.ColumnText(3)
-			data := stmt.ColumnText(4)
-			meta := stmt.ColumnText(5)
-			created := stmt.ColumnText(6)
-
-			t, parseErr := time.Parse(time.RFC3339Nano, created)
-			if parseErr != nil {
-				if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
-					t = t2
-				} else {
-					t = time.Now().UTC()
-				}
-			}
-			events = append(events, &eventstore.Event{
-				EventId:   eid,
-				EventType: etype,
-				Data:      data,
-				Metadata:  meta,
-				Position: &eventstore.Position{
-					CommitPosition:  tx,
-					PreparePosition: gid,
-				},
-				DateCreated: timestamppb.New(t),
+			batch = append(batch, eventstore.ReadEvent{
+				CommitPosition:  stmt.ColumnInt64(0),
+				PreparePosition: stmt.ColumnInt64(1),
+				EventId:         stmt.ColumnText(2),
+				EventType:       stmt.ColumnText(3),
+				Data:            stmt.ColumnText(4),
+				Metadata:        stmt.ColumnText(5),
+				DateCreated:     parseSQLiteEventTime(stmt.ColumnText(6)),
 			})
 			return nil
 		},
@@ -584,7 +566,7 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 		return nil, status.Errorf(codes.Internal, "query events: %v", err)
 	}
 
-	return &eventstore.GetEventsResponse{Events: events}, nil
+	return batch, nil
 }
 
 // GetLatestByCriteria returns the latest event per criterion plus the max
@@ -663,15 +645,7 @@ func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventsto
 // scanEventRow decodes one orisun_es_event row in the canonical query order
 // (transaction_id, global_id, event_id, event_type alias, data, metadata, date_created).
 func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
-	created := stmt.ColumnText(6)
-	t, parseErr := time.Parse(time.RFC3339Nano, created)
-	if parseErr != nil {
-		if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
-			t = t2
-		} else {
-			t = time.Now().UTC()
-		}
-	}
+	t := parseSQLiteEventTime(stmt.ColumnText(6))
 	return &eventstore.Event{
 		EventId:   stmt.ColumnText(2),
 		EventType: stmt.ColumnText(3),
@@ -683,6 +657,18 @@ func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
 		},
 		DateCreated: timestamppb.New(t),
 	}
+}
+
+func parseSQLiteEventTime(created string) time.Time {
+	t, parseErr := time.Parse(time.RFC3339Nano, created)
+	if parseErr != nil {
+		if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
+			t = t2
+		} else {
+			t = time.Now().UTC()
+		}
+	}
+	return t
 }
 
 // ---------------------------------------------------------------------------

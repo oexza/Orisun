@@ -46,6 +46,12 @@ transaction_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())
 
 This excludes events whose commit is not yet visible to the read snapshot. It is what lets the publisher drain ascending by position without ever skipping a committed event that was in flight. Do not remove this barrier; wake-up signals are not a substitute for it.
 
+### Packed read batches
+
+The paginated `GetEvents` storage path returns rows internally as one contiguous `ReadEventBatch`. Each row carries event strings, scalar position fields, and a `time.Time`, avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on internal consumers. PostgreSQL scans the fixed seven-column result directly instead of discovering columns and constructing a pointer map for each request. Specialized reads such as `GetLatestByCriteria` retain their protobuf-shaped result construction.
+
+The publisher, catch-up subscriptions, and embedded `OrisunServer.GetEvents` callers consume this packed batch directly. Only the gRPC `GetEvents` boundary materializes protobuf values, using one contiguous row slab plus its pointer index. Backend read pages are capped at 10,000 rows, the gRPC API rejects larger page requests, and internal drainers advance by position across pages.
+
 ## The publisher and no-miss ordering
 
 One active publisher per boundary drains the committed log and publishes to embedded NATS JetStream:

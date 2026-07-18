@@ -19,7 +19,6 @@ import (
 	eventstore "github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -126,25 +125,23 @@ func decodeEventRecord(value []byte) (eventRecord, map[string]any, error) {
 	return record, data, nil
 }
 
-func eventFromRecord(value []byte, tx, gid int64) (*eventstore.Event, error) {
+func readEventFromRecord(value []byte, tx, gid int64) (eventstore.ReadEvent, error) {
 	record, _, err := decodeEventRecord(value)
 	if err != nil {
-		return nil, err
+		return eventstore.ReadEvent{}, err
 	}
 	created, err := time.Parse(time.RFC3339Nano, record.DateCreated)
 	if err != nil {
 		created = time.Now().UTC()
 	}
-	return &eventstore.Event{
-		EventId:   record.EventID,
-		EventType: record.EventType,
-		Data:      record.Data,
-		Metadata:  record.Metadata,
-		Position: &eventstore.Position{
-			CommitPosition:  tx,
-			PreparePosition: gid,
-		},
-		DateCreated: timestamppb.New(created),
+	return eventstore.ReadEvent{
+		EventId:         record.EventID,
+		EventType:       record.EventType,
+		Data:            record.Data,
+		Metadata:        record.Metadata,
+		CommitPosition:  tx,
+		PreparePosition: gid,
+		DateCreated:     created,
 	}, nil
 }
 

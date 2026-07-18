@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Breaking Changes
+
+- Backend extensions now implement `EventsSaver.SavePrepared` with a canonical `PreparedEventBatch` and `EventsRetriever.GetBatch` with a contiguous `ReadEventBatch`. Third-party storage backends must migrate from the previous `Save` and protobuf-shaped `Get` methods.
+- Embedded Go callers now receive `ReadEventBatch` from `OrisunServer.GetEvents`. Read positions are exposed as scalar `CommitPosition` and `PreparePosition` fields, and `DateCreated` is a `time.Time`. The public gRPC/protobuf contract is unchanged.
+
+### Changed
+
+- Event input is normalized once at the API boundary before storage, eliminating repeated backend JSON decoding.
+- Publisher and catch-up reads stay in the packed representation. The publisher validates a complete advancing batch before publishing, uses an allocation-bounded JSON encoder, and persists one checkpoint after the whole batch is acknowledged.
+- Read pages are bounded at 10,000 rows. The gRPC API rejects larger page requests, while backend drainers continue paging by position.
+
 ## 0.4.0 - 2026-06-11
 
 ### Added

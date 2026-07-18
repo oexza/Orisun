@@ -35,7 +35,7 @@ type EventsSaver interface {
 }
 
 type EventsRetriever interface {
-	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
+	GetBatch(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error)
 	// GetLatestByCriteria returns the latest event per criterion from ONE
 	// backend read snapshot, plus the max observed position as the
 	// optimistic-lock token for the combined context.
@@ -542,10 +542,17 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	if req.Count == 0 {
 		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
 	}
+	if req.Count > MaxReadBatchSize {
+		return nil, status.Errorf(codes.InvalidArgument, "Count cannot exceed %d", MaxReadBatchSize)
+	}
 	// if req.FromPosition != nil && req.Stream != nil {
 	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
 	// }
-	return s.getEventsFn.Get(ctx, req)
+	batch, err := s.getEventsFn.GetBatch(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return batch.ProtoResponse(), nil
 }
 
 func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
@@ -622,34 +629,44 @@ func (s *EventStore) SubscribeToAllEvents(
 			}
 		}
 
-		resp, err := s.getEventsFn.Get(gCtx, getEventsReq)
+		batch, err := s.getEventsFn.GetBatch(gCtx, getEventsReq)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to get events during catch-up: %v", err)
 		}
 
 		// If no more events, we're caught up
-		if len(resp.Events) == 0 {
+		if len(batch) == 0 {
 			s.logger.Info("Catch-up phase completed: no more events in event store")
 			break
 		}
 
 		// Send all events in this batch
-		for _, event := range resp.Events {
+		for i := range batch {
 			if err := lease.Check(gCtx); err != nil {
 				return err
 			}
+			readEvent := &batch[i]
 
-			if lastProcessedPosition == nil || isEventPositionNewerThanPosition(event.Position, lastProcessedPosition) {
+			if lastProcessedPosition == nil || positionValuesAfter(
+				readEvent.CommitPosition,
+				readEvent.PreparePosition,
+				lastProcessedPosition.CommitPosition,
+				lastProcessedPosition.PreparePosition,
+			) {
+				event := readEvent.ProtoEvent()
 				if err := handler.Send(event); err != nil {
 					return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
 				}
 			}
 
-			lastProcessedPosition = event.Position
+			lastProcessedPosition = &Position{
+				CommitPosition:  readEvent.CommitPosition,
+				PreparePosition: readEvent.PreparePosition,
+			}
 		}
 
 		// If we got fewer events than requested, we're caught up
-		if len(resp.Events) < batchSize {
+		if len(batch) < batchSize {
 			s.logger.Info("Catch-up phase completed: reached end of event store")
 			break
 		}
@@ -679,15 +696,15 @@ func (s *EventStore) SubscribeToAllEvents(
 			},
 		}
 
-		lastEventResp, err := s.getEventsFn.Get(gCtx, lastEventReq)
+		lastEventBatch, err := s.getEventsFn.GetBatch(gCtx, lastEventReq)
 		if err != nil {
 			s.logger.Errorf("Failed to get last processed event for timestamp: %v", err)
 			return fmt.Errorf("cannot determine NATS subscription start time: failed to retrieve last processed event: %w", err)
-		} else if len(lastEventResp.Events) == 0 {
+		} else if len(lastEventBatch) == 0 {
 			s.logger.Warn("No events found after last processed position, using polling completion time for NATS subscription")
 			timeToSubscribeFromJetstream = pollingCompletedTime
 		} else {
-			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()
+			timeToSubscribeFromJetstream = lastEventBatch[0].DateCreated
 			if s.logger.IsDebugEnabled() {
 				s.logger.Debugf("Starting NATS subscription from last processed event time: %v", timeToSubscribeFromJetstream)
 			}
@@ -1168,7 +1185,7 @@ func publishEventsLoopWithLease(
 				Direction: Direction_ASC,
 				Boundary:  boundary,
 			}
-			resp, err := eventStore.Get(ctx, req)
+			batch, err := eventStore.GetBatch(ctx, req)
 			if err != nil {
 				logger.Errorf("Failed to get events for boundary %s: %v", boundary, err)
 				select {
@@ -1184,11 +1201,11 @@ func publishEventsLoopWithLease(
 			}
 			readBackoff = readRetryBase
 
-			if len(resp.Events) == 0 {
+			if len(batch) == 0 {
 				break
 			}
 
-			if err := validatePublishBatch(resp.Events, cursor); err != nil {
+			if err := validatePublishBatch(batch, cursor); err != nil {
 				return err
 			}
 
@@ -1196,19 +1213,18 @@ func publishEventsLoopWithLease(
 				CommitPosition:  cursor.CommitPosition,
 				PreparePosition: cursor.PreparePosition,
 			}
-			for _, event := range resp.Events {
+			for i := range batch {
+				event := &batch[i]
 				if err := lease.Check(ctx); err != nil {
 					return err
 				}
-				if event.Position == nil {
-					return fmt.Errorf("event %s has nil position", event.EventId)
-				}
-				if !positionAfter(event.Position, batchCursor) {
+				if !positionValuesAfter(event.CommitPosition, event.PreparePosition,
+					batchCursor.CommitPosition, batchCursor.PreparePosition) {
 					return fmt.Errorf(
 						"event %s position (%d, %d) is not after cursor (%d, %d)",
 						event.EventId,
-						event.Position.CommitPosition,
-						event.Position.PreparePosition,
+						event.CommitPosition,
+						event.PreparePosition,
 						batchCursor.CommitPosition,
 						batchCursor.PreparePosition,
 					)
@@ -1217,11 +1233,11 @@ func publishEventsLoopWithLease(
 				subjectName := GetEventJetstreamSubjectName(
 					boundary,
 					&Position{
-						CommitPosition:  event.Position.CommitPosition,
-						PreparePosition: event.Position.PreparePosition,
+						CommitPosition:  event.CommitPosition,
+						PreparePosition: event.PreparePosition,
 					},
 				)
-				eventData, err := json.Marshal(event)
+				eventData, err := event.MarshalJSON()
 				if err != nil {
 					return fmt.Errorf("marshal event: %w", err)
 				}
@@ -1235,7 +1251,7 @@ func publishEventsLoopWithLease(
 						ctx,
 						subjectName,
 						eventData,
-						jetstream.WithMsgID(GetEventNatsMessageId(event.Position.PreparePosition, event.Position.CommitPosition)),
+						jetstream.WithMsgID(GetEventNatsMessageId(event.PreparePosition, event.CommitPosition)),
 						jetstream.WithRetryAttempts(5),
 					)
 					if err == nil {
@@ -1253,8 +1269,8 @@ func publishEventsLoopWithLease(
 					}
 				}
 
-				batchCursor.CommitPosition = event.Position.CommitPosition
-				batchCursor.PreparePosition = event.Position.PreparePosition
+				batchCursor.CommitPosition = event.CommitPosition
+				batchCursor.PreparePosition = event.PreparePosition
 			}
 
 			// The whole batch is now a contiguous acknowledged prefix. Persist only
@@ -1282,33 +1298,27 @@ func publishEventsLoopWithLease(
 	}
 }
 
-func positionAfter(pos, cursor *Position) bool {
-	if pos == nil || cursor == nil {
-		return false
-	}
-	if pos.CommitPosition != cursor.CommitPosition {
-		return pos.CommitPosition > cursor.CommitPosition
-	}
-	return pos.PreparePosition > cursor.PreparePosition
+func positionValuesAfter(commit, prepare, previousCommit, previousPrepare int64) bool {
+	return commit > previousCommit || (commit == previousCommit && prepare > previousPrepare)
 }
 
-func validatePublishBatch(events []*Event, cursor *Position) error {
-	validationCursor := cursor
-	for _, event := range events {
-		if event.Position == nil {
-			return fmt.Errorf("event %s has nil position", event.EventId)
-		}
-		if !positionAfter(event.Position, validationCursor) {
+func validatePublishBatch(events ReadEventBatch, cursor *Position) error {
+	previousCommit := cursor.CommitPosition
+	previousPrepare := cursor.PreparePosition
+	for i := range events {
+		event := &events[i]
+		if !positionValuesAfter(event.CommitPosition, event.PreparePosition, previousCommit, previousPrepare) {
 			return fmt.Errorf(
 				"event %s position (%d, %d) is not after cursor (%d, %d)",
 				event.EventId,
-				event.Position.CommitPosition,
-				event.Position.PreparePosition,
-				validationCursor.CommitPosition,
-				validationCursor.PreparePosition,
+				event.CommitPosition,
+				event.PreparePosition,
+				previousCommit,
+				previousPrepare,
 			)
 		}
-		validationCursor = event.Position
+		previousCommit = event.CommitPosition
+		previousPrepare = event.PreparePosition
 	}
 	return nil
 }

@@ -34,12 +34,12 @@ func (noopLogger) Fatalf(string, ...any) {}
 // at req.Count, mimicking the position-inclusive paginated Get.
 type fakeRetriever struct {
 	mu      sync.Mutex
-	events  []*Event
+	events  ReadEventBatch
 	calls   int
 	errOnce bool
 }
 
-func (r *fakeRetriever) add(events ...*Event) {
+func (r *fakeRetriever) add(events ...ReadEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, events...)
@@ -49,7 +49,7 @@ func (r *fakeRetriever) GetLatestByCriteria(ctx context.Context, req *GetLatestB
 	return nil, errors.New("not implemented in fake")
 }
 
-func (r *fakeRetriever) Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
+func (r *fakeRetriever) GetBatch(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls++
@@ -57,17 +57,21 @@ func (r *fakeRetriever) Get(ctx context.Context, req *GetEventsRequest) (*GetEve
 		r.errOnce = false
 		return nil, errors.New("transient get error")
 	}
-	from := req.FromPosition.PreparePosition
-	var out []*Event
-	for _, e := range r.events {
-		if e.Position == nil || e.Position.PreparePosition >= from {
+	from := int64(-1)
+	if req.FromPosition != nil {
+		from = req.FromPosition.PreparePosition
+	}
+	out := make(ReadEventBatch, 0, req.Count)
+	for i := range r.events {
+		e := r.events[i]
+		if e.PreparePosition >= from {
 			out = append(out, e)
 			if uint32(len(out)) >= req.Count {
 				break
 			}
 		}
 	}
-	return &GetEventsResponse{Events: out}, nil
+	return out, nil
 }
 
 // fakeJS embeds jetstream.JetStream so only Publish needs an implementation;
@@ -177,12 +181,14 @@ func (s *pulseSignal) Wait(ctx context.Context) error {
 
 func (s *pulseSignal) Stop() { s.stopped.Store(true) }
 
-func makeEvent(i int) *Event {
-	return &Event{
-		EventId:   "e" + string(rune('0'+i)),
-		EventType: "TestEvent",
-		Data:      "{}",
-		Position:  &Position{CommitPosition: int64(i), PreparePosition: int64(i)},
+func makeEvent(i int) ReadEvent {
+	return ReadEvent{
+		EventId:         "e" + string(rune('0'+i)),
+		EventType:       "TestEvent",
+		Data:            "{}",
+		CommitPosition:  int64(i),
+		PreparePosition: int64(i),
+		DateCreated:     time.Unix(int64(i), 0).UTC(),
 	}
 }
 
@@ -372,10 +378,10 @@ func TestPublishEventsLoop_RejectsOutOfOrderBatchBeforePublishing(t *testing.T) 
 	assert.True(t, signal.stopped.Load())
 }
 
-func TestPublishEventsLoop_RejectsNilPositionBeforePublishing(t *testing.T) {
+func TestPublishEventsLoop_RejectsNonAdvancingPositionBeforePublishing(t *testing.T) {
 	retriever := &fakeRetriever{}
 	event := makeEvent(1)
-	event.Position = nil
+	event.CommitPosition = -1
 	retriever.add(event)
 	js := &fakeJS{}
 	tracker := &fakeTracker{}
@@ -384,7 +390,7 @@ func TestPublishEventsLoop_RejectsNilPositionBeforePublishing(t *testing.T) {
 	err := publishEventsLoop(context.Background(), js, retriever, 10, &Position{}, "b", tracker, signal, noopLogger{})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nil position")
+	assert.Contains(t, err.Error(), "is not after cursor")
 	assert.Equal(t, 0, js.publishedCount())
 	assert.Equal(t, 0, tracker.insertCount())
 	assert.True(t, signal.stopped.Load())

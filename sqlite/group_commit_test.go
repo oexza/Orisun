@@ -157,6 +157,7 @@ func saveBypassingQueue(
 func blockWorkerThenQueue(t *testing.T, saver *SqliteSaveEvents, bp *BoundaryPools, queued int, enqueue func()) {
 	t.Helper()
 	release := holdWriteConn(t, bp)
+	flushesBeforeBlocker := saver.gcSingleFlushes.Load()
 
 	blockerDone := make(chan error, 1)
 	go func() {
@@ -166,7 +167,9 @@ func blockWorkerThenQueue(t *testing.T, saver *SqliteSaveEvents, bp *BoundaryPoo
 		blockerDone <- err
 	}()
 	// The blocker is inside its (stalled) flush once the single-flush counter ticks.
-	waitUntil(t, "worker to pick up blocker", func() bool { return saver.gcSingleFlushes.Load() >= 1 })
+	waitUntil(t, "worker to pick up blocker", func() bool {
+		return saver.gcSingleFlushes.Load() > flushesBeforeBlocker
+	})
 
 	enqueue()
 	waitUntil(t, "requests to queue behind blocker", func() bool {
@@ -312,7 +315,7 @@ func TestGroupCommit_ResultsRouteToTheRightCallers(t *testing.T) {
 		if o.err != nil {
 			t.Fatalf("save %d: %v", i, o.err)
 		}
-		resp, err := getter.Get(context.Background(), &eventstore.GetEventsRequest{
+		resp, err := getter.GetBatch(context.Background(), &eventstore.GetEventsRequest{
 			Boundary:  gcBoundary,
 			Direction: eventstore.Direction_ASC,
 			Count:     10,
@@ -323,12 +326,12 @@ func TestGroupCommit_ResultsRouteToTheRightCallers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get %d: %v", i, err)
 		}
-		if len(resp.Events) != 1 {
-			t.Fatalf("save %d: expected 1 event, got %d", i, len(resp.Events))
+		if len(resp) != 1 {
+			t.Fatalf("save %d: expected 1 event, got %d", i, len(resp))
 		}
-		if resp.Events[0].Position.PreparePosition != o.gid {
+		if resp[0].PreparePosition != o.gid {
 			t.Errorf("save %d: returned gid %d but stored event has gid %d",
-				i, o.gid, resp.Events[0].Position.PreparePosition)
+				i, o.gid, resp[0].PreparePosition)
 		}
 	}
 }

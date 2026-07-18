@@ -4,10 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type capturePreparedSaver struct {
 	prepared PreparedEventBatch
+}
+
+type captureEventsRetriever struct {
+	batch ReadEventBatch
+	calls int
+}
+
+func (r *captureEventsRetriever) GetBatch(_ context.Context, _ *GetEventsRequest) (ReadEventBatch, error) {
+	r.calls++
+	return r.batch, nil
+}
+
+func (*captureEventsRetriever) GetLatestByCriteria(_ context.Context, _ *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
+	return &GetLatestByCriteriaResponse{}, nil
 }
 
 func (s *capturePreparedSaver) SavePrepared(_ context.Context, events PreparedEventBatch, _ string, _ *Position, _ *Query) (string, int64, error) {
@@ -100,5 +118,43 @@ func TestPrepareEventsForSaveOwnsByteInput(t *testing.T) {
 	}
 	if prepared[0].MetadataJSON != `{"source":"test"}` {
 		t.Fatalf("prepared metadata affected by caller mutation: %s", prepared[0].MetadataJSON)
+	}
+}
+
+func TestOrisunServerGetEventsReturnsPackedBatch(t *testing.T) {
+	created := time.Unix(1_700_000_000, 123).UTC()
+	retriever := &captureEventsRetriever{batch: ReadEventBatch{{
+		EventId:         "event-1",
+		EventType:       "OrderPlaced",
+		Data:            `{"eventType":"OrderPlaced"}`,
+		Metadata:        `{}`,
+		CommitPosition:  7,
+		PreparePosition: 8,
+		DateCreated:     created,
+	}}}
+	server := &OrisunServer{getEvents: retriever}
+
+	batch, err := server.GetEvents(context.Background(), &GetEventsRequest{Count: 1})
+	if err != nil {
+		t.Fatalf("GetEvents returned error: %v", err)
+	}
+	if len(batch) != 1 || batch[0].CommitPosition != 7 || batch[0].PreparePosition != 8 {
+		t.Fatalf("unexpected packed response: %+v", batch)
+	}
+	if got := batch[0].DateCreated; !got.Equal(created) {
+		t.Fatalf("unexpected creation time: %v", got)
+	}
+}
+
+func TestEventStoreGetEventsRejectsOversizedReadBeforeBackend(t *testing.T) {
+	retriever := &captureEventsRetriever{}
+	store := &EventStore{getEventsFn: retriever, logger: noopLogger{}}
+
+	_, err := store.GetEvents(context.Background(), &GetEventsRequest{Count: MaxReadBatchSize + 1})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+	if retriever.calls != 0 {
+		t.Fatalf("backend was called %d times", retriever.calls)
 	}
 }

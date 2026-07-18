@@ -33,6 +33,12 @@ type PostgresContainer struct {
 	port      string
 }
 
+func requirePosition(t *testing.T, e orisun.ReadEvent, commit, prepare int64) {
+	t.Helper()
+	require.Equal(t, commit, e.CommitPosition)
+	require.Equal(t, prepare, e.PreparePosition)
+}
+
 type YugabyteContainer struct {
 	container testcontainers.Container
 	host      string
@@ -285,7 +291,7 @@ func TestSaveAndGetEvents(t *testing.T) {
 	assert.Equal(t, int64(0), globalID)
 
 	// Get events
-	resp, err := getEvents.Get(
+	resp, err := getEvents.GetBatch(
 		t.Context(),
 		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
@@ -295,21 +301,21 @@ func TestSaveAndGetEvents(t *testing.T) {
 	)
 
 	assert.NoError(t, err)
-	assert.Len(t, resp.Events, 1)
-	assert.Equal(t, eventId.String(), resp.Events[0].EventId)
-	assert.Equal(t, "TestEvent", resp.Events[0].EventType)
-	assert.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, resp.Events[0].Position)
+	assert.Len(t, resp, 1)
+	assert.Equal(t, eventId.String(), resp[0].EventId)
+	assert.Equal(t, "TestEvent", resp[0].EventType)
+	requirePosition(t, resp[0], 1, 0)
 
 	// Check that the data contains the expected values
-	assert.Contains(t, resp.Events[0].Data, "key")
-	assert.Contains(t, resp.Events[0].Data, "value")
+	assert.Contains(t, resp[0].Data, "key")
+	assert.Contains(t, resp[0].Data, "value")
 
 	// Check that the metadata contains the expected values
-	assert.Contains(t, resp.Events[0].Metadata, "meta")
-	assert.Contains(t, resp.Events[0].Metadata, "data")
-	assert.Contains(t, resp.Events[0].Metadata, "tags")
+	assert.Contains(t, resp[0].Metadata, "meta")
+	assert.Contains(t, resp[0].Metadata, "data")
+	assert.Contains(t, resp[0].Metadata, "tags")
 
-	fromBeginning, err := getEvents.Get(
+	fromBeginning, err := getEvents.GetBatch(
 		t.Context(),
 		&orisun.GetEventsRequest{
 			Boundary:     "test_boundary",
@@ -319,8 +325,8 @@ func TestSaveAndGetEvents(t *testing.T) {
 		},
 	)
 	assert.NoError(t, err)
-	assert.Len(t, fromBeginning.Events, 1)
-	assert.Equal(t, eventId.String(), fromBeginning.Events[0].EventId)
+	assert.Len(t, fromBeginning, 1)
+	assert.Equal(t, eventId.String(), fromBeginning[0].EventId)
 }
 
 func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
@@ -496,18 +502,18 @@ func TestRunDbScripts_NormalizesLegacyPostgresTransactionIDs(t *testing.T) {
 	require.Equal(t, int64(3), globalID)
 	require.Equal(t, "4", transactionID)
 
-	resp, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+	resp, err := getEvents.GetBatch(t.Context(), &orisun.GetEventsRequest{
 		Boundary:     "test_boundary",
 		Direction:    orisun.Direction_ASC,
 		Count:        10,
 		FromPosition: &orisun.Position{CommitPosition: 0, PreparePosition: 0},
 	})
 	require.NoError(t, err)
-	require.Len(t, resp.Events, 4)
-	require.Equal(t, &orisun.Position{CommitPosition: 2, PreparePosition: 0}, resp.Events[0].Position)
-	require.Equal(t, &orisun.Position{CommitPosition: 2, PreparePosition: 1}, resp.Events[1].Position)
-	require.Equal(t, &orisun.Position{CommitPosition: 3, PreparePosition: 2}, resp.Events[2].Position)
-	require.Equal(t, &orisun.Position{CommitPosition: 4, PreparePosition: 3}, resp.Events[3].Position)
+	require.Len(t, resp, 4)
+	requirePosition(t, resp[0], 2, 0)
+	requirePosition(t, resp[1], 2, 1)
+	requirePosition(t, resp[2], 3, 2)
+	requirePosition(t, resp[3], 4, 3)
 
 	var pgXactID sql.NullInt64
 	err = db.QueryRow(`
@@ -590,13 +596,13 @@ func TestYugabyteDialectUsesCommittedWatermark(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	hidden, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+	hidden, err := getEvents.GetBatch(t.Context(), &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
 	})
 	require.NoError(t, err)
-	require.Empty(t, hidden.Events)
+	require.Empty(t, hidden)
 
 	_, err = db.Exec(`
 		UPDATE public.test_boundary_orisun_committed_position
@@ -605,14 +611,14 @@ func TestYugabyteDialectUsesCommittedWatermark(t *testing.T) {
 	`)
 	require.NoError(t, err)
 
-	visible, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+	visible, err := getEvents.GetBatch(t.Context(), &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
 	})
 	require.NoError(t, err)
-	require.Len(t, visible.Events, 1)
-	require.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, visible.Events[0].Position)
+	require.Len(t, visible, 1)
+	requirePosition(t, visible[0], 1, 0)
 }
 
 func TestYugabyteContainerDialectSaveGetAndNotify(t *testing.T) {
@@ -680,15 +686,15 @@ func TestYugabyteContainerDialectSaveGetAndNotify(t *testing.T) {
 	defer cancel()
 	require.NoError(t, signal.Wait(waitCtx), "Yugabyte LISTEN/NOTIFY should wake the boundary listener")
 
-	resp, err := getEvents.Get(t.Context(), &orisun.GetEventsRequest{
+	resp, err := getEvents.GetBatch(t.Context(), &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
 	})
 	require.NoError(t, err)
-	require.Len(t, resp.Events, 1)
-	require.Equal(t, eventID, resp.Events[0].EventId)
-	require.Equal(t, &orisun.Position{CommitPosition: 1, PreparePosition: 0}, resp.Events[0].Position)
+	require.Len(t, resp, 1)
+	require.Equal(t, eventID, resp[0].EventId)
+	requirePosition(t, resp[0], 1, 0)
 
 	var watermarkTransactionID, watermarkGlobalID int64
 	err = db.QueryRow(`
@@ -774,13 +780,13 @@ func TestInsertsSerializePerBoundaryAndPositionsFollowCommitOrder(t *testing.T) 
 	case <-time.After(750 * time.Millisecond):
 	}
 
-	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, resp.Events, "nothing must be visible while the only insert is still open")
+	assert.Empty(t, resp, "nothing must be visible while the only insert is still open")
 
 	require.NoError(t, txOlder.Commit())
 
@@ -794,16 +800,16 @@ func TestInsertsSerializePerBoundaryAndPositionsFollowCommitOrder(t *testing.T) 
 	require.Greater(t, younger.gid, olderGid, "positions must be assigned in commit order")
 
 	require.Eventually(t, func() bool {
-		resp, err = getEvents.Get(ctx, &orisun.GetEventsRequest{
+		resp, err = getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
 			Direction: orisun.Direction_ASC,
 			Count:     10,
 		})
-		return err == nil && len(resp.Events) == 2
+		return err == nil && len(resp) == 2
 	}, 5*time.Second, 50*time.Millisecond)
 
-	require.Equal(t, olderID, resp.Events[0].EventId)
-	require.Equal(t, youngerID, resp.Events[1].EventId)
+	require.Equal(t, olderID, resp[0].EventId)
+	require.Equal(t, youngerID, resp[1].EventId)
 }
 
 func insertEventInTx(ctx context.Context, tx *sql.Tx, eventID, eventType string) (int64, error) {
@@ -890,7 +896,7 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	}
 
 	// Verify all 100 events were saved correctly
-	resp, err := getEvents.Get(
+	resp, err := getEvents.GetBatch(
 		t.Context(),
 		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
@@ -900,10 +906,10 @@ func TestSave200EventsOneByOne(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	assert.Len(t, resp.Events, 100, "Should have exactly 100 events")
+	assert.Len(t, resp, 100, "Should have exactly 100 events")
 
 	// // Verify the sequence and content of events
-	// for i, event := range resp.Events {
+	// for i, event := range resp {
 	// 	assert.Equal(t, "SequentialEvent", event.EventType, "Event %d should have correct type", i)
 	// 	assert.Contains(t, event.Data, fmt.Sprintf("\"sequence\": %d", i), "Event %d should have correct sequence in data", i)
 	// 	assert.Contains(t, event.Data, fmt.Sprintf("\"message\": \"Event number %d\"", i), "Event %d should have correct message", i)
@@ -1233,7 +1239,7 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test filtering by tag criteria
-	resp, err := getEvents.Get(
+	resp, err := getEvents.GetBatch(
 		t.Context(),
 		&orisun.GetEventsRequest{
 			Boundary:  "test_boundary",
@@ -1252,9 +1258,9 @@ func TestGetEventsWithCriteria(t *testing.T) {
 	)
 
 	assert.NoError(t, err)
-	assert.Len(t, resp.Events, 1, "Expected to find one event with tag key=value2")
-	if len(resp.Events) > 0 {
-		assert.Equal(t, eventId.String(), resp.Events[0].EventId)
+	assert.Len(t, resp, 1, "Expected to find one event with tag key=value2")
+	if len(resp) > 0 {
+		assert.Equal(t, eventId.String(), resp[0].EventId)
 	}
 }
 
@@ -1322,7 +1328,7 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	// Get events after the second event's global position
 	// Position requires actual transaction_id and global_id from the saved events
 	transactionIDInt, _ := strconv.ParseInt(transactionIDs[2], 10, 64)
-	resp, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
@@ -1333,9 +1339,9 @@ func TestGetEventsByGlobalPosition(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.GreaterOrEqual(t, len(resp.Events), 3) // Should get at least events 2, 3, and 4
+	assert.GreaterOrEqual(t, len(resp), 3) // Should get at least events 2, 3, and 4
 
-	for i, event := range resp.Events {
+	for i, event := range resp {
 		expectedIndex := i + 2
 		var data map[string]any
 		require.NoError(t, json.Unmarshal([]byte(event.Data), &data))
@@ -1402,18 +1408,18 @@ func TestPagination(t *testing.T) {
 	}
 
 	// Get first page (3 events)
-	resp1, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp1, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     3,
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp1.Events, 3)
+	assert.Len(t, resp1, 3)
 
 	// Get second page (3 events) using composite position of last from page 1
-	lastPos := resp1.Events[len(resp1.Events)-1].Position
-	resp2, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	lastPos := resp1[len(resp1)-1]
+	resp2, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     3,
@@ -1424,12 +1430,12 @@ func TestPagination(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp2.Events, 3)
+	assert.Len(t, resp2, 3)
 
 	// Verify the events are different between pages
-	assert.NotEqual(t, resp1.Events[0].EventId, resp2.Events[0].EventId)
-	assert.NotEqual(t, resp1.Events[1].EventId, resp2.Events[1].EventId)
-	assert.NotEqual(t, resp1.Events[2].EventId, resp2.Events[2].EventId)
+	assert.NotEqual(t, resp1[0].EventId, resp2[0].EventId)
+	assert.NotEqual(t, resp1[1].EventId, resp2[1].EventId)
+	assert.NotEqual(t, resp1[2].EventId, resp2[2].EventId)
 }
 
 func TestDirectionOrdering(t *testing.T) {
@@ -1490,28 +1496,28 @@ func TestDirectionOrdering(t *testing.T) {
 	}
 
 	// Get events in ascending order
-	respAsc, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	respAsc, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, respAsc.Events, 5)
+	assert.Len(t, respAsc, 5)
 
 	// Get events in descending order
-	respDesc, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	respDesc, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_DESC,
 		Count:     10,
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, respDesc.Events, 5)
+	assert.Len(t, respDesc, 5)
 
 	// Verify the order is reversed
 	for i := range 5 {
-		assert.Equal(t, respAsc.Events[i].EventId, respDesc.Events[4-i].EventId)
+		assert.Equal(t, respAsc[i].EventId, respDesc[4-i].EventId)
 	}
 }
 
@@ -1761,7 +1767,7 @@ func TestComplexTagQueries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test 1: OR query - category A OR category B with priority high
-	resp1, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp1, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
@@ -1784,10 +1790,10 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp1.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp1, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 2: AND query - region east
-	resp2, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp2, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
@@ -1803,10 +1809,10 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp2.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp2, 2, "The query should return 0 events as the tags are in metadata, not in data")
 
 	// Test 3: Complex query - (category A AND region west) OR (category B AND priority high)
-	resp3, err := getEvents.Get(ctx, &orisun.GetEventsRequest{
+	resp3, err := getEvents.GetBatch(ctx, &orisun.GetEventsRequest{
 		Boundary:  "test_boundary",
 		Direction: orisun.Direction_ASC,
 		Count:     10,
@@ -1829,5 +1835,5 @@ func TestComplexTagQueries(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Len(t, resp3.Events, 2, "The query should return 0 events as the tags are in metadata, not in data")
+	assert.Len(t, resp3, 2, "The query should return 0 events as the tags are in metadata, not in data")
 }

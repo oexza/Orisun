@@ -88,15 +88,26 @@ func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags
 	}, nil
 }
 
-// GetEvents retrieves events from the event store based on the request
-func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
-	// Get events
-	internalResp, err := c.getEvents.Get(ctx, req)
+// GetEvents retrieves events from the event store based on the request.
+func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error) {
+	batch, err := c.getEvents.GetBatch(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get events: %w", err)
 	}
 
-	return internalResp, nil
+	return batch, nil
+}
+
+// GetLatestByCriteria returns the latest event per criterion from one backend
+// read snapshot, plus the max observed position as the optimistic-lock token
+// for the combined context.
+func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
+	resp, err := c.getEvents.GetLatestByCriteria(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest by criteria: %w", err)
+	}
+
+	return resp, nil
 }
 
 // SubscribeToEvents subscribes to events from a boundary with the given handler
