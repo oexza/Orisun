@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-07-18
+
 ### Breaking Changes
 
 - Backend extensions now implement `EventsSaver.SavePrepared` with a canonical `PreparedEventBatch` and `EventsRetriever.GetBatch` with a contiguous `ReadEventBatch`. Third-party storage backends must migrate from the previous `Save` and protobuf-shaped `Get` methods.
