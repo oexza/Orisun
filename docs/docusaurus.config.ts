@@ -12,6 +12,24 @@ const config: Config = {
   onBrokenLinks: 'throw',
   trailingSlash: false,
 
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
+    },
+    {
+      tagName: 'link',
+      attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'},
+    },
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;650&display=swap',
+      },
+    },
+  ],
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
@@ -45,6 +63,15 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/orisun-social.png',
+    colorMode: {
+      respectPrefersColorScheme: true,
+    },
+    docs: {
+      sidebar: {
+        hideable: true,
+        autoCollapseCategories: false,
+      },
+    },
     metadata: [
       {
         name: 'description',
@@ -62,8 +89,9 @@ const config: Config = {
       items: [
         {to: '/docs', label: 'Docs', position: 'left'},
         {to: '/docs/tutorial', label: 'Tutorial', position: 'left'},
-        {to: '/docs/api/eventstore', label: 'API', position: 'left'},
-        {to: '/docs/operations/deployment', label: 'Operations', position: 'left'},
+        {to: '/docs/concepts', label: 'Concepts', position: 'left'},
+        {to: '/docs/api', label: 'API', position: 'left'},
+        {to: '/docs/operations', label: 'Operations', position: 'left'},
         {href: 'https://github.com/OrisunLabs/Orisun/releases', label: 'Releases', position: 'right'},
         {href: 'https://hub.docker.com/r/orexza/orisun', label: 'Docker', position: 'right'},
         {href: 'https://github.com/OrisunLabs/Orisun', label: 'GitHub', position: 'right'},
@@ -78,7 +106,7 @@ const config: Config = {
             {label: 'Overview', to: '/docs'},
             {label: 'Getting Started', to: '/docs/getting-started'},
             {label: 'Tutorial', to: '/docs/tutorial'},
-            {label: 'Concepts', to: '/docs/concepts/command-context-consistency'},
+            {label: 'Concepts', to: '/docs/concepts'},
             {label: 'EventStore API', to: '/docs/api/eventstore'},
             {label: 'Embedding', to: '/docs/embedding/go'},
           ],
