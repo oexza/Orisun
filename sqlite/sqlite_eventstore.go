@@ -20,10 +20,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	common "github.com/oexza/Orisun/admin/slices/common"
-	config "github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	eventstore "github.com/oexza/Orisun/orisun"
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"

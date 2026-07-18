@@ -10,8 +10,8 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/goccy/go-json"
-	"github.com/oexza/Orisun/logging"
-	eventstore "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

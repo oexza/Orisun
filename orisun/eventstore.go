@@ -3,7 +3,7 @@ package orisun
 import (
 	"context"
 	"fmt"
-	c "github.com/oexza/Orisun/config"
+	c "github.com/OrisunLabs/Orisun/config"
 	"math/rand/v2"
 	"slices"
 	"strconv"
@@ -15,7 +15,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/oexza/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sync/errgroup"

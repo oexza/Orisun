@@ -24,10 +24,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
-	"github.com/oexza/Orisun/postgres"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/postgres"
 )
 
 type BenchmarkSetup struct {

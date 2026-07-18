@@ -20,9 +20,9 @@ Use embedding when Orisun should be part of your service process. Use the standa
 import (
 	"context"
 
-	embeddedpg "github.com/oexza/Orisun/embedded/postgres"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
+	embeddedpg "github.com/OrisunLabs/Orisun/embedded/postgres"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
 )
 
 func start(ctx context.Context) (*embeddedpg.Store, error) {
@@ -65,9 +65,9 @@ store, err = embeddedpg.Start(ctx, cfg, logger, embeddedpg.WithJetStream(js))
 import (
 	"context"
 
-	embeddedsqlite "github.com/oexza/Orisun/embedded/sqlite"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
+	embeddedsqlite "github.com/OrisunLabs/Orisun/embedded/sqlite"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
 )
 
 func start(ctx context.Context) (*embeddedsqlite.Store, error) {
@@ -100,9 +100,9 @@ FoundationDB embedding is beta. It requires the native FoundationDB client libra
 import (
 	"context"
 
-	embeddedfdb "github.com/oexza/Orisun/embedded/foundationdb"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
+	embeddedfdb "github.com/OrisunLabs/Orisun/embedded/foundationdb"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
 )
 
 func start(ctx context.Context) (*embeddedfdb.Store, error) {

@@ -16,9 +16,9 @@ import (
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	eventstore "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
 
 func newTestPools(t *testing.T) (map[string]*BoundaryPools, func()) {

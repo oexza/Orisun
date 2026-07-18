@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oexza/Orisun/cmd/testutil"
-	"github.com/oexza/Orisun/config"
-	l "github.com/oexza/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/cmd/testutil"
+	"github.com/OrisunLabs/Orisun/config"
+	l "github.com/OrisunLabs/Orisun/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

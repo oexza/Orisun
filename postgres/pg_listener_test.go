@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/oexza/Orisun/config"
+	"github.com/OrisunLabs/Orisun/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

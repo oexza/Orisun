@@ -7,10 +7,10 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go/jetstream"
-	common "github.com/oexza/Orisun/admin/slices/common"
-	config "github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	eventstore "github.com/oexza/Orisun/orisun"
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
 
 func InitializeFoundationDB(

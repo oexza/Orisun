@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	c "github.com/oexza/Orisun/config"
-	natsruntime "github.com/oexza/Orisun/nats"
+	c "github.com/OrisunLabs/Orisun/config"
+	natsruntime "github.com/OrisunLabs/Orisun/nats"
 )
 
 type testLogger struct{}

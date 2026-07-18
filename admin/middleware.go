@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

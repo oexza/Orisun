@@ -2,8 +2,8 @@ package login
 
 import (
 	"context"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 )
 
 type Authenticator interface {

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	config "github.com/oexza/Orisun/config"
+	config "github.com/OrisunLabs/Orisun/config"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 )

@@ -6,11 +6,11 @@ import (
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	c "github.com/oexza/Orisun/config"
-	l "github.com/oexza/Orisun/logging"
-	natsruntime "github.com/oexza/Orisun/nats"
-	"github.com/oexza/Orisun/orisun"
-	sqlitebackend "github.com/oexza/Orisun/sqlite"
+	c "github.com/OrisunLabs/Orisun/config"
+	l "github.com/OrisunLabs/Orisun/logging"
+	natsruntime "github.com/OrisunLabs/Orisun/nats"
+	"github.com/OrisunLabs/Orisun/orisun"
+	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
 )
 
 type Store struct {

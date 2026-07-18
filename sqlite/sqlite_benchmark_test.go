@@ -20,11 +20,11 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/oexza/Orisun/admin"
-	common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/admin"
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 )
 
 const (

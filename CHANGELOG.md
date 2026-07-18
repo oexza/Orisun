@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-07-18
+
+### Breaking Changes
+
+- The root Go module has moved from `github.com/oexza/Orisun` to `github.com/OrisunLabs/Orisun`. Go consumers must update module requirements and imports to the new path.
+
+### Migration Notes
+
+- Replace `github.com/oexza/Orisun` with `github.com/OrisunLabs/Orisun` in `go.mod` and Go imports, then run `go mod tidy`.
+- Fetch the migrated module with `go get github.com/OrisunLabs/Orisun@v0.6.0`.
+- The gRPC wire contract, stored event format, configuration, and runtime behavior are unchanged. Version `v0.5.0` remains available under the former module path for consumers that have not migrated.
+
+### Changed
+
+- Protobuf `go_package` metadata and regenerated Go descriptors now use the OrisunLabs module path.
+- Internal imports, embedding examples, build linker paths, release builds, and admin API documentation now consistently use the canonical module identity.
+- Go, Node, and Java client submodules now point to the migrated shared protobuf definitions; the standalone client package identities are unchanged.
+
 ## 0.5.0 - 2026-07-18
 
 ### Breaking Changes

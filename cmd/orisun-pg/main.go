@@ -9,11 +9,11 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	"github.com/nats-io/nats.go/jetstream"
-	c "github.com/oexza/Orisun/config"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
-	pg "github.com/oexza/Orisun/postgres"
-	"github.com/oexza/Orisun/server"
+	c "github.com/OrisunLabs/Orisun/config"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	pg "github.com/OrisunLabs/Orisun/postgres"
+	"github.com/OrisunLabs/Orisun/server"
 )
 
 func main() {

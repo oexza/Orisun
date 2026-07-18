@@ -28,7 +28,7 @@ esac
 echo "Building $FLAVOR for $TARGET_OS/$TARGET_ARCH with version $VERSION..."
 
 if CGO_ENABLED=0 GOOS=$TARGET_OS GOARCH=$TARGET_ARCH go build -tags development="false" -a -installsuffix cgo \
-  -ldflags="-w -s -X 'github.com/oexza/Orisun/orisun.Version=$VERSION' -X 'github.com/oexza/Orisun/orisun.BuildTime=$BUILD_TIME' -X 'github.com/oexza/Orisun/orisun.GitCommit=$GIT_COMMIT'" \
+  -ldflags="-w -s -X 'github.com/OrisunLabs/Orisun/orisun.Version=$VERSION' -X 'github.com/OrisunLabs/Orisun/orisun.BuildTime=$BUILD_TIME' -X 'github.com/OrisunLabs/Orisun/orisun.GitCommit=$GIT_COMMIT'" \
   -o "./build/$OUTPUT_NAME" "$PACKAGE"; then
   echo "Build successful! Binary created: ./build/$OUTPUT_NAME"
 else

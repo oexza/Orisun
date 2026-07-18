@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
-	common "github.com/oexza/Orisun/admin/slices/common"
-	config "github.com/oexza/Orisun/config"
-	logging "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	config "github.com/OrisunLabs/Orisun/config"
+	logging "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

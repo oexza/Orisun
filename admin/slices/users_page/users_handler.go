@@ -1,9 +1,9 @@
 package users_page
 
 import (
-	"github.com/oexza/Orisun/admin/slices/common"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/admin/slices/common"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 )
 
 type UsersPageHandler struct {

@@ -1513,8 +1513,8 @@ const file_eventstore_proto_rawDesc = "" +
 	"\x18CatchUpSubscribeToEvents\x12+.orisun.CatchUpSubscribeToEventStoreRequest\x1a\r.orisun.Event\"\x000\x01\x123\n" +
 	"\x04Ping\x12\x13.orisun.PingRequest\x1a\x14.orisun.PingResponse\"\x00\x12H\n" +
 	"\vCreateIndex\x12\x1a.orisun.CreateIndexRequest\x1a\x1b.orisun.CreateIndexResponse\"\x00\x12B\n" +
-	"\tDropIndex\x12\x18.orisun.DropIndexRequest\x1a\x19.orisun.DropIndexResponse\"\x00B7\n" +
-	"\x15com.orisun.eventstoreZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
+	"\tDropIndex\x12\x18.orisun.DropIndexRequest\x1a\x19.orisun.DropIndexResponse\"\x00B<\n" +
+	"\x15com.orisun.eventstoreZ#github.com/OrisunLabs/Orisun/orisunb\x06proto3"
 
 var (
 	file_eventstore_proto_rawDescOnce sync.Once

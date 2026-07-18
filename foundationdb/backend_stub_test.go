@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	config "github.com/oexza/Orisun/config"
+	config "github.com/OrisunLabs/Orisun/config"
 )
 
 func TestInitializeFoundationDBStubRequiresBuildTag(t *testing.T) {

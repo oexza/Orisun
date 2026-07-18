@@ -9,8 +9,8 @@ import (
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 
-	"github.com/oexza/Orisun/logging"
-	eventstore "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
 
 type SqliteEventPublishing struct {

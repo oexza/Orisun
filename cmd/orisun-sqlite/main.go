@@ -8,11 +8,11 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	"github.com/nats-io/nats.go/jetstream"
-	c "github.com/oexza/Orisun/config"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
-	"github.com/oexza/Orisun/server"
-	sqlitebackend "github.com/oexza/Orisun/sqlite"
+	c "github.com/OrisunLabs/Orisun/config"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/server"
+	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
 )
 
 func main() {

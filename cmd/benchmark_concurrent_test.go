@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

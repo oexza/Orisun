@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	orisun "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	orisun "github.com/OrisunLabs/Orisun/orisun"
 )
 
 type PGNotifyListener struct {

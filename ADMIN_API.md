@@ -542,7 +542,7 @@ import (
 
     "google.golang.org/grpc"
     "google.golang.org/grpc/metadata"
-    pb "github.com/oexza/Orisun/orisun"
+    pb "github.com/OrisunLabs/Orisun/orisun"
 )
 
 func main() {

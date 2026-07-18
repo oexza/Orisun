@@ -3,12 +3,12 @@ package changepassword
 import (
 	"context"
 	"errors"
-	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 	// "sync"
 
-	admin_events "github.com/oexza/Orisun/admin/events"
+	admin_events "github.com/OrisunLabs/Orisun/admin/events"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"

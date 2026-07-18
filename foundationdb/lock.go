@@ -13,7 +13,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
-	"github.com/oexza/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/logging"
 )
 
 const (

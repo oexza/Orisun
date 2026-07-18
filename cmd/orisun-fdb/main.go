@@ -8,11 +8,11 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	"github.com/nats-io/nats.go/jetstream"
-	c "github.com/oexza/Orisun/config"
-	fdbbackend "github.com/oexza/Orisun/foundationdb"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
-	"github.com/oexza/Orisun/server"
+	c "github.com/OrisunLabs/Orisun/config"
+	fdbbackend "github.com/OrisunLabs/Orisun/foundationdb"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/server"
 )
 
 func main() {

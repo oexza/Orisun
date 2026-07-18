@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/oexza/Orisun/config"
-	eventstore "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/config"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"

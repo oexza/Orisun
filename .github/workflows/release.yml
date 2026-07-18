@@ -128,7 +128,7 @@ jobs:
         run: |
           mkdir -p build
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build \
-            -ldflags="-w -s -X 'github.com/oexza/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/oexza/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/oexza/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
+            -ldflags="-w -s -X 'github.com/OrisunLabs/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/OrisunLabs/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/OrisunLabs/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
             -o build/${{ matrix.binary }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.extension || '' }} \
             ${{ matrix.package }}
 
@@ -181,7 +181,7 @@ jobs:
           mkdir -p build
           CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go build \
             -tags foundationdb \
-            -ldflags="-X 'github.com/oexza/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/oexza/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/oexza/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
+            -ldflags="-X 'github.com/OrisunLabs/Orisun/orisun.Version=v${{ needs.validate.outputs.version }}' -X 'github.com/OrisunLabs/Orisun/orisun.BuildTime=$(date -u +'%Y-%m-%dT%H:%M:%SZ')' -X 'github.com/OrisunLabs/Orisun/orisun.GitCommit=${GITHUB_SHA::8}'" \
             -o build/orisun-fdb-linux-${{ matrix.arch }} \
             ./cmd/orisun-fdb
 

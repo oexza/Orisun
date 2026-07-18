@@ -3,14 +3,14 @@ package create_user
 import (
 	"context"
 	"fmt"
-	ev "github.com/oexza/Orisun/admin/events"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	ev "github.com/OrisunLabs/Orisun/admin/events"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	admincommon "github.com/oexza/Orisun/admin/slices/common"
+	admincommon "github.com/OrisunLabs/Orisun/admin/slices/common"
 
 	"github.com/google/uuid"
 )

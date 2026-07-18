@@ -833,8 +833,8 @@ const file_admin_proto_rawDesc = "" +
 	"\tListUsers\x12\x18.orisun.ListUsersRequest\x1a\x19.orisun.ListUsersResponse\x12^\n" +
 	"\x13ValidateCredentials\x12\".orisun.ValidateCredentialsRequest\x1a#.orisun.ValidateCredentialsResponse\x12I\n" +
 	"\fGetUserCount\x12\x1b.orisun.GetUserCountRequest\x1a\x1c.orisun.GetUserCountResponse\x12L\n" +
-	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponseB2\n" +
-	"\x10com.orisun.adminZ\x1egithub.com/oexza/Orisun/orisunb\x06proto3"
+	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponseB7\n" +
+	"\x10com.orisun.adminZ#github.com/OrisunLabs/Orisun/orisunb\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once

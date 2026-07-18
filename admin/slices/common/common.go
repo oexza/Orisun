@@ -2,7 +2,7 @@ package admin_common
 
 import (
 	"context"
-	"github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun"
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
 )

@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     fi; \
     CGO_ENABLED=1 GOOS="$FINAL_OS" GOARCH="$FINAL_ARCH" go build \
       -tags foundationdb \
-      -ldflags="-X 'github.com/oexza/Orisun/orisun.Version=${VERSION}' -X 'github.com/oexza/Orisun/orisun.BuildTime=${BUILD_TIME}' -X 'github.com/oexza/Orisun/orisun.GitCommit=${GIT_COMMIT}'" \
+      -ldflags="-X 'github.com/OrisunLabs/Orisun/orisun.Version=${VERSION}' -X 'github.com/OrisunLabs/Orisun/orisun.BuildTime=${BUILD_TIME}' -X 'github.com/OrisunLabs/Orisun/orisun.GitCommit=${GIT_COMMIT}'" \
       -o /out/orisun \
       ./cmd/orisun-fdb
 

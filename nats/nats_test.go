@@ -7,7 +7,7 @@ import (
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsgo "github.com/nats-io/nats.go"
-	c "github.com/oexza/Orisun/config"
+	c "github.com/OrisunLabs/Orisun/config"
 )
 
 type testLogger struct{}

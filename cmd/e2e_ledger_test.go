@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/oexza/Orisun/orisun"
+	pb "github.com/OrisunLabs/Orisun/orisun"
 )
 
 // runLedgerWorkload drives a double-entry general ledger — the canonical CCC

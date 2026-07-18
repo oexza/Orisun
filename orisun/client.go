@@ -7,7 +7,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/oexza/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/logging"
 )
 
 // OrisunServer provides a high-level interface to interact with the Orisun event store

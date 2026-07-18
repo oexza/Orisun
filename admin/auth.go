@@ -3,13 +3,13 @@ package admin
 import (
 	"context"
 	"fmt"
-	admin_events "github.com/oexza/Orisun/admin/events"
-	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/orisun"
+	admin_events "github.com/OrisunLabs/Orisun/admin/events"
+	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	"github.com/OrisunLabs/Orisun/orisun"
 	"sync"
 	"time"
 
-	logger "github.com/oexza/Orisun/logging"
+	logger "github.com/OrisunLabs/Orisun/logging"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"

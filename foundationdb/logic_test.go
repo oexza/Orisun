@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/goccy/go-json"
-	eventstore "github.com/oexza/Orisun/orisun"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
 
 func textField(key string) eventstore.BoundaryIndexField {

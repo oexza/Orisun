@@ -1,7 +1,7 @@
 package events
 
 import (
-	"github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun"
 )
 
 const (

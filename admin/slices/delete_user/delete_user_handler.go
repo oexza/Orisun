@@ -3,14 +3,14 @@ package delete_user
 import (
 	"context"
 	"fmt"
-	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	l "github.com/oexza/Orisun/logging"
+	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	l "github.com/OrisunLabs/Orisun/logging"
 	"strings"
 
 	"github.com/goccy/go-json"
 
-	"github.com/oexza/Orisun/admin/events"
-	eventstore "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/admin/events"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 
 	"github.com/google/uuid"
 )

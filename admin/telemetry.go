@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	l "github.com/oexza/Orisun/logging"
+	l "github.com/OrisunLabs/Orisun/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

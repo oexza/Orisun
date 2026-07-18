@@ -5,7 +5,7 @@ package foundationdb
 import (
 	"context"
 
-	eventstore "github.com/oexza/Orisun/orisun"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

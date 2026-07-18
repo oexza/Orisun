@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/oexza/Orisun/orisun"
-	pb "github.com/oexza/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun"
+	pb "github.com/OrisunLabs/Orisun/orisun"
 )
 
 type E2ETestSuite struct {

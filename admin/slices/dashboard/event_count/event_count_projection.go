@@ -2,9 +2,9 @@ package event_count
 
 import (
 	"context"
-	admin_common "github.com/oexza/Orisun/admin/slices/common"
-	l "github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	l "github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 	"time"
 
 	"github.com/goccy/go-json"

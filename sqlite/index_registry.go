@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/goccy/go-json"
-	eventstore "github.com/oexza/Orisun/orisun"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 )

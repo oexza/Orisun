@@ -2,7 +2,7 @@ package logging
 
 import (
 	"fmt"
-	c "github.com/oexza/Orisun/config"
+	c "github.com/OrisunLabs/Orisun/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"

@@ -5,11 +5,11 @@ import (
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	c "github.com/oexza/Orisun/config"
-	fdbbackend "github.com/oexza/Orisun/foundationdb"
-	l "github.com/oexza/Orisun/logging"
-	natsruntime "github.com/oexza/Orisun/nats"
-	"github.com/oexza/Orisun/orisun"
+	c "github.com/OrisunLabs/Orisun/config"
+	fdbbackend "github.com/OrisunLabs/Orisun/foundationdb"
+	l "github.com/OrisunLabs/Orisun/logging"
+	natsruntime "github.com/OrisunLabs/Orisun/nats"
+	"github.com/OrisunLabs/Orisun/orisun"
 )
 
 type Store struct {

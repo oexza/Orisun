@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	eventstore "github.com/oexza/Orisun/orisun"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
 
 type SqliteEventNotifier struct {

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/config"
-	"github.com/oexza/Orisun/logging"
-	"github.com/oexza/Orisun/orisun"
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
