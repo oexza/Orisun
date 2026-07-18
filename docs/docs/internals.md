@@ -48,9 +48,9 @@ This excludes events whose commit is not yet visible to the read snapshot. It is
 
 ### Packed read batches
 
-The paginated `GetEvents` storage path returns rows internally as one contiguous `ReadEventBatch`. Each row carries event strings, scalar position fields, and a `time.Time`, avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on internal consumers. PostgreSQL scans the fixed seven-column result directly instead of discovering columns and constructing a pointer map for each request. Specialized reads such as `GetLatestByCriteria` retain their protobuf-shaped result construction.
+The paginated `GetEvents` storage path returns rows internally as one contiguous `ReadEventBatch`. Each row carries event strings, scalar position fields, and a `time.Time`, avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on internal consumers. PostgreSQL scans the fixed seven-column result directly instead of discovering columns and constructing a pointer map for each request.
 
-The publisher, catch-up subscriptions, and embedded `OrisunServer.GetEvents` callers consume this packed batch directly. Only the gRPC `GetEvents` boundary materializes protobuf values, using one contiguous row slab plus its pointer index. Backend read pages are capped at 10,000 rows, the gRPC API rejects larger page requests, and internal drainers advance by position across pages.
+`GetLatestByCriteria` likewise uses a protobuf-free `LatestByCriteriaQuery` and returns a contiguous `LatestByCriteriaBatch`; each match contains a `Found` bit and packed `ReadEvent`, aligned by criterion index. The publisher, catch-up subscriptions, and embedded callers consume packed values directly. Only gRPC handlers materialize protobuf responses, using contiguous row slabs plus pointer indexes. Backend read pages are capped at 10,000 rows, the gRPC API rejects larger page requests, and internal drainers advance by position across pages.
 
 ## The publisher and no-miss ordering
 

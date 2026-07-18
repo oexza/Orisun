@@ -39,7 +39,7 @@ type EventsRetriever interface {
 	// GetLatestByCriteria returns the latest event per criterion from ONE
 	// backend read snapshot, plus the max observed position as the
 	// optimistic-lock token for the combined context.
-	GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error)
+	GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error)
 }
 
 type LockProvider interface {
@@ -569,8 +569,61 @@ func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCr
 		if criterion == nil || len(criterion.Tags) == 0 {
 			return nil, status.Errorf(codes.InvalidArgument, "criterion %d has no tags", i)
 		}
+		for j, tag := range criterion.Tags {
+			if tag == nil {
+				return nil, status.Errorf(codes.InvalidArgument, "criterion %d tag %d is nil", i, j)
+			}
+		}
 	}
-	return s.getEventsFn.GetLatestByCriteria(ctx, req)
+	batch, err := s.getEventsFn.GetLatestByCriteria(ctx, latestQueryFromProto(req))
+	if err != nil {
+		return nil, err
+	}
+	if len(batch.Matches) != len(req.Criteria) {
+		return nil, status.Errorf(codes.Internal, "latest result count %d does not match criterion count %d", len(batch.Matches), len(req.Criteria))
+	}
+	return latestBatchProtoResponse(batch, req.Criteria), nil
+}
+
+func latestQueryFromProto(req *GetLatestByCriteriaRequest) LatestByCriteriaQuery {
+	tagCount := 0
+	for _, criterion := range req.Criteria {
+		tagCount += len(criterion.Tags)
+	}
+	tags := make([]ReadTag, tagCount)
+	criteria := make([]ReadCriterion, len(req.Criteria))
+	offset := 0
+	for i, criterion := range req.Criteria {
+		start := offset
+		for _, tag := range criterion.Tags {
+			tags[offset] = ReadTag{Key: tag.Key, Value: tag.Value}
+			offset++
+		}
+		criteria[i].Tags = tags[start:offset]
+	}
+	return LatestByCriteriaQuery{Boundary: req.Boundary, Criteria: criteria}
+}
+
+func latestBatchProtoResponse(batch LatestByCriteriaBatch, criteria []*Criterion) *GetLatestByCriteriaResponse {
+	rows := make([]protoEventRow, len(criteria))
+	results := make([]LatestCriterionResult, len(criteria))
+	pointers := make([]*LatestCriterionResult, len(criteria))
+	for i, criterion := range criteria {
+		result := &results[i]
+		result.Criterion = criterion
+		if i < len(batch.Matches) && batch.Matches[i].Found {
+			fillProtoEventRow(&rows[i], &batch.Matches[i].Event)
+			result.Event = &rows[i].event
+		}
+		pointers[i] = result
+	}
+	return &GetLatestByCriteriaResponse{
+		Results: pointers,
+		ContextPosition: &Position{
+			CommitPosition:  batch.ContextCommitPosition,
+			PreparePosition: batch.ContextPreparePosition,
+		},
+	}
 }
 
 func (s *EventStore) SubscribeToAllEvents(

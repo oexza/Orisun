@@ -101,13 +101,13 @@ func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (Re
 // GetLatestByCriteria returns the latest event per criterion from one backend
 // read snapshot, plus the max observed position as the optimistic-lock token
 // for the combined context.
-func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
-	resp, err := c.getEvents.GetLatestByCriteria(ctx, req)
+func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	batch, err := c.getEvents.GetLatestByCriteria(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest by criteria: %w", err)
+		return LatestByCriteriaBatch{}, fmt.Errorf("failed to get latest by criteria: %w", err)
 	}
 
-	return resp, nil
+	return batch, nil
 }
 
 // SubscribeToEvents subscribes to events from a boundary with the given handler

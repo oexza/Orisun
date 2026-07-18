@@ -19,7 +19,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	common "github.com/oexza/Orisun/admin/slices/common"
 	config "github.com/oexza/Orisun/config"
@@ -574,88 +573,82 @@ func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEvent
 // inside an explicit deferred read transaction, so under WAL every statement
 // sees the same database state. Independent client reads cannot substitute —
 // an event committing between them can hide below the observed max position.
-func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
-	pool, ok := s.pools[req.Boundary]
+func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
+	pool, ok := s.pools[query.Boundary]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", query.Boundary)
 	}
-	if len(req.Criteria) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	if len(query.Criteria) == 0 {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
 	}
 
 	conn, err := pool.Read.Take(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "take read conn: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "take read conn: %v", err)
 	}
 	defer pool.Read.Put(conn)
 
 	if err := sqlitex.ExecuteTransient(conn, "BEGIN DEFERRED", nil); err != nil {
-		return nil, status.Errorf(codes.Internal, "begin read tx: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "begin read tx: %v", err)
 	}
 	defer func() {
 		_ = sqlitex.ExecuteTransient(conn, "COMMIT", nil)
 	}()
 
-	resp := &eventstore.GetLatestByCriteriaResponse{}
-	contextPos := eventstore.NotExistsPosition()
+	batch := eventstore.LatestByCriteriaBatch{
+		Matches:                make([]eventstore.LatestCriterionMatch, len(query.Criteria)),
+		ContextCommitPosition:  -1,
+		ContextPreparePosition: -1,
+	}
 	found := false
-	for _, criterion := range req.Criteria {
+	for i, criterion := range query.Criteria {
 		anded := make(map[string]any, len(criterion.Tags))
 		for _, tag := range criterion.Tags {
 			anded[tag.Key] = tag.Value
 		}
 		if len(anded) == 0 {
-			return nil, status.Errorf(codes.InvalidArgument, "criterion has no tags")
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "criterion has no tags")
 		}
-		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, req.Boundary)
+		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, query.Boundary)
 		if buildErr != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
 		}
 		q := "SELECT transaction_id, global_id, event_id, json_extract(data, '$.\"eventType\"') AS event_type, data, metadata, date_created " +
 			"FROM orisun_es_event WHERE " + where +
 			" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
 
-		result := &eventstore.LatestCriterionResult{Criterion: criterion}
 		// Transient: criteria literals are inlined (see buildCriteriaSQL).
 		if err := sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
 			ResultFunc: func(stmt *sqlite.Stmt) error {
-				event := scanEventRow(stmt)
-				result.Event = event
-				if !found || (event.Position.CommitPosition > contextPos.CommitPosition ||
-					(event.Position.CommitPosition == contextPos.CommitPosition &&
-						event.Position.PreparePosition > contextPos.PreparePosition)) {
-					contextPos.CommitPosition = event.Position.CommitPosition
-					contextPos.PreparePosition = event.Position.PreparePosition
+				event := scanReadEventRow(stmt)
+				batch.Matches[i] = eventstore.LatestCriterionMatch{Event: event, Found: true}
+				if !found || (event.CommitPosition > batch.ContextCommitPosition ||
+					(event.CommitPosition == batch.ContextCommitPosition &&
+						event.PreparePosition > batch.ContextPreparePosition)) {
+					batch.ContextCommitPosition = event.CommitPosition
+					batch.ContextPreparePosition = event.PreparePosition
 					found = true
 				}
 				return nil
 			},
 		}); err != nil {
-			return nil, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
 		}
-		resp.Results = append(resp.Results, result)
 	}
-	resp.ContextPosition = &eventstore.Position{
-		CommitPosition:  contextPos.CommitPosition,
-		PreparePosition: contextPos.PreparePosition,
-	}
-	return resp, nil
+	return batch, nil
 }
 
-// scanEventRow decodes one orisun_es_event row in the canonical query order
+// scanReadEventRow decodes one orisun_es_event row in the canonical query order
 // (transaction_id, global_id, event_id, event_type alias, data, metadata, date_created).
-func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
-	t := parseSQLiteEventTime(stmt.ColumnText(6))
-	return &eventstore.Event{
-		EventId:   stmt.ColumnText(2),
-		EventType: stmt.ColumnText(3),
-		Data:      stmt.ColumnText(4),
-		Metadata:  stmt.ColumnText(5),
-		Position: &eventstore.Position{
-			CommitPosition:  stmt.ColumnInt64(0),
-			PreparePosition: stmt.ColumnInt64(1),
-		},
-		DateCreated: timestamppb.New(t),
+func scanReadEventRow(stmt *sqlite.Stmt) eventstore.ReadEvent {
+	return eventstore.ReadEvent{
+		EventId:         stmt.ColumnText(2),
+		EventType:       stmt.ColumnText(3),
+		Data:            stmt.ColumnText(4),
+		Metadata:        stmt.ColumnText(5),
+		CommitPosition:  stmt.ColumnInt64(0),
+		PreparePosition: stmt.ColumnInt64(1),
+		DateCreated:     parseSQLiteEventTime(stmt.ColumnText(6)),
 	}
 }
 

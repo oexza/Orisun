@@ -46,17 +46,24 @@ func (e *ReadEvent) ProtoEvent() *Event {
 		return nil
 	}
 	row := &protoEventRow{}
-	row.position.CommitPosition = e.CommitPosition
-	row.position.PreparePosition = e.PreparePosition
-	row.timestamp.Seconds = e.DateCreated.Unix()
-	row.timestamp.Nanos = int32(e.DateCreated.Nanosecond())
-	row.event.EventId = e.EventId
-	row.event.EventType = e.EventType
-	row.event.Data = e.Data
-	row.event.Metadata = e.Metadata
+	fillProtoEventRow(row, e)
+	return &row.event
+}
+
+func fillProtoEventRow(row *protoEventRow, read *ReadEvent) {
+	if row == nil || read == nil {
+		return
+	}
+	row.position.CommitPosition = read.CommitPosition
+	row.position.PreparePosition = read.PreparePosition
+	row.timestamp.Seconds = read.DateCreated.Unix()
+	row.timestamp.Nanos = int32(read.DateCreated.Nanosecond())
+	row.event.EventId = read.EventId
+	row.event.EventType = read.EventType
+	row.event.Data = read.Data
+	row.event.Metadata = read.Metadata
 	row.event.Position = &row.position
 	row.event.DateCreated = &row.timestamp
-	return &row.event
 }
 
 // ProtoResponse materializes one contiguous row slab plus its protobuf pointer
@@ -67,22 +74,8 @@ func (b ReadEventBatch) ProtoResponse() *GetEventsResponse {
 	for i := range b {
 		read := &b[i]
 		row := &rows[i]
-		position := &row.position
-		position.CommitPosition = read.CommitPosition
-		position.PreparePosition = read.PreparePosition
-
-		timestamp := &row.timestamp
-		timestamp.Seconds = read.DateCreated.Unix()
-		timestamp.Nanos = int32(read.DateCreated.Nanosecond())
-
-		event := &row.event
-		event.EventId = read.EventId
-		event.EventType = read.EventType
-		event.Data = read.Data
-		event.Metadata = read.Metadata
-		event.Position = position
-		event.DateCreated = timestamp
-		pointers[i] = event
+		fillProtoEventRow(row, read)
+		pointers[i] = &row.event
 	}
 	return &GetEventsResponse{Events: pointers}
 }

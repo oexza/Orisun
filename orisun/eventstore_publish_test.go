@@ -45,8 +45,8 @@ func (r *fakeRetriever) add(events ...ReadEvent) {
 	r.events = append(r.events, events...)
 }
 
-func (r *fakeRetriever) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
-	return nil, errors.New("not implemented in fake")
+func (r *fakeRetriever) GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	return LatestByCriteriaBatch{}, errors.New("not implemented in fake")
 }
 
 func (r *fakeRetriever) GetBatch(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error) {

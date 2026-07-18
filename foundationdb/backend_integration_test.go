@@ -97,6 +97,26 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 		t.Fatalf("expected 2 indexed events, got %d", len(indexed))
 	}
 
+	latest, err := backend.GetLatestByCriteria(ctx, eventstore.LatestByCriteriaQuery{
+		Boundary: "test",
+		Criteria: []eventstore.ReadCriterion{
+			{Tags: []eventstore.ReadTag{{Key: "customer_id", Value: "cust-1"}}},
+			{Tags: []eventstore.ReadTag{{Key: "customer_id", Value: "missing"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetLatestByCriteria returned error: %v", err)
+	}
+	if len(latest.Matches) != 2 || !latest.Matches[0].Found || latest.Matches[1].Found {
+		t.Fatalf("unexpected latest matches: %+v", latest.Matches)
+	}
+	if latest.Matches[0].Event.EventType != "OrderPaid" {
+		t.Fatalf("expected latest customer event OrderPaid, got %+v", latest.Matches[0].Event)
+	}
+	if latest.ContextCommitPosition != resp[1].CommitPosition || latest.ContextPreparePosition != resp[1].PreparePosition {
+		t.Fatalf("unexpected latest context: (%d, %d)", latest.ContextCommitPosition, latest.ContextPreparePosition)
+	}
+
 	// A consistency condition must be covered by an index (fail-closed). Index
 	// order_id so the condition below can be checked.
 	if err := backend.CreateBoundaryIndex(ctx, "test", "order_id", []eventstore.BoundaryIndexField{

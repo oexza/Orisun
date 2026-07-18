@@ -15,8 +15,10 @@ type capturePreparedSaver struct {
 }
 
 type captureEventsRetriever struct {
-	batch ReadEventBatch
-	calls int
+	batch       ReadEventBatch
+	latestBatch LatestByCriteriaBatch
+	latestQuery LatestByCriteriaQuery
+	calls       int
 }
 
 func (r *captureEventsRetriever) GetBatch(_ context.Context, _ *GetEventsRequest) (ReadEventBatch, error) {
@@ -24,8 +26,9 @@ func (r *captureEventsRetriever) GetBatch(_ context.Context, _ *GetEventsRequest
 	return r.batch, nil
 }
 
-func (*captureEventsRetriever) GetLatestByCriteria(_ context.Context, _ *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
-	return &GetLatestByCriteriaResponse{}, nil
+func (r *captureEventsRetriever) GetLatestByCriteria(_ context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	r.latestQuery = query
+	return r.latestBatch, nil
 }
 
 func (s *capturePreparedSaver) SavePrepared(_ context.Context, events PreparedEventBatch, _ string, _ *Position, _ *Query) (string, int64, error) {
@@ -156,5 +159,32 @@ func TestEventStoreGetEventsRejectsOversizedReadBeforeBackend(t *testing.T) {
 	}
 	if retriever.calls != 0 {
 		t.Fatalf("backend was called %d times", retriever.calls)
+	}
+}
+
+func TestOrisunServerGetLatestByCriteriaUsesPackedTypes(t *testing.T) {
+	retriever := &captureEventsRetriever{latestBatch: LatestByCriteriaBatch{
+		Matches: []LatestCriterionMatch{{
+			Found: true,
+			Event: ReadEvent{EventId: "event-1", CommitPosition: 7, PreparePosition: 8},
+		}},
+		ContextCommitPosition:  7,
+		ContextPreparePosition: 8,
+	}}
+	server := &OrisunServer{getEvents: retriever}
+	query := LatestByCriteriaQuery{
+		Boundary: "orders",
+		Criteria: []ReadCriterion{{Tags: []ReadTag{{Key: "order_id", Value: "order-1"}}}},
+	}
+
+	batch, err := server.GetLatestByCriteria(context.Background(), query)
+	if err != nil {
+		t.Fatalf("GetLatestByCriteria returned error: %v", err)
+	}
+	if len(batch.Matches) != 1 || !batch.Matches[0].Found || batch.Matches[0].Event.EventId != "event-1" {
+		t.Fatalf("unexpected packed latest result: %+v", batch)
+	}
+	if retriever.latestQuery.Boundary != "orders" || retriever.latestQuery.Criteria[0].Tags[0].Value != "order-1" {
+		t.Fatalf("unexpected packed latest query: %+v", retriever.latestQuery)
 	}
 }

@@ -194,6 +194,20 @@ func criteriaAsMaps(query *eventstore.Query) []map[string]string {
 	return out
 }
 
+func readCriteriaAsMaps(criteria []eventstore.ReadCriterion) []map[string]string {
+	out := make([]map[string]string, 0, len(criteria))
+	for _, criterion := range criteria {
+		m := make(map[string]string, len(criterion.Tags))
+		for _, tag := range criterion.Tags {
+			m[tag.Key] = tag.Value
+		}
+		if len(m) > 0 {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func hasCriteria(query *eventstore.Query) bool {
 	return len(criteriaAsMaps(query)) > 0
 }
