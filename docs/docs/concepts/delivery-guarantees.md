@@ -11,7 +11,7 @@ Wake-up signals are hints. Correctness comes from durable checkpoints and ordere
 
 | Guarantee | How Orisun enforces it |
 | --- | --- |
-| No skipped committed events | The publisher stores the last published position in the selected backend and resumes from the next position. |
+| No skipped committed events | After each fully acknowledged batch, the publisher stores its final position in the selected backend and resumes from the next position. |
 | Sequential publishing | The publisher drains events in ascending event-log position and rejects non-advancing batches. |
 | Stable committed prefix | PostgreSQL avoids exposing in-flight transactions; SQLite serializes commits through one writer per boundary; FoundationDB reads from ordered committed versionstamps. |
 | Single active publisher | PostgreSQL nodes acquire a boundary lock; FoundationDB nodes acquire a token-fenced FDB lease lock; SQLite runs exactly one active node. |
@@ -24,9 +24,9 @@ This design is why no committed event is skipped even when a wake-up signal is d
 
 ## At-least-once delivery
 
-Publishing is at least once at the boundary between NATS publish and checkpoint update.
+Publishing is at least once at the boundary between publishing a batch to NATS and updating its final checkpoint.
 
-If NATS accepts an event and the checkpoint write fails, the event can be republished. Consumers should deduplicate by:
+If NATS accepts part or all of a batch and the checkpoint is not persisted, events from that batch can be republished. Consumers should deduplicate by:
 
 - `event_id`
 - NATS message ID

@@ -2,20 +2,42 @@ package orisun
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-type captureSaver struct {
-	events []EventWithMapTags
+type capturePreparedSaver struct {
+	prepared PreparedEventBatch
 }
 
-func (s *captureSaver) Save(ctx context.Context, events []EventWithMapTags, boundary string, expectedPosition *Position, subSet *Query) (string, int64, error) {
-	s.events = events
+type captureEventsRetriever struct {
+	batch       ReadEventBatch
+	latestBatch LatestByCriteriaBatch
+	latestQuery LatestByCriteriaQuery
+	calls       int
+}
+
+func (r *captureEventsRetriever) GetBatch(_ context.Context, _ *GetEventsRequest) (ReadEventBatch, error) {
+	r.calls++
+	return r.batch, nil
+}
+
+func (r *captureEventsRetriever) GetLatestByCriteria(_ context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	r.latestQuery = query
+	return r.latestBatch, nil
+}
+
+func (s *capturePreparedSaver) SavePrepared(_ context.Context, events PreparedEventBatch, _ string, _ *Position, _ *Query) (string, int64, error) {
+	s.prepared = events
 	return "7", 8, nil
 }
 
 func TestOrisunServerSaveEventsAddsEventTypeToData(t *testing.T) {
-	saver := &captureSaver{}
+	saver := &capturePreparedSaver{}
 	server := &OrisunServer{saveEvents: saver}
 
 	pos, err := server.SaveEvents(context.Background(), []EventWithMapTags{
@@ -35,13 +57,13 @@ func TestOrisunServerSaveEventsAddsEventTypeToData(t *testing.T) {
 	if pos.CommitPosition != 7 || pos.PreparePosition != 8 {
 		t.Fatalf("unexpected position: %+v", pos)
 	}
-	if len(saver.events) != 1 {
-		t.Fatalf("expected one saved event, got %d", len(saver.events))
+	if len(saver.prepared) != 1 {
+		t.Fatalf("expected one saved event, got %d", len(saver.prepared))
 	}
 
-	data, ok := saver.events[0].Data.(map[string]any)
-	if !ok {
-		t.Fatalf("expected normalized data map, got %T", saver.events[0].Data)
+	var data map[string]any
+	if err := json.Unmarshal([]byte(saver.prepared[0].DataJSON), &data); err != nil {
+		t.Fatalf("prepared data is invalid JSON: %v", err)
 	}
 	if data["eventType"] != "OrderPlaced" {
 		t.Fatalf("expected canonical eventType in data, got %v", data["eventType"])
@@ -51,23 +73,118 @@ func TestOrisunServerSaveEventsAddsEventTypeToData(t *testing.T) {
 	}
 }
 
-func TestNormalizeEventsForSaveAcceptsJSONStringData(t *testing.T) {
-	events, err := normalizeEventsForSave([]EventWithMapTags{
-		{
-			EventId:   "event-1",
-			EventType: "CustomerCreated",
-			Data:      `{"customer_id":"customer-1"}`,
-		},
-	})
+func TestOrisunServerSaveEventsUsesPreparedBatch(t *testing.T) {
+	saver := &capturePreparedSaver{}
+	server := &OrisunServer{saveEvents: saver}
+
+	_, err := server.SaveEvents(context.Background(), []EventWithMapTags{{
+		EventId:   "event-1",
+		EventType: "OrderPlaced",
+		Data:      `{"order_id":"order-1","eventType":"stale"}`,
+		Metadata:  `{"trace_id":"trace-1"}`,
+	}}, "orders", nil, nil)
 	if err != nil {
-		t.Fatalf("normalizeEventsForSave returned error: %v", err)
+		t.Fatalf("SaveEvents returned error: %v", err)
+	}
+	if len(saver.prepared) != 1 {
+		t.Fatalf("expected one prepared event, got %d", len(saver.prepared))
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(saver.prepared[0].DataJSON), &data); err != nil {
+		t.Fatalf("prepared data is invalid JSON: %v", err)
+	}
+	if data["eventType"] != "OrderPlaced" || data["order_id"] != "order-1" {
+		t.Fatalf("unexpected prepared data: %v", data)
+	}
+	if saver.prepared[0].MetadataJSON != `{"trace_id":"trace-1"}` {
+		t.Fatalf("metadata was unnecessarily rewritten: %s", saver.prepared[0].MetadataJSON)
+	}
+}
+
+func TestPrepareEventsForSaveOwnsByteInput(t *testing.T) {
+	data := []byte(`{"value":1}`)
+	metadata := []byte(`{"source":"test"}`)
+	prepared, err := PrepareEventsForSave([]EventWithMapTags{{
+		EventId: "event-1", EventType: "Created", Data: data, Metadata: metadata,
+	}})
+	if err != nil {
+		t.Fatalf("PrepareEventsForSave returned error: %v", err)
+	}
+	data[2] = 'X'
+	metadata[2] = 'X'
+	var got map[string]any
+	if err := json.Unmarshal([]byte(prepared[0].DataJSON), &got); err != nil {
+		t.Fatalf("prepared data is invalid JSON: %v", err)
+	}
+	if got["value"] != float64(1) {
+		t.Fatalf("prepared data affected by caller mutation: %s", prepared[0].DataJSON)
+	}
+	if prepared[0].MetadataJSON != `{"source":"test"}` {
+		t.Fatalf("prepared metadata affected by caller mutation: %s", prepared[0].MetadataJSON)
+	}
+}
+
+func TestOrisunServerGetEventsReturnsPackedBatch(t *testing.T) {
+	created := time.Unix(1_700_000_000, 123).UTC()
+	retriever := &captureEventsRetriever{batch: ReadEventBatch{{
+		EventId:         "event-1",
+		EventType:       "OrderPlaced",
+		Data:            `{"eventType":"OrderPlaced"}`,
+		Metadata:        `{}`,
+		CommitPosition:  7,
+		PreparePosition: 8,
+		DateCreated:     created,
+	}}}
+	server := &OrisunServer{getEvents: retriever}
+
+	batch, err := server.GetEvents(context.Background(), &GetEventsRequest{Count: 1})
+	if err != nil {
+		t.Fatalf("GetEvents returned error: %v", err)
+	}
+	if len(batch) != 1 || batch[0].CommitPosition != 7 || batch[0].PreparePosition != 8 {
+		t.Fatalf("unexpected packed response: %+v", batch)
+	}
+	if got := batch[0].DateCreated; !got.Equal(created) {
+		t.Fatalf("unexpected creation time: %v", got)
+	}
+}
+
+func TestEventStoreGetEventsRejectsOversizedReadBeforeBackend(t *testing.T) {
+	retriever := &captureEventsRetriever{}
+	store := &EventStore{getEventsFn: retriever, logger: noopLogger{}}
+
+	_, err := store.GetEvents(context.Background(), &GetEventsRequest{Count: MaxReadBatchSize + 1})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+	if retriever.calls != 0 {
+		t.Fatalf("backend was called %d times", retriever.calls)
+	}
+}
+
+func TestOrisunServerGetLatestByCriteriaUsesPackedTypes(t *testing.T) {
+	retriever := &captureEventsRetriever{latestBatch: LatestByCriteriaBatch{
+		Matches: []LatestCriterionMatch{{
+			Found: true,
+			Event: ReadEvent{EventId: "event-1", CommitPosition: 7, PreparePosition: 8},
+		}},
+		ContextCommitPosition:  7,
+		ContextPreparePosition: 8,
+	}}
+	server := &OrisunServer{getEvents: retriever}
+	query := LatestByCriteriaQuery{
+		Boundary: "orders",
+		Criteria: []ReadCriterion{{Tags: []ReadTag{{Key: "order_id", Value: "order-1"}}}},
 	}
 
-	data := events[0].Data.(map[string]any)
-	if data["eventType"] != "CustomerCreated" {
-		t.Fatalf("expected eventType in data, got %v", data["eventType"])
+	batch, err := server.GetLatestByCriteria(context.Background(), query)
+	if err != nil {
+		t.Fatalf("GetLatestByCriteria returned error: %v", err)
 	}
-	if data["customer_id"] != "customer-1" {
-		t.Fatalf("expected original JSON data to be preserved, got %v", data["customer_id"])
+	if len(batch.Matches) != 1 || !batch.Matches[0].Found || batch.Matches[0].Event.EventId != "event-1" {
+		t.Fatalf("unexpected packed latest result: %+v", batch)
+	}
+	if retriever.latestQuery.Boundary != "orders" || retriever.latestQuery.Criteria[0].Tags[0].Value != "order-1" {
+		t.Fatalf("unexpected packed latest query: %+v", retriever.latestQuery)
 	}
 }

@@ -39,9 +39,6 @@ const (
 	// signal write so an oversized batch fails fast with InvalidArgument
 	// instead of an opaque commit-time transaction_too_large error.
 	maxTransactionBytes = 9 << 20
-	// defaultPageCount/maxPageCount mirror the PostgreSQL and SQLite read caps.
-	defaultPageCount = 1000
-	maxPageCount     = 10000
 )
 
 var (
@@ -217,9 +214,9 @@ func (b *Backend) indexReadyWithFields(boundary, name string, fields []eventstor
 	return result.(bool), nil
 }
 
-func (b *Backend) Save(
+func (b *Backend) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
@@ -232,10 +229,6 @@ func (b *Backend) Save(
 	}
 	if err := b.checkBoundary(boundary); err != nil {
 		return "", 0, err
-	}
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
 	}
 	prepared, err := prepareEvents(events)
 	if err != nil {
@@ -342,18 +335,25 @@ func (b *Backend) Save(
 	return strconv.FormatInt(commit, 10), lastPrepare, nil
 }
 
-func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (b *Backend) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	if err := contextStatusErr(ctx); err != nil {
 		return nil, err
 	}
 	if err := b.checkBoundary(req.Boundary); err != nil {
 		return nil, err
 	}
-	// Page caps mirror the PostgreSQL and SQLite backends.
-	if req.Count <= 0 {
-		req.Count = defaultPageCount
-	} else if req.Count > maxPageCount {
-		req.Count = maxPageCount
+	count := req.Count
+	if count == 0 {
+		count = eventstore.DefaultReadBatchSize
+	} else if count > eventstore.MaxReadBatchSize {
+		count = eventstore.MaxReadBatchSize
+	}
+	req = &eventstore.GetEventsRequest{
+		Query:        req.Query,
+		FromPosition: req.FromPosition,
+		Count:        count,
+		Direction:    req.Direction,
+		Boundary:     req.Boundary,
 	}
 	if hasCriteria(req.Query) {
 		events, err := b.query(ctx, req)
@@ -363,7 +363,7 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 			}
 			return nil, status.Errorf(codes.Internal, "query events: %v", err)
 		}
-		return &eventstore.GetEventsResponse{Events: events}, nil
+		return events, nil
 	}
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		return b.scanEvents(ctx, rt, req, int(req.Count))
@@ -371,7 +371,7 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "query events: %v", err)
 	}
-	return &eventstore.GetEventsResponse{Events: result.([]*eventstore.Event)}, nil
+	return result.(eventstore.ReadEventBatch), nil
 }
 
 // GetLatestByCriteria returns the latest event per criterion plus the max
@@ -381,37 +381,42 @@ func (b *Backend) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*e
 // latest match, so a criterion costs one reverse Limit-1 range read plus one
 // event get. Because FDB positions are commit-ordered, no later commit can
 // place an event below the returned context position.
-func (b *Backend) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
+func (b *Backend) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
 	if err := contextStatusErr(ctx); err != nil {
-		return nil, err
+		return eventstore.LatestByCriteriaBatch{}, err
 	}
-	if err := b.checkBoundary(req.Boundary); err != nil {
-		return nil, err
+	if err := b.checkBoundary(query.Boundary); err != nil {
+		return eventstore.LatestByCriteriaBatch{}, err
 	}
-	if len(req.Criteria) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	if len(query.Criteria) == 0 {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
 	}
-	criteria := criteriaAsMaps(&eventstore.Query{Criteria: req.Criteria})
-	if len(criteria) != len(req.Criteria) {
-		return nil, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+	criteria := readCriteriaAsMaps(query.Criteria)
+	if len(criteria) != len(query.Criteria) {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
 	}
 
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		if err := contextStatusErr(ctx); err != nil {
 			return nil, err
 		}
-		indexes, err := b.loadIndexes(rt, req.Boundary)
+		indexes, err := b.loadIndexes(rt, query.Boundary)
 		if err != nil {
 			return nil, err
 		}
 		indexes = readyIndexes(indexes)
-		events := make([]*eventstore.Event, len(criteria))
+		batch := eventstore.LatestByCriteriaBatch{
+			Matches:                make([]eventstore.LatestCriterionMatch, len(criteria)),
+			ContextCommitPosition:  -1,
+			ContextPreparePosition: -1,
+		}
+		found := false
 		for i, criterion := range criteria {
 			idx, ok := chooseCoveringIndex(indexes, criterion)
 			if !ok {
-				return nil, b.unindexedQueryErr(req.Boundary, criterion)
+				return nil, b.unindexedQueryErr(query.Boundary, criterion)
 			}
-			slice := prefixRange(b.indexLookupPrefix(req.Boundary, idx, criterion))
+			slice := prefixRange(b.indexLookupPrefix(query.Boundary, idx, criterion))
 			iter := rt.GetRange(slice, fdb.RangeOptions{
 				Limit:   1,
 				Mode:    fdb.StreamingModeWantAll,
@@ -426,40 +431,30 @@ func (b *Backend) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLa
 				if err != nil {
 					return nil, err
 				}
-				event, err := b.getEventByPosition(rt, req.Boundary, tx, gid)
+				event, ok, err := b.getReadEventByPosition(rt, query.Boundary, tx, gid)
 				if err != nil {
 					return nil, err
 				}
-				events[i] = event
+				if ok {
+					batch.Matches[i] = eventstore.LatestCriterionMatch{Event: event, Found: true}
+					if !found || event.CommitPosition > batch.ContextCommitPosition ||
+						(event.CommitPosition == batch.ContextCommitPosition && event.PreparePosition > batch.ContextPreparePosition) {
+						batch.ContextCommitPosition = event.CommitPosition
+						batch.ContextPreparePosition = event.PreparePosition
+						found = true
+					}
+				}
 			}
 		}
-		return events, nil
+		return batch, nil
 	})
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
-			return nil, err
+			return eventstore.LatestByCriteriaBatch{}, err
 		}
-		return nil, status.Errorf(codes.Internal, "get latest by criteria: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "get latest by criteria: %v", err)
 	}
-
-	events := result.([]*eventstore.Event)
-	resp := &eventstore.GetLatestByCriteriaResponse{}
-	contextTx, contextGid := int64(-1), int64(-1)
-	found := false
-	for i, criterion := range req.Criteria {
-		latest := &eventstore.LatestCriterionResult{Criterion: criterion}
-		if event := events[i]; event != nil {
-			latest.Event = event
-			if !found || event.Position.CommitPosition > contextTx ||
-				(event.Position.CommitPosition == contextTx && event.Position.PreparePosition > contextGid) {
-				contextTx, contextGid = event.Position.CommitPosition, event.Position.PreparePosition
-				found = true
-			}
-		}
-		resp.Results = append(resp.Results, latest)
-	}
-	resp.ContextPosition = &eventstore.Position{CommitPosition: contextTx, PreparePosition: contextGid}
-	return resp, nil
+	return result.(eventstore.LatestByCriteriaBatch), nil
 }
 
 func (b *Backend) GetLastPublishedEventPosition(ctx context.Context, boundary string) (eventstore.Position, error) {
@@ -1016,7 +1011,7 @@ func (b *Backend) getUser(key fdb.Key, notFound string) (eventstore.User, error)
 	return result.(eventstore.User), nil
 }
 
-func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) ([]*eventstore.Event, error) {
+func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
 		if err := contextStatusErr(ctx); err != nil {
 			return nil, err
@@ -1027,7 +1022,7 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 		}
 		indexes = readyIndexes(indexes)
 
-		eventsByPosition := map[string]*eventstore.Event{}
+		eventsByPosition := make(map[[2]int64]eventstore.ReadEvent)
 		for _, criterion := range criteriaAsMaps(req.Query) {
 			if err := contextStatusErr(ctx); err != nil {
 				return nil, err
@@ -1044,15 +1039,24 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 			// index slice (exact field/condition match) and applied the cursor, so
 			// candidates need only be de-duplicated across criteria here — no
 			// per-event re-parse of the payload.
-			for _, event := range candidates {
-				eventsByPosition[positionKey(event.Position)] = event
+			for i := range candidates {
+				event := candidates[i]
+				eventsByPosition[[2]int64{event.CommitPosition, event.PreparePosition}] = event
 			}
 		}
-		events := make([]*eventstore.Event, 0, len(eventsByPosition))
+		events := make(eventstore.ReadEventBatch, 0, len(eventsByPosition))
 		for _, event := range eventsByPosition {
 			events = append(events, event)
 		}
-		sortEvents(events, req.Direction)
+		sort.Slice(events, func(i, j int) bool {
+			left, right := events[i], events[j]
+			less := left.CommitPosition < right.CommitPosition ||
+				(left.CommitPosition == right.CommitPosition && left.PreparePosition < right.PreparePosition)
+			if req.Direction == eventstore.Direction_DESC {
+				return !less && (left.CommitPosition != right.CommitPosition || left.PreparePosition != right.PreparePosition)
+			}
+			return less
+		})
 		count := int(req.Count)
 		if count > 0 && len(events) > count {
 			events = events[:count]
@@ -1062,10 +1066,10 @@ func (b *Backend) query(ctx context.Context, req *eventstore.GetEventsRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return result.([]*eventstore.Event), nil
+	return result.(eventstore.ReadEventBatch), nil
 }
 
-func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransaction, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) ([]*eventstore.Event, error) {
+func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransaction, boundary string, idx indexDefinition, criterion map[string]string, from *eventstore.Position, direction eventstore.Direction, count int) (eventstore.ReadEventBatch, error) {
 	pr := prefixRange(b.indexLookupPrefix(boundary, idx, criterion))
 	beginKey := pr.Begin.FDBKey()
 	endKey := pr.End.FDBKey()
@@ -1085,14 +1089,14 @@ func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransactio
 		}
 	}
 	if count <= 0 {
-		count = defaultPageCount
+		count = int(eventstore.DefaultReadBatchSize)
 	}
 	iter := rt.GetRange(fdb.KeyRange{Begin: beginKey, End: endKey}, fdb.RangeOptions{
 		Limit:   count,
 		Mode:    fdb.StreamingModeWantAll,
 		Reverse: reverse,
 	}).Iterator()
-	events := make([]*eventstore.Event, 0, count)
+	events := make(eventstore.ReadEventBatch, 0, count)
 	for iter.Advance() {
 		if err := contextStatusErr(ctx); err != nil {
 			return nil, err
@@ -1109,26 +1113,26 @@ func (b *Backend) scanIndexCandidates(ctx context.Context, rt fdb.ReadTransactio
 		if !positionMatches(pos, from, direction) {
 			continue
 		}
-		event, err := b.getEventByPosition(rt, boundary, tx, gid)
+		event, ok, err := b.getReadEventByPosition(rt, boundary, tx, gid)
 		if err != nil {
 			return nil, err
 		}
 		// The index slice is keyed by this criterion's exact field values and
 		// equality conditions (checked when the entry was written), so every
 		// entry here matches the full criterion — no payload re-parse needed.
-		if event != nil {
+		if ok {
 			events = append(events, event)
 		}
 	}
 	return events, nil
 }
 
-func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *eventstore.GetEventsRequest, limit int) ([]*eventstore.Event, error) {
+func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *eventstore.GetEventsRequest, limit int) (eventstore.ReadEventBatch, error) {
 	if limit <= 0 {
 		limit = int(req.Count)
 	}
 	if limit <= 0 {
-		limit = defaultPageCount
+		limit = int(eventstore.DefaultReadBatchSize)
 	}
 	begin, end := b.eventRangeForCursor(req.Boundary, req.FromPosition, req.Direction)
 	iter := rt.GetRange(fdb.KeyRange{Begin: begin, End: end}, fdb.RangeOptions{
@@ -1136,7 +1140,7 @@ func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *e
 		Mode:    fdb.StreamingModeWantAll,
 		Reverse: req.Direction == eventstore.Direction_DESC,
 	}).Iterator()
-	events := make([]*eventstore.Event, 0, limit)
+	events := make(eventstore.ReadEventBatch, 0, limit)
 	for iter.Advance() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -1149,7 +1153,7 @@ func (b *Backend) scanEvents(ctx context.Context, rt fdb.ReadTransaction, req *e
 		if err != nil {
 			return nil, err
 		}
-		event, err := eventFromRecord(kv.Value, tx, gid)
+		event, err := readEventFromRecord(kv.Value, tx, gid)
 		if err != nil {
 			return nil, err
 		}
@@ -1267,13 +1271,14 @@ func (b *Backend) unindexedCriteriaErr(kind, boundary string, criterion map[stri
 		kind, boundary, keys, guidance)
 }
 
-func (b *Backend) getEventByPosition(rt fdb.ReadTransaction, boundary string, tx, gid int64) (*eventstore.Event, error) {
+func (b *Backend) getReadEventByPosition(rt fdb.ReadTransaction, boundary string, tx, gid int64) (eventstore.ReadEvent, bool, error) {
 	key := b.eventKeyForPosition(boundary, &eventstore.Position{CommitPosition: tx, PreparePosition: gid})
 	raw := rt.Get(key).MustGet()
 	if raw == nil {
-		return nil, nil
+		return eventstore.ReadEvent{}, false, nil
 	}
-	return eventFromRecord(raw, tx, gid)
+	event, err := readEventFromRecord(raw, tx, gid)
+	return event, err == nil, err
 }
 
 func (b *Backend) loadIndexes(rt fdb.ReadTransaction, boundary string) ([]indexDefinition, error) {

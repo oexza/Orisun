@@ -19,7 +19,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	common "github.com/oexza/Orisun/admin/slices/common"
 	config "github.com/oexza/Orisun/config"
@@ -282,12 +281,6 @@ type SqliteSaveEvents struct {
 	gcTestFlushHook func(batchSize int)
 }
 
-type sqliteEventToInsert struct {
-	EventID      string
-	DataJSON     string
-	MetadataJSON string
-}
-
 const (
 	sqliteInsertParamsPerEvent = 5
 	sqliteMaxInsertParams      = 999
@@ -361,9 +354,9 @@ func (s *SqliteSaveEvents) isClosed() bool {
 	}
 }
 
-func (s *SqliteSaveEvents) Save(
+func (s *SqliteSaveEvents) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
@@ -374,18 +367,7 @@ func (s *SqliteSaveEvents) Save(
 	if _, ok := s.pools[boundary]; !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
-	// Normalize in the caller's goroutine: JSON work stays parallel across
-	// callers instead of serializing on the boundary worker.
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
-	}
-	eventsToInsert, err := normalizeEventsForSqliteInsert(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
-	}
-
-	return s.enqueue(ctx, boundary, eventsToInsert, expectedPosition, streamConsistencyCondition)
+	return s.enqueue(ctx, boundary, events, expectedPosition, streamConsistencyCondition)
 }
 
 // saveEventsOnConn runs the CCC check, ID allocation, and insert on an open
@@ -394,7 +376,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 	conn *sqlite.Conn,
 	pool *BoundaryPools,
 	boundary string,
-	eventsToInsert []sqliteEventToInsert,
+	eventsToInsert eventstore.PreparedEventBatch,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query,
 ) (transactionID string, globalID int64, err error) {
@@ -459,30 +441,10 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 	return strconv.FormatInt(lastID, 10), lastID, nil
 }
 
-func normalizeEventsForSqliteInsert(events []eventstore.EventWithMapTags) ([]sqliteEventToInsert, error) {
-	out := make([]sqliteEventToInsert, len(events))
-	for i, event := range events {
-		dataJSON, err := normalizeJSON(event.Data)
-		if err != nil {
-			return nil, fmt.Errorf("event %d data: %w", i, err)
-		}
-		metadataJSON, err := normalizeJSON(event.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("event %d metadata: %w", i, err)
-		}
-		out[i] = sqliteEventToInsert{
-			EventID:      event.EventId,
-			DataJSON:     dataJSON,
-			MetadataJSON: metadataJSON,
-		}
-	}
-	return out, nil
-}
-
 // insertEventBatch inserts events in chunks of sqliteMaxEventsPerInsert to stay under
 // SQLite's bound-parameter limit. Callers hold an open transaction, so the full batch
 // commits atomically regardless of chunking.
-func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, transactionID int64) error {
+func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, firstID, transactionID int64) error {
 	for start := 0; start < len(events); start += sqliteMaxEventsPerInsert {
 		end := min(start+sqliteMaxEventsPerInsert, len(events))
 		chunk := events[start:end]
@@ -498,7 +460,7 @@ func insertEventBatch(conn *sqlite.Conn, events []sqliteEventToInsert, firstID, 
 			sb.WriteString("(?, ?, ?, ?, ?)")
 			gid := firstID + int64(start+i)
 			insertArgs = append(insertArgs,
-				transactionID, gid, e.EventID, e.DataJSON, e.MetadataJSON,
+				transactionID, gid, e.EventId, e.DataJSON, e.MetadataJSON,
 			)
 		}
 
@@ -522,7 +484,7 @@ func NewSqliteGetEvents(pools map[string]*BoundaryPools, logger logging.Logger) 
 	return &SqliteGetEvents{pools: pools, logger: logger}
 }
 
-func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	pool, ok := s.pools[req.Boundary]
 	if !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
@@ -570,10 +532,10 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 
 	count := req.Count
 	if count == 0 {
-		count = 1000
+		count = eventstore.DefaultReadBatchSize
 	}
-	if count > 10000 {
-		count = 10000
+	if count > eventstore.MaxReadBatchSize {
+		count = eventstore.MaxReadBatchSize
 	}
 
 	q := fmt.Sprintf(
@@ -584,36 +546,18 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 
 	// Transient: criteria literals and LIMIT are inlined, so the SQL text has
 	// unbounded cardinality and must not enter the per-conn prepared-stmt cache.
-	events := make([]*eventstore.Event, 0, count)
+	batch := make(eventstore.ReadEventBatch, 0, count)
 	if err := sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
 		Args: args,
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			tx := stmt.ColumnInt64(0)
-			gid := stmt.ColumnInt64(1)
-			eid := stmt.ColumnText(2)
-			etype := stmt.ColumnText(3)
-			data := stmt.ColumnText(4)
-			meta := stmt.ColumnText(5)
-			created := stmt.ColumnText(6)
-
-			t, parseErr := time.Parse(time.RFC3339Nano, created)
-			if parseErr != nil {
-				if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
-					t = t2
-				} else {
-					t = time.Now().UTC()
-				}
-			}
-			events = append(events, &eventstore.Event{
-				EventId:   eid,
-				EventType: etype,
-				Data:      data,
-				Metadata:  meta,
-				Position: &eventstore.Position{
-					CommitPosition:  tx,
-					PreparePosition: gid,
-				},
-				DateCreated: timestamppb.New(t),
+			batch = append(batch, eventstore.ReadEvent{
+				CommitPosition:  stmt.ColumnInt64(0),
+				PreparePosition: stmt.ColumnInt64(1),
+				EventId:         stmt.ColumnText(2),
+				EventType:       stmt.ColumnText(3),
+				Data:            stmt.ColumnText(4),
+				Metadata:        stmt.ColumnText(5),
+				DateCreated:     parseSQLiteEventTime(stmt.ColumnText(6)),
 			})
 			return nil
 		},
@@ -621,7 +565,7 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 		return nil, status.Errorf(codes.Internal, "query events: %v", err)
 	}
 
-	return &eventstore.GetEventsResponse{Events: events}, nil
+	return batch, nil
 }
 
 // GetLatestByCriteria returns the latest event per criterion plus the max
@@ -629,78 +573,86 @@ func (s *SqliteGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequ
 // inside an explicit deferred read transaction, so under WAL every statement
 // sees the same database state. Independent client reads cannot substitute —
 // an event committing between them can hide below the observed max position.
-func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
-	pool, ok := s.pools[req.Boundary]
+func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
+	pool, ok := s.pools[query.Boundary]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", query.Boundary)
 	}
-	if len(req.Criteria) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	if len(query.Criteria) == 0 {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
 	}
 
 	conn, err := pool.Read.Take(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "take read conn: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "take read conn: %v", err)
 	}
 	defer pool.Read.Put(conn)
 
 	if err := sqlitex.ExecuteTransient(conn, "BEGIN DEFERRED", nil); err != nil {
-		return nil, status.Errorf(codes.Internal, "begin read tx: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "begin read tx: %v", err)
 	}
 	defer func() {
 		_ = sqlitex.ExecuteTransient(conn, "COMMIT", nil)
 	}()
 
-	resp := &eventstore.GetLatestByCriteriaResponse{}
-	contextPos := eventstore.NotExistsPosition()
+	batch := eventstore.LatestByCriteriaBatch{
+		Matches:                make([]eventstore.LatestCriterionMatch, len(query.Criteria)),
+		ContextCommitPosition:  -1,
+		ContextPreparePosition: -1,
+	}
 	found := false
-	for _, criterion := range req.Criteria {
+	for i, criterion := range query.Criteria {
 		anded := make(map[string]any, len(criterion.Tags))
 		for _, tag := range criterion.Tags {
 			anded[tag.Key] = tag.Value
 		}
 		if len(anded) == 0 {
-			return nil, status.Errorf(codes.InvalidArgument, "criterion has no tags")
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "criterion has no tags")
 		}
-		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, req.Boundary)
+		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, query.Boundary)
 		if buildErr != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
 		}
 		q := "SELECT transaction_id, global_id, event_id, json_extract(data, '$.\"eventType\"') AS event_type, data, metadata, date_created " +
 			"FROM orisun_es_event WHERE " + where +
 			" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
 
-		result := &eventstore.LatestCriterionResult{Criterion: criterion}
 		// Transient: criteria literals are inlined (see buildCriteriaSQL).
 		if err := sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
 			ResultFunc: func(stmt *sqlite.Stmt) error {
-				event := scanEventRow(stmt)
-				result.Event = event
-				if !found || (event.Position.CommitPosition > contextPos.CommitPosition ||
-					(event.Position.CommitPosition == contextPos.CommitPosition &&
-						event.Position.PreparePosition > contextPos.PreparePosition)) {
-					contextPos.CommitPosition = event.Position.CommitPosition
-					contextPos.PreparePosition = event.Position.PreparePosition
+				event := scanReadEventRow(stmt)
+				batch.Matches[i] = eventstore.LatestCriterionMatch{Event: event, Found: true}
+				if !found || (event.CommitPosition > batch.ContextCommitPosition ||
+					(event.CommitPosition == batch.ContextCommitPosition &&
+						event.PreparePosition > batch.ContextPreparePosition)) {
+					batch.ContextCommitPosition = event.CommitPosition
+					batch.ContextPreparePosition = event.PreparePosition
 					found = true
 				}
 				return nil
 			},
 		}); err != nil {
-			return nil, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
 		}
-		resp.Results = append(resp.Results, result)
 	}
-	resp.ContextPosition = &eventstore.Position{
-		CommitPosition:  contextPos.CommitPosition,
-		PreparePosition: contextPos.PreparePosition,
-	}
-	return resp, nil
+	return batch, nil
 }
 
-// scanEventRow decodes one orisun_es_event row in the canonical query order
+// scanReadEventRow decodes one orisun_es_event row in the canonical query order
 // (transaction_id, global_id, event_id, event_type alias, data, metadata, date_created).
-func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
-	created := stmt.ColumnText(6)
+func scanReadEventRow(stmt *sqlite.Stmt) eventstore.ReadEvent {
+	return eventstore.ReadEvent{
+		EventId:         stmt.ColumnText(2),
+		EventType:       stmt.ColumnText(3),
+		Data:            stmt.ColumnText(4),
+		Metadata:        stmt.ColumnText(5),
+		CommitPosition:  stmt.ColumnInt64(0),
+		PreparePosition: stmt.ColumnInt64(1),
+		DateCreated:     parseSQLiteEventTime(stmt.ColumnText(6)),
+	}
+}
+
+func parseSQLiteEventTime(created string) time.Time {
 	t, parseErr := time.Parse(time.RFC3339Nano, created)
 	if parseErr != nil {
 		if t2, e2 := time.Parse("2006-01-02T15:04:05.000Z", created); e2 == nil {
@@ -709,17 +661,7 @@ func scanEventRow(stmt *sqlite.Stmt) *eventstore.Event {
 			t = time.Now().UTC()
 		}
 	}
-	return &eventstore.Event{
-		EventId:   stmt.ColumnText(2),
-		EventType: stmt.ColumnText(3),
-		Data:      stmt.ColumnText(4),
-		Metadata:  stmt.ColumnText(5),
-		Position: &eventstore.Position{
-			CommitPosition:  stmt.ColumnInt64(0),
-			PreparePosition: stmt.ColumnInt64(1),
-		},
-		DateCreated: timestamppb.New(t),
-	}
+	return t
 }
 
 // ---------------------------------------------------------------------------

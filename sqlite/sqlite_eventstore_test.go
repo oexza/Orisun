@@ -89,7 +89,7 @@ func TestSave_RoundTrip(t *testing.T) {
 		t.Fatalf("expected non-zero tx/gid, got tx=%q gid=%d", tx, gid)
 	}
 
-	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     100,
@@ -97,17 +97,17 @@ func TestSave_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(resp.Events))
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(resp))
 	}
 	// Both events in the batch should share transaction_id == max global_id
-	if resp.Events[0].Position.CommitPosition != resp.Events[1].Position.CommitPosition {
+	if resp[0].CommitPosition != resp[1].CommitPosition {
 		t.Errorf("expected shared tx_id within batch, got %d vs %d",
-			resp.Events[0].Position.CommitPosition, resp.Events[1].Position.CommitPosition)
+			resp[0].CommitPosition, resp[1].CommitPosition)
 	}
-	if resp.Events[1].Position.PreparePosition != gid {
+	if resp[1].PreparePosition != gid {
 		t.Errorf("last event global_id should equal returned gid: got %d, want %d",
-			resp.Events[1].Position.PreparePosition, gid)
+			resp[1].PreparePosition, gid)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestSave_ChunksBatchLargerThanSqliteParamLimit(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     uint32(batchSize + 10),
@@ -140,16 +140,16 @@ func TestSave_ChunksBatchLargerThanSqliteParamLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != batchSize {
-		t.Fatalf("expected %d events, got %d", batchSize, len(resp.Events))
+	if len(resp) != batchSize {
+		t.Fatalf("expected %d events, got %d", batchSize, len(resp))
 	}
 	// All chunks committed in one transaction: every event shares tx_id == max global_id.
-	for i, e := range resp.Events {
-		if got := strconv.FormatInt(e.Position.CommitPosition, 10); got != tx {
+	for i, e := range resp {
+		if got := strconv.FormatInt(e.CommitPosition, 10); got != tx {
 			t.Fatalf("event %d: expected tx_id %s, got %s", i, tx, got)
 		}
 	}
-	if last := resp.Events[batchSize-1].Position.PreparePosition; last != gid {
+	if last := resp[batchSize-1].PreparePosition; last != gid {
 		t.Fatalf("last event global_id should equal returned gid: got %d, want %d", last, gid)
 	}
 }
@@ -174,7 +174,7 @@ func TestSave_AddsEventTypeToData(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     100,
@@ -187,19 +187,19 @@ func TestSave_AddsEventTypeToData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("expected 1 matching event, got %d", len(resp.Events))
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 matching event, got %d", len(resp))
 	}
 
 	var data map[string]any
-	if err := json.Unmarshal([]byte(resp.Events[0].Data), &data); err != nil {
+	if err := json.Unmarshal([]byte(resp[0].Data), &data); err != nil {
 		t.Fatalf("unmarshal data: %v", err)
 	}
 	if data["eventType"] != "OrderPlaced" {
 		t.Fatalf("expected canonical eventType in data, got %v", data["eventType"])
 	}
-	if resp.Events[0].EventType != "OrderPlaced" {
-		t.Fatalf("expected EventType from data.eventType, got %q", resp.Events[0].EventType)
+	if resp[0].EventType != "OrderPlaced" {
+		t.Fatalf("expected EventType from data.eventType, got %q", resp[0].EventType)
 	}
 	if data["order_id"] != "order-1" {
 		t.Fatalf("expected original data to be preserved, got %v", data["order_id"])
@@ -271,7 +271,7 @@ VALUES (1, 1, 'event-1', 'MigratedEvent', '{"eventType":"stale","k":"v"}', '{}')
 
 	logger, _ := logging.ZapLogger("error")
 	getter := NewSqliteGetEvents(map[string]*BoundaryPools{"test": bp}, logger)
-	resp, err := getter.Get(context.Background(), &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(context.Background(), &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
@@ -279,14 +279,14 @@ VALUES (1, 1, 'event-1', 'MigratedEvent', '{"eventType":"stale","k":"v"}', '{}')
 	if err != nil {
 		t.Fatalf("get migrated event: %v", err)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(resp.Events))
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(resp))
 	}
-	if resp.Events[0].EventType != "MigratedEvent" {
-		t.Fatalf("expected EventType from migrated data, got %q", resp.Events[0].EventType)
+	if resp[0].EventType != "MigratedEvent" {
+		t.Fatalf("expected EventType from migrated data, got %q", resp[0].EventType)
 	}
 	var data map[string]any
-	if err := json.Unmarshal([]byte(resp.Events[0].Data), &data); err != nil {
+	if err := json.Unmarshal([]byte(resp[0].Data), &data); err != nil {
 		t.Fatalf("unmarshal data: %v", err)
 	}
 	if data["eventType"] != "MigratedEvent" {
@@ -414,7 +414,7 @@ func TestGet_FilterByCriteria(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     100,
@@ -427,8 +427,8 @@ func TestGet_FilterByCriteria(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != 2 {
-		t.Fatalf("expected 2 matching events, got %d", len(resp.Events))
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 matching events, got %d", len(resp))
 	}
 }
 
@@ -463,7 +463,7 @@ func TestGet_FilterByUntypedScalarCriteria(t *testing.T) {
 		{name: "json null never matches", tag: &eventstore.Tag{Key: "deleted", Value: "null"}, want: 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+			resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 				Boundary:  "test",
 				Direction: eventstore.Direction_ASC,
 				Count:     100,
@@ -474,8 +474,8 @@ func TestGet_FilterByUntypedScalarCriteria(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get: %v", err)
 			}
-			if len(resp.Events) != tt.want {
-				t.Fatalf("expected %d matching events, got %d", tt.want, len(resp.Events))
+			if len(resp) != tt.want {
+				t.Fatalf("expected %d matching events, got %d", tt.want, len(resp))
 			}
 		})
 	}
@@ -498,7 +498,7 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 		}
 	}
 
-	respAsc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	respAsc, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
@@ -506,7 +506,7 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get asc: %v", err)
 	}
-	respDesc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	respDesc, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_DESC,
 		Count:     10,
@@ -514,17 +514,20 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get desc: %v", err)
 	}
-	if len(respAsc.Events) != 5 || len(respDesc.Events) != 5 {
-		t.Fatalf("expected 5 asc and desc events, got %d and %d", len(respAsc.Events), len(respDesc.Events))
+	if len(respAsc) != 5 || len(respDesc) != 5 {
+		t.Fatalf("expected 5 asc and desc events, got %d and %d", len(respAsc), len(respDesc))
 	}
-	for i := range respAsc.Events {
-		if respAsc.Events[i].EventId != respDesc.Events[4-i].EventId {
+	for i := range respAsc {
+		if respAsc[i].EventId != respDesc[4-i].EventId {
 			t.Fatalf("desc order mismatch at %d", i)
 		}
 	}
 
-	from := respAsc.Events[2].Position
-	respFromAsc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	from := &eventstore.Position{
+		CommitPosition:  respAsc[2].CommitPosition,
+		PreparePosition: respAsc[2].PreparePosition,
+	}
+	respFromAsc, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:     "test",
 		Direction:    eventstore.Direction_ASC,
 		Count:        10,
@@ -533,11 +536,11 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get from asc: %v", err)
 	}
-	if len(respFromAsc.Events) != 3 || respFromAsc.Events[0].EventId != respAsc.Events[2].EventId {
-		t.Fatalf("expected inclusive ASC page from third event, got %d events", len(respFromAsc.Events))
+	if len(respFromAsc) != 3 || respFromAsc[0].EventId != respAsc[2].EventId {
+		t.Fatalf("expected inclusive ASC page from third event, got %d events", len(respFromAsc))
 	}
 
-	respFromDesc, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	respFromDesc, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:     "test",
 		Direction:    eventstore.Direction_DESC,
 		Count:        10,
@@ -546,8 +549,8 @@ func TestGet_OrderAndFromPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get from desc: %v", err)
 	}
-	if len(respFromDesc.Events) != 3 || respFromDesc.Events[0].EventId != respAsc.Events[2].EventId {
-		t.Fatalf("expected inclusive DESC page from third event, got %d events", len(respFromDesc.Events))
+	if len(respFromDesc) != 3 || respFromDesc[0].EventId != respAsc[2].EventId {
+		t.Fatalf("expected inclusive DESC page from third event, got %d events", len(respFromDesc))
 	}
 }
 
@@ -900,7 +903,7 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Direction: eventstore.Direction_ASC,
 		Count:     10,
@@ -913,8 +916,8 @@ func TestCreateDropBoundaryIndex_MetadataAndTypedCriteria(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(resp.Events))
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(resp))
 	}
 
 	if err := admin.DropBoundaryIndex(ctx, "test", "amount"); err != nil {
@@ -1144,7 +1147,7 @@ func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
 			t.Fatalf("save: %v", err)
 		}
 
-		resp, err := getter.Get(ctx, &eventstore.GetEventsRequest{
+		resp, err := getter.GetBatch(ctx, &eventstore.GetEventsRequest{
 			Boundary:  "test",
 			Direction: eventstore.Direction_ASC,
 			Count:     100,
@@ -1158,8 +1161,8 @@ func TestCreateDropBoundaryIndex_ValidationParity(t *testing.T) {
 			t.Fatalf("get: %v", err)
 		}
 		// PG ->> renders number 404 and string "404" identically as '404'.
-		if len(resp.Events) != 2 {
-			t.Fatalf("expected 2 matching events (numeric and string status), got %d", len(resp.Events))
+		if len(resp) != 2 {
+			t.Fatalf("expected 2 matching events (numeric and string status), got %d", len(resp))
 		}
 
 		// Condition key is registry-known after creation, so the query term exactly

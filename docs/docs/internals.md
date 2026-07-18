@@ -46,13 +46,19 @@ transaction_id::TEXT::xid8 < pg_snapshot_xmin(pg_current_snapshot())
 
 This excludes events whose commit is not yet visible to the read snapshot. It is what lets the publisher drain ascending by position without ever skipping a committed event that was in flight. Do not remove this barrier; wake-up signals are not a substitute for it.
 
+### Packed read batches
+
+The paginated `GetEvents` storage path returns rows internally as one contiguous `ReadEventBatch`. Each row carries event strings, scalar position fields, and a `time.Time`, avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on internal consumers. PostgreSQL scans the fixed seven-column result directly instead of discovering columns and constructing a pointer map for each request.
+
+`GetLatestByCriteria` likewise uses a protobuf-free `LatestByCriteriaQuery` and returns a contiguous `LatestByCriteriaBatch`; each match contains a `Found` bit and packed `ReadEvent`, aligned by criterion index. The publisher, catch-up subscriptions, and embedded callers consume packed values directly. Only gRPC handlers materialize protobuf responses, using contiguous row slabs plus pointer indexes. Backend read pages are capped at 10,000 rows, the gRPC API rejects larger page requests, and internal drainers advance by position across pages.
+
 ## The publisher and no-miss ordering
 
 One active publisher per boundary drains the committed log and publishes to embedded NATS JetStream:
 
 1. Read committed events after the persisted checkpoint, ordered ascending by `(transaction_id, global_id)`.
-2. Publish each event to the boundary's JetStream subject.
-3. Record the new checkpoint in the backend (`{boundary}_orisun_last_published_event_position`).
+2. Publish each event in the batch sequentially to the boundary's JetStream subject.
+3. After the whole batch is acknowledged, record its final position in the backend (`{boundary}_orisun_last_published_event_position`).
 4. Repeat until the log is drained, then wait for the next wake-up.
 
 ### Wake-ups are hints, not the guarantee
@@ -63,7 +69,7 @@ For YugabyteDB (`ORISUN_PG_DIALECT=yugabyte`), Orisun uses an application-manage
 
 ### At-least-once around publish + checkpoint
 
-Publishing is at-least-once across the publish→checkpoint boundary: if JetStream accepts an event and the checkpoint write then fails, the event is republished on the next cycle. Events are never skipped and never published out of per-boundary order. Consumers deduplicate by `event_id`. See [Delivery Guarantees](./concepts/delivery-guarantees).
+Publishing is at-least-once across the batch publish→checkpoint boundary. If JetStream accepts some or all of a batch and the final checkpoint write fails, the batch is replayed from the previous checkpoint on the next cycle. This can produce duplicates but cannot skip events or publish them out of per-boundary order. Consumers deduplicate by `event_id`. See [Delivery Guarantees](./concepts/delivery-guarantees).
 
 ## Clustering and ownership
 

@@ -124,14 +124,11 @@ func saveBypassingQueue(
 	if !ok {
 		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
 	}
-	events, err = eventstore.NormalizeEventsForSave(events)
+	prepared, err := eventstore.PrepareEventsForSave(events)
 	if err != nil {
 		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
 	}
-	inserts, err := normalizeEventsForSqliteInsert(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
-	}
+	inserts := prepared
 
 	conn, takeErr := pool.Write.Take(ctx)
 	if takeErr != nil {
@@ -318,7 +315,7 @@ func TestGroupCommit_ResultsRouteToTheRightCallers(t *testing.T) {
 		if o.err != nil {
 			t.Fatalf("save %d: %v", i, o.err)
 		}
-		resp, err := getter.Get(context.Background(), &eventstore.GetEventsRequest{
+		resp, err := getter.GetBatch(context.Background(), &eventstore.GetEventsRequest{
 			Boundary:  gcBoundary,
 			Direction: eventstore.Direction_ASC,
 			Count:     10,
@@ -329,12 +326,12 @@ func TestGroupCommit_ResultsRouteToTheRightCallers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get %d: %v", i, err)
 		}
-		if len(resp.Events) != 1 {
-			t.Fatalf("save %d: expected 1 event, got %d", i, len(resp.Events))
+		if len(resp) != 1 {
+			t.Fatalf("save %d: expected 1 event, got %d", i, len(resp))
 		}
-		if resp.Events[0].Position.PreparePosition != o.gid {
+		if resp[0].PreparePosition != o.gid {
 			t.Errorf("save %d: returned gid %d but stored event has gid %d",
-				i, o.gid, resp.Events[0].Position.PreparePosition)
+				i, o.gid, resp[0].PreparePosition)
 		}
 	}
 }

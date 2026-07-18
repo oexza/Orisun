@@ -66,7 +66,7 @@ func normalizeGroupCommitConfig(cfg config.SqliteGroupCommitConfig) (config.Sqli
 
 type sqliteSaveRequest struct {
 	ctx      context.Context
-	inserts  []sqliteEventToInsert
+	inserts  eventstore.PreparedEventBatch
 	expected *eventstore.Position
 	query    *eventstore.Query
 	// result has capacity 1 so the worker's send never blocks on a caller
@@ -100,7 +100,7 @@ var errSaverClosed = status.Error(codes.Unavailable, "sqlite event saver is shut
 func (s *SqliteSaveEvents) enqueue(
 	ctx context.Context,
 	boundary string,
-	inserts []sqliteEventToInsert,
+	inserts eventstore.PreparedEventBatch,
 	expected *eventstore.Position,
 	query *eventstore.Query,
 ) (string, int64, error) {

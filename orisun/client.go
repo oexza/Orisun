@@ -65,18 +65,12 @@ func NewOrisunServer(
 // SaveEvents saves a batch of events to the event store
 func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags, boundary string,
 	expectedPosition *Position, streamSubSet *Query) (*Position, error) {
-	normalizedEvents, err := normalizeEventsForSave(events)
-	if err != nil {
-		return nil, fmt.Errorf("failed to normalize events: %w", err)
+	prepared, prepareErr := PrepareEventsForSave(events)
+	if prepareErr != nil {
+		return nil, fmt.Errorf("failed to prepare events: %w", prepareErr)
 	}
-
-	// Save events
-	transactionID, globalID, err := c.saveEvents.Save(
-		ctx,
-		normalizedEvents,
-		boundary,
-		expectedPosition,
-		streamSubSet,
+	transactionID, globalID, err := c.saveEvents.SavePrepared(
+		ctx, prepared, boundary, expectedPosition, streamSubSet,
 	)
 
 	if err != nil {
@@ -94,15 +88,26 @@ func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags
 	}, nil
 }
 
-// GetEvents retrieves events from the event store based on the request
-func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error) {
-	// Get events
-	internalResp, err := c.getEvents.Get(ctx, req)
+// GetEvents retrieves events from the event store based on the request.
+func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error) {
+	batch, err := c.getEvents.GetBatch(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get events: %w", err)
 	}
 
-	return internalResp, nil
+	return batch, nil
+}
+
+// GetLatestByCriteria returns the latest event per criterion from one backend
+// read snapshot, plus the max observed position as the optimistic-lock token
+// for the combined context.
+func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	batch, err := c.getEvents.GetLatestByCriteria(ctx, query)
+	if err != nil {
+		return LatestByCriteriaBatch{}, fmt.Errorf("failed to get latest by criteria: %w", err)
+	}
+
+	return batch, nil
 }
 
 // SubscribeToEvents subscribes to events from a boundary with the given handler

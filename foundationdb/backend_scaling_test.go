@@ -118,7 +118,7 @@ func BenchmarkFDBSingleHotAggregate(b *testing.B) {
 		for pb.Next() {
 			id := atomic.AddInt64(&idCounter, 1)
 			for {
-				resp, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+				resp, err := backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 					Boundary:  "test",
 					Count:     1,
 					Direction: eventstore.Direction_DESC,
@@ -128,8 +128,8 @@ func BenchmarkFDBSingleHotAggregate(b *testing.B) {
 					b.Fatalf("hot read head: %v", err)
 				}
 				var expected *eventstore.Position
-				if len(resp.Events) > 0 {
-					expected = resp.Events[0].Position
+				if len(resp) > 0 {
+					expected = readEventPosition(resp[0])
 				}
 				_, _, err = backend.Save(ctx, []eventstore.EventWithMapTags{{
 					EventId:   fmt.Sprintf("%s-%d", agg, id),

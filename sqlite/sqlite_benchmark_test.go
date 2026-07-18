@@ -1057,7 +1057,8 @@ func BenchmarkSqlite_Burst10000(b *testing.B) {
 	}
 }
 
-// BenchmarkSqlite_GetEvents measures point-in-time read throughput with criteria filter.
+// BenchmarkSqlite_GetEvents measures point-in-time read throughput with
+// criteria filter, including protobuf materialization at the API boundary.
 func BenchmarkSqlite_GetEvents(b *testing.B) {
 	saver, getter, _, teardown := setupBenchmarkPools(b)
 	defer teardown()
@@ -1068,7 +1069,35 @@ func BenchmarkSqlite_GetEvents(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		streamID := streamIds[i%len(streamIds)]
-		_, err := getter.Get(ctx, &orisun.GetEventsRequest{
+		batch, err := getter.GetBatch(ctx, &orisun.GetEventsRequest{
+			Boundary:  benchBoundary,
+			Direction: orisun.Direction_ASC,
+			Count:     50,
+			Query: &orisun.Query{
+				Criteria: []*orisun.Criterion{{
+					Tags: []*orisun.Tag{{Key: "stream_id", Value: streamID}},
+				}},
+			},
+		})
+		require.NoError(b, err)
+		_ = batch.ProtoResponse()
+	}
+	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "gets/sec")
+}
+
+// BenchmarkSqlite_GetEventsPacked measures the backend-to-internal-consumer
+// path without protobuf materialization (for example, the publisher).
+func BenchmarkSqlite_GetEventsPacked(b *testing.B) {
+	saver, getter, _, teardown := setupBenchmarkPools(b)
+	defer teardown()
+
+	ctx := context.Background()
+	streamIds, _ := prepopulateStreams(b, ctx, saver, 100, 20)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		streamID := streamIds[i%len(streamIds)]
+		_, err := getter.GetBatch(ctx, &orisun.GetEventsRequest{
 			Boundary:  benchBoundary,
 			Direction: orisun.Direction_ASC,
 			Count:     50,

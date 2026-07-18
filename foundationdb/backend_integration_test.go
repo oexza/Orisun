@@ -20,6 +20,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// readEventPosition rebuilds a protobuf Position from packed scalar fields for
+// cursor tracking and comparePositions in tests.
+func readEventPosition(e eventstore.ReadEvent) *eventstore.Position {
+	return &eventstore.Position{
+		CommitPosition:  e.CommitPosition,
+		PreparePosition: e.PreparePosition,
+	}
+}
+
 func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	backend := newTestBackend(t)
 	ctx := context.Background()
@@ -48,7 +57,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 		t.Fatalf("Save returned error: %v", err)
 	}
 
-	resp, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Count:     10,
 		Direction: eventstore.Direction_ASC,
@@ -56,16 +65,16 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
-	if len(resp.Events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(resp.Events))
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(resp))
 	}
 	// Positions are FDB versionstamps. Both events come from one Save so they
 	// share a commit version and are ordered by consecutive user versions.
-	if resp.Events[0].Position.CommitPosition != resp.Events[1].Position.CommitPosition {
-		t.Fatalf("events from the same batch should share commit version: %v vs %v", resp.Events[0].Position, resp.Events[1].Position)
+	if resp[0].CommitPosition != resp[1].CommitPosition {
+		t.Fatalf("events from the same batch should share commit version: %v vs %v", readEventPosition(resp[0]), readEventPosition(resp[1]))
 	}
-	if resp.Events[1].Position.PreparePosition != resp.Events[0].Position.PreparePosition+1 {
-		t.Fatalf("expected consecutive prepare positions, got %v then %v", resp.Events[0].Position, resp.Events[1].Position)
+	if resp[1].PreparePosition != resp[0].PreparePosition+1 {
+		t.Fatalf("expected consecutive prepare positions, got %v then %v", readEventPosition(resp[0]), readEventPosition(resp[1]))
 	}
 
 	if err := backend.CreateBoundaryIndex(ctx, "test", "customer_id", []eventstore.BoundaryIndexField{
@@ -73,7 +82,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	}, nil, eventstore.IndexCombinatorAND); err != nil {
 		t.Fatalf("CreateBoundaryIndex returned error: %v", err)
 	}
-	indexed, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+	indexed, err := backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Count:     10,
 		Direction: eventstore.Direction_ASC,
@@ -84,8 +93,28 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("indexed Get returned error: %v", err)
 	}
-	if len(indexed.Events) != 2 {
-		t.Fatalf("expected 2 indexed events, got %d", len(indexed.Events))
+	if len(indexed) != 2 {
+		t.Fatalf("expected 2 indexed events, got %d", len(indexed))
+	}
+
+	latest, err := backend.GetLatestByCriteria(ctx, eventstore.LatestByCriteriaQuery{
+		Boundary: "test",
+		Criteria: []eventstore.ReadCriterion{
+			{Tags: []eventstore.ReadTag{{Key: "customer_id", Value: "cust-1"}}},
+			{Tags: []eventstore.ReadTag{{Key: "customer_id", Value: "missing"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetLatestByCriteria returned error: %v", err)
+	}
+	if len(latest.Matches) != 2 || !latest.Matches[0].Found || latest.Matches[1].Found {
+		t.Fatalf("unexpected latest matches: %+v", latest.Matches)
+	}
+	if latest.Matches[0].Event.EventType != "OrderPaid" {
+		t.Fatalf("expected latest customer event OrderPaid, got %+v", latest.Matches[0].Event)
+	}
+	if latest.ContextCommitPosition != resp[1].CommitPosition || latest.ContextPreparePosition != resp[1].PreparePosition {
+		t.Fatalf("unexpected latest context: (%d, %d)", latest.ContextCommitPosition, latest.ContextPreparePosition)
 	}
 
 	// A consistency condition must be covered by an index (fail-closed). Index
@@ -129,7 +158,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	// FDB criteria reads also require a ready covering index. Falling back to a
 	// boundary scan would make large boundaries unbounded and undermine the
 	// backend's scaling contract.
-	_, err = backend.Get(ctx, &eventstore.GetEventsRequest{
+	_, err = backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Count:     10,
 		Direction: eventstore.Direction_ASC,
@@ -224,7 +253,7 @@ func TestFoundationDBCanceledContextFailsFast(t *testing.T) {
 		t.Fatalf("Save with canceled context got %v, want CANCELED", err)
 	}
 
-	_, err = backend.Get(ctx, &eventstore.GetEventsRequest{
+	_, err = backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Count:     1,
 		Direction: eventstore.Direction_ASC,
@@ -281,11 +310,11 @@ func TestFoundationDBPagingFromPosition(t *testing.T) {
 				PreparePosition: cursor.PreparePosition + 1,
 			}
 		}
-		resp, err := backend.Get(ctx, req)
+		resp, err := backend.GetBatch(ctx, req)
 		if err != nil {
 			t.Fatalf("Get page %d: %v", pages, err)
 		}
-		if len(resp.Events) == 0 {
+		if len(resp) == 0 {
 			break
 		}
 		pages++
@@ -293,24 +322,25 @@ func TestFoundationDBPagingFromPosition(t *testing.T) {
 			t.Fatalf("paging did not terminate")
 		}
 		prev := cursor
-		for _, event := range resp.Events {
-			if prev != nil && comparePositions(event.Position, prev) <= 0 {
-				t.Fatalf("event %s position %v not after %v", event.EventId, event.Position, prev)
+		for _, event := range resp {
+			eventPos := readEventPosition(event)
+			if prev != nil && comparePositions(eventPos, prev) <= 0 {
+				t.Fatalf("event %s position %v not after %v", event.EventId, eventPos, prev)
 			}
-			prev = event.Position
+			prev = eventPos
 			if _, dup := seen[event.EventId]; dup {
 				t.Fatalf("event %s returned twice", event.EventId)
 			}
 			seen[event.EventId] = struct{}{}
 		}
-		cursor = resp.Events[len(resp.Events)-1].Position
+		cursor = readEventPosition(resp[len(resp)-1])
 	}
 	if len(seen) != batches*perBatch {
 		t.Fatalf("expected %d events across pages, got %d in %d pages", batches*perBatch, len(seen), pages)
 	}
 
 	// DESC from the newest cursor must page backwards without duplicates.
-	desc, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+	desc, err := backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:     "test",
 		Count:        perBatch,
 		Direction:    eventstore.Direction_DESC,
@@ -319,10 +349,10 @@ func TestFoundationDBPagingFromPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get DESC: %v", err)
 	}
-	if len(desc.Events) != perBatch {
-		t.Fatalf("expected %d DESC events, got %d", perBatch, len(desc.Events))
+	if len(desc) != perBatch {
+		t.Fatalf("expected %d DESC events, got %d", perBatch, len(desc))
 	}
-	if comparePositions(desc.Events[0].Position, cursor) != 0 {
+	if comparePositions(readEventPosition(desc[0]), cursor) != 0 {
 		t.Fatalf("DESC page should start at the inclusive cursor")
 	}
 }
@@ -464,7 +494,7 @@ func TestFoundationDBRecreatedIndexUsesFreshGeneration(t *testing.T) {
 		t.Fatalf("expected fresh generation, got first=%q second=%q", firstGeneration, secondGeneration)
 	}
 
-	resp, err := backend.Get(ctx, &eventstore.GetEventsRequest{
+	resp, err := backend.GetBatch(ctx, &eventstore.GetEventsRequest{
 		Boundary:  "test",
 		Count:     10,
 		Direction: eventstore.Direction_ASC,
@@ -475,8 +505,8 @@ func TestFoundationDBRecreatedIndexUsesFreshGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get with recreated index: %v", err)
 	}
-	if len(resp.Events) != 1 {
-		t.Fatalf("expected recreated index to find 1 event, got %d", len(resp.Events))
+	if len(resp) != 1 {
+		t.Fatalf("expected recreated index to find 1 event, got %d", len(resp))
 	}
 }
 
@@ -535,30 +565,31 @@ func TestFoundationDBTotalOrderUnderConcurrency(t *testing.T) {
 				PreparePosition: cursor.PreparePosition + 1,
 			}
 		}
-		resp, err := backend.Get(ctx, req)
+		resp, err := backend.GetBatch(ctx, req)
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if len(resp.Events) == 0 {
+		if len(resp) == 0 {
 			break
 		}
-		for _, event := range resp.Events {
-			if prev != nil && comparePositions(event.Position, prev) <= 0 {
-				t.Fatalf("total order violated: %v after %v", event.Position, prev)
+		for _, event := range resp {
+			eventPos := readEventPosition(event)
+			if prev != nil && comparePositions(eventPos, prev) <= 0 {
+				t.Fatalf("total order violated: %v after %v", eventPos, prev)
 			}
 			// A batch shares one commit position; once the commit position
 			// advances it must never come back (batches cannot interleave).
-			if event.Position.CommitPosition < prevCommit {
-				t.Fatalf("batch interleaving: commit %d after %d", event.Position.CommitPosition, prevCommit)
+			if event.CommitPosition < prevCommit {
+				t.Fatalf("batch interleaving: commit %d after %d", event.CommitPosition, prevCommit)
 			}
-			prevCommit = event.Position.CommitPosition
-			prev = event.Position
+			prevCommit = event.CommitPosition
+			prev = eventPos
 			if _, dup := seen[event.EventId]; dup {
 				t.Fatalf("event %s seen twice", event.EventId)
 			}
 			seen[event.EventId] = struct{}{}
 		}
-		cursor = resp.Events[len(resp.Events)-1].Position
+		cursor = readEventPosition(resp[len(resp)-1])
 	}
 	if len(seen) != total {
 		t.Fatalf("expected %d events in total order, got %d", total, len(seen))

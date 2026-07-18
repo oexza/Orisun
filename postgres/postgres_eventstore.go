@@ -5,26 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go/jetstream"
-	common "github.com/oexza/Orisun/admin/slices/common"
-	"github.com/oexza/Orisun/logging"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
-	"github.com/lib/pq"
-	eventstore "github.com/oexza/Orisun/orisun"
-
-	config "github.com/oexza/Orisun/config"
-
-	"github.com/oexza/Orisun/orisun"
-
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lib/pq"
+	"github.com/nats-io/nats.go/jetstream"
+	common "github.com/oexza/Orisun/admin/slices/common"
+	config "github.com/oexza/Orisun/config"
+	"github.com/oexza/Orisun/logging"
+	"github.com/oexza/Orisun/orisun"
+	eventstore "github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const insertEventsWithConsistency = `
@@ -108,9 +104,9 @@ func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	}
 }
 
-func (s *PostgresSaveEvents) Save(
+func (s *PostgresSaveEvents) SavePrepared(
 	ctx context.Context,
-	events []eventstore.EventWithMapTags,
+	events eventstore.PreparedEventBatch,
 	boundary string,
 	expectedPosition *eventstore.Position,
 	streamConsistencyCondition *eventstore.Query) (transactionID string, globalID int64, err error) {
@@ -126,11 +122,6 @@ func (s *PostgresSaveEvents) Save(
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
-	events, err = eventstore.NormalizeEventsForSave(events)
-	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
-	}
-
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {
 		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
@@ -175,7 +166,7 @@ func (s *PostgresSaveEvents) Save(
 	return tranID, globID, nil
 }
 
-func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRequest) (*eventstore.GetEventsResponse, error) {
+func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("Getting events from request: %v", req)
 	}
@@ -183,6 +174,12 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 	schema, err := s.Schema(req.Boundary)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+	}
+	count := req.Count
+	if count == 0 {
+		count = eventstore.DefaultReadBatchSize
+	} else if count > eventstore.MaxReadBatchSize {
+		count = eventstore.MaxReadBatchSize
 	}
 
 	var fromPositionMarshaled *[]byte = nil
@@ -236,77 +233,29 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		paramsJSON,
 		fromPositionMarshaled,
 		req.Direction.String(),
-		req.Count,
+		count,
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
 	}
 	defer rows.Close()
 
-	// Pre-allocate events slice with expected capacity
-	events := make([]*eventstore.Event, 0, req.Count)
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get column names: %v", err)
-	}
-
-	// Create a slice of pointers to scan into
-	scanArgs := make([]any, len(columns))
-
-	// Reuse these variables for each row to reduce allocations
-	var event eventstore.Event
-	// var tagsBytes []byte
-	var transactionID, globalID int64
-	var dateCreated time.Time
-
-	// Create a map of pointers to hold our row data - only once
-	rowData := map[string]any{
-		"event_id":       &event.EventId,
-		"event_type":     &event.EventType,
-		"data":           &event.Data,
-		"metadata":       &event.Metadata,
-		"transaction_id": &transactionID,
-		"global_id":      &globalID,
-		"date_created":   &dateCreated,
-	}
-
-	for i, col := range columns {
-		if ptr, ok := rowData[col]; ok {
-			scanArgs[i] = ptr
-		} else {
-			return nil, status.Errorf(codes.Internal, "unexpected column: %s", col)
-		}
-	}
+	batch := make(eventstore.ReadEventBatch, 0, count)
 
 	for rows.Next() {
-		// Reset event for reuse
-		event = eventstore.Event{}
-
-		// Scan the row into our map
-		if err := rows.Scan(scanArgs...); err != nil {
+		var event eventstore.ReadEvent
+		if err := rows.Scan(
+			&event.CommitPosition,
+			&event.PreparePosition,
+			&event.EventId,
+			&event.EventType,
+			&event.Data,
+			&event.Metadata,
+			&event.DateCreated,
+		); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
-
-		// Set the Position
-		event.Position = &eventstore.Position{
-			CommitPosition:  transactionID,
-			PreparePosition: globalID,
-		}
-
-		// Set the DateCreated
-		event.DateCreated = timestamppb.New(dateCreated)
-
-		// Create a new event pointer for each row
-		eventCopy := eventstore.Event{
-			EventId:     event.EventId,
-			EventType:   event.EventType,
-			Data:        event.Data,
-			Metadata:    event.Metadata,
-			Position:    event.Position,
-			DateCreated: event.DateCreated,
-		}
-		events = append(events, &eventCopy)
+		batch = append(batch, event)
 	}
 
 	// Check for errors from iterating over rows
@@ -314,7 +263,7 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
 	}
 
-	return &eventstore.GetEventsResponse{Events: events}, nil
+	return batch, nil
 }
 
 // GetLatestByCriteria returns the latest event per criterion plus the max
@@ -323,80 +272,83 @@ func (s *PostgresGetEvents) Get(ctx context.Context, req *eventstore.GetEventsRe
 // whole context comes from one snapshot — assembling it from independent
 // queries would let an event commit in between with a position below the
 // observed maximum, invisible to a scalar expected-position check.
-func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, req *eventstore.GetLatestByCriteriaRequest) (*eventstore.GetLatestByCriteriaResponse, error) {
-	schema, err := s.Schema(req.Boundary)
+func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
+	schema, err := s.Schema(query.Boundary)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", query.Boundary)
 	}
-	if len(req.Criteria) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+	if len(query.Criteria) == 0 {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
 	}
 
-	criteriaList := getCriteriaAsList(&eventstore.Query{Criteria: req.Criteria})
-	if len(criteriaList) != len(req.Criteria) {
-		return nil, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+	criteriaList := getReadCriteriaAsList(query.Criteria)
+	if len(criteriaList) != len(query.Criteria) {
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
 	}
 	paramsBytes, err := json.Marshal(map[string]any{"criteria": criteriaList})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to marshal criteria: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to marshal criteria: %v", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, s.latestQueries[req.Boundary], req.Boundary, schema, paramsBytes)
+	rows, err := s.db.QueryContext(ctx, s.latestQueries[query.Boundary], query.Boundary, schema, paramsBytes)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to execute query: %v", err)
 	}
 	defer rows.Close()
 
-	eventsByIdx := make(map[int]*eventstore.Event, len(req.Criteria))
+	batch := eventstore.LatestByCriteriaBatch{
+		Matches:                make([]eventstore.LatestCriterionMatch, len(query.Criteria)),
+		ContextCommitPosition:  -1,
+		ContextPreparePosition: -1,
+	}
+	found := false
 	for rows.Next() {
 		var (
-			idx                     int
-			transactionID, globalID int64
-			eventID, eventType      string
-			dataJSON, metadataJSON  string
-			dateCreated             time.Time
+			idx   int
+			event eventstore.ReadEvent
 		)
-		if err := rows.Scan(&idx, &transactionID, &globalID, &eventID, &eventType, &dataJSON, &metadataJSON, &dateCreated); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
+		if err := rows.Scan(
+			&idx,
+			&event.CommitPosition,
+			&event.PreparePosition,
+			&event.EventId,
+			&event.EventType,
+			&event.Data,
+			&event.Metadata,
+			&event.DateCreated,
+		); err != nil {
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to scan row: %v", err)
 		}
-		eventsByIdx[idx] = &eventstore.Event{
-			EventId:   eventID,
-			EventType: eventType,
-			Data:      dataJSON,
-			Metadata:  metadataJSON,
-			Position: &eventstore.Position{
-				CommitPosition:  transactionID,
-				PreparePosition: globalID,
-			},
-			DateCreated: timestamppb.New(dateCreated),
+		if idx < 0 || idx >= len(batch.Matches) {
+			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "latest criterion index out of range: %d", idx)
+		}
+		batch.Matches[idx] = eventstore.LatestCriterionMatch{Event: event, Found: true}
+		if !found || event.CommitPosition > batch.ContextCommitPosition ||
+			(event.CommitPosition == batch.ContextCommitPosition && event.PreparePosition > batch.ContextPreparePosition) {
+			batch.ContextCommitPosition = event.CommitPosition
+			batch.ContextPreparePosition = event.PreparePosition
+			found = true
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "error iterating rows: %v", err)
 	}
+	return batch, nil
+}
 
-	resp := &eventstore.GetLatestByCriteriaResponse{}
-	contextPos := eventstore.NotExistsPosition()
-	found := false
-	for i, criterion := range req.Criteria {
-		result := &eventstore.LatestCriterionResult{Criterion: criterion}
-		if event, ok := eventsByIdx[i]; ok {
-			result.Event = event
-			if !found || event.Position.CommitPosition > contextPos.CommitPosition ||
-				(event.Position.CommitPosition == contextPos.CommitPosition &&
-					event.Position.PreparePosition > contextPos.PreparePosition) {
-				contextPos.CommitPosition = event.Position.CommitPosition
-				contextPos.PreparePosition = event.Position.PreparePosition
-				found = true
-			}
+func getReadCriteriaAsList(criteria []eventstore.ReadCriterion) []map[string]any {
+	result := make([]map[string]any, 0, len(criteria))
+	for _, criterion := range criteria {
+		if len(criterion.Tags) == 0 {
+			continue
 		}
-		resp.Results = append(resp.Results, result)
+		anded := make(map[string]any, len(criterion.Tags))
+		for _, tag := range criterion.Tags {
+			anded[tag.Key] = tag.Value
+		}
+		result = append(result, anded)
 	}
-	resp.ContextPosition = &eventstore.Position{
-		CommitPosition:  contextPos.CommitPosition,
-		PreparePosition: contextPos.PreparePosition,
-	}
-	return resp, nil
+	return result
 }
 
 func getStreamSectionAsMap(expectedPosition *eventstore.Position, consistencyCondition *eventstore.Query) map[string]any {

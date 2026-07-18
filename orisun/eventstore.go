@@ -23,9 +23,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// EventsSaver accepts only canonical batches prepared at an API boundary.
+// Storage backends must not decode the original flexible input representation.
 type EventsSaver interface {
-	Save(ctx context.Context,
-		events []EventWithMapTags,
+	SavePrepared(ctx context.Context,
+		events PreparedEventBatch,
 		boundary string,
 		expectedPosition *Position,
 		subSet *Query,
@@ -33,11 +35,11 @@ type EventsSaver interface {
 }
 
 type EventsRetriever interface {
-	Get(ctx context.Context, req *GetEventsRequest) (*GetEventsResponse, error)
+	GetBatch(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error)
 	// GetLatestByCriteria returns the latest event per criterion from ONE
 	// backend read snapshot, plus the max observed position as the
 	// optimistic-lock token for the combined context.
-	GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error)
+	GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error)
 }
 
 type LockProvider interface {
@@ -207,61 +209,166 @@ type EventWithMapTags struct {
 	Metadata  any    `json:"metadata"`
 }
 
-func NormalizeEventsForSave(events []EventWithMapTags) ([]EventWithMapTags, error) {
-	normalized := make([]EventWithMapTags, len(events))
+// PreparedEvent is the canonical backend-facing event representation. JSON is
+// held as immutable text so SQLite and FoundationDB can store it directly and
+// PostgreSQL can embed it as raw JSON without another decode. Values are always
+// valid JSON; DataJSON is always an object and contains the authoritative
+// eventType field.
+type PreparedEvent struct {
+	EventId      string
+	EventType    string
+	DataJSON     string
+	MetadataJSON string
+}
+
+// MarshalJSON preserves the canonical data and metadata as JSON values rather
+// than quoting them as strings. PostgreSQL uses this to send the prepared batch
+// directly to its insert function without constructing another event slice.
+func (e PreparedEvent) MarshalJSON() ([]byte, error) {
+	type wireEvent struct {
+		EventId   string          `json:"event_id"`
+		EventType string          `json:"event_type"`
+		Data      json.RawMessage `json:"data"`
+		Metadata  json.RawMessage `json:"metadata"`
+	}
+	return json.Marshal(wireEvent{
+		EventId: e.EventId, EventType: e.EventType,
+		Data: json.RawMessage(e.DataJSON), Metadata: json.RawMessage(e.MetadataJSON),
+	})
+}
+
+// PreparedEventBatch keeps event descriptors contiguous and gives ownership of
+// the canonical JSON strings to the save operation.
+type PreparedEventBatch []PreparedEvent
+
+// PrepareEventsForSave converts the embedding API's flexible input shape into
+// the canonical backend representation. Each JSON value is normalized once.
+func PrepareEventsForSave(events []EventWithMapTags) (PreparedEventBatch, error) {
+	prepared := make(PreparedEventBatch, len(events))
 	for i, event := range events {
-		data, err := normalizeEventData(event.Data, event.EventType)
+		dataJSON, err := prepareEventDataJSON(event.Data, event.EventType)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("event %d data: %w", i, err)
 		}
-		normalized[i] = EventWithMapTags{
-			EventId:   event.EventId,
-			EventType: event.EventType,
-			Data:      data,
-			Metadata:  event.Metadata,
+		metadataJSON, err := prepareJSONValue(event.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("event %d metadata: %w", i, err)
+		}
+		prepared[i] = PreparedEvent{
+			EventId:      event.EventId,
+			EventType:    event.EventType,
+			DataJSON:     dataJSON,
+			MetadataJSON: metadataJSON,
 		}
 	}
-	return normalized, nil
+	return prepared, nil
 }
 
-func normalizeEventsForSave(events []EventWithMapTags) ([]EventWithMapTags, error) {
-	return NormalizeEventsForSave(events)
-}
-
-func normalizeEventData(data any, eventType string) (map[string]any, error) {
-	var dataMap map[string]any
-
-	switch value := data.(type) {
-	case nil:
-		dataMap = map[string]any{}
-	case map[string]any:
-		dataMap = make(map[string]any, len(value)+1)
-		for k, v := range value {
-			dataMap[k] = v
+func prepareProtoEventsForSave(events []*EventToSave) (PreparedEventBatch, error) {
+	prepared := make(PreparedEventBatch, len(events))
+	for i, event := range events {
+		if event == nil {
+			return nil, fmt.Errorf("event %d is nil", i)
 		}
+		dataJSON, err := prepareEventDataJSON(event.Data, event.EventType)
+		if err != nil {
+			return nil, fmt.Errorf("event %d data: %w", i, err)
+		}
+		// The gRPC contract historically accepts metadata objects (or null), not
+		// arbitrary JSON scalars. Keep that validation at the transport edge.
+		metadataJSON, err := prepareJSONObjectJSON(event.Metadata, "", false)
+		if err != nil {
+			return nil, fmt.Errorf("event %d metadata: %w", i, err)
+		}
+		prepared[i] = PreparedEvent{
+			EventId:      event.EventId,
+			EventType:    event.EventType,
+			DataJSON:     dataJSON,
+			MetadataJSON: metadataJSON,
+		}
+	}
+	return prepared, nil
+}
+
+func prepareEventDataJSON(data any, eventType string) (string, error) {
+	return prepareJSONObjectJSON(data, eventType, true)
+}
+
+// prepareJSONObjectJSON normalizes an object and optionally sets eventType to
+// the supplied value. The generic object exists only at the API boundary and
+// is discarded after producing the immutable backend representation.
+func prepareJSONObjectJSON(value any, eventType string, setEventType bool) (string, error) {
+	var object map[string]any
+	switch value := value.(type) {
+	case nil:
+		object = make(map[string]any, 1)
 	case string:
-		if err := json.Unmarshal([]byte(value), &dataMap); err != nil {
-			return nil, err
+		if value == "" {
+			object = make(map[string]any, 1)
+		} else if err := json.Unmarshal([]byte(value), &object); err != nil {
+			return "", err
 		}
 	case []byte:
-		if err := json.Unmarshal(value, &dataMap); err != nil {
-			return nil, err
+		if len(value) == 0 {
+			object = make(map[string]any, 1)
+		} else if err := json.Unmarshal(value, &object); err != nil {
+			return "", err
+		}
+	case map[string]any:
+		object = make(map[string]any, len(value)+1)
+		for key, item := range value {
+			object[key] = item
 		}
 	default:
-		dataBytes, err := json.Marshal(value)
+		encoded, err := json.Marshal(value)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		if err := json.Unmarshal(dataBytes, &dataMap); err != nil {
-			return nil, err
+		if err := json.Unmarshal(encoded, &object); err != nil {
+			return "", err
 		}
 	}
+	if object == nil {
+		object = make(map[string]any, 1)
+	}
+	if setEventType {
+		object["eventType"] = eventType
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
 
-	if dataMap == nil {
-		dataMap = map[string]any{}
+func prepareJSONValue(value any) (string, error) {
+	if value == nil {
+		return "{}", nil
 	}
-	dataMap["eventType"] = eventType
-	return dataMap, nil
+	switch value := value.(type) {
+	case string:
+		if value == "" {
+			return "{}", nil
+		}
+		if !json.Valid([]byte(value)) {
+			return "", fmt.Errorf("invalid JSON")
+		}
+		return value, nil
+	case []byte:
+		if len(value) == 0 {
+			return "{}", nil
+		}
+		if !json.Valid(value) {
+			return "", fmt.Errorf("invalid JSON")
+		}
+		return string(value), nil
+	default:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "", err
+		}
+		return string(encoded), nil
+	}
 }
 
 func authorizeRequest(ctx context.Context, roles []Role) error {
@@ -386,27 +493,6 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		return nil, err
 	}
 
-	eventsForMarshaling := make([]EventWithMapTags, len(req.Events))
-	for i, event := range req.Events {
-		var metadataMap map[string]any
-
-		dataMap, normalizeErr := normalizeEventData(event.Data, event.EventType)
-		if normalizeErr != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in data field: %v", normalizeErr)
-		}
-
-		if err = json.Unmarshal([]byte(event.Metadata), &metadataMap); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "Invalid JSON in metadata field: %v", err)
-		}
-
-		eventsForMarshaling[i] = EventWithMapTags{
-			EventId:   event.EventId,
-			EventType: event.EventType,
-			Data:      dataMap,
-			Metadata:  metadataMap,
-		}
-	}
-
 	var transactionID string
 	var globalID int64
 
@@ -418,13 +504,12 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		subsetQuery = req.Query.SubsetQuery
 	}
 
-	// Execute the query
-	transactionID, globalID, err = s.saveEventsFn.Save(
-		ctx,
-		eventsForMarshaling,
-		req.Boundary,
-		expectedPosition,
-		subsetQuery,
+	prepared, prepareErr := prepareProtoEventsForSave(req.Events)
+	if prepareErr != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", prepareErr)
+	}
+	transactionID, globalID, err = s.saveEventsFn.SavePrepared(
+		ctx, prepared, req.Boundary, expectedPosition, subsetQuery,
 	)
 
 	if err != nil {
@@ -457,10 +542,17 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	if req.Count == 0 {
 		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
 	}
+	if req.Count > MaxReadBatchSize {
+		return nil, status.Errorf(codes.InvalidArgument, "Count cannot exceed %d", MaxReadBatchSize)
+	}
 	// if req.FromPosition != nil && req.Stream != nil {
 	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
 	// }
-	return s.getEventsFn.Get(ctx, req)
+	batch, err := s.getEventsFn.GetBatch(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return batch.ProtoResponse(), nil
 }
 
 func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
@@ -477,8 +569,61 @@ func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCr
 		if criterion == nil || len(criterion.Tags) == 0 {
 			return nil, status.Errorf(codes.InvalidArgument, "criterion %d has no tags", i)
 		}
+		for j, tag := range criterion.Tags {
+			if tag == nil {
+				return nil, status.Errorf(codes.InvalidArgument, "criterion %d tag %d is nil", i, j)
+			}
+		}
 	}
-	return s.getEventsFn.GetLatestByCriteria(ctx, req)
+	batch, err := s.getEventsFn.GetLatestByCriteria(ctx, latestQueryFromProto(req))
+	if err != nil {
+		return nil, err
+	}
+	if len(batch.Matches) != len(req.Criteria) {
+		return nil, status.Errorf(codes.Internal, "latest result count %d does not match criterion count %d", len(batch.Matches), len(req.Criteria))
+	}
+	return latestBatchProtoResponse(batch, req.Criteria), nil
+}
+
+func latestQueryFromProto(req *GetLatestByCriteriaRequest) LatestByCriteriaQuery {
+	tagCount := 0
+	for _, criterion := range req.Criteria {
+		tagCount += len(criterion.Tags)
+	}
+	tags := make([]ReadTag, tagCount)
+	criteria := make([]ReadCriterion, len(req.Criteria))
+	offset := 0
+	for i, criterion := range req.Criteria {
+		start := offset
+		for _, tag := range criterion.Tags {
+			tags[offset] = ReadTag{Key: tag.Key, Value: tag.Value}
+			offset++
+		}
+		criteria[i].Tags = tags[start:offset]
+	}
+	return LatestByCriteriaQuery{Boundary: req.Boundary, Criteria: criteria}
+}
+
+func latestBatchProtoResponse(batch LatestByCriteriaBatch, criteria []*Criterion) *GetLatestByCriteriaResponse {
+	rows := make([]protoEventRow, len(criteria))
+	results := make([]LatestCriterionResult, len(criteria))
+	pointers := make([]*LatestCriterionResult, len(criteria))
+	for i, criterion := range criteria {
+		result := &results[i]
+		result.Criterion = criterion
+		if i < len(batch.Matches) && batch.Matches[i].Found {
+			fillProtoEventRow(&rows[i], &batch.Matches[i].Event)
+			result.Event = &rows[i].event
+		}
+		pointers[i] = result
+	}
+	return &GetLatestByCriteriaResponse{
+		Results: pointers,
+		ContextPosition: &Position{
+			CommitPosition:  batch.ContextCommitPosition,
+			PreparePosition: batch.ContextPreparePosition,
+		},
+	}
 }
 
 func (s *EventStore) SubscribeToAllEvents(
@@ -537,34 +682,44 @@ func (s *EventStore) SubscribeToAllEvents(
 			}
 		}
 
-		resp, err := s.getEventsFn.Get(gCtx, getEventsReq)
+		batch, err := s.getEventsFn.GetBatch(gCtx, getEventsReq)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to get events during catch-up: %v", err)
 		}
 
 		// If no more events, we're caught up
-		if len(resp.Events) == 0 {
+		if len(batch) == 0 {
 			s.logger.Info("Catch-up phase completed: no more events in event store")
 			break
 		}
 
 		// Send all events in this batch
-		for _, event := range resp.Events {
+		for i := range batch {
 			if err := lease.Check(gCtx); err != nil {
 				return err
 			}
+			readEvent := &batch[i]
 
-			if lastProcessedPosition == nil || isEventPositionNewerThanPosition(event.Position, lastProcessedPosition) {
+			if lastProcessedPosition == nil || positionValuesAfter(
+				readEvent.CommitPosition,
+				readEvent.PreparePosition,
+				lastProcessedPosition.CommitPosition,
+				lastProcessedPosition.PreparePosition,
+			) {
+				event := readEvent.ProtoEvent()
 				if err := handler.Send(event); err != nil {
 					return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
 				}
 			}
 
-			lastProcessedPosition = event.Position
+			lastProcessedPosition = &Position{
+				CommitPosition:  readEvent.CommitPosition,
+				PreparePosition: readEvent.PreparePosition,
+			}
 		}
 
 		// If we got fewer events than requested, we're caught up
-		if len(resp.Events) < batchSize {
+		if len(batch) < batchSize {
 			s.logger.Info("Catch-up phase completed: reached end of event store")
 			break
 		}
@@ -594,15 +749,15 @@ func (s *EventStore) SubscribeToAllEvents(
 			},
 		}
 
-		lastEventResp, err := s.getEventsFn.Get(gCtx, lastEventReq)
+		lastEventBatch, err := s.getEventsFn.GetBatch(gCtx, lastEventReq)
 		if err != nil {
 			s.logger.Errorf("Failed to get last processed event for timestamp: %v", err)
 			return fmt.Errorf("cannot determine NATS subscription start time: failed to retrieve last processed event: %w", err)
-		} else if len(lastEventResp.Events) == 0 {
+		} else if len(lastEventBatch) == 0 {
 			s.logger.Warn("No events found after last processed position, using polling completion time for NATS subscription")
 			timeToSubscribeFromJetstream = pollingCompletedTime
 		} else {
-			timeToSubscribeFromJetstream = lastEventResp.Events[0].DateCreated.AsTime()
+			timeToSubscribeFromJetstream = lastEventBatch[0].DateCreated
 			if s.logger.IsDebugEnabled() {
 				s.logger.Debugf("Starting NATS subscription from last processed event time: %v", timeToSubscribeFromJetstream)
 			}
@@ -1055,6 +1210,10 @@ func publishEventsLoopWithLease(
 
 	defer signal.Stop()
 	readBackoff := readRetryBase
+	cursor := &Position{
+		CommitPosition:  lastPosition.CommitPosition,
+		PreparePosition: lastPosition.PreparePosition,
+	}
 
 	for {
 		if err := lease.Check(ctx); err != nil {
@@ -1072,14 +1231,14 @@ func publishEventsLoopWithLease(
 
 			req := &GetEventsRequest{
 				FromPosition: &Position{
-					CommitPosition:  lastPosition.CommitPosition,
-					PreparePosition: lastPosition.PreparePosition + 1,
+					CommitPosition:  cursor.CommitPosition,
+					PreparePosition: cursor.PreparePosition + 1,
 				},
 				Count:     batchSize,
 				Direction: Direction_ASC,
 				Boundary:  boundary,
 			}
-			resp, err := eventStore.Get(ctx, req)
+			batch, err := eventStore.GetBatch(ctx, req)
 			if err != nil {
 				logger.Errorf("Failed to get events for boundary %s: %v", boundary, err)
 				select {
@@ -1095,40 +1254,43 @@ func publishEventsLoopWithLease(
 			}
 			readBackoff = readRetryBase
 
-			if len(resp.Events) == 0 {
+			if len(batch) == 0 {
 				break
 			}
 
-			if err := validatePublishBatch(resp.Events, lastPosition); err != nil {
+			if err := validatePublishBatch(batch, cursor); err != nil {
 				return err
 			}
 
-			for _, event := range resp.Events {
+			batchCursor := &Position{
+				CommitPosition:  cursor.CommitPosition,
+				PreparePosition: cursor.PreparePosition,
+			}
+			for i := range batch {
+				event := &batch[i]
 				if err := lease.Check(ctx); err != nil {
 					return err
 				}
-				if event.Position == nil {
-					return fmt.Errorf("event %s has nil position", event.EventId)
-				}
-				if !positionAfter(event.Position, lastPosition) {
+				if !positionValuesAfter(event.CommitPosition, event.PreparePosition,
+					batchCursor.CommitPosition, batchCursor.PreparePosition) {
 					return fmt.Errorf(
 						"event %s position (%d, %d) is not after cursor (%d, %d)",
 						event.EventId,
-						event.Position.CommitPosition,
-						event.Position.PreparePosition,
-						lastPosition.CommitPosition,
-						lastPosition.PreparePosition,
+						event.CommitPosition,
+						event.PreparePosition,
+						batchCursor.CommitPosition,
+						batchCursor.PreparePosition,
 					)
 				}
 
 				subjectName := GetEventJetstreamSubjectName(
 					boundary,
 					&Position{
-						CommitPosition:  event.Position.CommitPosition,
-						PreparePosition: event.Position.PreparePosition,
+						CommitPosition:  event.CommitPosition,
+						PreparePosition: event.PreparePosition,
 					},
 				)
-				eventData, err := json.Marshal(event)
+				eventData, err := event.MarshalJSON()
 				if err != nil {
 					return fmt.Errorf("marshal event: %w", err)
 				}
@@ -1142,7 +1304,7 @@ func publishEventsLoopWithLease(
 						ctx,
 						subjectName,
 						eventData,
-						jetstream.WithMsgID(GetEventNatsMessageId(event.Position.PreparePosition, event.Position.CommitPosition)),
+						jetstream.WithMsgID(GetEventNatsMessageId(event.PreparePosition, event.CommitPosition)),
 						jetstream.WithRetryAttempts(5),
 					)
 					if err == nil {
@@ -1160,19 +1322,25 @@ func publishEventsLoopWithLease(
 					}
 				}
 
-				if err := lease.Check(ctx); err != nil {
-					return err
-				}
-				if err := db.InsertLastPublishedEvent(
-					ctx,
-					boundary,
-					event.Position.CommitPosition,
-					event.Position.PreparePosition,
-				); err != nil {
-					return fmt.Errorf("insert last published: %w", err)
-				}
-				lastPosition = event.Position
+				batchCursor.CommitPosition = event.CommitPosition
+				batchCursor.PreparePosition = event.PreparePosition
 			}
+
+			// The whole batch is now a contiguous acknowledged prefix. Persist only
+			// its final position. A crash or lease loss before this write replays the
+			// batch, which is safe under the documented at-least-once contract.
+			if err := lease.Check(ctx); err != nil {
+				return err
+			}
+			if err := db.InsertLastPublishedEvent(
+				ctx,
+				boundary,
+				batchCursor.CommitPosition,
+				batchCursor.PreparePosition,
+			); err != nil {
+				return fmt.Errorf("insert last published batch checkpoint: %w", err)
+			}
+			cursor = batchCursor
 		}
 
 		// Wait for the next signal (NOTIFY, catch-up tick, or poll) before
@@ -1183,33 +1351,27 @@ func publishEventsLoopWithLease(
 	}
 }
 
-func positionAfter(pos, cursor *Position) bool {
-	if pos == nil || cursor == nil {
-		return false
-	}
-	if pos.CommitPosition != cursor.CommitPosition {
-		return pos.CommitPosition > cursor.CommitPosition
-	}
-	return pos.PreparePosition > cursor.PreparePosition
+func positionValuesAfter(commit, prepare, previousCommit, previousPrepare int64) bool {
+	return commit > previousCommit || (commit == previousCommit && prepare > previousPrepare)
 }
 
-func validatePublishBatch(events []*Event, cursor *Position) error {
-	validationCursor := cursor
-	for _, event := range events {
-		if event.Position == nil {
-			return fmt.Errorf("event %s has nil position", event.EventId)
-		}
-		if !positionAfter(event.Position, validationCursor) {
+func validatePublishBatch(events ReadEventBatch, cursor *Position) error {
+	previousCommit := cursor.CommitPosition
+	previousPrepare := cursor.PreparePosition
+	for i := range events {
+		event := &events[i]
+		if !positionValuesAfter(event.CommitPosition, event.PreparePosition, previousCommit, previousPrepare) {
 			return fmt.Errorf(
 				"event %s position (%d, %d) is not after cursor (%d, %d)",
 				event.EventId,
-				event.Position.CommitPosition,
-				event.Position.PreparePosition,
-				validationCursor.CommitPosition,
-				validationCursor.PreparePosition,
+				event.CommitPosition,
+				event.PreparePosition,
+				previousCommit,
+				previousPrepare,
 			)
 		}
-		validationCursor = event.Position
+		previousCommit = event.CommitPosition
+		previousPrepare = event.PreparePosition
 	}
 	return nil
 }

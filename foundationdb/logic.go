@@ -19,7 +19,6 @@ import (
 	eventstore "github.com/oexza/Orisun/orisun"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -61,27 +60,19 @@ type preparedEvent struct {
 	data   map[string]any
 }
 
-func prepareEvents(events []eventstore.EventWithMapTags) ([]preparedEvent, error) {
+func prepareEvents(events eventstore.PreparedEventBatch) ([]preparedEvent, error) {
 	out := make([]preparedEvent, len(events))
 	for i, event := range events {
-		dataBytes, err := json.Marshal(event.Data)
-		if err != nil {
-			return nil, err
-		}
 		var data map[string]any
-		if err := json.Unmarshal(dataBytes, &data); err != nil {
-			return nil, err
-		}
-		metadataBytes, err := json.Marshal(event.Metadata)
-		if err != nil {
+		if err := json.Unmarshal([]byte(event.DataJSON), &data); err != nil {
 			return nil, err
 		}
 		out[i] = preparedEvent{
 			record: eventRecord{
 				EventID:   event.EventId,
 				EventType: event.EventType,
-				Data:      string(dataBytes),
-				Metadata:  string(metadataBytes),
+				Data:      event.DataJSON,
+				Metadata:  event.MetadataJSON,
 			},
 			data: data,
 		}
@@ -134,25 +125,23 @@ func decodeEventRecord(value []byte) (eventRecord, map[string]any, error) {
 	return record, data, nil
 }
 
-func eventFromRecord(value []byte, tx, gid int64) (*eventstore.Event, error) {
+func readEventFromRecord(value []byte, tx, gid int64) (eventstore.ReadEvent, error) {
 	record, _, err := decodeEventRecord(value)
 	if err != nil {
-		return nil, err
+		return eventstore.ReadEvent{}, err
 	}
 	created, err := time.Parse(time.RFC3339Nano, record.DateCreated)
 	if err != nil {
 		created = time.Now().UTC()
 	}
-	return &eventstore.Event{
-		EventId:   record.EventID,
-		EventType: record.EventType,
-		Data:      record.Data,
-		Metadata:  record.Metadata,
-		Position: &eventstore.Position{
-			CommitPosition:  tx,
-			PreparePosition: gid,
-		},
-		DateCreated: timestamppb.New(created),
+	return eventstore.ReadEvent{
+		EventId:         record.EventID,
+		EventType:       record.EventType,
+		Data:            record.Data,
+		Metadata:        record.Metadata,
+		CommitPosition:  tx,
+		PreparePosition: gid,
+		DateCreated:     created,
 	}, nil
 }
 
@@ -194,6 +183,20 @@ func criteriaAsMaps(query *eventstore.Query) []map[string]string {
 	}
 	out := make([]map[string]string, 0, len(query.Criteria))
 	for _, criterion := range query.Criteria {
+		m := make(map[string]string, len(criterion.Tags))
+		for _, tag := range criterion.Tags {
+			m[tag.Key] = tag.Value
+		}
+		if len(m) > 0 {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func readCriteriaAsMaps(criteria []eventstore.ReadCriterion) []map[string]string {
+	out := make([]map[string]string, 0, len(criteria))
+	for _, criterion := range criteria {
 		m := make(map[string]string, len(criterion.Tags))
 		for _, tag := range criterion.Tags {
 			m[tag.Key] = tag.Value
