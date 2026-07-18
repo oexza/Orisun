@@ -24,6 +24,8 @@ The mechanism behind this is **Command Context Consistency (CCC)**: commands dec
 
 **Start here:** [What is Orisun?](https://orisunlabs.github.io/Orisun/docs/)
 
+**Current release:** [`v0.6.0`](https://github.com/OrisunLabs/Orisun/releases/tag/v0.6.0)
+
 ## What It Provides
 
 - Transactional event storage on PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta.
@@ -76,7 +78,7 @@ docker run --rm \
   -e ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
   -e ORISUN_ADMIN_BOUNDARY=orisun_admin \
   -v orisun-data:/var/lib/orisun \
-  orexza/orisun:sqlite
+  orexza/orisun:0.6.0-sqlite
 ```
 
 PostgreSQL with a binary:
@@ -135,7 +137,7 @@ Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container R
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
 | `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same suffixes with `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:fdb`.
+Use the same suffixes with `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.0-fdb`.
 
 ## Development
 

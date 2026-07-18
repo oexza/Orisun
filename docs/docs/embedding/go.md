@@ -5,6 +5,14 @@ description: Run Orisun directly inside a Go service.
 
 Go services can embed Orisun directly instead of running the gRPC server as a separate process.
 
+This guide targets Orisun `0.6.0`. Install the canonical module path with:
+
+```bash
+go get github.com/OrisunLabs/Orisun@v0.6.0
+```
+
+If you are upgrading from `v0.5.0`, replace `github.com/oexza/Orisun` with `github.com/OrisunLabs/Orisun` in `go.mod` and imports, then run `go mod tidy`. The module-path move does not change the gRPC wire contract or persisted data.
+
 Backend-specific embedding packages keep deployments explicit:
 
 - `embedded/postgres` imports the PostgreSQL backend.
@@ -119,6 +127,49 @@ Use the same NATS options as the other embedded stores. Build the host service w
 ```bash
 go build -tags foundationdb ./...
 ```
+
+## Reading events in-process
+
+Embedded reads skip protobuf materialization. In Orisun `0.6.0`, `GetEvents` returns a packed `ReadEventBatch` whose events carry scalar `CommitPosition` and `PreparePosition` fields and a `time.Time` `DateCreated`:
+
+```go
+batch, err := store.GetEvents(ctx, &orisun.GetEventsRequest{
+	Boundary: "orders",
+	Count:    100,
+})
+if err != nil {
+	return err
+}
+for _, e := range batch {
+	process(e.EventType, e.Data, e.CommitPosition, e.PreparePosition)
+}
+```
+
+One page is capped at 10,000 events; page forward from the last event's position for larger reads.
+
+For carried-state command contexts, `GetLatestByCriteria` takes a `LatestByCriteriaQuery` and returns a `LatestByCriteriaBatch`. Matches align positionally with the input criteria and expose a `Found` flag:
+
+```go
+latest, err := store.GetLatestByCriteria(ctx, orisun.LatestByCriteriaQuery{
+	Boundary: "orders",
+	Criteria: []orisun.ReadCriterion{
+		{Tags: []orisun.ReadTag{
+			{Key: "eventType", Value: "OrderPlaced"},
+			{Key: "orderId", Value: "o-1"},
+		}},
+	},
+})
+if err != nil {
+	return err
+}
+if latest.Matches[0].Found {
+	decideFrom(latest.Matches[0].Event)
+}
+```
+
+Use `latest.ContextCommitPosition` and `latest.ContextPreparePosition` as the expected position for the next `SaveEvents` with the same combined criteria, exactly as over gRPC.
+
+The public gRPC and protobuf contract is unchanged; these packed types apply only to in-process callers.
 
 ## Embedded Index Management
 

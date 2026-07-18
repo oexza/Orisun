@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.1 - 2026-07-18
+
+### Changed
+
+- Updated the project, CI/release workflows, and FoundationDB development/test containers to Go 1.26.5.
+- Updated the README and documentation examples for the `v0.6.0` module path, binaries, and versioned container images.
+
 ## 0.6.0 - 2026-07-18
 
 ### Breaking Changes

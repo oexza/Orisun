@@ -7,6 +7,8 @@ slug: /
 
 Orisun is an open-source event database for decisions that must stay correct as facts change. It preserves complete event history and lets applications declare the events a command depends on. Orisun commits the resulting events only if that declared context is still current, then publishes committed events sequentially within each boundary.
 
+This documentation targets Orisun `0.6.0`.
+
 The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed. Orisun can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
 
 It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.

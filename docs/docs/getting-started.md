@@ -7,6 +7,8 @@ slug: /getting-started
 
 Orisun is an event database for decisions that must stay correct as facts change: preserve the event history a command depends on, commit only when its declared context is still current, and publish committed events sequentially within each boundary without running a separate broker.
 
+This guide targets Orisun `0.6.0`.
+
 You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
 This guide starts a standalone server. If you want Orisun inside a Go process, go to [Go Embedding](./embedding/go).
@@ -91,7 +93,7 @@ Download a release asset for your OS, architecture, and backend from [GitHub Rel
 For example, on Linux amd64:
 
 ```bash
-VERSION=0.3.1
+VERSION=0.6.0
 
 curl -L \
   "https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \
@@ -198,7 +200,7 @@ Create `docker-compose.yml`:
 ```yaml
 services:
   orisun:
-    image: orexza/orisun:sqlite
+    image: orexza/orisun:0.6.0-sqlite
     environment:
       ORISUN_BACKEND: sqlite
       ORISUN_SQLITE_DIR: /var/lib/orisun/sqlite
@@ -242,7 +244,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   orisun:
-    image: orexza/orisun:pg
+    image: orexza/orisun:0.6.0-pg
     environment:
       ORISUN_PG_HOST: postgres
       ORISUN_PG_PORT: 5432
@@ -295,7 +297,7 @@ services:
       - yugabyte-data:/root/var
 
   orisun:
-    image: orexza/orisun:pg
+    image: orexza/orisun:0.6.0-pg
     environment:
       ORISUN_BACKEND: postgres
       ORISUN_PG_DIALECT: yugabyte
@@ -410,7 +412,7 @@ Docker images are published to Docker Hub and GitHub Container Registry with the
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
 | `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same tag names under `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:fdb`.
+Use the same tag names under `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:0.6.0-fdb`.
 
 ## Next steps
 
