@@ -52,7 +52,7 @@ jobs:
         run: echo "VERSION=v${{ steps.get_version.outputs.version }}" >> $GITHUB_ENV
 
       - name: Run tests
-        run: go test -v ./...
+        run: go test -p 1 -timeout 90m -v ./...
 
   build-binaries:
     name: Build Binaries
@@ -254,27 +254,27 @@ jobs:
           ### Linux
           \`\`\`bash
           # PostgreSQL-only binary
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-pg-linux-amd64 -o orisun-pg
+          curl -L https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-pg-linux-amd64 -o orisun-pg
           chmod +x orisun-pg
 
           # SQLite-only binary
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64 -o orisun-sqlite
+          curl -L https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64 -o orisun-sqlite
           chmod +x orisun-sqlite
 
           # FoundationDB-only binary (Linux only; requires the FoundationDB
           # client library installed: foundationdb-clients ${FDB_VERSION:-7.3.x})
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-fdb-linux-amd64 -o orisun-fdb
+          curl -L https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-fdb-linux-amd64 -o orisun-fdb
           chmod +x orisun-fdb
           \`\`\`
 
           ### macOS
           \`\`\`bash
           # PostgreSQL-only binary for Apple Silicon
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-pg-darwin-arm64 -o orisun-pg
+          curl -L https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-pg-darwin-arm64 -o orisun-pg
           chmod +x orisun-pg
 
           # SQLite-only binary for Apple Silicon
-          curl -L https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-darwin-arm64 -o orisun-sqlite
+          curl -L https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-sqlite-darwin-arm64 -o orisun-sqlite
           chmod +x orisun-sqlite
           \`\`\`
 
@@ -307,7 +307,7 @@ jobs:
     name: Build and Push Docker Image (${{ matrix.flavor }})
     needs: validate
     runs-on: ubuntu-latest
-    if: ${{ !inputs.docker_only || always() }}
+    if: ${{ needs.validate.result == 'success' }}
     permissions:
       packages: write
     strategy:
@@ -367,7 +367,7 @@ jobs:
             BUILD_TIME=${{ steps.docker_meta.outputs.build_time }}
             GIT_COMMIT=${{ steps.docker_meta.outputs.git_commit }}
           tags: |
-            ghcr.io/oexza/orisun:${{ matrix.channel_tag }}
-            ghcr.io/oexza/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
+            ghcr.io/orisunlabs/orisun:${{ matrix.channel_tag }}
+            ghcr.io/orisunlabs/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}
             orexza/orisun:${{ matrix.channel_tag }}
             orexza/orisun:${{ needs.validate.outputs.version }}${{ matrix.version_suffix }}

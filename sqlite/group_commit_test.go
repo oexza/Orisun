@@ -157,7 +157,7 @@ func saveBypassingQueue(
 func blockWorkerThenQueue(t *testing.T, saver *SqliteSaveEvents, bp *BoundaryPools, queued int, enqueue func()) {
 	t.Helper()
 	release := holdWriteConn(t, bp)
-	flushesBeforeBlocker := saver.gcSingleFlushes.Load()
+	singlesBeforeBlocker := saver.gcSingleFlushes.Load()
 
 	blockerDone := make(chan error, 1)
 	go func() {
@@ -168,7 +168,7 @@ func blockWorkerThenQueue(t *testing.T, saver *SqliteSaveEvents, bp *BoundaryPoo
 	}()
 	// The blocker is inside its (stalled) flush once the single-flush counter ticks.
 	waitUntil(t, "worker to pick up blocker", func() bool {
-		return saver.gcSingleFlushes.Load() > flushesBeforeBlocker
+		return saver.gcSingleFlushes.Load() > singlesBeforeBlocker
 	})
 
 	enqueue()

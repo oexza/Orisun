@@ -5,16 +5,19 @@ description: What Orisun is, the guarantees it makes, and where to start.
 slug: /
 ---
 
-Orisun is an open-source event store built for **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context is still current.
+Orisun is an open-source event database for decisions that must stay correct as facts change. It preserves complete event history and lets applications declare the events a command depends on. Orisun commits the resulting events only if that declared context is still current, then publishes committed events sequentially within each boundary.
 
-It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
+The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed. Orisun can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
+
+It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
 
 ## Guarantees
 
-- **Consistency scoped to the command.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
-- **No skipped committed events.** A durable per-boundary checkpoint drives publishing. Wake-up signals can be missed; committed events still drain in order.
+- **Decisions scoped to real context.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
+- **DCB-compatible append conditions.** Use `expected_position` plus `subsetQuery` to append only when a dynamic event set has not changed.
+- **No skipped committed events.** A durable per-boundary checkpoint drives at-least-once publishing. Wake-up signals can be missed; committed events still drain sequentially within the boundary.
 - **Per-boundary ordering.** Events publish in ascending log position within each boundary.
-- **Same API on every backend.** SQLite, PostgreSQL, and YugabyteDB expose the identical gRPC surface, so deployments can grow without client changes.
+- **Same API on every backend.** SQLite, PostgreSQL, YugabyteDB, and FoundationDB expose the identical gRPC surface, so deployments can grow without client changes.
 
 ## How it works
 
@@ -27,12 +30,12 @@ It stores the event log transactionally in PostgreSQL, YugabyteDB, or SQLite, an
 
 SQLite is the fastest local loop. Event log, admin state, indexes, publisher checkpoints, and embedded JetStream run from one binary with no separate database.
 
-1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/oexza/Orisun/releases).
+1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases).
 2. Start it with the [SQLite binary example](/docs/getting-started#run-sqlite-from-a-binary).
 3. Verify gRPC with [Verify the API](/docs/getting-started#verify-the-api).
 4. Save an event with [Save your first event](/docs/getting-started#save-your-first-event).
 
-Move to PostgreSQL or YugabyteDB when you need multiple Orisun nodes or database-managed operations. SQLite is single-node only and requires NATS clustering disabled.
+Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun nodes or database-managed operations. SQLite is single-node only and requires NATS clustering disabled. FoundationDB support is beta; read the FoundationDB operations guide before using it in production.
 
 ## Pick your path
 
@@ -41,6 +44,7 @@ Move to PostgreSQL or YugabyteDB when you need multiple Orisun nodes or database
 | Try Orisun locally | [Getting Started](/docs/getting-started) | [Tutorial](/docs/tutorial) |
 | Embed Orisun in a Go service | [Go Embedding](/docs/embedding/go) | [Storage Backends](/docs/concepts/storage-backends) |
 | Model a business invariant | [Command Context Consistency](/docs/concepts/command-context-consistency) | [Positions](/docs/concepts/positions) |
+| Use DCB terminology | [Dynamic Consistency Boundaries](/docs/concepts/dynamic-consistency-boundaries) | [EventStore API](/docs/api/eventstore) |
 | Save, query, and subscribe | [EventStore API](/docs/api/eventstore) | [Clients](/docs/api/clients) |
 | Prepare production settings | [Configuration](/docs/operations/configuration) | [Deployment](/docs/operations/deployment) |
 | Debug a running node | [Troubleshooting](/docs/operations/troubleshooting) | [Observability](/docs/operations/observability) |
@@ -50,6 +54,7 @@ Move to PostgreSQL or YugabyteDB when you need multiple Orisun nodes or database
 Use Orisun when:
 
 - commands need to read event history before deciding what to write,
+- stale context would make an otherwise valid command unsafe,
 - consistency depends on a subset of events, not always a fixed stream,
 - projectors need to recover from downtime without relying only on broker retention,
 - you want the event store, publisher, gRPC API, auth, indexes, and telemetry in one server.

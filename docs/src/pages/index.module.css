@@ -1,48 +1,69 @@
 .hero {
   position: relative;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 18% 16%, rgb(55 181 133 / 18%), transparent 28rem),
-    linear-gradient(135deg, #09110f 0%, #0b1110 48%, #172018 100%);
+  background: #07100e;
   color: #ecf4f0;
 }
 
 .heroGrid {
   position: absolute;
-  inset: 0;
-  opacity: 0.36;
-  background-image:
-    linear-gradient(rgb(236 244 240 / 8%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(236 244 240 / 8%) 1px, transparent 1px);
-  background-size: 56px 56px;
+  top: 0;
+  bottom: 0;
+  left: 54%;
+  width: 1px;
+  background: rgb(236 244 240 / 7%);
+  box-shadow: 260px 0 rgb(236 244 240 / 5%), 520px 0 rgb(236 244 240 / 4%);
+}
+
+.heroTrace {
+  position: absolute;
+  top: 7rem;
+  right: max(2rem, calc((100vw - 1320px) / 2));
+  display: grid;
+  grid-template-columns: 3rem 13rem;
+  width: 19rem;
+  opacity: 0.18;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+}
+
+.heroTrace span,
+.heroTrace strong {
+  border-bottom: 1px solid #68cfa9;
+  padding: 0.85rem 0;
+}
+
+.heroTrace span {
+  color: #f3c35e;
+}
+
+.heroTrace strong {
+  color: #ecf4f0;
+  font-weight: 600;
 }
 
 .heroInner {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 0.98fr) minmax(380px, 0.78fr);
-  gap: 4.5rem;
-  align-items: center;
-  min-height: calc(80svh - var(--ifm-navbar-height));
+  min-height: calc(86svh - var(--ifm-navbar-height));
   padding-top: 4.5rem;
   padding-bottom: 4rem;
 }
 
-.heroCopy h1 {
-  max-width: 820px;
+.hero h1 {
+  max-width: 900px;
   margin: 0;
   color: #fff;
-  font-size: 5.8rem;
+  font-size: 5.6rem;
   line-height: 0.96;
   letter-spacing: 0;
 }
 
-.heroCopy p {
-  max-width: 700px;
-  margin-top: 2rem;
+.heroInner > p {
+  max-width: 760px;
+  margin: 1.8rem 0 0;
   color: rgb(236 244 240 / 78%);
   font-size: 1.2rem;
-  line-height: 1.75;
+  line-height: 1.72;
 }
 
 .badges,
@@ -53,57 +74,53 @@
 }
 
 .badges {
-  margin-bottom: 1.75rem;
+  margin-bottom: 1.5rem;
 }
 
-.badge {
+.badge,
+.badgeLink {
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
-  border: 1px solid rgb(236 244 240 / 24%);
+  border: 1px solid rgb(236 244 240 / 22%);
   border-radius: 0.5rem;
-  padding: 0.35rem 0.75rem;
+  padding: 0.35rem 0.72rem;
   color: #ecf4f0;
-  background: rgb(236 244 240 / 6%);
-  font-size: 0.84rem;
+  background: rgb(236 244 240 / 5%);
+  font-size: 0.82rem;
   font-weight: 800;
 }
 
-.releaseBadge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2rem;
+.badgeLink {
+  border-color: rgb(55 181 133 / 55%);
 }
 
-.releaseBadge:hover {
-  opacity: 0.86;
-}
-
-.releaseBadge img {
-  display: block;
-  width: auto;
-  height: 20px;
+.badgeLink:hover {
+  color: #fff;
+  text-decoration: none;
+  background: rgb(55 181 133 / 14%);
 }
 
 .actions {
-  margin-top: 2.35rem;
+  margin-top: 2rem;
 }
 
 .heroFacts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  max-width: 760px;
+  max-width: 900px;
   margin: 3rem 0 0;
-  border: 1px solid rgb(236 244 240 / 16%);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  background: rgb(236 244 240 / 16%);
+  border-top: 1px solid rgb(236 244 240 / 18%);
+  border-bottom: 1px solid rgb(236 244 240 / 18%);
 }
 
 .heroFacts div {
-  padding: 1rem;
-  background: rgb(11 17 16 / 72%);
+  padding: 1rem 1rem 1rem 0;
+}
+
+.heroFacts div + div {
+  border-left: 1px solid rgb(236 244 240 / 14%);
+  padding-left: 1rem;
 }
 
 .heroFacts dt,
@@ -112,140 +129,38 @@
 }
 
 .heroFacts dt {
-  color: rgb(236 244 240 / 58%);
-  font-size: 0.78rem;
+  color: #68cfa9;
+  font-size: 0.76rem;
   font-weight: 850;
   text-transform: uppercase;
 }
 
 .heroFacts dd {
-  margin-top: 0.35rem;
+  margin-top: 0.32rem;
   color: #fff;
-  font-size: 0.95rem;
-  font-weight: 750;
-}
-
-.heroPanel {
-  display: grid;
-  gap: 0.9rem;
-  align-self: stretch;
-  align-content: center;
-}
-
-.diagramFrame {
-  overflow: hidden;
-  border: 1px solid rgb(236 244 240 / 18%);
-  border-radius: 0.5rem;
-  background: linear-gradient(180deg, #13231f, #0d1715);
-  box-shadow: 0 26px 90px rgb(0 0 0 / 36%);
-}
-
-.diagramFrame img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.terminal {
-  overflow: hidden;
-  border: 1px solid rgb(236 244 240 / 12%);
-  border-radius: 0.5rem;
-  background: #07100e;
-  box-shadow: 0 16px 50px rgb(0 0 0 / 22%);
-}
-
-.heroRoute {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
-  border: 1px solid rgb(236 244 240 / 16%);
-  border-radius: 0.5rem;
-  padding: 1rem;
-  background: rgb(236 244 240 / 8%);
-  box-shadow: 0 14px 44px rgb(0 0 0 / 22%);
-}
-
-.heroRoute span,
-.heroRoute strong {
-  display: block;
-}
-
-.heroRoute span {
-  color: rgb(236 244 240 / 58%);
-  font-size: 0.78rem;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.heroRoute strong {
-  margin-top: 0.18rem;
-  color: #fff;
-  font-size: 1.02rem;
-}
-
-.heroRoute a {
-  flex: 0 0 auto;
-  border: 1px solid rgb(55 181 133 / 54%);
-  border-radius: 0.5rem;
-  padding: 0.52rem 0.75rem;
-  color: #ecf4f0;
-  font-size: 0.86rem;
-  font-weight: 850;
-}
-
-.heroRoute a:hover {
-  color: #fff;
-  text-decoration: none;
-  background: rgb(55 181 133 / 16%);
-}
-
-.terminalTop {
-  display: flex;
-  gap: 0.45rem;
-  align-items: center;
-  min-height: 2rem;
-  border-bottom: 1px solid rgb(236 244 240 / 10%);
-  padding: 0 0.85rem;
-  background: #101c19;
-}
-
-.terminalTop span {
-  display: block;
-  width: 0.58rem;
-  height: 0.58rem;
-  border-radius: 50%;
-  background: #c7872d;
-}
-
-.terminalTop span:nth-child(2) {
-  background: #ca6347;
-}
-
-.terminalTop span:nth-child(3) {
-  background: #37b585;
-}
-
-.terminal pre {
-  margin: 0;
-  padding: 1.15rem;
-  color: #c8d8d2;
-  white-space: pre-wrap;
+  font-size: 0.92rem;
+  font-weight: 720;
 }
 
 .sectionHeader {
-  max-width: 810px;
+  max-width: 850px;
 }
 
-.sectionHeader h2 {
-  margin: 0.5rem 0 0;
+.sectionHeader h2,
+.mechanismCopy h2,
+.architectureCopy h2,
+.startCopy h2 {
+  margin: 0.55rem 0 0;
   color: var(--ifm-heading-color);
-  font-size: 4.1rem;
-  line-height: 0.98;
+  font-size: 3.8rem;
+  line-height: 1;
   letter-spacing: 0;
 }
 
-.sectionHeader p {
+.sectionHeader p,
+.mechanismCopy p,
+.architectureCopy p,
+.startCopy p {
   color: var(--ifm-color-emphasis-700);
   font-size: 1.08rem;
   line-height: 1.75;
@@ -253,95 +168,389 @@
 
 .eyebrow {
   color: var(--ifm-color-primary);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
-.featureGrid,
+.problemSection {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.raceStage {
+  overflow: hidden;
+  margin-top: 2.7rem;
+  border: 1px solid #28443d;
+  border-radius: 0.5rem;
+  background: #0b1512;
+  color: #ecf4f0;
+  box-shadow: 0 24px 70px rgb(16 32 29 / 15%);
+}
+
+.contextBar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1.25rem;
+  align-items: center;
+  border-bottom: 1px solid #28443d;
+  padding: 1rem 1.3rem;
+  background: #10201d;
+}
+
+.contextBar span {
+  color: #68cfa9;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.contextBar code,
+.raceLane code {
+  border: 0;
+  background: rgb(236 244 240 / 8%);
+  color: #f3c35e;
+}
+
+.raceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.raceLane {
+  min-width: 0;
+  padding: 1.5rem;
+}
+
+.raceLane + .raceLane {
+  border-left: 1px solid #28443d;
+}
+
+.laneHeader {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.laneHeader span {
+  color: #a8bdb5;
+  font-size: 0.8rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.laneHeader strong {
+  font-size: 1.2rem;
+}
+
+.lanePath {
+  display: grid;
+  grid-template-columns: auto minmax(1.5rem, 1fr) auto minmax(1.5rem, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  min-height: 5rem;
+  margin-top: 1rem;
+}
+
+.lanePath span,
+.lanePath strong {
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.lanePath i {
+  display: block;
+  height: 2px;
+  background: #5f756d;
+}
+
+.lanePath strong {
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.acceptedLane .lanePath strong {
+  background: #37b585;
+  color: #07100e;
+}
+
+.rejectedLane .lanePath strong {
+  background: #ca6347;
+  color: #fff;
+}
+
+.raceLane p {
+  min-height: 2.8rem;
+  margin: 0;
+  color: #a8bdb5;
+  font-size: 0.92rem;
+}
+
+.raceResult {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 1rem;
+  align-items: center;
+  border-top: 1px solid #28443d;
+  padding: 1.2rem 1.5rem;
+  background: #07100e;
+}
+
+.raceResult span {
+  color: #ca6347;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.raceResult span:nth-of-type(2) {
+  color: #68cfa9;
+}
+
+.raceResult strong {
+  font-size: 0.92rem;
+}
+
+.outcomeGrid,
+.useCaseGrid,
+.flowGrid,
 .backendGrid,
-.flowGrid {
+.docGroups {
   display: grid;
   gap: 1rem;
   margin-top: 2.5rem;
 }
 
-.featureGrid {
+.outcomeGrid,
+.useCaseGrid,
+.backendGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.backendGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.outcomeCard,
+.useCaseCard,
+.backendCard {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 0.5rem;
+  background: var(--ifm-background-surface-color);
+}
+
+.outcomeCard {
+  min-height: 14rem;
+  border-top: 4px solid #0e7d69;
+  padding: 1.6rem;
+}
+
+.outcomeCard:nth-child(2) {
+  border-top-color: #ca6347;
+}
+
+.outcomeCard:nth-child(3) {
+  border-top-color: #c7872d;
+}
+
+.outcomeCard:nth-child(4) {
+  border-top-color: #24413a;
+}
+
+.outcomeCard > span,
+.useCaseCard > span {
+  color: #ca6347;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.outcomeCard h3,
+.useCaseCard h3,
+.flowStep h3 {
+  margin: 0.65rem 0 0;
+}
+
+.outcomeCard p,
+.useCaseCard p,
+.flowStep p,
+.backendCard p {
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.65;
+}
+
+.useCaseSection,
+.backendSection,
+.docsSection {
+  background: #eef1f4;
+}
+
+.useCaseCard {
+  min-height: 16rem;
+  padding: 1.6rem;
+}
+
+.useCaseCard > strong {
+  display: block;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  margin-top: 1.2rem;
+  padding-top: 1.2rem;
+  color: var(--ifm-color-emphasis-900);
+  line-height: 1.55;
 }
 
 .flowGrid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.featureCard,
-.backendCard,
 .flowStep {
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border-top: 2px solid var(--ifm-color-emphasis-300);
+  padding: 1.4rem 1rem 0 0;
+}
+
+.flowStep > strong {
+  color: #0e7d69;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.9rem;
+}
+
+.mechanismSection {
+  background: #171c21;
+  color: #ecf4f0;
+}
+
+.mechanismGrid,
+.architectureGrid,
+.startGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+  gap: 4rem;
+  align-items: center;
+}
+
+.mechanismCopy h2,
+.startCopy h2 {
+  color: #fff;
+}
+
+.mechanismCopy p,
+.startCopy p {
+  color: #aebbc0;
+}
+
+.mechanismLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.8rem;
+}
+
+.mechanismLinks a,
+.architectureCopy > a {
+  font-weight: 850;
+}
+
+.codePanel,
+.terminal {
+  overflow: hidden;
+  border: 1px solid #344148;
   border-radius: 0.5rem;
-  background: var(--ifm-background-surface-color);
-  box-shadow: 0 8px 28px rgb(16 32 29 / 6%);
+  background: #0d1216;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 24%);
 }
 
-.featureCard,
-.flowStep {
-  padding: 1.5rem;
+.codePanelHeader,
+.terminalHeader {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #344148;
+  padding: 0.85rem 1rem;
+  background: #21282d;
 }
 
-.featureCard span {
-  color: #ca6347;
-  font-size: 0.8rem;
+.codePanelHeader span,
+.terminalHeader span {
+  color: #68cfa9;
+  font-size: 0.78rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
-.featureCard h3,
-.flowStep h3 {
-  margin-top: 0.55rem;
+.codePanelHeader strong,
+.terminalHeader strong {
+  color: #d5ddd9;
+  font-size: 0.82rem;
 }
 
-.featureCard p,
-.backendCard p,
-.flowStep p,
-.docCard p {
-  margin-bottom: 0;
-  color: var(--ifm-color-emphasis-700);
+.codePanel pre,
+.terminal pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 1.4rem;
+  background: transparent;
+  color: #d5ddd9;
+  font-size: 0.88rem;
+  line-height: 1.65;
 }
 
-.backendSection,
-.docsSection {
-  background: #f0f4ef;
-}
-
-.backendCard,
-.docCard {
+.codePanel code,
+.terminal code {
+  border: 0;
+  padding: 0;
+  background: transparent;
   color: inherit;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.architectureGrid {
+  grid-template-columns: minmax(420px, 1.05fr) minmax(0, 0.95fr);
+}
+
+.architectureMedia {
+  overflow: hidden;
+  border: 1px solid #28443d;
+  border-radius: 0.5rem;
+  background: #0b1512;
+  box-shadow: 0 20px 54px rgb(16 32 29 / 14%);
+}
+
+.architectureMedia img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.architectureCopy ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.architectureCopy li {
+  border-left: 3px solid #37b585;
+  padding-left: 0.85rem;
+  color: var(--ifm-color-emphasis-800);
+  font-weight: 700;
 }
 
 .backendCard {
   display: block;
   padding: 1.5rem;
+  color: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.backendCard:hover,
-.docCard:hover {
+.backendCard:hover {
+  border-color: rgb(14 125 105 / 48%);
   color: inherit;
   text-decoration: none;
-  border-color: rgb(14 125 105 / 42%);
   transform: translateY(-3px);
   box-shadow: 0 18px 40px rgb(16 32 29 / 12%);
 }
 
 .backendCard:focus-visible,
-.docCard:focus-visible {
+.docLink:focus-visible {
   outline: 2px solid var(--ifm-color-primary);
   outline-offset: 3px;
-  text-decoration: none;
 }
 
 .backendHeader {
@@ -357,228 +566,254 @@
 
 .backendHeader span {
   color: var(--ifm-color-primary);
-  font-size: 0.84rem;
-  font-weight: 800;
+  font-size: 0.8rem;
+  font-weight: 850;
 }
 
 .backendCard ul {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin: 1.25rem 0 0;
+  margin: 1.2rem 0 0;
   padding: 0;
   list-style: none;
 }
 
 .backendCard li {
   border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 0.5rem;
+  border-radius: 0.35rem;
   padding: 0.28rem 0.55rem;
   background: var(--ifm-color-emphasis-100);
   color: var(--ifm-color-emphasis-800);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
-.flowStep strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.1rem;
-  height: 2.1rem;
-  border-radius: 50%;
-  background: #c7872d;
-  color: #1f1608;
+.startSection {
+  background: #0f2523;
+  color: #ecf4f0;
 }
 
-.flowStep h3 {
-  margin-bottom: 0.6rem;
+.startGrid {
+  grid-template-columns: minmax(0, 0.82fr) minmax(460px, 1.18fr);
+}
+
+.terminal {
+  border-color: #31544c;
+  background: #07100e;
+}
+
+.terminalHeader {
+  border-color: #31544c;
+  background: #16322e;
 }
 
 .docGroups {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 2.5rem;
 }
 
 .docGroup {
   display: grid;
   align-content: start;
-  gap: 0.75rem;
 }
 
 .docGroup h3 {
-  margin-top: 0;
-  margin-bottom: 0.25rem;
-  color: #10201d;
+  margin: 0 0 0.7rem;
 }
 
-.docCard {
-  display: block;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 0.5rem;
-  padding: 1rem;
-  background: #fff;
-}
-
-.docCard span {
-  color: #10201d;
-  font-weight: 850;
-}
-
-.docCard p {
-  margin-top: 0.35rem;
-  font-size: 0.94rem;
-  line-height: 1.55;
-}
-
-.ctaSection {
-  padding: 4rem 0;
-  background: #0b1110;
-  color: #ecf4f0;
-}
-
-.ctaInner {
+.docLink {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2rem;
-  align-items: center;
+  gap: 0.25rem;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  padding: 1rem 0;
+  color: inherit;
 }
 
-.ctaInner h2 {
-  max-width: 820px;
-  margin: 0.5rem 0 0;
-  color: #fff;
-  font-size: 3rem;
-  line-height: 1.05;
-  letter-spacing: 0;
+.docLink:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
 }
 
-.ctaActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  justify-content: flex-end;
+.docLink span {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
+:global([data-theme='dark']) .useCaseSection,
 :global([data-theme='dark']) .backendSection,
 :global([data-theme='dark']) .docsSection {
-  background: #0d1513;
+  background: #101615;
 }
 
-:global([data-theme='dark']) .docCard {
+:global([data-theme='dark']) .outcomeCard,
+:global([data-theme='dark']) .useCaseCard,
+:global([data-theme='dark']) .backendCard {
+  border-color: rgb(236 244 240 / 14%);
   background: #101816;
 }
 
-:global([data-theme='dark']) .docGroup h3,
-:global([data-theme='dark']) .docCard span {
-  color: #ecf4f0;
-}
-
-:global([data-theme='dark']) .docCard {
-  border-color: rgb(236 244 240 / 14%);
-}
-
 @media (max-width: 996px) {
-  .heroInner,
-  .featureGrid,
-  .backendGrid,
-  .flowGrid,
-  .docGroups,
-  .heroFacts,
-  .ctaInner {
+  .heroTrace {
+    right: -5rem;
+    opacity: 0.1;
+  }
+
+  .hero h1 {
+    max-width: 760px;
+    font-size: 4.4rem;
+  }
+
+  .sectionHeader h2,
+  .mechanismCopy h2,
+  .architectureCopy h2,
+  .startCopy h2 {
+    font-size: 3.1rem;
+  }
+
+  .raceGrid,
+  .mechanismGrid,
+  .architectureGrid,
+  .startGrid {
     grid-template-columns: 1fr;
   }
 
-  .heroInner {
-    gap: 2rem;
-    min-height: auto;
+  .raceLane + .raceLane {
+    border-top: 1px solid #28443d;
+    border-left: 0;
   }
 
-  .heroCopy h1 {
-    font-size: 4.25rem;
+  .raceResult {
+    grid-template-columns: auto 1fr;
   }
 
-  .sectionHeader h2 {
-    font-size: 3.2rem;
-  }
-
-
-  .ctaInner h2 {
-    font-size: 2.8rem;
-  }
-
-  .ctaActions {
-    justify-content: flex-start;
-  }
-}
-
-@media (min-width: 641px) and (max-width: 996px) {
-  .featureGrid,
-  .backendGrid,
   .flowGrid,
-  .docGroups,
-  .heroFacts {
+  .docGroups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mechanismGrid,
+  .architectureGrid,
+  .startGrid {
+    gap: 2.5rem;
+  }
+
+  .architectureMedia {
+    order: 2;
   }
 }
 
 @media (max-width: 640px) {
+  .heroGrid,
+  .heroTrace,
+  .heroFacts {
+    display: none;
+  }
+
   .heroInner {
-    padding-top: 3.5rem;
-    padding-bottom: 3rem;
+    min-height: calc(90svh - var(--ifm-navbar-height));
+    padding-top: 3rem;
+    padding-bottom: 2.5rem;
   }
 
-  .heroCopy h1 {
-    font-size: 3.05rem;
+  .hero h1 {
+    font-size: 2.85rem;
+    line-height: 1;
   }
 
-  .heroCopy p,
-  .sectionHeader p {
+  .heroInner > p,
+  .sectionHeader p,
+  .mechanismCopy p,
+  .architectureCopy p,
+  .startCopy p {
     font-size: 1rem;
   }
 
-  .sectionHeader h2 {
-    font-size: 2.55rem;
-  }
-
-
-  .ctaInner h2 {
-    font-size: 2.35rem;
+  .heroInner > p {
+    margin-top: 1.35rem;
+    line-height: 1.62;
   }
 
   .actions :global(.button) {
     width: 100%;
   }
 
-  .heroRoute {
+  .sectionHeader h2,
+  .mechanismCopy h2,
+  .architectureCopy h2,
+  .startCopy h2 {
+    font-size: 2.45rem;
+  }
+
+  .contextBar,
+  .outcomeGrid,
+  .useCaseGrid,
+  .flowGrid,
+  .backendGrid,
+  .docGroups {
+    grid-template-columns: 1fr;
+  }
+
+  .contextBar {
+    gap: 0.35rem;
+  }
+
+  .contextBar code {
+    width: max-content;
+  }
+
+  .laneHeader {
     align-items: flex-start;
     flex-direction: column;
+    gap: 0.25rem;
   }
 
-  .heroRoute a {
-    width: 100%;
-    text-align: center;
+  .lanePath {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    margin: 1.2rem 0;
   }
 
-  .ctaActions {
-    display: grid;
+  .lanePath i {
+    width: 2px;
+    height: 1rem;
+    margin: 0 auto;
+  }
+
+  .raceResult {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .raceResult strong + span {
+    margin-top: 0.8rem;
+  }
+
+  .outcomeCard,
+  .useCaseCard {
+    min-height: 0;
+  }
+
+  .codePanelHeader,
+  .terminalHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .codePanel pre,
+  .terminal pre {
+    padding: 1rem;
+    font-size: 0.78rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :global(html) {
-    scroll-behavior: auto;
-  }
-
-  .backendCard,
-  .docCard {
+  .backendCard {
     transition: none;
   }
 
-  .backendCard:hover,
-  .docCard:hover {
+  .backendCard:hover {
     transform: none;
   }
 }

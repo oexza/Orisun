@@ -13,6 +13,27 @@
 - Publisher and catch-up reads stay in the packed representation. The publisher validates a complete advancing batch before publishing, uses an allocation-bounded JSON encoder, and persists one checkpoint after the whole batch is acknowledged.
 - Read pages are bounded at 10,000 rows. The gRPC API rejects larger page requests, while backend drainers continue paging by position.
 
+## 0.4.10 - 2026-07-13
+
+### Added
+
+- SQLite now uses a per-boundary group-commit write path for `SaveEvents`. Requests are queued per boundary, flushed in batches, and each request still runs its own CCC check and savepoint inside the shared transaction.
+- SQLite group-commit coverage now exercises batching, overflow, cancellation, panic recovery, notifier behavior, clean shutdown, direct-mode parity, gap-free concurrent commits, and cross-flush expected-position conflicts.
+- Release CI now includes FoundationDB Docker image coverage and backend-specific release artifacts.
+
+### Fixed
+
+- SQLite defaults to `ORISUN_SQLITE_SYNCHRONOUS=FULL` so acknowledged WAL commits are fsynced before success returns. `NORMAL` remains available as an explicit throughput opt-out.
+- SQLite CCC concurrency tests now cover concurrent saves against the same content-query context and verify that exactly one writer wins while losing writers receive `ALREADY_EXISTS`.
+- SQLite group-commit tests now wait for the current blocker flush to start instead of assuming the single-flush counter begins at zero. This removes the CI timing race in `TestGroupCommit_InBatchSameExpectedPositionOnlyOneWins`.
+- FoundationDB release builds now use a Go binding revision compatible with the packaged FoundationDB 7.3 runtime and headers, avoiding the API-800/header mismatch seen in failed release artifact builds.
+
+### Changed
+
+- SQLite stores derived operational state in `{boundary}_metadata.db` files so publisher/projector/admin metadata does not contend with the event-log writer.
+- Release validation timeouts were extended for Docker-backed integration suites.
+- Public docs and landing pages now include FoundationDB beta in the supported backend list.
+
 ## 0.4.0 - 2026-06-11
 
 ### Added

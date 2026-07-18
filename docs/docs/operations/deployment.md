@@ -60,7 +60,7 @@ Images are published to both Docker Hub and GitHub Container Registry. The Docke
 | `orexza/orisun:sqlite` | SQLite only |
 | `orexza/orisun:fdb` | FoundationDB only, beta, includes the FDB client library |
 
-The same tags are also available under `ghcr.io/oexza/orisun`.
+The same tags are also available under `ghcr.io/orisunlabs/orisun`.
 
 Persist the same directories you would persist for a binary deployment. Containers do not change the storage model.
 

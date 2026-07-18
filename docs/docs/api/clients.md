@@ -12,9 +12,9 @@ Orisun exposes gRPC services. You can use the official typed clients, `grpcurl`,
 
 | Language | Package | Repository |
 | --- | --- | --- |
-| Go | `github.com/oexza/orisun-client-go` | [`orisun-client-go`](https://github.com/oexza/orisun-client-go) |
-| Node.js | `@orisun/eventstore-client` | [`orisun-node-client`](https://github.com/oexza/orisun-node-client) |
-| Java | `com.orisunlabs:orisun-java-client` | [`orisun-client-java`](https://github.com/oexza/orisun-client-java) |
+| Go | `github.com/oexza/orisun-client-go` | [`orisun-client-go`](https://github.com/OrisunLabs/orisun-client-go) |
+| Node.js | `@orisun/eventstore-client` | [`orisun-node-client`](https://github.com/OrisunLabs/orisun-node-client) |
+| Java | `com.orisunlabs:orisun-java-client` | [`orisun-client-java`](https://github.com/OrisunLabs/orisun-client-java) |
 
 ## Install
 
@@ -31,7 +31,7 @@ go get github.com/oexza/orisun-client-go
 The package is currently installed from GitHub (npm publication is pending):
 
 ```bash
-npm install github:oexza/orisun-node-client
+npm install github:OrisunLabs/orisun-node-client
 ```
 
 Or in `package.json`:
@@ -39,7 +39,7 @@ Or in `package.json`:
 ```json
 {
   "dependencies": {
-    "@orisun/eventstore-client": "github:oexza/orisun-node-client"
+    "@orisun/eventstore-client": "github:OrisunLabs/orisun-node-client"
   }
 }
 ```
@@ -55,7 +55,7 @@ Published to GitHub Packages. Add the repository and dependency, then authentica
 <repositories>
     <repository>
         <id>github</id>
-        <url>https://maven.pkg.github.com/oexza/orisun-client-java</url>
+        <url>https://maven.pkg.github.com/OrisunLabs/orisun-client-java</url>
     </repository>
 </repositories>
 
@@ -73,7 +73,7 @@ Published to GitHub Packages. Add the repository and dependency, then authentica
 ```groovy
 repositories {
     maven {
-        url = 'https://maven.pkg.github.com/oexza/orisun-client-java'
+        url = 'https://maven.pkg.github.com/OrisunLabs/orisun-client-java'
         credentials {
             username = System.getenv('GITHUB_USERNAME')
             password = System.getenv('GITHUB_TOKEN')
@@ -353,8 +353,8 @@ Each authenticated response sets an `x-auth-token` header. A long-lived client c
 
 The service definitions live in the main repository:
 
-- [`proto/eventstore.proto`](https://github.com/oexza/Orisun/blob/main/proto/eventstore.proto)
-- [`proto/admin.proto`](https://github.com/oexza/Orisun/blob/main/proto/admin.proto)
+- [`proto/eventstore.proto`](https://github.com/OrisunLabs/Orisun/blob/main/proto/eventstore.proto)
+- [`proto/admin.proto`](https://github.com/OrisunLabs/Orisun/blob/main/proto/admin.proto)
 
 Generated Go bindings are kept in `orisun/`.
 

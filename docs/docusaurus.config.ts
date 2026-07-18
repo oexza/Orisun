@@ -3,11 +3,11 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Orisun',
-  tagline: 'Event storage and live delivery in one server',
+  tagline: 'Decisions that stay correct as facts change',
   favicon: 'img/favicon.svg',
-  url: 'https://oexza.github.io',
+  url: 'https://orisunlabs.github.io',
   baseUrl: '/Orisun/',
-  organizationName: 'oexza',
+  organizationName: 'OrisunLabs',
   projectName: 'Orisun',
   onBrokenLinks: 'throw',
   trailingSlash: false,
@@ -33,7 +33,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           routeBasePath: '/docs',
-          editUrl: 'https://github.com/oexza/Orisun/tree/main/docs/',
+          editUrl: 'https://github.com/OrisunLabs/Orisun/tree/main/docs/',
         },
         blog: false,
         theme: {
@@ -49,7 +49,7 @@ const config: Config = {
       {
         name: 'description',
         content:
-          'Orisun is a batteries-included event store with PostgreSQL, YugabyteDB, or SQLite storage, command context consistency, embedded JetStream delivery, and gRPC APIs.',
+          'Orisun is an event database for decisions that must stay correct as facts change, with declared context checks and sequential publishing per boundary.',
       },
     ],
     navbar: {
@@ -64,9 +64,9 @@ const config: Config = {
         {to: '/docs/tutorial', label: 'Tutorial', position: 'left'},
         {to: '/docs/api/eventstore', label: 'API', position: 'left'},
         {to: '/docs/operations/deployment', label: 'Operations', position: 'left'},
-        {href: 'https://github.com/oexza/Orisun/releases', label: 'Releases', position: 'right'},
+        {href: 'https://github.com/OrisunLabs/Orisun/releases', label: 'Releases', position: 'right'},
         {href: 'https://hub.docker.com/r/orexza/orisun', label: 'Docker', position: 'right'},
-        {href: 'https://github.com/oexza/Orisun', label: 'GitHub', position: 'right'},
+        {href: 'https://github.com/OrisunLabs/Orisun', label: 'GitHub', position: 'right'},
       ],
     },
     footer: {
@@ -96,8 +96,8 @@ const config: Config = {
         {
           title: 'Project',
           items: [
-            {label: 'GitHub', href: 'https://github.com/oexza/Orisun'},
-            {label: 'Releases', href: 'https://github.com/oexza/Orisun/releases'},
+            {label: 'GitHub', href: 'https://github.com/OrisunLabs/Orisun'},
+            {label: 'Releases', href: 'https://github.com/OrisunLabs/Orisun/releases'},
             {label: 'Docker Hub', href: 'https://hub.docker.com/r/orexza/orisun'},
           ],
         },

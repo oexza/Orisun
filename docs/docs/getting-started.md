@@ -5,7 +5,7 @@ description: Choose a backend, run Orisun, and verify the gRPC API.
 slug: /getting-started
 ---
 
-Orisun is a batteries-included event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
+Orisun is an event database for decisions that must stay correct as facts change: preserve the event history a command depends on, commit only when its declared context is still current, and publish committed events sequentially within each boundary without running a separate broker.
 
 You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
@@ -31,7 +31,7 @@ The examples use:
 
 Use SQLite first when you want the shortest feedback loop:
 
-1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/oexza/Orisun/releases).
+1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases).
 2. Start it with the [SQLite binary example](#run-sqlite-from-a-binary).
 3. Verify the server with [grpcurl](#verify-the-api).
 4. Save the first event with [Save your first event](#save-your-first-event).
@@ -50,9 +50,9 @@ You can move to PostgreSQL later without changing the EventStore API.
 
 | Backend | Best for | Multi-node | Binary | Docker Hub image | GHCR image |
 | --- | --- | --- | --- | --- | --- |
-| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/oexza/orisun:sqlite` |
-| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/oexza/orisun:pg` |
-| FoundationDB | Distributed transactional key-value deployments | Yes | `orisun-fdb` | `orexza/orisun:fdb` | `ghcr.io/oexza/orisun:fdb` |
+| SQLite | Embedded apps, edge services, development, single-node production | No | `orisun-sqlite` | `orexza/orisun:sqlite` | `ghcr.io/orisunlabs/orisun:sqlite` |
+| PostgreSQL | Clustered deployments, larger datasets, shared database platforms | Yes | `orisun-pg` | `orexza/orisun:pg` | `ghcr.io/orisunlabs/orisun:pg` |
+| FoundationDB | Distributed transactional key-value deployments | Yes | `orisun-fdb` | `orexza/orisun:fdb` | `ghcr.io/orisunlabs/orisun:fdb` |
 
 All backends expose the same EventStore and Admin gRPC APIs. FoundationDB support is beta.
 
@@ -80,7 +80,7 @@ Choose PostgreSQL when you need multiple Orisun nodes, want database-level opera
 
 ## Install a binary
 
-Download a release asset for your OS, architecture, and backend from [GitHub Releases](https://github.com/oexza/Orisun/releases). Asset names follow this pattern:
+Download a release asset for your OS, architecture, and backend from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases). Asset names follow this pattern:
 
 | Binary | Includes |
 | --- | --- |
@@ -94,7 +94,7 @@ For example, on Linux amd64:
 VERSION=0.3.1
 
 curl -L \
-  "https://github.com/oexza/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \
+  "https://github.com/OrisunLabs/Orisun/releases/download/v${VERSION}/orisun-sqlite-linux-amd64" \
   -o orisun-sqlite
 
 chmod +x ./orisun-sqlite
@@ -410,7 +410,7 @@ Docker images are published to Docker Hub and GitHub Container Registry with the
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
 | `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same tag names under `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:fdb`.
+Use the same tag names under `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:fdb`.
 
 ## Next steps
 

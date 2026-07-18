@@ -1,11 +1,24 @@
 ---
 title: Command Context Consistency
-description: Scope optimistic consistency with event-content queries.
+description: Orisun's preferred command-first framing for dynamic event subset consistency.
 ---
 
 Command Context Consistency, or CCC, is Orisun's optimistic consistency model. A command defines the event subset it depends on with a query. Orisun saves the command's new events only if that queried subset has not changed since the expected position.
 
 Traditional event stores often ask applications to choose an aggregate stream up front. Orisun lets the command choose the consistency context it actually needs.
+
+Orisun can also be used as a [Dynamic Consistency Boundary](./dynamic-consistency-boundaries) event store. CCC is the preferred Orisun-native framing because it starts from the command and its invariant, while DCB is a compatible event-store vocabulary for the same core operation: read an event subset, remember the observed position, and append only if that subset has not changed.
+
+That compatibility is semantic. Orisun keeps its CCC-oriented API names: `SaveEvents`, `expected_position`, and `subsetQuery`. DCB terms such as event type, tags, append condition, and dynamic consistency boundary map onto those fields; they do not introduce a separate storage mode or a separate DCB endpoint.
+
+## CCC And DCB
+
+CCC and DCB are not competing storage modes in Orisun. They describe the same mechanism from different angles:
+
+- **CCC** emphasizes application command handling: query the context, decide, then save with the same context and expected position.
+- **DCB** emphasizes event-store append semantics: query by event types/tags, then append with an append condition over that dynamic set.
+
+In both cases, the consistency boundary is dynamic because it is defined by the query supplied with the write. It is not limited to one aggregate stream, one entity, or one Orisun boundary file/schema.
 
 ## Why CCC Exists
 

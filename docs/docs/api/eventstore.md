@@ -227,6 +227,8 @@ Batches are atomic. Events in one batch share the same commit position and recei
 
 Use `query.subsetQuery` to enforce Command Context Consistency for a specific event subset:
 
+The same fields are Orisun's Dynamic Consistency Boundary append condition. This is a semantic mapping, not a separate DCB-shaped API: `SaveEvents` is still the append call, `subsetQuery` defines the dynamic set of event types/tags the command depends on, and `expected_position` is the position observed when that set was read. The append succeeds only if no event matching `subsetQuery` committed after `expected_position`.
+
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
 
@@ -335,7 +337,7 @@ EOF
   </TabItem>
 </Tabs>
 
-If the subset changed after the expected position, Orisun returns `ALREADY_EXISTS`.
+If the subset changed after the expected position, Orisun returns `ALREADY_EXISTS`. Treat that as a CCC conflict or DCB append-condition failure: re-read the context, decide again, and retry only if the command is still valid.
 
 ## GetEvents
 
@@ -1059,7 +1061,7 @@ ERROR:
 
 ## Proto source
 
-The EventStore protobuf source lives at [`proto/eventstore.proto`](https://github.com/oexza/Orisun/blob/main/proto/eventstore.proto).
+The EventStore protobuf source lives at [`proto/eventstore.proto`](https://github.com/OrisunLabs/Orisun/blob/main/proto/eventstore.proto).
 
 ## Common status codes
 

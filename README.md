@@ -8,20 +8,27 @@
 # Orisun
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/oexza/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/ci.yml)
-[![Release](https://github.com/oexza/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/oexza/Orisun/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/oexza/Orisun?label=release)](https://github.com/oexza/Orisun/releases/latest)
+[![CI](https://github.com/OrisunLabs/Orisun/actions/workflows/ci.yml/badge.svg)](https://github.com/OrisunLabs/Orisun/actions/workflows/ci.yml)
+[![Release](https://github.com/OrisunLabs/Orisun/actions/workflows/release.yml/badge.svg)](https://github.com/OrisunLabs/Orisun/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/OrisunLabs/Orisun?label=release)](https://github.com/OrisunLabs/Orisun/releases/latest)
 
-Orisun is a batteries-included event store for systems that need durable event history, content-based consistency checks, and real-time delivery without running a separate broker.
+Orisun is an open-source event database for decisions that must stay correct as facts change.
 
-**Full documentation:** [oexza.github.io/Orisun](https://oexza.github.io/Orisun/)
+State-based databases show what is true now, but not how it became true. Orisun preserves the complete event history. When a command, whether it is a service, a workflow, or an AI agent, declares the events its decision depends on, Orisun commits its new events only if that context is still current. Committed events are then published sequentially within each boundary through catch-up plus live JetStream delivery.
 
-**Start here:** [What is Orisun?](https://oexza.github.io/Orisun/docs/)
+Orisun is an MIT-licensed server with backend-specific binaries and images. Run SQLite on a laptop or a single node, then use PostgreSQL, YugabyteDB, or FoundationDB as the deployment grows. The gRPC API stays the same, with storage, ordered publishing, auth, and index management built into the server.
+
+The mechanism behind this is **Command Context Consistency (CCC)**: commands declare the event subset they depend on with content-based queries, and writes succeed only if that subset is unchanged. Orisun also supports **Dynamic Consistency Boundary (DCB)** style append conditions over event types and queryable JSON tags.
+
+**Full documentation:** [orisunlabs.github.io/Orisun](https://orisunlabs.github.io/Orisun/)
+
+**Start here:** [What is Orisun?](https://orisunlabs.github.io/Orisun/docs/)
 
 ## What It Provides
 
-- Transactional event storage on PostgreSQL, YugabyteDB, or SQLite.
-- Command Context Consistency: save only if the queried event context has not changed.
+- Transactional event storage on PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta.
+- Context-correct command writes: save only if the queried event context has not changed.
+- Dynamic Consistency Boundary style append conditions over event types and queryable JSON tags.
 - Server-side latest-by-criteria reads for carried-state command contexts.
 - Embedded NATS JetStream for catch-up and live subscriptions, with optional external NATS via `ORISUN_NATS_URL`.
 - Durable publisher checkpoints so committed events are not skipped.
@@ -30,7 +37,7 @@ Orisun is a batteries-included event store for systems that need durable event h
 
 ## Quick Start
 
-Download a release binary from [GitHub Releases](https://github.com/oexza/Orisun/releases), or build one locally:
+Download a release binary from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases), or build one locally:
 
 ```bash
 ./build.sh linux amd64 dev sqlite
@@ -93,21 +100,21 @@ YugabyteDB uses the PostgreSQL-compatible binary with `ORISUN_PG_DIALECT=yugabyt
 Use YugabyteDB `v2025.2.3+` and enable `LISTEN/NOTIFY` on Masters and TServers
 with `ysql_yb_enable_listen_notify=true`.
 
-See the [getting started guide](https://oexza.github.io/Orisun/docs/getting-started) for binary and Docker setup for all supported backends.
+See the [getting started guide](https://orisunlabs.github.io/Orisun/docs/getting-started) for binary and Docker setup for all supported backends.
 
 ## Artifacts
 
 | Artifact | Location |
 | --- | --- |
-| Documentation | [GitHub Pages](https://oexza.github.io/Orisun/) |
-| Start here | [What is Orisun?](https://oexza.github.io/Orisun/docs/) |
-| Setup guide | [SQLite, PostgreSQL, and YugabyteDB setup](https://oexza.github.io/Orisun/docs/getting-started) |
-| API guide | [EventStore and Admin API](https://oexza.github.io/Orisun/docs/api/eventstore) |
-| Releases | [github.com/oexza/Orisun/releases](https://github.com/oexza/Orisun/releases) |
-| Docker images | [Docker Hub](https://hub.docker.com/r/orexza/orisun), [GHCR](https://github.com/oexza/Orisun/pkgs/container/orisun) |
-| Go client | [orisun-client-go](https://github.com/oexza/orisun-client-go) |
-| Node.js client | [orisun-node-client](https://github.com/oexza/orisun-node-client) |
-| Java client | [orisun-client-java](https://github.com/oexza/orisun-client-java) |
+| Documentation | [GitHub Pages](https://orisunlabs.github.io/Orisun/) |
+| Start here | [What is Orisun?](https://orisunlabs.github.io/Orisun/docs/) |
+| Setup guide | [SQLite, PostgreSQL, and YugabyteDB setup](https://orisunlabs.github.io/Orisun/docs/getting-started) |
+| API guide | [EventStore and Admin API](https://orisunlabs.github.io/Orisun/docs/api/eventstore) |
+| Releases | [github.com/OrisunLabs/Orisun/releases](https://github.com/OrisunLabs/Orisun/releases) |
+| Docker images | [Docker Hub](https://hub.docker.com/r/orexza/orisun), [GHCR](https://github.com/OrisunLabs/Orisun/pkgs/container/orisun) |
+| Go client | [orisun-client-go](https://github.com/OrisunLabs/orisun-client-go) |
+| Node.js client | [orisun-node-client](https://github.com/OrisunLabs/orisun-node-client) |
+| Java client | [orisun-client-java](https://github.com/OrisunLabs/orisun-client-java) |
 
 Release binaries are attached to each GitHub release:
 
@@ -117,7 +124,7 @@ Release binaries are attached to each GitHub release:
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-<os>-<arch>` | FoundationDB only, built with `-tags foundationdb` (beta) |
 
-Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/oexza/orisun`) with the same flavor tags:
+Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`) with the same flavor tags:
 
 | Tag | Backend |
 | --- | --- |
@@ -128,7 +135,7 @@ Docker tags are published to Docker Hub (`orexza/orisun`) and GitHub Container R
 | `orexza/orisun:<version>-sqlite` | SQLite-only release |
 | `orexza/orisun:<version>-fdb` | FoundationDB-only release |
 
-Use the same suffixes with `ghcr.io/oexza/orisun`, for example `ghcr.io/oexza/orisun:fdb`.
+Use the same suffixes with `ghcr.io/orisunlabs/orisun`, for example `ghcr.io/orisunlabs/orisun:fdb`.
 
 ## Development
 

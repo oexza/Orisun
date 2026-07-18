@@ -1,11 +1,29 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1200" height="630" fill="#0B1110"/>
-  <path d="M66 470H1134" stroke="#24413A" stroke-width="2"/>
-  <g transform="translate(96 150) scale(4.2)">
-    <path d="M54.83 24.58 A24 24 0 1 1 39.42 9.17" stroke="#3BBD8F" stroke-width="8" stroke-linecap="round"/>
-    <circle cx="49" cy="15" r="8" fill="#E39A2E"/>
-  </g>
-  <text x="420" y="290" fill="#ECF4F0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="110" font-weight="800">Orisun</text>
-  <text x="424" y="360" fill="#A8BDB5" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34">Event storage and live delivery in one server</text>
-  <text x="96" y="530" fill="#5F756D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26">PostgreSQL · YugabyteDB · SQLite &#160;&#160;|&#160;&#160; gRPC + embedded JetStream</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08110F"/>
+      <stop offset="0.62" stop-color="#0B1512"/>
+      <stop offset="1" stop-color="#172018"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="138" y1="385" x2="360" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E9A71"/>
+      <stop offset="0.56" stop-color="#37B585"/>
+      <stop offset="1" stop-color="#68CFA9"/>
+    </linearGradient>
+    <linearGradient id="source" x1="160" y1="215" x2="220" y2="275" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3C35E"/>
+      <stop offset="1" stop-color="#E48B39"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <path d="M78 478H1122" stroke="#24413A" stroke-width="2"/>
+  <circle cx="252" cy="243" r="116" stroke="url(#ring)" stroke-width="30"/>
+  <path d="M190 243H234C260 243 266 205 293 205H319" stroke="#37B585" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M190 243H235C260 243 266 281 292 281H318" stroke="#C7E6DC" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="190" cy="243" r="29" fill="url(#source)" stroke="#0B1110" stroke-width="10"/>
+  <circle cx="319" cy="205" r="20" fill="#0B1110" stroke="#68CFA9" stroke-width="12"/>
+  <circle cx="318" cy="281" r="20" fill="#0B1110" stroke="#68CFA9" stroke-width="12"/>
+  <text x="430" y="282" fill="#ECF4F0" font-family="Inter, Helvetica, Arial, sans-serif" font-size="112" font-weight="850">Orisun</text>
+  <text x="434" y="356" fill="#A8BDB5" font-family="Inter, Helvetica, Arial, sans-serif" font-size="34">Decisions that stay correct as facts change</text>
+  <text x="96" y="532" fill="#5F756D" font-family="Inter, Helvetica, Arial, sans-serif" font-size="26">PostgreSQL · YugabyteDB · SQLite · FoundationDB beta &#160;&#160;|&#160;&#160; gRPC + embedded JetStream</text>
 </svg>

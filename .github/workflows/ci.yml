@@ -26,7 +26,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v ./...
+        run: go test -p 1 -timeout 90m -v ./...
 
   foundationdb-test:
     name: Test FoundationDB Backend
