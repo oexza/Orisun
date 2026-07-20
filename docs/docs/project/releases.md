@@ -64,11 +64,32 @@ Each release publishes standalone binaries for Linux, macOS, and Windows. Use th
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-linux-<arch>` | FoundationDB only; beta; Linux only |
 
+Backend-specific binaries remain dependency-clean: the SQLite binary does not
+include the PostgreSQL driver, and the PostgreSQL binary does not include the
+SQLite backend. The SQLite server binary still includes gRPC and NATS because
+it is the networked server distribution.
+
 Linux and macOS binaries should be marked executable after download:
 
 ```bash
 chmod +x ./orisun-sqlite
 ```
+
+## Mobile artifacts
+
+Mobile embedding uses platform libraries rather than standalone executables:
+
+| Artifact | Platform | Contents |
+| --- | --- | --- |
+| `orisun-mobile.aar` | Android | Java bindings and selected native ABI libraries |
+| `OrisunMobile.xcframework.zip` | iOS | Objective-C/Swift-compatible device and simulator frameworks |
+
+Build both on macOS with `task build:mobile` or
+`./scripts/build_mobile.sh`. These files are generated under `build/mobile/`
+and are not committed to Git. The current release workflow publishes server
+binaries and container images; mobile artifacts must be built separately until
+they are added to release automation. See [Mobile Embedding](../embedding/mobile)
+for requirements, ABI selection, and integration examples.
 
 ## Docker Tags
 

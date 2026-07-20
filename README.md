@@ -36,6 +36,7 @@ The mechanism behind this is **Command Context Consistency (CCC)**: commands dec
 - Durable publisher checkpoints so committed events are not skipped.
 - Sequential publishing per boundary in ascending event-log position.
 - gRPC APIs, generated clients, Docker images, embedding packages, auth, TLS, telemetry, pprof, and index management.
+- NATS-free embedded SQLite runtime and a `gomobile` binding surface for Android and iOS apps.
 
 ## Quick Start
 
@@ -65,6 +66,27 @@ acknowledged commits after an OS crash or power loss before checkpointing.
 SQLite stores event logs in one `{boundary}.db` file per boundary and stores
 publisher checkpoints, projector checkpoints, admin users, and count caches in
 one `{boundary}_metadata.db` file per boundary under `ORISUN_SQLITE_DIR`.
+
+For an on-device store with no server, network listener, or NATS runtime, use
+the [embedded mobile package](embedded/sqlite/mobile/README.md). It provides
+Android/iOS bindings for local saves, CCC reads, indexes, and notifier-driven
+subscriptions directly over SQLite.
+
+Build the platform libraries on macOS with Xcode and the Android SDK/NDK:
+
+```bash
+go tool gomobile init
+task build:mobile
+```
+
+This creates `build/mobile/orisun-mobile.aar` and
+`build/mobile/OrisunMobile.xcframework.zip`. Release builds are stripped and
+path-trimmed. The default Android AAR contains ARM64 devices and x86-64
+emulators; set `ORISUN_MOBILE_ANDROID_TARGETS=android` for all four gomobile
+ABIs. Artifact sizes include multiple architectures and are larger than the
+native slice delivered to one device. See the
+[mobile build and integration guide](embedded/sqlite/mobile/README.md) for the
+runtime differences, size controls, and platform examples.
 
 The same server can also run from Docker:
 
@@ -117,6 +139,7 @@ See the [getting started guide](https://orisunlabs.github.io/Orisun/docs/getting
 | Go client | [orisun-client-go](https://github.com/OrisunLabs/orisun-client-go) |
 | Node.js client | [orisun-node-client](https://github.com/OrisunLabs/orisun-node-client) |
 | Java client | [orisun-client-java](https://github.com/OrisunLabs/orisun-client-java) |
+| Embedded Android/iOS SQLite | [Mobile binding package](embedded/sqlite/mobile/README.md) |
 
 Release binaries are attached to each GitHub release:
 
@@ -147,6 +170,7 @@ go build ./...
 task build
 task build:pg
 task build:sqlite
+task build:mobile
 go build -tags foundationdb ./cmd/orisun-fdb
 ```
 

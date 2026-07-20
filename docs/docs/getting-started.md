@@ -9,9 +9,9 @@ Orisun is an event database for decisions that must stay correct as facts change
 
 This guide targets Orisun `0.6.1`.
 
-You can run Orisun as a release binary, a Docker image, or an embedded Go package. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
+You can run Orisun as a release binary, a Docker image, an embedded Go package, or an on-device SQLite library for Android and iOS. Docker Compose is convenient for trying the full stack, but production deployments can run the binary directly under systemd, Nomad, Kubernetes, Fly, Render, or any process supervisor.
 
-This guide starts a standalone server. If you want Orisun inside a Go process, go to [Go Embedding](./embedding/go).
+This guide starts a standalone server. If you want Orisun inside a Go process, go to [Go Embedding](./embedding/go). For an Android or iOS application with no server, gRPC, or NATS runtime, use [Mobile Embedding](./embedding/mobile).
 
 ## Before you start
 
@@ -47,6 +47,7 @@ You can move to PostgreSQL later without changing the EventStore API.
 | Release binary | You want to deploy Orisun directly as a server process. | [Install a binary](#install-a-binary) |
 | Docker image | You want a packaged container or Docker Compose for local setup. | [Run SQLite with Docker](#run-sqlite-with-docker) |
 | Embedded Go package | You want Orisun inside your service process. | [Go Embedding](./embedding/go) |
+| Android/iOS library | You want SQLite and CCC directly inside a mobile application. | [Mobile Embedding](./embedding/mobile) |
 
 ## Choose a backend
 
@@ -60,7 +61,7 @@ All backends expose the same EventStore and Admin gRPC APIs. FoundationDB suppor
 
 ## Choose NATS mode
 
-Orisun starts embedded NATS JetStream by default. That is the simplest path for local development, standalone binaries, containers, and embedded Go services.
+Orisun starts embedded NATS JetStream by default in standalone binaries, containers, and the standard embedded Go packages. The mobile SQLite runtime is deliberately NATS-free; its subscriptions catch up directly from SQLite after in-process commit notifications, with polling as a no-miss fallback.
 
 If you already operate a JetStream-enabled NATS server, set `ORISUN_NATS_URL`:
 

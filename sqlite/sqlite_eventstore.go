@@ -1628,8 +1628,70 @@ func InitializeSqliteDatabase(
 	js jetstream.JetStream,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
+	return initializeSqliteDatabase(
+		ctx,
+		sqliteCfg,
+		adminCfg,
+		boundaries,
+		nil,
+		func() (eventstore.LockProvider, error) {
+			return eventstore.NewJetStreamLockProvider(ctx, js, logger)
+		},
+		nil,
+		logger,
+	)
+}
+
+// InitializeSqliteDatabaseWithLockProvider opens the SQLite backend with an
+// injected coordination strategy. Embedded single-process runtimes can use a
+// LocalLockProvider and avoid starting NATS; server runtimes use JetStream.
+func InitializeSqliteDatabaseWithLockProvider(
+	ctx context.Context,
+	sqliteCfg config.SqliteConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	lockProvider eventstore.LockProvider,
+	logger logging.Logger,
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
+	return initializeSqliteDatabase(ctx, sqliteCfg, adminCfg, boundaries, lockProvider, nil, nil, logger)
+}
+
+// InitializeSqliteDatabaseWithLockProviderAndShutdown is the lifecycle-aware
+// variant used by embedded runtimes. shutdownDone closes only after workers
+// have stopped and all SQLite pools have been released.
+func InitializeSqliteDatabaseWithLockProviderAndShutdown(
+	ctx context.Context,
+	sqliteCfg config.SqliteConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	lockProvider eventstore.LockProvider,
+	logger logging.Logger,
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, <-chan struct{}, error) {
+	shutdownDone := make(chan struct{})
+	saver, retriever, provider, adminDB, publishing, signals, err := initializeSqliteDatabase(
+		ctx, sqliteCfg, adminCfg, boundaries, lockProvider, nil, shutdownDone, logger,
+	)
+	if err != nil {
+		close(shutdownDone)
+	}
+	return saver, retriever, provider, adminDB, publishing, signals, shutdownDone, err
+}
+
+func initializeSqliteDatabase(
+	ctx context.Context,
+	sqliteCfg config.SqliteConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	lockProvider eventstore.LockProvider,
+	lockProviderFactory func() (eventstore.LockProvider, error),
+	shutdownDone chan<- struct{},
+	logger logging.Logger,
+) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
 	if sqliteCfg.Dir == "" {
 		return nil, nil, nil, nil, nil, nil, errors.New("sqlite dir is empty")
+	}
+	if lockProvider == nil && lockProviderFactory == nil {
+		return nil, nil, nil, nil, nil, nil, errors.New("sqlite lock provider is nil")
 	}
 	if err := ensureDir(sqliteCfg.Dir); err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("create sqlite dir: %w", err)
@@ -1662,12 +1724,14 @@ func InitializeSqliteDatabase(
 		closeAll(metadataPools)
 		return nil, nil, nil, nil, nil, nil, err
 	}
-
-	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
-	if err != nil {
-		closeAll(pools)
-		closeAll(metadataPools)
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
+	if lockProvider == nil {
+		var err error
+		lockProvider, err = lockProviderFactory()
+		if err != nil {
+			closeAll(pools)
+			closeAll(metadataPools)
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
+		}
 	}
 
 	notifier := NewSqliteEventNotifierWithWakeDelay(time.Second, sqliteCfg.PublisherWakeDelay)
@@ -1689,6 +1753,9 @@ func InitializeSqliteDatabase(
 		saver.close()
 		closeAll(pools)
 		closeAll(metadataPools)
+		if shutdownDone != nil {
+			close(shutdownDone)
+		}
 	}()
 
 	return saver, getter, lockProvider, admin, publishing, notifier.Signal, nil

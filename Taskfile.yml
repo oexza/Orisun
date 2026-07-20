@@ -51,6 +51,11 @@ tasks:
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev pg
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev sqlite
 
+  build:mobile:
+    desc: Build Android AAR and iOS XCFramework artifacts
+    cmds:
+      - ./scripts/build_mobile.sh
+
   run:
     desc: Run the PostgreSQL-only server
     deps: [build]

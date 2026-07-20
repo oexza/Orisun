@@ -18,7 +18,12 @@ Backend-specific embedding packages keep deployments explicit:
 - `embedded/postgres` imports the PostgreSQL backend.
 - `embedded/sqlite` imports the SQLite backend.
 - `embedded/foundationdb` imports the FoundationDB backend when built with `-tags foundationdb`.
-- Neither package needs the unused backend.
+- Each package excludes unused storage backends.
+
+The standard embedding packages retain JetStream delivery. Applications that
+need a NATS-free, direct SQLite runtime can use `embedded/sqlite/local`. Android
+and iOS applications should use the bindable façade described in
+[Mobile Embedding](./mobile).
 
 Use embedding when Orisun should be part of your service process. Use the standalone server when you want a separate operational boundary and language-agnostic gRPC access.
 
