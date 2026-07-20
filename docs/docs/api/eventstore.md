@@ -693,6 +693,14 @@ Why a dedicated RPC instead of separate `GetEvents` calls: two calls are two sna
 
 Catch-up subscriptions replay stored events, then switch to live JetStream delivery.
 
+Only one active subscription may use the same boundary and subscriber-name
+pair. Orisun holds a renewable JetStream lease for the complete catch-up and
+live lifetime. Closing the stream releases it immediately; if the subscriber
+or server disappears before cleanup completes, another subscriber can reclaim
+the lease after its 15-second expiry. Reuse a subscriber name for failover of
+the same logical consumer, and use distinct names for consumers that should run
+concurrently.
+
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
 

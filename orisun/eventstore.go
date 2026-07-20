@@ -635,9 +635,11 @@ func (s *EventStore) SubscribeToAllEvents(
 	handler *MessageHandler[Event],
 ) error {
 	subscriptionName := boundary + "__" + subscriberName
+	subscriptionCtx, cancelSubscription := context.WithCancel(ctx)
+	defer cancelSubscription()
 
 	// Use errgroup for coordinated error handling and cancellation
-	g, gCtx := errgroup.WithContext(ctx)
+	g, gCtx := errgroup.WithContext(subscriptionCtx)
 	lease, err := acquireLockLease(gCtx, s.lockProvider, subscriptionName)
 
 	if err != nil {
@@ -893,9 +895,7 @@ func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreR
 				default:
 					if err := stream.Send(event); err != nil {
 						s.logger.Errorf("Failed to send event: %v", err)
-						// backoff to avoid tight loop on send errors
-						time.Sleep(100 * time.Millisecond)
-						continue
+						return fmt.Errorf("send event to subscription stream: %w", err)
 					}
 				}
 			}

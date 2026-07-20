@@ -19,7 +19,7 @@ import (
 // longer serialised by a global sequence counter. Run against a live cluster:
 //
 //	ORISUN_FDB_TEST_CLUSTER_FILE=/etc/foundationdb/fdb.cluster \
-//	  go test -tags foundationdb -run x -bench BenchmarkFDB -benchtime=3s \
+//	  go test -tags foundationdb -run '^$' -bench BenchmarkFDB -benchtime=3s \
 //	  -cpu 1,2,4,8 ./foundationdb/
 //
 // Reading the results with -cpu 1,2,4,8:

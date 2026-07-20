@@ -84,6 +84,16 @@ Cluster coordination is scoped per boundary, so a boundary failing over does not
 1. **Catch-up** reads committed events after `after_position` from the durable store, ordered by position.
 2. **Live** switches to the JetStream stream for new events.
 
+The full subscription lifetime is guarded by a lock named from the boundary
+and subscriber name. JetStream lock values carry a unique owner token and a
+renewable 15-second expiry. Acquisition, renewal, and release use KV revisions
+so a stale subscriber cannot renew or delete a successor's lock. Normal stream
+cancellation releases the lock immediately; an abandoned lock becomes
+reclaimable after its lease expires. Values written by older releases as the
+literal value `locked` remain non-expiring during a rolling upgrade and should
+only be removed after every node has been upgraded and the former owner is
+known to be stopped.
+
 The JetStream stream uses in-memory retention (bounded by `ORISUN_NATS_EVENT_STREAM_MAX_BYTES`, `_MAX_MSGS`, and `_MAX_AGE`). It is a live-delivery buffer, while the durable log remains the source of truth. A subscriber that falls behind the retention window does not lose events; it is simply served from the durable store by the catch-up phase. The age window must exceed the catch-up→live handover grace (about 10 seconds) so a transitioning subscriber does not land in a gap.
 
 ## Backends
