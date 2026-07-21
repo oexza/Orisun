@@ -271,13 +271,17 @@ jobs:
           go tool gomobile init
           ./scripts/build_mobile.sh
 
-      - name: Upload Flutter mobile bridges
+      - name: Upload mobile and Flutter bridges
         uses: actions/upload-artifact@v4
         with:
           name: orisun-flutter-mobile
           path: |
+            build/mobile/orisun-mobile.aar
+            build/mobile/OrisunMobile.xcframework.zip
             build/mobile/orisun-flutter-mobile.aar
             build/mobile/OrisunFlutterMobile.xcframework
+            build/mobile/OrisunFlutterMobile.xcframework.zip
+            build/mobile/SHA256SUMS
           if-no-files-found: error
 
   build-flutter-package:
