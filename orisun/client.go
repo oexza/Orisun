@@ -1,3 +1,5 @@
+//go:build !orisun_embedded
+
 package orisun
 
 import (

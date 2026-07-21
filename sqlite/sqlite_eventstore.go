@@ -14,16 +14,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/goccy/go-json"
-	"github.com/google/uuid"
-	"github.com/nats-io/nats.go/jetstream"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
 	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
+	"github.com/goccy/go-json"
+	"github.com/google/uuid"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -362,10 +359,10 @@ func (s *SqliteSaveEvents) SavePrepared(
 	streamConsistencyCondition *eventstore.Query,
 ) (transactionID string, globalID int64, err error) {
 	if len(events) == 0 {
-		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "events cannot be empty")
 	}
 	if _, ok := s.pools[boundary]; !ok {
-		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
 	}
 	return s.enqueue(ctx, boundary, events, expectedPosition, streamConsistencyCondition)
 }
@@ -386,7 +383,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 		if len(criteria) > 0 {
 			where, buildErr := buildCriteriaSQLForBoundary(criteria, pool.indexes, boundary)
 			if buildErr != nil {
-				return "", 0, status.Errorf(codes.InvalidArgument, "invalid consistency criteria: %v", buildErr)
+				return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid consistency criteria: %v", buildErr)
 			}
 			checkSQL := "SELECT transaction_id, global_id FROM orisun_es_event WHERE " + where +
 				" ORDER BY transaction_id DESC, global_id DESC LIMIT 1"
@@ -401,7 +398,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 					return nil
 				},
 			}); err != nil {
-				return "", 0, status.Errorf(codes.Internal, "ccc check: %v", err)
+				return "", 0, statuscode.Errorf(statuscode.Internal, "ccc check: %v", err)
 			}
 
 			expectedTx, expectedGid := int64(-1), int64(-1)
@@ -411,7 +408,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 			}
 
 			if latestTx != expectedTx || latestGid != expectedGid {
-				return "", 0, status.Errorf(codes.AlreadyExists,
+				return "", 0, statuscode.Errorf(statuscode.AlreadyExists,
 					"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
 					expectedTx, expectedGid, latestTx, latestGid)
 			}
@@ -431,11 +428,11 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 				return nil
 			},
 		}); err != nil {
-		return "", 0, status.Errorf(codes.Internal, "allocate ids: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "allocate ids: %v", err)
 	}
 
 	if err = insertEventBatch(conn, eventsToInsert, firstID, lastID); err != nil {
-		return "", 0, status.Errorf(codes.Internal, "insert events: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "insert events: %v", err)
 	}
 
 	return strconv.FormatInt(lastID, 10), lastID, nil
@@ -487,12 +484,12 @@ func NewSqliteGetEvents(pools map[string]*BoundaryPools, logger logging.Logger) 
 func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
 	pool, ok := s.pools[req.Boundary]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", req.Boundary)
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", req.Boundary)
 	}
 
 	conn, err := pool.Read.Take(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "take read conn: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "take read conn: %v", err)
 	}
 	defer pool.Read.Put(conn)
 
@@ -506,7 +503,7 @@ func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEvent
 		if len(critList) > 0 {
 			where, buildErr := buildCriteriaSQLForBoundary(critList, pool.indexes, req.Boundary)
 			if buildErr != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
+				return nil, statuscode.Errorf(statuscode.InvalidArgument, "invalid criteria: %v", buildErr)
 			}
 			whereParts = append(whereParts, "("+where+")")
 		}
@@ -562,7 +559,7 @@ func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEvent
 			return nil
 		},
 	}); err != nil {
-		return nil, status.Errorf(codes.Internal, "query events: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "query events: %v", err)
 	}
 
 	return batch, nil
@@ -576,20 +573,20 @@ func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEvent
 func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
 	pool, ok := s.pools[query.Boundary]
 	if !ok {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", query.Boundary)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", query.Boundary)
 	}
 	if len(query.Criteria) == 0 {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
 	}
 
 	conn, err := pool.Read.Take(ctx)
 	if err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "take read conn: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "take read conn: %v", err)
 	}
 	defer pool.Read.Put(conn)
 
 	if err := sqlitex.ExecuteTransient(conn, "BEGIN DEFERRED", nil); err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "begin read tx: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "begin read tx: %v", err)
 	}
 	defer func() {
 		_ = sqlitex.ExecuteTransient(conn, "COMMIT", nil)
@@ -607,11 +604,11 @@ func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventst
 			anded[tag.Key] = tag.Value
 		}
 		if len(anded) == 0 {
-			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "criterion has no tags")
+			return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "criterion has no tags")
 		}
 		where, buildErr := buildCriteriaSQLForBoundary([]map[string]any{anded}, pool.indexes, query.Boundary)
 		if buildErr != nil {
-			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "invalid criteria: %v", buildErr)
+			return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "invalid criteria: %v", buildErr)
 		}
 		q := "SELECT transaction_id, global_id, event_id, json_extract(data, '$.\"eventType\"') AS event_type, data, metadata, date_created " +
 			"FROM orisun_es_event WHERE " + where +
@@ -632,7 +629,7 @@ func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventst
 				return nil
 			},
 		}); err != nil {
-			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "query latest by criteria: %v", err)
+			return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "query latest by criteria: %v", err)
 		}
 	}
 	return batch, nil
@@ -1618,18 +1615,22 @@ func copyLegacyUsersCount(src, dst *sqlite.Conn) error {
 		})
 }
 
-// InitializeSqliteDatabase opens per-boundary SQLite pools and constructs the
-// five backend interfaces. Boundary identity is the file: {dir}/{boundary}.db.
-func InitializeSqliteDatabase(
+// InitializeSqliteDatabaseWithLockProvider opens the SQLite backend with an
+// injected coordination strategy. Embedded runtimes can supply a process-local
+// lock provider without linking the server's NATS transport.
+func InitializeSqliteDatabaseWithLockProvider(
 	ctx context.Context,
 	sqliteCfg config.SqliteConfig,
 	adminCfg config.AdminConfig,
 	boundaries []string,
-	js jetstream.JetStream,
+	lockProvider eventstore.LockProvider,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
 	if sqliteCfg.Dir == "" {
 		return nil, nil, nil, nil, nil, nil, errors.New("sqlite dir is empty")
+	}
+	if lockProvider == nil {
+		return nil, nil, nil, nil, nil, nil, errors.New("sqlite lock provider is nil")
 	}
 	if err := ensureDir(sqliteCfg.Dir); err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("create sqlite dir: %w", err)
@@ -1661,13 +1662,6 @@ func InitializeSqliteDatabase(
 		closeAll(pools)
 		closeAll(metadataPools)
 		return nil, nil, nil, nil, nil, nil, err
-	}
-
-	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
-	if err != nil {
-		closeAll(pools)
-		closeAll(metadataPools)
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
 	}
 
 	notifier := NewSqliteEventNotifierWithWakeDelay(time.Second, sqliteCfg.PublisherWakeDelay)

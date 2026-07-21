@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
 
 	"zombiezen.com/go/sqlite"
@@ -91,7 +89,7 @@ func (r *sqliteSaveRequest) deliver(res sqliteSaveResult) {
 	r.result <- res
 }
 
-var errSaverClosed = status.Error(codes.Unavailable, "sqlite event saver is shut down")
+var errSaverClosed = statuscode.New(statuscode.Unavailable, "sqlite event saver is shut down")
 
 // enqueue hands the request to the boundary worker and waits for its result.
 // A context cancellation after the request may already be in a flush carries
@@ -121,7 +119,7 @@ func (s *SqliteSaveEvents) enqueue(
 		s.enqueueMu.RUnlock()
 	case <-ctx.Done():
 		s.enqueueMu.RUnlock()
-		return "", 0, status.FromContextError(ctx.Err()).Err()
+		return "", 0, statuscode.FromContextError(ctx.Err())
 	case <-s.closed:
 		s.enqueueMu.RUnlock()
 		return "", 0, errSaverClosed
@@ -130,7 +128,7 @@ func (s *SqliteSaveEvents) enqueue(
 	case res := <-req.result:
 		return res.transactionID, res.globalID, res.err
 	case <-ctx.Done():
-		return "", 0, status.FromContextError(ctx.Err()).Err()
+		return "", 0, statuscode.FromContextError(ctx.Err())
 	}
 }
 
@@ -254,14 +252,14 @@ func (s *SqliteSaveEvents) runFlush(boundary string, pool *BoundaryPools, batch 
 	defer func() {
 		if p := recover(); p != nil {
 			s.logger.Errorf("sqlite group commit: panic during flush for boundary %s: %v", boundary, p)
-			failUndelivered(batch, status.Errorf(codes.Internal, "flush panic: %v", p))
+			failUndelivered(batch, statuscode.Errorf(statuscode.Internal, "flush panic: %v", p))
 		}
 	}()
 
 	live := batch[:0]
 	for _, req := range batch {
 		if ctxErr := req.ctx.Err(); ctxErr != nil {
-			req.deliver(sqliteSaveResult{err: status.FromContextError(ctxErr).Err()})
+			req.deliver(sqliteSaveResult{err: statuscode.FromContextError(ctxErr)})
 			continue
 		}
 		live = append(live, req)
@@ -284,7 +282,7 @@ func (s *SqliteSaveEvents) runFlush(boundary string, pool *BoundaryPools, batch 
 
 	conn, takeErr := pool.Write.Take(flushCtx)
 	if takeErr != nil {
-		err := status.Errorf(codes.Internal, "take write conn: %v", takeErr)
+		err := statuscode.Errorf(statuscode.Internal, "take write conn: %v", takeErr)
 		if s.isClosed() {
 			err = errSaverClosed
 		}
@@ -303,7 +301,7 @@ func (s *SqliteSaveEvents) runFlush(boundary string, pool *BoundaryPools, batch 
 		// Begin or commit failed: nothing persisted; every provisionally
 		// accepted request reports the error. (endFn inside flushTx already
 		// rolled back, so the connection returns to the pool clean.)
-		failUndelivered(live, status.Errorf(codes.Internal, "group commit flush: %v", flushErr))
+		failUndelivered(live, statuscode.Errorf(statuscode.Internal, "group commit flush: %v", flushErr))
 		return
 	}
 	for _, a := range accepted {
@@ -348,7 +346,7 @@ func (s *SqliteSaveEvents) flushTx(
 	accepted = make([]acceptedSave, 0, len(live))
 	for _, req := range live {
 		if ctxErr := req.ctx.Err(); ctxErr != nil {
-			req.deliver(sqliteSaveResult{err: status.FromContextError(ctxErr).Err()})
+			req.deliver(sqliteSaveResult{err: statuscode.FromContextError(ctxErr)})
 			continue
 		}
 		var txID string

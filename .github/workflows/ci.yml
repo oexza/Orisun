@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
+      - name: Verify embedded core dependency isolation
+        run: ./scripts/verify_embedded_dependencies.sh
+
       - name: Run tests
         run: go test -p 1 -timeout 90m -v ./...
 
