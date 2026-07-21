@@ -1,3 +1,5 @@
+//go:build !orisun_embedded
+
 package orisun
 
 import (
@@ -22,42 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-// EventsSaver accepts only canonical batches prepared at an API boundary.
-// Storage backends must not decode the original flexible input representation.
-type EventsSaver interface {
-	SavePrepared(ctx context.Context,
-		events PreparedEventBatch,
-		boundary string,
-		expectedPosition *Position,
-		subSet *Query,
-	) (transactionID string, globalID int64, err error)
-}
-
-type EventsRetriever interface {
-	GetBatch(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error)
-	// GetLatestByCriteria returns the latest event per criterion from ONE
-	// backend read snapshot, plus the max observed position as the
-	// optimistic-lock token for the combined context.
-	GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error)
-}
-
-type LockProvider interface {
-	Lock(ctx context.Context, lockName string) error
-}
-
-// LockLease is an optional stronger lock contract for providers that can prove
-// ongoing ownership. The polling publisher uses it to stop before publish or
-// checkpoint work if a lease has expired or been taken by another process.
-type LockLease interface {
-	Context() context.Context
-	Check(ctx context.Context) error
-	Release()
-}
-
-type LockLeaseProvider interface {
-	AcquireLock(ctx context.Context, lockName string) (LockLease, error)
-}
 
 type contextLockLease struct {
 	ctx context.Context
@@ -104,20 +70,6 @@ type EventStore struct {
 	lockProvider LockProvider
 	indexManager BoundaryIndexManager
 	logger       logging.Logger
-}
-
-func NotExistsPosition() Position {
-	return Position{
-		CommitPosition:  -1,
-		PreparePosition: -1,
-	}
-}
-
-func FirstPosition() Position {
-	return Position{
-		CommitPosition:  0,
-		PreparePosition: 0,
-	}
 }
 
 const (
@@ -202,68 +154,6 @@ func NewEventStoreServer(
 	}
 }
 
-type EventWithMapTags struct {
-	EventId   string `json:"event_id"`
-	EventType string `json:"event_type"`
-	Data      any    `json:"data"`
-	Metadata  any    `json:"metadata"`
-}
-
-// PreparedEvent is the canonical backend-facing event representation. JSON is
-// held as immutable text so SQLite and FoundationDB can store it directly and
-// PostgreSQL can embed it as raw JSON without another decode. Values are always
-// valid JSON; DataJSON is always an object and contains the authoritative
-// eventType field.
-type PreparedEvent struct {
-	EventId      string
-	EventType    string
-	DataJSON     string
-	MetadataJSON string
-}
-
-// MarshalJSON preserves the canonical data and metadata as JSON values rather
-// than quoting them as strings. PostgreSQL uses this to send the prepared batch
-// directly to its insert function without constructing another event slice.
-func (e PreparedEvent) MarshalJSON() ([]byte, error) {
-	type wireEvent struct {
-		EventId   string          `json:"event_id"`
-		EventType string          `json:"event_type"`
-		Data      json.RawMessage `json:"data"`
-		Metadata  json.RawMessage `json:"metadata"`
-	}
-	return json.Marshal(wireEvent{
-		EventId: e.EventId, EventType: e.EventType,
-		Data: json.RawMessage(e.DataJSON), Metadata: json.RawMessage(e.MetadataJSON),
-	})
-}
-
-// PreparedEventBatch keeps event descriptors contiguous and gives ownership of
-// the canonical JSON strings to the save operation.
-type PreparedEventBatch []PreparedEvent
-
-// PrepareEventsForSave converts the embedding API's flexible input shape into
-// the canonical backend representation. Each JSON value is normalized once.
-func PrepareEventsForSave(events []EventWithMapTags) (PreparedEventBatch, error) {
-	prepared := make(PreparedEventBatch, len(events))
-	for i, event := range events {
-		dataJSON, err := prepareEventDataJSON(event.Data, event.EventType)
-		if err != nil {
-			return nil, fmt.Errorf("event %d data: %w", i, err)
-		}
-		metadataJSON, err := prepareJSONValue(event.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("event %d metadata: %w", i, err)
-		}
-		prepared[i] = PreparedEvent{
-			EventId:      event.EventId,
-			EventType:    event.EventType,
-			DataJSON:     dataJSON,
-			MetadataJSON: metadataJSON,
-		}
-	}
-	return prepared, nil
-}
-
 func prepareProtoEventsForSave(events []*EventToSave) (PreparedEventBatch, error) {
 	prepared := make(PreparedEventBatch, len(events))
 	for i, event := range events {
@@ -288,87 +178,6 @@ func prepareProtoEventsForSave(events []*EventToSave) (PreparedEventBatch, error
 		}
 	}
 	return prepared, nil
-}
-
-func prepareEventDataJSON(data any, eventType string) (string, error) {
-	return prepareJSONObjectJSON(data, eventType, true)
-}
-
-// prepareJSONObjectJSON normalizes an object and optionally sets eventType to
-// the supplied value. The generic object exists only at the API boundary and
-// is discarded after producing the immutable backend representation.
-func prepareJSONObjectJSON(value any, eventType string, setEventType bool) (string, error) {
-	var object map[string]any
-	switch value := value.(type) {
-	case nil:
-		object = make(map[string]any, 1)
-	case string:
-		if value == "" {
-			object = make(map[string]any, 1)
-		} else if err := json.Unmarshal([]byte(value), &object); err != nil {
-			return "", err
-		}
-	case []byte:
-		if len(value) == 0 {
-			object = make(map[string]any, 1)
-		} else if err := json.Unmarshal(value, &object); err != nil {
-			return "", err
-		}
-	case map[string]any:
-		object = make(map[string]any, len(value)+1)
-		for key, item := range value {
-			object[key] = item
-		}
-	default:
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return "", err
-		}
-		if err := json.Unmarshal(encoded, &object); err != nil {
-			return "", err
-		}
-	}
-	if object == nil {
-		object = make(map[string]any, 1)
-	}
-	if setEventType {
-		object["eventType"] = eventType
-	}
-	encoded, err := json.Marshal(object)
-	if err != nil {
-		return "", err
-	}
-	return string(encoded), nil
-}
-
-func prepareJSONValue(value any) (string, error) {
-	if value == nil {
-		return "{}", nil
-	}
-	switch value := value.(type) {
-	case string:
-		if value == "" {
-			return "{}", nil
-		}
-		if !json.Valid([]byte(value)) {
-			return "", fmt.Errorf("invalid JSON")
-		}
-		return value, nil
-	case []byte:
-		if len(value) == 0 {
-			return "{}", nil
-		}
-		if !json.Valid(value) {
-			return "", fmt.Errorf("invalid JSON")
-		}
-		return string(value), nil
-	default:
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return "", err
-		}
-		return string(encoded), nil
-	}
 }
 
 func authorizeRequest(ctx context.Context, roles []Role) error {
@@ -1046,17 +855,6 @@ func getBoundaryNames(boundary *[]c.Boundary) *[]string {
 		names = append(names, boundary.Name)
 	}
 	return &names
-}
-
-type EventPublishingTracker interface {
-	GetLastPublishedEventPosition(ctx context.Context, boundary string) (Position, error)
-	InsertLastPublishedEvent(ctx context.Context, boundaryOfInterest string, transactionId int64, globalId int64) error
-}
-
-// EventSignal provides notification that new events may be available for publishing.
-type EventSignal interface {
-	Wait(ctx context.Context) error
-	Stop()
 }
 
 type PollingSignal struct {

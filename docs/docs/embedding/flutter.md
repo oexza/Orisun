@@ -7,6 +7,11 @@ The `orisun_flutter` package runs Orisun's SQLite backend directly inside a
 native Flutter application. It supports Android, iOS, macOS, Windows, and Linux
 without a gRPC server, NATS, JetStream, or a network listener.
 
+The packaged libraries use Orisun's transport-free embedded build profile. CI
+checks both the Go dependency graph and finished native symbols so gRPC and
+NATS code cannot silently enter Flutter artifacts through a shared server
+package.
+
 The runtime retains Orisun's SQLite storage and Command Context Consistency
 semantics. Desktop calls a stable C ABI through FFI worker isolates. Android and
 iOS call the same handle-based JSON protocol through a gomobile Flutter plugin
@@ -23,10 +28,12 @@ on a background platform task queue. Subscriptions are exposed as
 | Linux | ARM64 and x86-64 | `liborisun.so` |
 | Windows | ARM64 and x86-64 | `orisun.dll` |
 
-The native library includes the Go runtime and SQLite implementation. A current
-stripped desktop build is approximately 17–20 MB per architecture; the default
-two-ABI Android AAR is about 15 MB and zipped iOS XCFramework about 23 MB. The
-rest of a Flutter application's size comes from Flutter and application code.
+The native library includes the Go runtime and SQLite implementation. With the
+transport-free profile, a current stripped macOS ARM64 library is about 13 MB,
+the Android ARM64 library is about 14.2 MB, the default two-ABI Android AAR is
+about 11 MB, and the zipped iOS XCFramework is about 17 MB. Exact sizes vary by
+Go, gomobile, and SQLite versions. The rest of a Flutter application's size
+comes from Flutter and application code.
 
 ## Build from this repository
 

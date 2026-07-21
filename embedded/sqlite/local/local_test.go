@@ -6,9 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const testBoundary = "mobile"
@@ -47,8 +46,9 @@ func TestStoreSavesReadsAndEnforcesCCCWithoutNATS(t *testing.T) {
 	}
 
 	_, err = store.SaveEvents(ctx, []orisun.EventWithMapTags{testEvent("event-2", "two")}, testBoundary, &notExists, query)
-	if status.Code(err) != codes.AlreadyExists {
-		t.Fatalf("stale SaveEvents() code = %v, want %v (err=%v)", status.Code(err), codes.AlreadyExists, err)
+	code, _, _ := statuscode.FromError(err)
+	if code != statuscode.AlreadyExists {
+		t.Fatalf("stale SaveEvents() code = %v, want %v (err=%v)", code, statuscode.AlreadyExists, err)
 	}
 
 	batch, err := store.GetEvents(ctx, &orisun.GetEventsRequest{

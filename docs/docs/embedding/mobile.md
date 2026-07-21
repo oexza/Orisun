@@ -26,6 +26,19 @@ The standalone SQLite server includes gRPC and NATS by design. Use the mobile
 package when the event store belongs to one application process and no remote
 clients need to connect.
 
+## Transport isolation
+
+Official mobile and desktop artifacts use the `orisun_embedded` build profile.
+It excludes generated gRPC stubs, the gRPC server, NATS/JetStream clients, and
+server-only lock providers from the dependency graph instead of relying on
+linker dead-code elimination.
+
+`scripts/verify_embedded_dependencies.sh` rejects forbidden dependencies
+before compilation, and `scripts/verify_embedded_artifacts.sh` scans finished
+native libraries for transport symbols. Both checks run from the official
+build scripts and CI. Custom builds should use those scripts instead of
+invoking `gomobile bind` directly.
+
 ## Build the platform libraries
 
 The repository pins `gomobile` and `gobind` in `go.mod`. Building both
@@ -75,11 +88,12 @@ The build also accepts:
 | `ORISUN_MOBILE_IOS_VERSION` | `13.0` | Minimum iOS version |
 | `ORISUN_MOBILE_LDFLAGS` | `-s -w` | Go linker flags; override for diagnostic builds |
 
-As a reference, a stripped build from the current dependency graph is about
-15 MB for the two-ABI Android AAR and 23 MB for the zipped XCFramework. These
-are archive sizes, not a stable size guarantee: the AAR contains both Android
-ABIs, and the XCFramework contains device and simulator slices. Toolchain and
-dependency updates can change them.
+As a reference, the transport-free stripped build is about 11 MB for the
+two-ABI Android AAR and 17 MB for the zipped XCFramework. The Android ARM64
+library inside the AAR is about 14.2 MB. These are archive and raw-library
+sizes, not stable guarantees: the AAR contains both Android ABIs, and the
+XCFramework contains device and simulator slices. Toolchain and dependency
+updates can change them.
 
 ## Android
 

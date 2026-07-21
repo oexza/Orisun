@@ -4,6 +4,10 @@ Embedded Orisun SQLite for native Flutter apps. The package runs Command Context
 Consistency, event reads, indexes, and subscriptions directly inside the
 application process without gRPC, NATS, JetStream, or a network listener.
 
+Release artifacts use Orisun's `orisun_embedded` build profile. The official
+build scripts and CI reject gRPC, NATS, and server dependencies before
+compilation and scan finished native libraries for transport symbols.
+
 Supported targets:
 
 | Platform | Architectures | Native library |

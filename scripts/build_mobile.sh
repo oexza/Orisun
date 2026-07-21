@@ -50,9 +50,11 @@ rm -f "${aar}" "${xcframework_zip}" "${flutter_aar}" "${flutter_xcframework_zip}
 rm -rf "${xcframework}" "${flutter_xcframework}"
 
 cd "${repo_dir}"
+./scripts/verify_embedded_dependencies.sh
 
 echo "Building Android AAR (${android_targets}, API ${android_api})..."
 go tool gomobile bind \
+  -tags=orisun_embedded \
   -target="${android_targets}" \
   -androidapi "${android_api}" \
   -javapkg com.orisunlabs.orisun \
@@ -64,6 +66,7 @@ unzip -tq "${aar}"
 
 echo "Building iOS XCFramework (iOS ${ios_version}+)..."
 go tool gomobile bind \
+  -tags=orisun_embedded \
   -target=ios \
   -iosversion "${ios_version}" \
   -prefix Orisun \
@@ -77,6 +80,7 @@ ditto -c -k --sequesterRsrc --keepParent "${xcframework}" "${xcframework_zip}"
 
 echo "Building Flutter Android bridge (${android_targets}, API ${android_api})..."
 go tool gomobile bind \
+  -tags=orisun_embedded \
   -target="${android_targets}" \
   -androidapi "${android_api}" \
   -javapkg com.orisunlabs.orisun \
@@ -88,6 +92,7 @@ unzip -tq "${flutter_aar}"
 
 echo "Building Flutter iOS bridge (iOS ${ios_version}+)..."
 go tool gomobile bind \
+  -tags=orisun_embedded \
   -target=ios \
   -iosversion "${ios_version}" \
   -prefix Orisun \
@@ -97,6 +102,11 @@ go tool gomobile bind \
   ./embedded/sqlite/fluttermobile
 plutil -lint "${flutter_xcframework}/Info.plist"
 ditto -c -k --sequesterRsrc --keepParent "${flutter_xcframework}" "${flutter_xcframework_zip}"
+./scripts/verify_embedded_artifacts.sh \
+  "${aar}" \
+  "${xcframework}" \
+  "${flutter_aar}" \
+  "${flutter_xcframework}"
 (
   cd "${output_dir}"
   shasum -a 256 \

@@ -43,12 +43,15 @@ fi
 
 echo "Building Orisun desktop library for ${target_os}/${target_arch}..."
 cd "${repo_dir}"
+./scripts/verify_embedded_dependencies.sh
 CGO_ENABLED=1 GOOS="${target_os}" GOARCH="${target_arch}" go build \
+  -tags=orisun_embedded \
   -buildmode=c-shared \
   -trimpath \
   -ldflags="${ldflags}" \
   -o "${output_dir}/${library_name}" \
   ./cmd/orisun-ffi
+./scripts/verify_embedded_artifacts.sh "${output_dir}/${library_name}"
 
 (
   cd "${output_dir}"

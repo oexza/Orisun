@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/goccy/go-json"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	mobile "github.com/OrisunLabs/Orisun/embedded/sqlite/mobile"
 )
@@ -382,31 +381,27 @@ func successKindValue(kind, value string) string {
 }
 
 func failure(err error) string {
-	code := status.Code(err)
-	message := err.Error()
-	if code != codes.Unknown {
-		message = status.Convert(err).Message()
-	}
+	code, message, _ := statuscode.FromError(err)
 	return marshalEnvelope(envelope{OK: false, Error: &bridgeError{Code: errorCode(code), Message: message}})
 }
 
-func errorCode(code codes.Code) string {
+func errorCode(code statuscode.Code) string {
 	switch code {
-	case codes.InvalidArgument:
+	case statuscode.InvalidArgument:
 		return "invalid_argument"
-	case codes.AlreadyExists:
+	case statuscode.AlreadyExists:
 		return "already_exists"
-	case codes.NotFound:
+	case statuscode.NotFound:
 		return "not_found"
-	case codes.PermissionDenied:
+	case statuscode.PermissionDenied:
 		return "permission_denied"
-	case codes.Unauthenticated:
+	case statuscode.Unauthenticated:
 		return "unauthenticated"
-	case codes.Unavailable:
+	case statuscode.Unavailable:
 		return "unavailable"
-	case codes.Unimplemented:
+	case statuscode.Unimplemented:
 		return "unimplemented"
-	case codes.Internal:
+	case statuscode.Internal:
 		return "internal"
 	default:
 		return "operation_failed"
