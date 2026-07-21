@@ -7,12 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 
 	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
@@ -122,23 +121,23 @@ func saveBypassingQueue(
 ) (transactionID string, globalID int64, err error) {
 	pool, ok := saver.pools[boundary]
 	if !ok {
-		return "", 0, status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
 	}
 	prepared, err := eventstore.PrepareEventsForSave(events)
 	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid event data: %v", err)
 	}
 	inserts := prepared
 
 	conn, takeErr := pool.Write.Take(ctx)
 	if takeErr != nil {
-		return "", 0, status.Errorf(codes.Internal, "take write conn: %v", takeErr)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "take write conn: %v", takeErr)
 	}
 	defer pool.Write.Put(conn)
 
 	endFn, beginErr := sqlitex.ImmediateTransaction(conn)
 	if beginErr != nil {
-		return "", 0, status.Errorf(codes.Internal, "begin tx: %v", beginErr)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "begin tx: %v", beginErr)
 	}
 	defer func() {
 		endFn(&err)
@@ -368,10 +367,10 @@ func TestGroupCommit_InBatchConflictEarlierWinsLaterAlreadyExists(t *testing.T) 
 	}
 	succeeded, rejected := 0, 0
 	for _, err := range []error{errB, errC} {
-		switch status.Code(err) {
-		case codes.OK:
+		switch statuscode.CodeOf(err) {
+		case statuscode.OK:
 			succeeded++
-		case codes.AlreadyExists:
+		case statuscode.AlreadyExists:
 			rejected++
 		default:
 			t.Fatalf("unexpected error: %v", err)
@@ -423,10 +422,10 @@ func TestGroupCommit_InBatchSameExpectedPositionOnlyOneWins(t *testing.T) {
 
 	succeeded, rejected := 0, 0
 	for _, err := range []error{errB, errC} {
-		switch status.Code(err) {
-		case codes.OK:
+		switch statuscode.CodeOf(err) {
+		case statuscode.OK:
 			succeeded++
-		case codes.AlreadyExists:
+		case statuscode.AlreadyExists:
 			rejected++
 		default:
 			t.Fatalf("unexpected error: %v", err)
@@ -475,7 +474,7 @@ func TestGroupCommit_CancelledWhileQueuedIsDroppedWithoutAllocatingIDs(t *testin
 	})
 	wg.Wait()
 
-	if status.Code(errB) != codes.Canceled {
+	if statuscode.CodeOf(errB) != statuscode.Canceled {
 		t.Fatalf("expected Canceled for the cancelled save, got %v", errB)
 	}
 	if errC != nil {
@@ -588,7 +587,7 @@ func TestGroupCommit_PanicDuringFlushReturnsInternalAndWorkerSurvives(t *testing
 	wg.Wait()
 
 	for _, err := range []error{errB, errC} {
-		if status.Code(err) != codes.Internal {
+		if statuscode.CodeOf(err) != statuscode.Internal {
 			t.Fatalf("expected Internal for panicked flush, got %v", err)
 		}
 	}
@@ -672,13 +671,13 @@ func TestGroupCommit_ShutdownFailsQueuedRequestsAndRejectsNewOnes(t *testing.T) 
 	// The blocker's in-progress flush finished; the queued-but-unflushed
 	// requests fail with Unavailable.
 	for _, err := range []error{errB, errC} {
-		if status.Code(err) != codes.Unavailable {
+		if statuscode.CodeOf(err) != statuscode.Unavailable {
 			t.Fatalf("expected Unavailable for queued request after close, got %v", err)
 		}
 	}
 	if _, _, err := saver.Save(context.Background(), []eventstore.EventWithMapTags{
 		mustEvent(t, "D", map[string]any{"who": "d"}, map[string]any{}),
-	}, gcBoundary, nil, nil); status.Code(err) != codes.Unavailable {
+	}, gcBoundary, nil, nil); statuscode.CodeOf(err) != statuscode.Unavailable {
 		t.Fatalf("expected Unavailable for new save after close, got %v", err)
 	}
 	if next := readSeqNextID(t, bp); next != 2 {
@@ -696,7 +695,7 @@ func TestGroupCommit_ClosedPoolFailsCleanlyWithoutHangingTheWorker(t *testing.T)
 			mustEvent(t, "X", map[string]any{"i": strconv.Itoa(i)}, map[string]any{}),
 		}, gcBoundary, nil, nil)
 		cancel()
-		if status.Code(err) != codes.Internal {
+		if statuscode.CodeOf(err) != statuscode.Internal {
 			t.Fatalf("save %d: expected Internal on closed pool, got %v", i, err)
 		}
 	}
@@ -745,7 +744,7 @@ func TestGroupCommit_ResultsMatchDirectModeForTheSameSequence(t *testing.T) {
 	})
 
 	for i := range direct {
-		if status.Code(batched[i].err) != status.Code(direct[i].err) {
+		if statuscode.CodeOf(batched[i].err) != statuscode.CodeOf(direct[i].err) {
 			t.Errorf("step %d: batched err %v, direct err %v", i, batched[i].err, direct[i].err)
 		}
 		if batched[i].tx != direct[i].tx || batched[i].gid != direct[i].gid {
@@ -833,10 +832,10 @@ func TestGroupCommit_ConcurrentSameExpectedPositionAcrossFlushesOnlyOneWins(t *t
 
 	succeeded, rejected := 0, 0
 	for i, err := range errs {
-		switch status.Code(err) {
-		case codes.OK:
+		switch statuscode.CodeOf(err) {
+		case statuscode.OK:
 			succeeded++
-		case codes.AlreadyExists:
+		case statuscode.AlreadyExists:
 			rejected++
 		default:
 			t.Fatalf("save %d: unexpected error %v", i, err)

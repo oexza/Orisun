@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -31,7 +32,7 @@ const (
 )
 
 type ConcurrentBenchmark struct {
-	client    orisun.EventStoreClient
+	client    grpcapi.EventStoreClient
 	authCtx   context.Context
 	serverCmd *exec.Cmd
 }
@@ -324,7 +325,7 @@ func (cb *ConcurrentBenchmark) setupClient(b *testing.B) {
 		b.Fatalf("Failed to connect to gRPC server: %v", err)
 	}
 
-	cb.client = orisun.NewEventStoreClient(conn)
+	cb.client = grpcapi.NewEventStoreClient(conn)
 
 	// Setup authentication context - retry until admin user exists
 	for i := 0; i < 30; i++ {

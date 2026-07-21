@@ -10,6 +10,7 @@ import (
 	deleteuser "github.com/OrisunLabs/Orisun/admin/slices/delete_user"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -25,7 +26,7 @@ var (
 
 // AdminServiceServer implements the Admin gRPC service
 type AdminServiceServer struct {
-	orisun.UnimplementedAdminServer
+	grpcapi.UnimplementedAdminServer
 	logger        l.Logger
 	boundary      string
 	getEvents     GetEventsFunc

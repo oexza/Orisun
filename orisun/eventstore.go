@@ -17,12 +17,11 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type contextLockLease struct {
@@ -63,13 +62,21 @@ func acquireLockLease(ctx context.Context, provider LockProvider, lockName strin
 //}
 
 type EventStore struct {
-	UnimplementedEventStoreServer
 	js           jetstream.JetStream
 	saveEventsFn EventsSaver
 	getEventsFn  EventsRetriever
 	lockProvider LockProvider
 	indexManager BoundaryIndexManager
 	logger       logging.Logger
+}
+
+// CatchUpSubscribeToEventsStream is the transport-neutral portion of the gRPC
+// server stream used by EventStore. The gRPC adapter lives in server/ and
+// supplies the generated transport stream without coupling this package to the
+// generated gRPC API.
+type CatchUpSubscribeToEventsStream interface {
+	Context() context.Context
+	Send(*Event) error
 }
 
 const (
@@ -204,7 +211,7 @@ func authorizeRequest(ctx context.Context, roles []Role) error {
 	}
 
 	// User doesn't have any of the required roles
-	return status.Errorf(codes.PermissionDenied, "user does not have any of the required roles")
+	return statuscode.Errorf(statuscode.PermissionDenied, "user does not have any of the required roles")
 }
 
 func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResponse, err error) {
@@ -219,16 +226,16 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 		return nil, err
 	}
 	if s.indexManager == nil {
-		return nil, status.Errorf(codes.Unimplemented, "index management is not configured")
+		return nil, statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
 	}
 	if req.Boundary == "" || req.Name == "" || len(req.Fields) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "boundary, name, and at least one field are required")
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary, name, and at least one field are required")
 	}
 
 	fields := make([]BoundaryIndexField, len(req.Fields))
 	for i, f := range req.Fields {
 		if f.JsonKey == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "each field must have a json_key")
+			return nil, statuscode.Errorf(statuscode.InvalidArgument, "each field must have a json_key")
 		}
 		fields[i] = BoundaryIndexField{
 			JsonKey:   f.JsonKey,
@@ -239,7 +246,7 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 	conditions := make([]BoundaryIndexCondition, len(req.Conditions))
 	for i, c := range req.Conditions {
 		if c.Key == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "each condition must have a key")
+			return nil, statuscode.Errorf(statuscode.InvalidArgument, "each condition must have a key")
 		}
 		conditions[i] = BoundaryIndexCondition{
 			Key:      c.Key,
@@ -254,10 +261,10 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 	}
 
 	if err := s.indexManager.CreateBoundaryIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
-		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 			return nil, err
 		}
-		return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to create index: %v", err)
 	}
 	return &CreateIndexResponse{}, nil
 }
@@ -267,16 +274,16 @@ func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*Dro
 		return nil, err
 	}
 	if s.indexManager == nil {
-		return nil, status.Errorf(codes.Unimplemented, "index management is not configured")
+		return nil, statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
 	}
 	if req.Boundary == "" || req.Name == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "boundary and name are required")
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary and name are required")
 	}
 	if err := s.indexManager.DropBoundaryIndex(ctx, req.Boundary, req.Name); err != nil {
-		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 			return nil, err
 		}
-		return nil, status.Errorf(codes.Internal, "failed to drop index: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to drop index: %v", err)
 	}
 	return &DropIndexResponse{}, nil
 }
@@ -294,7 +301,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Errorf("Panic in SaveEvents: %v\nStack Trace:\n%s", r, debug.Stack())
-			err = status.Errorf(codes.Internal, "Internal server error")
+			err = statuscode.Errorf(statuscode.Internal, "Internal server error")
 		}
 	}()
 
@@ -315,25 +322,25 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 
 	prepared, prepareErr := prepareProtoEventsForSave(req.Events)
 	if prepareErr != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", prepareErr)
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "invalid event JSON: %v", prepareErr)
 	}
 	transactionID, globalID, err = s.saveEventsFn.SavePrepared(
 		ctx, prepared, req.Boundary, expectedPosition, subsetQuery,
 	)
 
 	if err != nil {
-		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 			return nil, err
 		}
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
-			return nil, status.Errorf(codes.AlreadyExists, "failed to save events: %v", err)
+			return nil, statuscode.Errorf(statuscode.AlreadyExists, "failed to save events: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to save events: %v", err)
 	}
 
 	tranId, err := parseInt64(transactionID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to save events: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to save events: %v", err)
 	}
 
 	return &WriteResult{
@@ -349,10 +356,10 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 		s.logger.Debugf("GetEvents called with req: %v", req)
 	}
 	if req.Count == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "Count cannot be 0")
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "Count cannot be 0")
 	}
 	if req.Count > MaxReadBatchSize {
-		return nil, status.Errorf(codes.InvalidArgument, "Count cannot exceed %d", MaxReadBatchSize)
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "Count cannot exceed %d", MaxReadBatchSize)
 	}
 	// if req.FromPosition != nil && req.Stream != nil {
 	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
@@ -369,18 +376,18 @@ func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCr
 		s.logger.Debugf("GetLatestByCriteria called with req: %v", req)
 	}
 	if req.Boundary == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "boundary is required")
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary is required")
 	}
 	if len(req.Criteria) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
 	}
 	for i, criterion := range req.Criteria {
 		if criterion == nil || len(criterion.Tags) == 0 {
-			return nil, status.Errorf(codes.InvalidArgument, "criterion %d has no tags", i)
+			return nil, statuscode.Errorf(statuscode.InvalidArgument, "criterion %d has no tags", i)
 		}
 		for j, tag := range criterion.Tags {
 			if tag == nil {
-				return nil, status.Errorf(codes.InvalidArgument, "criterion %d tag %d is nil", i, j)
+				return nil, statuscode.Errorf(statuscode.InvalidArgument, "criterion %d tag %d is nil", i, j)
 			}
 		}
 	}
@@ -389,7 +396,7 @@ func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCr
 		return nil, err
 	}
 	if len(batch.Matches) != len(req.Criteria) {
-		return nil, status.Errorf(codes.Internal, "latest result count %d does not match criterion count %d", len(batch.Matches), len(req.Criteria))
+		return nil, statuscode.Errorf(statuscode.Internal, "latest result count %d does not match criterion count %d", len(batch.Matches), len(req.Criteria))
 	}
 	return latestBatchProtoResponse(batch, req.Criteria), nil
 }
@@ -452,7 +459,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	lease, err := acquireLockLease(gCtx, s.lockProvider, subscriptionName)
 
 	if err != nil {
-		return status.Errorf(codes.AlreadyExists, "failed to acquire lock: %v", err)
+		return statuscode.Errorf(statuscode.AlreadyExists, "failed to acquire lock: %v", err)
 	}
 	defer lease.Release()
 	gCtx = lease.Context()
@@ -495,7 +502,7 @@ func (s *EventStore) SubscribeToAllEvents(
 
 		batch, err := s.getEventsFn.GetBatch(gCtx, getEventsReq)
 		if err != nil {
-			return status.Errorf(codes.Internal, "failed to get events during catch-up: %v", err)
+			return statuscode.Errorf(statuscode.Internal, "failed to get events during catch-up: %v", err)
 		}
 
 		// If no more events, we're caught up
@@ -519,7 +526,7 @@ func (s *EventStore) SubscribeToAllEvents(
 			) {
 				event := readEvent.ProtoEvent()
 				if err := handler.Send(event); err != nil {
-					return status.Errorf(codes.Internal, "failed to send event during catch-up: %v", err)
+					return statuscode.Errorf(statuscode.Internal, "failed to send event during catch-up: %v", err)
 				}
 			}
 
@@ -581,7 +588,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	// Set up NATS subscription for live events
 	subs, err := s.js.Stream(gCtx, GetEventsNatsJetstreamStreamStreamName(boundary))
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get stream: %v", err)
+		return statuscode.Errorf(statuscode.Internal, "failed to get stream: %v", err)
 	}
 
 	natsSubscriptionName := subscriptionName + uuid.New().String()
@@ -595,7 +602,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	})
 
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to create consumer: %v", err)
+		return statuscode.Errorf(statuscode.Internal, "failed to create consumer: %v", err)
 	}
 	// Ensure the consumer is cleaned up using the same name
 	defer subs.DeleteConsumer(context.Background(), natsSubscriptionName)
@@ -603,7 +610,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	// Start consuming messages
 	msgs, err := consumer.Messages(jetstream.PullMaxMessages(200))
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get message iterator: %v", err)
+		return statuscode.Errorf(statuscode.Internal, "failed to get message iterator: %v", err)
 	}
 
 	// Use errgroup to manage the message processing goroutine
@@ -669,7 +676,7 @@ func (s *EventStore) SubscribeToAllEvents(
 	return g.Wait()
 }
 
-func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreRequest, stream EventStore_CatchUpSubscribeToEventsServer) error {
+func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreRequest, stream CatchUpSubscribeToEventsStream) error {
 	s.logger.Infof("CatchUpSubscribeToEvents: %v", req)
 
 	g, gctx := errgroup.WithContext(stream.Context())
@@ -755,11 +762,11 @@ func isEventPositionNewerThanPosition(newPosition, lastPosition *Position) bool 
 // Add the validation function
 func validateSaveEventsRequest(req *SaveEventsRequest) error {
 	if req == nil {
-		return status.Error(codes.InvalidArgument, "Invalid request: missing request body")
+		return statuscode.New(statuscode.InvalidArgument, "Invalid request: missing request body")
 	}
 
 	if len(req.Events) == 0 {
-		return status.Error(codes.InvalidArgument, "Invalid request: no events provided")
+		return statuscode.New(statuscode.InvalidArgument, "Invalid request: no events provided")
 	}
 
 	return nil

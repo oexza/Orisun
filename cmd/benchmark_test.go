@@ -27,6 +27,7 @@ import (
 	"github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"github.com/OrisunLabs/Orisun/postgres"
 )
 
@@ -35,7 +36,7 @@ type BenchmarkSetup struct {
 	postgresContainer testcontainers.Container
 	binaryPath        string
 	binaryCmd         *exec.Cmd
-	client            orisun.EventStoreClient
+	client            grpcapi.EventStoreClient
 	conn              *grpc.ClientConn
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -47,7 +48,7 @@ type BenchmarkSetup struct {
 }
 
 type benchmarkGRPCClient struct {
-	client orisun.EventStoreClient
+	client grpcapi.EventStoreClient
 	ctx    context.Context
 }
 
@@ -314,7 +315,7 @@ func (s *BenchmarkSetup) createGRPCClient(b *testing.B) {
 	s.authenticateGRPCClient(b, s.client)
 }
 
-func (s *BenchmarkSetup) createGRPCEventStoreClient(b *testing.B, captureAuthToken bool) (*grpc.ClientConn, orisun.EventStoreClient) {
+func (s *BenchmarkSetup) createGRPCEventStoreClient(b *testing.B, captureAuthToken bool) (*grpc.ClientConn, grpcapi.EventStoreClient) {
 	b.Helper()
 
 	dialOptions := []grpc.DialOption{
@@ -331,10 +332,10 @@ func (s *BenchmarkSetup) createGRPCEventStoreClient(b *testing.B, captureAuthTok
 
 	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", s.grpcPort), dialOptions...)
 	require.NoError(b, err)
-	return conn, orisun.NewEventStoreClient(conn)
+	return conn, grpcapi.NewEventStoreClient(conn)
 }
 
-func (s *BenchmarkSetup) authenticateGRPCClient(b *testing.B, client orisun.EventStoreClient) {
+func (s *BenchmarkSetup) authenticateGRPCClient(b *testing.B, client grpcapi.EventStoreClient) {
 	b.Helper()
 
 	var pingResp *orisun.PingResponse
@@ -351,7 +352,7 @@ func (s *BenchmarkSetup) authenticateGRPCClient(b *testing.B, client orisun.Even
 	b.Fatalf("Final ping response: %v, %v", pingResp, err)
 }
 
-func (s *BenchmarkSetup) authTokenForGRPCClient(b *testing.B, client orisun.EventStoreClient) string {
+func (s *BenchmarkSetup) authTokenForGRPCClient(b *testing.B, client grpcapi.EventStoreClient) string {
 	b.Helper()
 
 	var responseMD metadata.MD

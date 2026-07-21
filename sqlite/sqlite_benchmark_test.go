@@ -25,6 +25,7 @@ import (
 	"github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 const (
@@ -369,7 +370,7 @@ func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
 
 		listener := bufconn.Listen(bufSize)
 		grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(bufSize), grpc.MaxSendMsgSize(bufSize))
-		orisun.RegisterEventStoreServer(grpcServer, eventStore)
+		grpcapi.RegisterEventStoreServer(grpcServer, grpcapi.AdaptEventStore(eventStore))
 		serveErr := make(chan error, 1)
 		go func() {
 			serveErr <- grpcServer.Serve(listener)
@@ -386,7 +387,7 @@ func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
 			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(bufSize)),
 		)
 		require.NoError(b, err)
-		client := orisun.NewEventStoreClient(conn)
+		client := grpcapi.NewEventStoreClient(conn)
 
 		events := make([]*orisun.EventToSave, burst)
 		for j := 0; j < burst; j++ {
@@ -446,7 +447,7 @@ func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
 
 type sqliteGRPCBenchClient struct {
 	conn   *grpc.ClientConn
-	client orisun.EventStoreClient
+	client grpcapi.EventStoreClient
 	ctx    context.Context
 }
 
@@ -457,12 +458,12 @@ const (
 	sqliteBenchGRPCReadBufferSize  = 65536
 )
 
-func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter *SqliteGetEvents) orisun.EventStoreServer {
+func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter *SqliteGetEvents) *grpcapi.EventStoreAdapter {
 	b.Helper()
 	logger, err := logging.ZapLogger("warn")
 	require.NoError(b, err)
 	boundaries := []string{benchBoundary}
-	return orisun.NewEventStoreServer(
+	return grpcapi.AdaptEventStore(orisun.NewEventStoreServer(
 		context.Background(),
 		benchFakeJetStream{},
 		saver,
@@ -472,10 +473,10 @@ func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter 
 		&boundaries,
 		orisun.EventStreamConfig{},
 		logger,
-	)
+	))
 }
 
-func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStore orisun.EventStoreServer) []grpc.ServerOption {
+func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStore grpcapi.EventStoreServer) []grpc.ServerOption {
 	b.Helper()
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(sqliteBenchGRPCMaxMessageSize),
@@ -520,14 +521,14 @@ func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStor
 
 func startTCPEventStoreServer(
 	b *testing.B,
-	eventStore orisun.EventStoreServer,
+	eventStore grpcapi.EventStoreServer,
 	optionSet, authMode string,
 ) (addr string, stop func()) {
 	b.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(b, err)
 	grpcServer := grpc.NewServer(sqliteGRPCServerOptions(b, optionSet, authMode, eventStore)...)
-	orisun.RegisterEventStoreServer(grpcServer, eventStore)
+	grpcapi.RegisterEventStoreServer(grpcServer, eventStore)
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- grpcServer.Serve(lis)
@@ -546,7 +547,7 @@ func authContextBasic() context.Context {
 	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Basic "+creds)
 }
 
-func staticTokenContextForClient(b *testing.B, client orisun.EventStoreClient) context.Context {
+func staticTokenContextForClient(b *testing.B, client grpcapi.EventStoreClient) context.Context {
 	b.Helper()
 	var responseMD metadata.MD
 	_, err := client.Ping(authContextBasic(), &orisun.PingRequest{}, grpc.Header(&responseMD))
@@ -569,7 +570,7 @@ func createTCPBenchClients(b *testing.B, addr string, n int, authMode string) []
 			grpc.WithReadBufferSize(sqliteBenchGRPCReadBufferSize),
 		)
 		require.NoError(b, err)
-		client := orisun.NewEventStoreClient(conn)
+		client := grpcapi.NewEventStoreClient(conn)
 		ctx := context.Background()
 		if authMode == "token" {
 			ctx = staticTokenContextForClient(b, client)

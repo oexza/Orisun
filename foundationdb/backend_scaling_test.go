@@ -10,9 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // These benchmarks prove the redesign's scaling claim: per-boundary writes are no
@@ -137,7 +136,7 @@ func BenchmarkFDBSingleHotAggregate(b *testing.B) {
 					Data:      map[string]any{"order_id": agg},
 					Metadata:  map[string]any{},
 				}}, "test", expected, cond)
-				if status.Code(err) == codes.AlreadyExists {
+				if statuscode.CodeOf(err) == statuscode.AlreadyExists {
 					continue // lost the race; re-read head and retry
 				}
 				if err != nil {

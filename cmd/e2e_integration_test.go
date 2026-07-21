@@ -24,6 +24,7 @@ import (
 
 	"github.com/OrisunLabs/Orisun/orisun"
 	pb "github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 type E2ETestSuite struct {
@@ -32,7 +33,7 @@ type E2ETestSuite struct {
 	binaryPath        string
 	binaryCmd         *exec.Cmd
 	grpcConn          *grpc.ClientConn
-	eventStoreClient  pb.EventStoreClient
+	eventStoreClient  grpcapi.EventStoreClient
 	postgresHost      string
 	postgresPort      string
 	grpcPort          string
@@ -233,7 +234,7 @@ func (s *E2ETestSuite) createGRPCClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	s.grpcConn = conn
-	s.eventStoreClient = pb.NewEventStoreClient(conn)
+	s.eventStoreClient = grpcapi.NewEventStoreClient(conn)
 }
 
 // createAuthenticatedContext creates a context with Basic Auth headers

@@ -1616,8 +1616,8 @@ func copyLegacyUsersCount(src, dst *sqlite.Conn) error {
 }
 
 // InitializeSqliteDatabaseWithLockProvider opens the SQLite backend with an
-// injected coordination strategy. Embedded single-process runtimes can use a
-// LocalLockProvider and avoid starting NATS; server runtimes use JetStream.
+// injected coordination strategy. Embedded runtimes can supply a process-local
+// lock provider without linking the server's NATS transport.
 func InitializeSqliteDatabaseWithLockProvider(
 	ctx context.Context,
 	sqliteCfg config.SqliteConfig,

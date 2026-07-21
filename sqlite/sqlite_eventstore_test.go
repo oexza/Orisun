@@ -11,12 +11,11 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 
 	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
 )
@@ -302,7 +301,7 @@ func TestSave_RejectsEmpty(t *testing.T) {
 	saver := NewSqliteSaveEvents(pools, logger)
 	defer saver.close()
 	_, _, err := saver.Save(context.Background(), nil, "test", nil, nil)
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 }
@@ -317,7 +316,7 @@ func TestSave_RejectsUnknownBoundary(t *testing.T) {
 	_, _, err := saver.Save(context.Background(),
 		[]eventstore.EventWithMapTags{mustEvent(t, "X", map[string]any{}, map[string]any{})},
 		"missing", nil, nil)
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 }
@@ -337,7 +336,7 @@ func TestSave_RejectsInvalidJSONStrings(t *testing.T) {
 			Metadata:  map[string]any{},
 		}},
 		"test", nil, nil)
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument for invalid data JSON, got %v", err)
 	}
 
@@ -349,7 +348,7 @@ func TestSave_RejectsInvalidJSONStrings(t *testing.T) {
 			Metadata:  []byte(`{"broken":`),
 		}},
 		"test", nil, nil)
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument for invalid metadata JSON, got %v", err)
 	}
 }
@@ -379,7 +378,7 @@ func TestSave_CCCViolation(t *testing.T) {
 	_, _, err = saver.Save(ctx,
 		[]eventstore.EventWithMapTags{mustEvent(t, "Updated", map[string]any{"agg": "a1"}, map[string]any{})},
 		"test", nil, criteria)
-	if status.Code(err) != codes.AlreadyExists {
+	if statuscode.CodeOf(err) != statuscode.AlreadyExists {
 		t.Fatalf("expected AlreadyExists, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "OptimisticConcurrencyException") {

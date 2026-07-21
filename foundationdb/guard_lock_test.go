@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/goccy/go-json"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/goccy/go-json"
 )
 
 func TestFoundationDBSaveRejectsOversizedBatch(t *testing.T) {
@@ -28,7 +27,7 @@ func TestFoundationDBSaveRejectsOversizedBatch(t *testing.T) {
 		Metadata:  map[string]any{},
 	}}, "test", nil, nil)
 
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument for oversized batch, got %v", err)
 	}
 }

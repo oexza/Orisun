@@ -6,8 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/goccy/go-json"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/OrisunLabs/Orisun/admin"
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
 	"github.com/OrisunLabs/Orisun/admin/slices/create_user"
@@ -19,6 +17,9 @@ import (
 	nats2 "github.com/OrisunLabs/Orisun/nats"
 	"github.com/OrisunLabs/Orisun/orisun"
 	pb "github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
+	"github.com/goccy/go-json"
+	"github.com/nats-io/nats.go/jetstream"
 	_ "go.uber.org/automaxprocs" // auto-set GOMAXPROCS from cgroup CPU limit
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -692,7 +693,7 @@ func LoadTLSCredentials(config c.AppConfig, logger l.Logger) (credentials.Transp
 	return creds, nil
 }
 
-func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
+func startGRPCServer(config c.AppConfig, eventStore *pb.EventStore,
 	authenticator *admin.Authenticator, adminDB common.DB, logger l.Logger) {
 	// Initialize OpenTelemetry
 	var otelShutdown func(context.Context) error
@@ -763,7 +764,7 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 	)
 
 	grpcServer := grpc.NewServer(serverOpts...)
-	pb.RegisterEventStoreServer(grpcServer, eventStore)
+	grpcapi.RegisterEventStoreServer(grpcServer, grpcapi.AdaptEventStore(eventStore))
 
 	// Register Admin service
 	grpcAdminServer := admin.NewGRPCAdminServer(
@@ -774,7 +775,7 @@ func startGRPCServer(config c.AppConfig, eventStore pb.EventStoreServer,
 		adminDB.ListAdminUsers,
 		authenticator,
 	)
-	pb.RegisterAdminServer(grpcServer, grpcAdminServer)
+	grpcapi.RegisterAdminServer(grpcServer, grpcAdminServer)
 
 	if config.Grpc.EnableReflection {
 		logger.Infof("Enabling gRPC server reflection")

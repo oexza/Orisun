@@ -21,3 +21,9 @@ func TestFromContextError(t *testing.T) {
 		t.Fatalf("FromContextError() code = %v, want %v", code, DeadlineExceeded)
 	}
 }
+
+func TestCodeOfNil(t *testing.T) {
+	if got := CodeOf(nil); got != OK {
+		t.Fatalf("CodeOf(nil) = %v, want %v", got, OK)
+	}
+}
