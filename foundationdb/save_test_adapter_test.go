@@ -5,9 +5,8 @@ package foundationdb
 import (
 	"context"
 
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Save keeps backend tests concise while production accepts prepared batches
@@ -21,7 +20,7 @@ func (b *Backend) Save(
 ) (string, int64, error) {
 	prepared, err := eventstore.PrepareEventsForSave(events)
 	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event data: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid event data: %v", err)
 	}
 	return b.SavePrepared(ctx, prepared, boundary, expectedPosition, query)
 }

@@ -12,17 +12,16 @@ import (
 	"sync"
 	"time"
 
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
-	common "github.com/OrisunLabs/Orisun/admin/slices/common"
-	config "github.com/OrisunLabs/Orisun/config"
-	"github.com/OrisunLabs/Orisun/logging"
-	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
@@ -225,18 +224,18 @@ func (b *Backend) SavePrepared(
 		return "", 0, err
 	}
 	if len(events) == 0 {
-		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "events cannot be empty")
 	}
 	if err := b.checkBoundary(boundary); err != nil {
 		return "", 0, err
 	}
 	prepared, err := prepareEvents(events)
 	if err != nil {
-		return "", 0, status.Errorf(codes.InvalidArgument, "invalid event JSON: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid event JSON: %v", err)
 	}
 
 	if len(prepared) > maxBatchSize {
-		return "", 0, status.Errorf(codes.InvalidArgument, "batch of %d events exceeds max %d", len(prepared), maxBatchSize)
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "batch of %d events exceeds max %d", len(prepared), maxBatchSize)
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	// vsFuture is reassigned on every (re)attempt; after Transact returns it
@@ -272,7 +271,7 @@ func (b *Backend) SavePrepared(
 			return nil, err
 		}
 		if total := estimateSaveBytes(prepared, indexes); total > maxTransactionBytes {
-			return nil, status.Errorf(codes.InvalidArgument,
+			return nil, statuscode.Errorf(statuscode.InvalidArgument,
 				"batch of %d events is ~%d bytes, exceeding the %d-byte FoundationDB transaction budget; split it",
 				len(prepared), total, maxTransactionBytes)
 		}
@@ -313,21 +312,21 @@ func (b *Backend) SavePrepared(
 	})
 	if err != nil {
 		if isOptimisticConflict(err) {
-			return "", 0, status.Error(codes.AlreadyExists, err.Error())
+			return "", 0, statuscode.New(statuscode.AlreadyExists, err.Error())
 		}
-		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 			return "", 0, err
 		}
 		if isTransactionTooLarge(err) {
-			return "", 0, status.Errorf(codes.InvalidArgument,
+			return "", 0, statuscode.Errorf(statuscode.InvalidArgument,
 				"batch exceeds FoundationDB transaction size limit; split it: %v", err)
 		}
-		return "", 0, status.Errorf(codes.Internal, "save events: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "save events: %v", err)
 	}
 
 	stamp, err := vsFuture.Get()
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "resolve versionstamp: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "resolve versionstamp: %v", err)
 	}
 	commit := int64(binary.BigEndian.Uint64(stamp[0:8]))
 	batch := int64(binary.BigEndian.Uint16(stamp[8:10]))
@@ -358,10 +357,10 @@ func (b *Backend) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest
 	if hasCriteria(req.Query) {
 		events, err := b.query(ctx, req)
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+			if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 				return nil, err
 			}
-			return nil, status.Errorf(codes.Internal, "query events: %v", err)
+			return nil, statuscode.Errorf(statuscode.Internal, "query events: %v", err)
 		}
 		return events, nil
 	}
@@ -369,7 +368,7 @@ func (b *Backend) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest
 		return b.scanEvents(ctx, rt, req, int(req.Count))
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "query events: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "query events: %v", err)
 	}
 	return result.(eventstore.ReadEventBatch), nil
 }
@@ -389,11 +388,11 @@ func (b *Backend) GetLatestByCriteria(ctx context.Context, query eventstore.Late
 		return eventstore.LatestByCriteriaBatch{}, err
 	}
 	if len(query.Criteria) == 0 {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
 	}
 	criteria := readCriteriaAsMaps(query.Criteria)
 	if len(criteria) != len(query.Criteria) {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "every criterion needs at least one tag")
 	}
 
 	result, err := b.db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
@@ -449,10 +448,10 @@ func (b *Backend) GetLatestByCriteria(ctx context.Context, query eventstore.Late
 		return batch, nil
 	})
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
 			return eventstore.LatestByCriteriaBatch{}, err
 		}
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "get latest by criteria: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "get latest by criteria: %v", err)
 	}
 	return result.(eventstore.LatestByCriteriaBatch), nil
 }
@@ -577,7 +576,7 @@ func (b *Backend) UpsertUser(user eventstore.User) error {
 				return nil, err
 			}
 			if existing.Id != user.Id {
-				return nil, status.Errorf(codes.AlreadyExists, "username %q already exists", user.Username)
+				return nil, statuscode.Errorf(statuscode.AlreadyExists, "username %q already exists", user.Username)
 			}
 		}
 		// A username change must clear the old username key, or the stale
@@ -1266,7 +1265,7 @@ func (b *Backend) unindexedCriteriaErr(kind, boundary string, criterion map[stri
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	return status.Errorf(codes.FailedPrecondition,
+	return statuscode.Errorf(statuscode.FailedPrecondition,
 		"%s on boundary %s references keys %v with no ready covering index; %s",
 		kind, boundary, keys, guidance)
 }
@@ -1303,7 +1302,7 @@ func (b *Backend) loadIndexes(rt fdb.ReadTransaction, boundary string) ([]indexD
 
 func (b *Backend) checkBoundary(boundary string) error {
 	if _, ok := b.boundaries[boundary]; !ok {
-		return status.Errorf(codes.InvalidArgument, "unknown boundary: %s", boundary)
+		return statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
 	}
 	return nil
 }

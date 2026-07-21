@@ -12,7 +12,8 @@ import (
 type Code uint8
 
 const (
-	Unknown Code = iota
+	OK Code = iota
+	Unknown
 	Canceled
 	InvalidArgument
 	DeadlineExceeded
@@ -22,8 +23,20 @@ const (
 	Unauthenticated
 	Unavailable
 	Unimplemented
+	FailedPrecondition
 	Internal
 )
+
+func CodeOf(err error) Code {
+	if err == nil {
+		return OK
+	}
+	code, _, ok := FromError(err)
+	if !ok {
+		return Unknown
+	}
+	return code
+}
 
 type Error struct {
 	code    Code

@@ -15,10 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goccy/go-json"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/goccy/go-json"
 )
 
 const (
@@ -428,9 +427,9 @@ func contextStatusErr(ctx context.Context) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, context.Canceled):
-		return status.Error(codes.Canceled, err.Error())
+		return statuscode.New(statuscode.Canceled, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
-		return status.Error(codes.DeadlineExceeded, err.Error())
+		return statuscode.New(statuscode.DeadlineExceeded, err.Error())
 	default:
 		return err
 	}

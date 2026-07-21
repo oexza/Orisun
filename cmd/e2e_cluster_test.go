@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 type ClusterTestSuite struct {
@@ -39,7 +40,7 @@ type ClusterNode struct {
 	natsPort    string
 	clusterPort string
 	adminPort   string
-	client      pb.EventStoreClient
+	client      grpcapi.EventStoreClient
 	conn        *grpc.ClientConn
 }
 
@@ -224,7 +225,7 @@ func (s *ClusterTestSuite) createGRPCClient(t *testing.T, nodeIndex int) {
 	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	node.conn = conn
-	node.client = pb.NewEventStoreClient(conn)
+	node.client = grpcapi.NewEventStoreClient(conn)
 }
 
 func (s *ClusterTestSuite) teardown(t *testing.T) {

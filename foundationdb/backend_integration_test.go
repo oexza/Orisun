@@ -9,15 +9,14 @@ import (
 	"sync"
 	"testing"
 
+	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
+	"github.com/OrisunLabs/Orisun/logging"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
-	config "github.com/OrisunLabs/Orisun/config"
-	"github.com/OrisunLabs/Orisun/logging"
-	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // readEventPosition rebuilds a protobuf Position from packed scalar fields for
@@ -136,7 +135,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	}, "test", &notExists, &eventstore.Query{Criteria: []*eventstore.Criterion{
 		{Tags: []*eventstore.Tag{{Key: "order_id", Value: "ord-1"}}},
 	}})
-	if status.Code(err) != codes.AlreadyExists {
+	if statuscode.CodeOf(err) != statuscode.AlreadyExists {
 		t.Fatalf("expected ALREADY_EXISTS conflict, got %v", err)
 	}
 
@@ -151,7 +150,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 	}, "test", &notExists, &eventstore.Query{Criteria: []*eventstore.Criterion{
 		{Tags: []*eventstore.Tag{{Key: "uncovered_key", Value: "v"}}},
 	}})
-	if status.Code(err) != codes.FailedPrecondition {
+	if statuscode.CodeOf(err) != statuscode.FailedPrecondition {
 		t.Fatalf("expected FAILED_PRECONDITION for unindexed consistency condition, got %v", err)
 	}
 
@@ -166,7 +165,7 @@ func TestFoundationDBSaveGetCCCAndIndexes(t *testing.T) {
 			{Tags: []*eventstore.Tag{{Key: "uncovered_key", Value: "v"}}},
 		}},
 	})
-	if status.Code(err) != codes.FailedPrecondition {
+	if statuscode.CodeOf(err) != statuscode.FailedPrecondition {
 		t.Fatalf("expected FAILED_PRECONDITION for unindexed query, got %v", err)
 	}
 }
@@ -233,7 +232,7 @@ func TestFoundationDBUsernameMustBeUnique(t *testing.T) {
 		HashedPassword: "hash-2",
 		Roles:          []eventstore.Role{eventstore.RoleAdmin},
 	})
-	if status.Code(err) != codes.AlreadyExists {
+	if statuscode.CodeOf(err) != statuscode.AlreadyExists {
 		t.Fatalf("expected duplicate username to return ALREADY_EXISTS, got %v", err)
 	}
 }
@@ -249,7 +248,7 @@ func TestFoundationDBCanceledContextFailsFast(t *testing.T) {
 		Data:      map[string]any{"id": "1"},
 		Metadata:  map[string]any{},
 	}}, "test", nil, nil)
-	if status.Code(err) != codes.Canceled {
+	if statuscode.CodeOf(err) != statuscode.Canceled {
 		t.Fatalf("Save with canceled context got %v, want CANCELED", err)
 	}
 
@@ -258,14 +257,14 @@ func TestFoundationDBCanceledContextFailsFast(t *testing.T) {
 		Count:     1,
 		Direction: eventstore.Direction_ASC,
 	})
-	if status.Code(err) != codes.Canceled {
+	if statuscode.CodeOf(err) != statuscode.Canceled {
 		t.Fatalf("Get with canceled context got %v, want CANCELED", err)
 	}
 
 	err = backend.CreateBoundaryIndex(ctx, "test", "canceled_idx", []eventstore.BoundaryIndexField{
 		{JsonKey: "id", ValueType: "text"},
 	}, nil, eventstore.IndexCombinatorAND)
-	if status.Code(err) != codes.Canceled {
+	if statuscode.CodeOf(err) != statuscode.Canceled {
 		t.Fatalf("CreateBoundaryIndex with canceled context got %v, want CANCELED", err)
 	}
 }
@@ -403,7 +402,7 @@ func TestFoundationDBCCCSuccessAndStaleExpected(t *testing.T) {
 		EventType: "Updated",
 		Data:      map[string]any{"agg_id": "agg-1"},
 		Metadata:  map[string]any{},
-	}}, "test", &current, criteria); status.Code(err) != codes.AlreadyExists {
+	}}, "test", &current, criteria); statuscode.CodeOf(err) != statuscode.AlreadyExists {
 		t.Fatalf("expected ALREADY_EXISTS for stale expected position, got %v", err)
 	}
 }

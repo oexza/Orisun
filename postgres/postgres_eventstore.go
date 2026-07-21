@@ -9,18 +9,17 @@ import (
 	"strings"
 	"time"
 
+	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	config "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
+	"github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/lib/pq"
 	"github.com/nats-io/nats.go/jetstream"
-	common "github.com/OrisunLabs/Orisun/admin/slices/common"
-	config "github.com/OrisunLabs/Orisun/config"
-	"github.com/OrisunLabs/Orisun/logging"
-	"github.com/OrisunLabs/Orisun/orisun"
-	eventstore "github.com/OrisunLabs/Orisun/orisun"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const insertEventsWithConsistency = `
@@ -115,16 +114,16 @@ func (s *PostgresSaveEvents) SavePrepared(
 	}
 
 	if len(events) == 0 {
-		return "", 0, status.Errorf(codes.InvalidArgument, "events cannot be empty")
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "events cannot be empty")
 	}
 
 	schema, err := s.Schema(boundary)
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to get schema: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to get schema: %v", err)
 	}
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to marshal consistency condition: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to marshal consistency condition: %v", err)
 	}
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("streamSubsetAsJsonString: %v", string(streamSubsetAsBytes))
@@ -132,7 +131,7 @@ func (s *PostgresSaveEvents) SavePrepared(
 
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
-		return "", 0, status.Errorf(codes.Internal, "failed to marshal events: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to marshal events: %v", err)
 	}
 	// s.logger.Infof("eventsJSON: %v", string(eventsJSON))
 
@@ -153,10 +152,10 @@ func (s *PostgresSaveEvents) SavePrepared(
 	)
 	if err := row.Scan(&newGlobalID, &tranID, &globID); err != nil {
 		if strings.Contains(err.Error(), "OptimisticConcurrencyException") {
-			return "", 0, status.Error(codes.AlreadyExists, err.Error())
+			return "", 0, statuscode.New(statuscode.AlreadyExists, err.Error())
 		}
 		s.logger.Errorf("Error inserting events: %v", err)
-		return "", 0, status.Errorf(codes.Internal, "failed to insert events: %v", err)
+		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to insert events: %v", err)
 	}
 
 	if s.logger.IsDebugEnabled() {
@@ -173,7 +172,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 
 	schema, err := s.Schema(req.Boundary)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
 	}
 	count := req.Count
 	if count == 0 {
@@ -191,7 +190,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 		}
 		fromPositionJson, err := json.Marshal(fromPosition)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to marshal from position: %v", err)
+			return nil, statuscode.Errorf(statuscode.Internal, "failed to marshal from position: %v", err)
 		}
 		fromPositionMarshaled = &fromPositionJson
 	}
@@ -205,7 +204,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 			}
 			paramsBytes, err := json.Marshal(globalQuery)
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to marshal params: %v", err)
+				return nil, statuscode.Errorf(statuscode.Internal, "failed to marshal params: %v", err)
 			}
 			paramsJSON = &paramsBytes
 		}
@@ -217,7 +216,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to begin transaction: %v", err)
 	}
 	defer tx.Rollback()
 
@@ -236,7 +235,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 		count,
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to execute query: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "failed to execute query: %v", err)
 	}
 	defer rows.Close()
 
@@ -253,14 +252,14 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 			&event.Metadata,
 			&event.DateCreated,
 		); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to scan row: %v", err)
+			return nil, statuscode.Errorf(statuscode.Internal, "failed to scan row: %v", err)
 		}
 		batch = append(batch, event)
 	}
 
 	// Check for errors from iterating over rows
 	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "error iterating rows: %v", err)
+		return nil, statuscode.Errorf(statuscode.Internal, "error iterating rows: %v", err)
 	}
 
 	return batch, nil
@@ -275,24 +274,24 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
 	schema, err := s.Schema(query.Boundary)
 	if err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "no schema found for boundary: %s", query.Boundary)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "no schema found for boundary: %s", query.Boundary)
 	}
 	if len(query.Criteria) == 0 {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "at least one criterion is required")
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
 	}
 
 	criteriaList := getReadCriteriaAsList(query.Criteria)
 	if len(criteriaList) != len(query.Criteria) {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.InvalidArgument, "every criterion needs at least one tag")
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "every criterion needs at least one tag")
 	}
 	paramsBytes, err := json.Marshal(map[string]any{"criteria": criteriaList})
 	if err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to marshal criteria: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "failed to marshal criteria: %v", err)
 	}
 
 	rows, err := s.db.QueryContext(ctx, s.latestQueries[query.Boundary], query.Boundary, schema, paramsBytes)
 	if err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to execute query: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "failed to execute query: %v", err)
 	}
 	defer rows.Close()
 
@@ -317,10 +316,10 @@ func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query event
 			&event.Metadata,
 			&event.DateCreated,
 		); err != nil {
-			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "failed to scan row: %v", err)
+			return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "failed to scan row: %v", err)
 		}
 		if idx < 0 || idx >= len(batch.Matches) {
-			return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "latest criterion index out of range: %d", idx)
+			return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "latest criterion index out of range: %d", idx)
 		}
 		batch.Matches[idx] = eventstore.LatestCriterionMatch{Event: event, Found: true}
 		if !found || event.CommitPosition > batch.ContextCommitPosition ||
@@ -331,7 +330,7 @@ func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query event
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return eventstore.LatestByCriteriaBatch{}, status.Errorf(codes.Internal, "error iterating rows: %v", err)
+		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "error iterating rows: %v", err)
 	}
 	return batch, nil
 }

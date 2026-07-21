@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"github.com/OrisunLabs/Orisun/postgres"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -31,7 +32,7 @@ const (
 
 type BatchBenchmark struct {
 	grpcPort      string
-	client        orisun.EventStoreClient
+	client        grpcapi.EventStoreClient
 	authCtx       context.Context
 	postgresSaver *postgres.PostgresSaveEvents
 }
@@ -216,7 +217,7 @@ func (bb *BatchBenchmark) waitForServer(b *testing.B) {
 	conn.Close()
 
 	// Create client
-	bb.client = orisun.NewEventStoreClient(conn)
+	bb.client = grpcapi.NewEventStoreClient(conn)
 
 	// Test authentication
 	var pingResp *orisun.PingResponse

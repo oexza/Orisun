@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/OrisunLabs/Orisun/internal/statuscode"
 )
 
 type capturePreparedSaver struct {
@@ -154,7 +153,7 @@ func TestEventStoreGetEventsRejectsOversizedReadBeforeBackend(t *testing.T) {
 	store := &EventStore{getEventsFn: retriever, logger: noopLogger{}}
 
 	_, err := store.GetEvents(context.Background(), &GetEventsRequest{Count: MaxReadBatchSize + 1})
-	if status.Code(err) != codes.InvalidArgument {
+	if statuscode.CodeOf(err) != statuscode.InvalidArgument {
 		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 	if retriever.calls != 0 {
