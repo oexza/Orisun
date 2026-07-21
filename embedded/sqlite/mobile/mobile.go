@@ -294,6 +294,15 @@ func (s *Subscription) IsDone() bool {
 	}
 }
 
+// AwaitDone blocks until the subscription worker exits. Call it from a background
+// thread when a platform binding needs a completion signal.
+func (s *Subscription) AwaitDone() {
+	if s == nil || s.done == nil {
+		return
+	}
+	<-s.done
+}
+
 type eventInput struct {
 	EventID   string          `json:"event_id"`
 	EventType string          `json:"event_type"`

@@ -91,6 +91,25 @@ binaries and container images; mobile artifacts must be built separately until
 they are added to release automation. See [Mobile Embedding](../embedding/mobile)
 for requirements, ABI selection, and integration examples.
 
+## Flutter native artifacts
+
+The Flutter package uses one shared library per desktop OS and architecture:
+
+| Artifact | Target |
+| --- | --- |
+| `liborisun.dylib` | macOS ARM64 or x86-64 |
+| `liborisun.so` | Linux ARM64 or x86-64 |
+| `orisun.dll` | Windows ARM64 or x86-64 |
+
+Build a native artifact with `./scripts/build_desktop.sh <goos> <goarch>`.
+Release package assembly places each result under
+`clients/flutter/orisun_flutter/native/<goos>-<goarch>/`; the Dart native-assets
+hook then bundles only the library matching the application target. Native
+libraries and assembled Flutter packages are generated outputs and are not
+committed to Git. Run `task package:flutter` after all release targets have been
+built. The same archive includes the Android AAR and iOS XCFramework generated
+by `scripts/build_mobile.sh`. See [Flutter Embedding](../embedding/flutter).
+
 ## Docker Tags
 
 The release workflow publishes the same tags to Docker Hub (`orisunlabs/orisun`) and GitHub Container Registry (`ghcr.io/orisunlabs/orisun`).

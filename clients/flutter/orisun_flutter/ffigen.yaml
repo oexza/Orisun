@@ -1,0 +1,20 @@
+# Run with `dart run ffigen --config ffigen.yaml`.
+name: OrisunFlutterBindings
+description: |
+  Bindings for Orisun's stable desktop C ABI.
+
+  Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+output: 'lib/orisun_flutter_bindings_generated.dart'
+headers:
+  entry-points:
+    - 'src/orisun_flutter.h'
+  include-directives:
+    - 'src/orisun_flutter.h'
+ffi-native:
+  asset-id: 'package:orisun_flutter/orisun_flutter_bindings_generated.dart'
+functions:
+  include:
+    - 'orisun_.*'
+comments:
+  style: any
+  length: full

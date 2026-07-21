@@ -192,9 +192,143 @@ jobs:
           path: build/orisun-fdb-linux-${{ matrix.arch }}
           if-no-files-found: error
 
+  build-flutter-native:
+    name: Flutter Native (${{ matrix.os }}/${{ matrix.arch }})
+    needs: validate
+    if: ${{ !inputs.docker_only }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            os: darwin
+            arch: arm64
+          - runner: macos-latest
+            os: darwin
+            arch: amd64
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runner: windows-latest
+            os: windows
+            arch: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          check-latest: true
+
+      - name: Set up Windows C toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build native library
+        if: runner.os != 'Windows'
+        run: ./scripts/build_desktop.sh ${{ matrix.os }} ${{ matrix.arch }}
+
+      - name: Build Windows native library
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: ./scripts/build_desktop.sh ${{ matrix.os }} ${{ matrix.arch }}
+
+      - name: Upload native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: orisun-flutter-${{ matrix.os }}-${{ matrix.arch }}
+          path: build/desktop/${{ matrix.os }}-${{ matrix.arch }}/
+          if-no-files-found: error
+
+  build-flutter-mobile:
+    name: Flutter Native (Android/iOS)
+    needs: validate
+    if: ${{ !inputs.docker_only }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          check-latest: true
+
+      - name: Build mobile bridges
+        run: |
+          go tool gomobile init
+          ./scripts/build_mobile.sh
+
+      - name: Upload Flutter mobile bridges
+        uses: actions/upload-artifact@v4
+        with:
+          name: orisun-flutter-mobile
+          path: |
+            build/mobile/orisun-flutter-mobile.aar
+            build/mobile/OrisunFlutterMobile.xcframework
+          if-no-files-found: error
+
+  build-flutter-package:
+    name: Assemble Flutter Native Package
+    needs: [validate, build-flutter-native, build-flutter-mobile]
+    if: ${{ !inputs.docker_only }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: orisun-flutter-*
+          path: native-artifacts
+
+      - name: Download Android and iOS bridges
+        uses: actions/download-artifact@v4
+        with:
+          name: orisun-flutter-mobile
+          path: build/mobile
+
+      - name: Arrange native target directories
+        run: |
+          for artifact in native-artifacts/orisun-flutter-*; do
+            if [[ "${artifact}" == *"orisun-flutter-mobile" ]]; then
+              continue
+            fi
+            target="${artifact##*orisun-flutter-}"
+            mkdir -p "build/desktop/${target}"
+            cp -a "${artifact}/." "build/desktop/${target}/"
+          done
+
+      - name: Assemble Flutter package
+        run: |
+          ./scripts/package_flutter.sh \
+            darwin-arm64 darwin-amd64 \
+            linux-arm64 linux-amd64 \
+            windows-amd64
+
+      - name: Upload Flutter package
+        uses: actions/upload-artifact@v4
+        with:
+          name: orisun-flutter-package
+          path: build/flutter/orisun_flutter-*.tar.gz
+          if-no-files-found: error
+
   create-release:
     name: Create GitHub Release
-    needs: [validate, build-binaries, build-fdb]
+    needs: [validate, build-binaries, build-fdb, build-flutter-package]
     if: ${{ !inputs.docker_only }}
     runs-on: ubuntu-latest
     permissions:

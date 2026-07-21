@@ -1,0 +1,16 @@
+.dart_tool/
+.idea/
+build/
+coverage/
+pubspec.lock
+example/.dart_tool/
+example/.flutter-plugins-dependencies
+example/**/ephemeral/
+example/**/GeneratedPluginRegistrant.*
+example/**/generated_plugin_registrant.*
+example/**/generated_plugins.cmake
+example/**/local.properties
+example/ios/Podfile
+example/ios/Podfile.lock
+example/web/
+**/*.iml

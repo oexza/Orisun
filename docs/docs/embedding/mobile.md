@@ -44,7 +44,10 @@ The build writes:
 | `build/mobile/orisun-mobile.aar` | Android library with Java bindings and native libraries |
 | `build/mobile/OrisunMobile.xcframework` | Uncompressed Apple device and simulator framework |
 | `build/mobile/OrisunMobile.xcframework.zip` | Distributable Apple framework archive |
-| `build/mobile/SHA256SUMS` | SHA-256 checksums for the AAR and framework ZIP |
+| `build/mobile/orisun-flutter-mobile.aar` | Handle-based Android bridge used by `orisun_flutter` |
+| `build/mobile/OrisunFlutterMobile.xcframework` | Handle-based iOS bridge used by `orisun_flutter` |
+| `build/mobile/OrisunFlutterMobile.xcframework.zip` | Distributable Flutter iOS bridge archive |
+| `build/mobile/SHA256SUMS` | SHA-256 checksums for all AAR and framework ZIP artifacts |
 
 The generated files are build outputs and should not be committed to Git.
 Produce them in release automation or on a trusted release machine.
@@ -191,3 +194,7 @@ telemetry.
 
 For the complete JSON shapes and callback details, see the package-level
 [mobile integration reference](https://github.com/OrisunLabs/Orisun/tree/main/embedded/sqlite/mobile).
+
+For Flutter applications on Android, iOS, macOS, Windows, and Linux, use the
+single typed Dart package described in [Flutter Embedding](./flutter). It wraps
+these gomobile artifacts on Android/iOS and uses FFI on desktop.

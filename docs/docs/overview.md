@@ -46,6 +46,7 @@ Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun no
 | Try Orisun locally | [Getting Started](/docs/getting-started) | [Tutorial](/docs/tutorial) |
 | Embed Orisun in a Go service | [Go Embedding](/docs/embedding/go) | [Storage Backends](/docs/concepts/storage-backends) |
 | Embed SQLite in Android or iOS | [Mobile Embedding](/docs/embedding/mobile) | [Storage Backends](/docs/concepts/storage-backends#sqlite) |
+| Embed SQLite in native Flutter | [Flutter Embedding](/docs/embedding/flutter) | [Mobile Embedding](/docs/embedding/mobile) |
 | Model a business invariant | [Command Context Consistency](/docs/concepts/command-context-consistency) | [Positions](/docs/concepts/positions) |
 | Use DCB terminology | [Dynamic Consistency Boundaries](/docs/concepts/dynamic-consistency-boundaries) | [EventStore API](/docs/api/eventstore) |
 | Save, query, and subscribe | [EventStore API](/docs/api/eventstore) | [Clients](/docs/api/clients) |

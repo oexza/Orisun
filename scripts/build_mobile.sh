@@ -41,10 +41,13 @@ mkdir -p "${output_dir}"
 aar="${output_dir}/orisun-mobile.aar"
 xcframework="${output_dir}/OrisunMobile.xcframework"
 xcframework_zip="${output_dir}/OrisunMobile.xcframework.zip"
+flutter_aar="${output_dir}/orisun-flutter-mobile.aar"
+flutter_xcframework="${output_dir}/OrisunFlutterMobile.xcframework"
+flutter_xcframework_zip="${output_dir}/OrisunFlutterMobile.xcframework.zip"
 
 # gomobile's archive writer expects a fresh destination.
-rm -f "${aar}" "${xcframework_zip}"
-rm -rf "${xcframework}"
+rm -f "${aar}" "${xcframework_zip}" "${flutter_aar}" "${flutter_xcframework_zip}"
+rm -rf "${xcframework}" "${flutter_xcframework}"
 
 cd "${repo_dir}"
 
@@ -71,13 +74,40 @@ go tool gomobile bind \
 plutil -lint "${xcframework}/Info.plist"
 
 ditto -c -k --sequesterRsrc --keepParent "${xcframework}" "${xcframework_zip}"
+
+echo "Building Flutter Android bridge (${android_targets}, API ${android_api})..."
+go tool gomobile bind \
+  -target="${android_targets}" \
+  -androidapi "${android_api}" \
+  -javapkg com.orisunlabs.orisun \
+  -trimpath \
+  -ldflags "${mobile_ldflags}" \
+  -o "${flutter_aar}" \
+  ./embedded/sqlite/fluttermobile
+unzip -tq "${flutter_aar}"
+
+echo "Building Flutter iOS bridge (iOS ${ios_version}+)..."
+go tool gomobile bind \
+  -target=ios \
+  -iosversion "${ios_version}" \
+  -prefix Orisun \
+  -trimpath \
+  -ldflags "${mobile_ldflags}" \
+  -o "${flutter_xcframework}" \
+  ./embedded/sqlite/fluttermobile
+plutil -lint "${flutter_xcframework}/Info.plist"
+ditto -c -k --sequesterRsrc --keepParent "${flutter_xcframework}" "${flutter_xcframework_zip}"
 (
   cd "${output_dir}"
-  shasum -a 256 "$(basename "${aar}")" "$(basename "${xcframework_zip}")" > SHA256SUMS
+  shasum -a 256 \
+    "$(basename "${aar}")" \
+    "$(basename "${xcframework_zip}")" \
+    "$(basename "${flutter_aar}")" \
+    "$(basename "${flutter_xcframework_zip}")" > SHA256SUMS
 )
 
 echo
 echo "Mobile artifacts:"
-ls -lh "${aar}" "${xcframework_zip}"
+ls -lh "${aar}" "${xcframework_zip}" "${flutter_aar}" "${flutter_xcframework_zip}"
 echo
 cat "${output_dir}/SHA256SUMS"
