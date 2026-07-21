@@ -73,7 +73,7 @@ const sidebars: SidebarsConfig = {
         slug: '/embedding',
         description: 'Run Orisun inside your own process instead of as a separate server.',
       },
-      items: ['embedding/go'],
+      items: ['embedding/go', 'embedding/mobile', 'embedding/flutter'],
     },
 
     {type: 'html', value: 'Operate', className: 'sidebar-section-title'},

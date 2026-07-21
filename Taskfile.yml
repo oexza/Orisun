@@ -51,6 +51,21 @@ tasks:
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev pg
       - ./build.sh "$(go env GOOS)" "$(go env GOARCH)" dev sqlite
 
+  build:mobile:
+    desc: Build Android and iOS native artifacts, including the Flutter bridge
+    cmds:
+      - ./scripts/build_mobile.sh
+
+  build:desktop:
+    desc: Build the Orisun desktop shared library for the current platform
+    cmds:
+      - ./scripts/build_desktop.sh
+
+  package:flutter:
+    desc: Assemble the Flutter package from mobile and available desktop libraries
+    cmds:
+      - ./scripts/package_flutter.sh
+
   run:
     desc: Run the PostgreSQL-only server
     deps: [build]

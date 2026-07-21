@@ -5,12 +5,17 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_dir}"
 
-targets=(
+tagged_targets=(
   ./orisun
   ./sqlite
+  ./cmd/orisun-ffi
+  ./embedded/sqlite/local
+  ./embedded/sqlite/mobile
+  ./embedded/sqlite/desktop
+  ./embedded/sqlite/fluttermobile
 )
 
-dependencies="$(go list -tags=orisun_embedded -deps "${targets[@]}")"
+dependencies="$(go list -tags=orisun_embedded -deps "${tagged_targets[@]}")"
 for forbidden in \
   '^google\.golang\.org/grpc($|/)' \
   '^github\.com/nats-io($|/)' \
@@ -52,4 +57,4 @@ if matches="$(grep -l -E '^//go:build' "${generated_files[@]}" || true)"; [[ -n 
   exit 1
 fi
 
-echo "Embedded core is transport-free; embedded runtimes are gRPC-free."
+echo "Embedded core and mobile targets are transport-free; embedded runtimes are gRPC-free."

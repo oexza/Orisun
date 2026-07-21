@@ -11,7 +11,7 @@ This documentation targets Orisun `0.6.1`.
 
 The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed. Orisun can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
 
-It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
+It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta. The standalone server delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server. Mobile applications can instead embed the SQLite backend directly, without gRPC, NATS, or a network listener.
 
 ## Guarantees
 
@@ -45,6 +45,8 @@ Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun no
 | --- | --- | --- |
 | Try Orisun locally | [Getting Started](/docs/getting-started) | [Tutorial](/docs/tutorial) |
 | Embed Orisun in a Go service | [Go Embedding](/docs/embedding/go) | [Storage Backends](/docs/concepts/storage-backends) |
+| Embed SQLite in Android or iOS | [Mobile Embedding](/docs/embedding/mobile) | [Storage Backends](/docs/concepts/storage-backends#sqlite) |
+| Embed SQLite in native Flutter | [Flutter Embedding](/docs/embedding/flutter) | [Mobile Embedding](/docs/embedding/mobile) |
 | Model a business invariant | [Command Context Consistency](/docs/concepts/command-context-consistency) | [Positions](/docs/concepts/positions) |
 | Use DCB terminology | [Dynamic Consistency Boundaries](/docs/concepts/dynamic-consistency-boundaries) | [EventStore API](/docs/api/eventstore) |
 | Save, query, and subscribe | [EventStore API](/docs/api/eventstore) | [Clients](/docs/api/clients) |

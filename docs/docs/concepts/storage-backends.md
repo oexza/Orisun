@@ -122,6 +122,18 @@ SQLite is rejected at startup when NATS clustering is enabled. There must be exa
 
 Choose SQLite when a single active node is acceptable and simplicity matters. It is a production single-node backend, not a reduced local-development mode. For throughput, durability, and failover options such as boundary sharding, Litestream, and LiteFS, see [Scaling SQLite](../operations/deployment#scaling-sqlite).
 
+SQLite has three packaging profiles with the same storage and CCC semantics:
+
+| Profile | gRPC | NATS JetStream | Intended use |
+| --- | --- | --- | --- |
+| `orisun-sqlite` | Yes | Embedded or external | Standalone single-node server |
+| `embedded/sqlite` | No | Embedded or caller-supplied | Go services that want JetStream delivery in-process |
+| `embedded/sqlite/local` and `embedded/sqlite/mobile` | No | No | Single-process desktop and mobile applications |
+
+The local/mobile profile uses a process-local subscription lock and direct
+SQLite catch-up. Do not use the same boundary files from multiple application
+processes and expect subscriber exclusivity. See [Mobile Embedding](../embedding/mobile).
+
 ## Boundary State
 
 A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. In SQLite, event logs and indexes are physically per-boundary files, and publisher/projector/admin metadata lives in the matching `{boundary}_metadata.db` file.

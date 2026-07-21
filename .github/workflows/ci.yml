@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Verify embedded core dependency isolation
+      - name: Verify embedded dependency isolation
         run: ./scripts/verify_embedded_dependencies.sh
 
       - name: Run tests
@@ -97,3 +97,124 @@ jobs:
 
       - name: Build FoundationDB-only Docker image
         run: docker build -t orisun-fdb:test -f Dockerfile.fdb .
+
+  desktop-native:
+    name: Desktop Native (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
+          - runner: windows-latest
+            os: windows
+            arch: amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          check-latest: true
+
+      - name: Set up Windows C toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build Linux library
+        if: runner.os == 'Linux'
+        run: ./scripts/build_desktop.sh ${{ matrix.os }} ${{ matrix.arch }}
+
+      - name: Build Windows library
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: ./scripts/build_desktop.sh ${{ matrix.os }} ${{ matrix.arch }}
+
+      - name: Upload native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: orisun-desktop-${{ matrix.os }}-${{ matrix.arch }}
+          path: build/desktop/${{ matrix.os }}-${{ matrix.arch }}/
+          if-no-files-found: error
+
+  flutter-native:
+    name: Flutter Native (Android, iOS, macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          check-latest: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+
+      - name: Build both macOS native slices
+        run: |
+          ./scripts/build_desktop.sh darwin arm64
+          ./scripts/build_desktop.sh darwin amd64
+
+      - name: Build Android and iOS native bridges
+        run: |
+          go tool gomobile init
+          ./scripts/build_mobile.sh
+          ./scripts/prepare_flutter_mobile.sh
+
+      - name: Analyze and test Dart package
+        working-directory: clients/flutter/orisun_flutter
+        run: |
+          flutter pub get
+          dart analyze
+          flutter test
+
+      - name: Analyze and build macOS example
+        working-directory: clients/flutter/orisun_flutter/example
+        run: |
+          flutter analyze
+          flutter build macos --release
+
+      - name: Build Android example
+        working-directory: clients/flutter/orisun_flutter/example
+        run: flutter build apk --debug
+
+      - name: Build iOS simulator example
+        working-directory: clients/flutter/orisun_flutter/example
+        run: flutter build ios --simulator --no-codesign
+
+      - name: Run iOS platform-bridge integration test
+        working-directory: clients/flutter/orisun_flutter/example
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          test -n "$DEVICE"
+          trap 'xcrun simctl shutdown "$DEVICE" || true' EXIT
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          flutter test integration_test/orisun_integration_test.dart -d "$DEVICE"
+
+      # Flutter 3.44 currently merges universal native-asset frameworks after
+      # the app's ad-hoc signature is created. Re-sign the assembled example so
+      # CI verifies the exact bundle that users launch.
+      - name: Verify packaged macOS application
+        working-directory: clients/flutter/orisun_flutter/example
+        run: |
+          APP=build/macos/Build/Products/Release/orisun_flutter_example.app
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          lipo -info "$APP/Contents/Frameworks/orisun.framework/Versions/A/orisun"

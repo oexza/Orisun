@@ -64,11 +64,51 @@ Each release publishes standalone binaries for Linux, macOS, and Windows. Use th
 | `orisun-sqlite-<os>-<arch>` | SQLite only |
 | `orisun-fdb-linux-<arch>` | FoundationDB only; beta; Linux only |
 
+Backend-specific binaries remain dependency-clean: the SQLite binary does not
+include the PostgreSQL driver, and the PostgreSQL binary does not include the
+SQLite backend. The SQLite server binary still includes gRPC and NATS because
+it is the networked server distribution.
+
 Linux and macOS binaries should be marked executable after download:
 
 ```bash
 chmod +x ./orisun-sqlite
 ```
+
+## Mobile artifacts
+
+Mobile embedding uses platform libraries rather than standalone executables:
+
+| Artifact | Platform | Contents |
+| --- | --- | --- |
+| `orisun-mobile.aar` | Android | Java bindings and selected native ABI libraries |
+| `OrisunMobile.xcframework.zip` | iOS | Objective-C/Swift-compatible device and simulator frameworks |
+
+Build both on macOS with `task build:mobile` or
+`./scripts/build_mobile.sh`. These files are generated under `build/mobile/`
+and are not committed to Git. The current release workflow publishes server
+binaries and container images; mobile artifacts must be built separately until
+they are added to release automation. See [Mobile Embedding](../embedding/mobile)
+for requirements, ABI selection, and integration examples.
+
+## Flutter native artifacts
+
+The Flutter package uses one shared library per desktop OS and architecture:
+
+| Artifact | Target |
+| --- | --- |
+| `liborisun.dylib` | macOS ARM64 or x86-64 |
+| `liborisun.so` | Linux ARM64 or x86-64 |
+| `orisun.dll` | Windows ARM64 or x86-64 |
+
+Build a native artifact with `./scripts/build_desktop.sh <goos> <goarch>`.
+Release package assembly places each result under
+`clients/flutter/orisun_flutter/native/<goos>-<goarch>/`; the Dart native-assets
+hook then bundles only the library matching the application target. Native
+libraries and assembled Flutter packages are generated outputs and are not
+committed to Git. Run `task package:flutter` after all release targets have been
+built. The same archive includes the Android AAR and iOS XCFramework generated
+by `scripts/build_mobile.sh`. See [Flutter Embedding](../embedding/flutter).
 
 ## Docker Tags
 

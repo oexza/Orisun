@@ -4,7 +4,6 @@ package sqlite
 
 import (
 	"context"
-	"fmt"
 
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
 	config "github.com/OrisunLabs/Orisun/config"
@@ -24,11 +23,16 @@ func InitializeSqliteDatabase(
 	js jetstream.JetStream,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
-	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
-	}
-	return InitializeSqliteDatabaseWithLockProvider(
-		ctx, sqliteCfg, adminCfg, boundaries, lockProvider, logger,
+	return initializeSqliteDatabase(
+		ctx,
+		sqliteCfg,
+		adminCfg,
+		boundaries,
+		nil,
+		func() (eventstore.LockProvider, error) {
+			return eventstore.NewJetStreamLockProvider(ctx, js, logger)
+		},
+		nil,
+		logger,
 	)
 }

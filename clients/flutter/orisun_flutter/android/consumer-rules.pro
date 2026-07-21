@@ -1,0 +1,2 @@
+-keep class com.orisunlabs.orisun.fluttermobile.** { *; }
+-keep class go.** { *; }

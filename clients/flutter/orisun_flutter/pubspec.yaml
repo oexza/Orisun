@@ -1,0 +1,37 @@
+name: orisun_flutter
+description: Embedded Orisun SQLite with CCC for native Flutter applications.
+version: 0.0.1
+homepage: https://orisunlabs.github.io/Orisun/docs/embedding/flutter
+repository: https://github.com/OrisunLabs/Orisun/tree/main/clients/flutter/orisun_flutter
+issue_tracker: https://github.com/OrisunLabs/Orisun/issues
+topics:
+  - event-sourcing
+  - sqlite
+  - flutter
+  - database
+
+environment:
+  sdk: ^3.12.0
+  flutter: '>=3.38.0'
+
+dependencies:
+  code_assets: ^1.0.0
+  ffi: ^2.1.4
+  flutter:
+    sdk: flutter
+  hooks: ^1.0.0
+
+dev_dependencies:
+  ffigen: ^20.1.1
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.orisunlabs.orisun_flutter
+        pluginClass: OrisunFlutterPlugin
+      ios:
+        pluginClass: OrisunFlutterPlugin
