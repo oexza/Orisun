@@ -34,25 +34,35 @@ Boundary management follows the same event-first rule as application commands:
    one `BoundaryCreated` or `BoundaryImported` event to the admin boundary.
 2. The RPC or embedded method returns the event-rebuilt boundary in
    `PROVISIONING`. It does not perform backend DDL or file creation inline.
-3. A boundary-provisioning subscriber consumes the definition event and invokes
-   the runtime's injected provisioning function.
-4. The backend adapter creates or opens physical storage, applies migrations
-   idempotently, installs the boundary in the local EventStore registry, starts
-   its polling publisher, and attaches dynamic projectors.
-5. The provisioning command emits `BoundaryActivated` or
-   `BoundaryProvisioningFailed`. The boundary-catalog query slice rebuilds
-   `ListBoundaries` and `GetBoundary` from these lifecycle events.
+3. Every server establishes the same `boundary-provisioning` catch-up
+   subscription. Its distributed subscription lock elects one active controller
+   for the cluster.
+4. The controller creates or opens physical storage, applies migrations, and
+   ensures the shared JetStream boundary stream. It then emits
+   `BoundaryActivated` or `BoundaryProvisioningFailed`.
+5. Every server also establishes a process-unique
+   `boundary-runtime-<uuid>` subscription to activation events. Each runtime
+   installs the boundary in its local backend registry and wake-up listener,
+   starts a publisher contender and dynamic projectors, and finally opens its
+   local request gate.
+6. The boundary-catalog query slice rebuilds `ListBoundaries` and
+   `GetBoundary` from the durable lifecycle events.
 
-Every server process uses its own replay cursor rather than a shared projector
-checkpoint. This is deliberate: each node must install its own registry,
-JetStream stream, and publisher participation even when another node already
-emitted `BoundaryActivated`. Startup performs a durable replay before gRPC is
-exposed, and live subscription gaps trigger another replay.
+The stable provisioning subscription prevents every node from repeating
+physical DDL. A replacement controller catches up definitions while holding
+the same lock, skips physical provisioning for definitions already marked
+`ACTIVE`, and still re-ensures their shared JetStream streams.
 
-A failed definition gets an independent exponential-backoff retry loop capped
-at five seconds. Its failure does not stop the global definition cursor or
-prevent later boundaries from activating. Provisioning adapters are idempotent,
-so replay and retry are safe; a conflicting immutable placement fails closed.
+Runtime subscriptions are deliberately process-unique because registry,
+`LISTEN`, publisher-loop, projector, and activation-gate state is local.
+Startup performs a durable activation replay before gRPC is exposed, and live
+subscription gaps trigger another replay.
+
+A failed definition or local installation gets an independent
+exponential-backoff retry loop capped at five seconds. Its failure does not stop
+either lifecycle cursor or prevent later boundaries from progressing.
+Provisioning adapters remain idempotent for retries after partial failure, and
+a conflicting immutable placement fails closed.
 
 Legacy migration feeds the same command path. PostgreSQL mappings, SQLite
 files, and FoundationDB key ranges become `BoundaryImported` events before the

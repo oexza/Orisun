@@ -10,11 +10,13 @@ import (
 	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	boundaryProvisioningSubscriberName = "boundary-provisioning"
-	boundaryDefinitionReplayBatchSize  = uint32(100)
+	boundaryRuntimeSubscriberName      = "boundary-runtime"
+	boundaryLifecycleReplayBatchSize   = uint32(100)
 )
 
 type DefinitionEventsRetriever interface {
@@ -28,10 +30,9 @@ type SubscribeToBoundaryEvents func(
 ) error
 type HandleBoundaryEvent func(ctx context.Context, event coreeventstore.ReadEvent) error
 
-// BoundaryProvisioningSubscriber projects durable boundary-definition events
-// into one process's local runtime. Its cursor is intentionally process-local:
-// backend registries, NATS streams, and polling loops must be installed on
-// every server node, not just whichever node advanced a shared projector row.
+// BoundaryProvisioningSubscriber follows one filtered boundary-lifecycle
+// event feed. The provisioning constructor uses a stable cluster-singleton
+// identity; the runtime constructor uses a process-unique identity.
 type BoundaryProvisioningSubscriber struct {
 	adminBoundary  string
 	subscriberName string
@@ -39,6 +40,7 @@ type BoundaryProvisioningSubscriber struct {
 	subscribe      SubscribeToBoundaryEvents
 	handle         HandleBoundaryEvent
 	logger         logging.Logger
+	query          coreeventstore.Query
 
 	positionMu sync.RWMutex
 	commit     int64
@@ -46,6 +48,7 @@ type BoundaryProvisioningSubscriber struct {
 
 	retryMu  sync.Mutex
 	retrying map[string]struct{}
+	retries  errgroup.Group
 }
 
 func NewBoundaryProvisioningSubscriber(
@@ -57,21 +60,44 @@ func NewBoundaryProvisioningSubscriber(
 ) *BoundaryProvisioningSubscriber {
 	return &BoundaryProvisioningSubscriber{
 		adminBoundary:  adminBoundary,
-		subscriberName: boundaryProvisioningSubscriberName + "-" + uuid.NewString(),
+		subscriberName: boundaryProvisioningSubscriberName,
 		retriever:      retriever,
 		subscribe:      subscribe,
 		handle:         handle,
 		logger:         logger,
+		query:          boundaryDefinitionQuery(),
 		commit:         -1,
 		prepare:        -1,
 		retrying:       make(map[string]struct{}),
 	}
 }
 
-// Replay synchronously installs every definition visible at startup. Normal
-// successful (including already-active) boundaries are therefore usable before
-// the composition root exposes its API. A definition whose provisioning fails
-// is retried independently so it cannot block later boundaries.
+// NewBoundaryRuntimeSubscriber creates a process-unique subscriber because
+// every server process must install activated boundaries into its own runtime.
+func NewBoundaryRuntimeSubscriber(
+	adminBoundary string,
+	retriever DefinitionEventsRetriever,
+	subscribe SubscribeToBoundaryEvents,
+	handle HandleBoundaryEvent,
+	logger logging.Logger,
+) *BoundaryProvisioningSubscriber {
+	return &BoundaryProvisioningSubscriber{
+		adminBoundary:  adminBoundary,
+		subscriberName: boundaryRuntimeSubscriberName + "-" + uuid.NewString(),
+		retriever:      retriever,
+		subscribe:      subscribe,
+		handle:         handle,
+		logger:         logger,
+		query:          boundaryActivationQuery(),
+		commit:         -1,
+		prepare:        -1,
+		retrying:       make(map[string]struct{}),
+	}
+}
+
+// Replay synchronously handles every matching lifecycle event visible at
+// startup. Runtime reconcilers use it to install active boundaries before the
+// composition root exposes its API.
 func (s *BoundaryProvisioningSubscriber) Replay(ctx context.Context) error {
 	if err := s.validate(); err != nil {
 		return err
@@ -81,12 +107,12 @@ func (s *BoundaryProvisioningSubscriber) Replay(ctx context.Context) error {
 		batch, err := s.retriever.Read(ctx, coreeventstore.ReadRequest{
 			Boundary:     s.adminBoundary,
 			Direction:    coreeventstore.DirectionAscending,
-			Count:        boundaryDefinitionReplayBatchSize,
+			Count:        boundaryLifecycleReplayBatchSize,
 			FromPosition: cursor,
-			Query:        boundaryDefinitionQuery(),
+			Query:        s.query,
 		})
 		if err != nil {
-			return fmt.Errorf("replay boundary definitions: %w", err)
+			return fmt.Errorf("replay boundary lifecycle events: %w", err)
 		}
 		advanced := false
 		for _, event := range batch {
@@ -101,13 +127,13 @@ func (s *BoundaryProvisioningSubscriber) Replay(ctx context.Context) error {
 			s.setPosition(event.Position.CommitPosition, event.Position.PreparePosition)
 			advanced = true
 		}
-		if len(batch) < int(boundaryDefinitionReplayBatchSize) || !advanced {
+		if len(batch) < int(boundaryLifecycleReplayBatchSize) || !advanced {
 			return nil
 		}
 	}
 }
 
-// Start follows definitions newer than the process-local replay cursor.
+// Start follows matching events newer than the process-local cursor.
 func (s *BoundaryProvisioningSubscriber) Start(ctx context.Context) error {
 	if err := s.validate(); err != nil {
 		return err
@@ -116,12 +142,38 @@ func (s *BoundaryProvisioningSubscriber) Start(ctx context.Context) error {
 		Boundary:       s.adminBoundary,
 		SubscriberName: s.subscriberName,
 		AfterPosition:  s.currentPosition(),
-		Query:          boundaryDefinitionQuery(),
+		Query:          s.query,
 	}, func(_ context.Context, event coreeventstore.ReadEvent) error {
 		s.handleOrRetry(ctx, event)
 		s.setPosition(event.Position.CommitPosition, event.Position.PreparePosition)
 		return nil
 	})
+}
+
+// RunExclusive follows the shared provisioning subscription without an
+// uncoordinated replay. Subscribe performs its durable catch-up while holding
+// the stable subscription lock, so exactly one cluster node provisions
+// physical storage and records lifecycle outcomes.
+func (s *BoundaryProvisioningSubscriber) RunExclusive(ctx context.Context) {
+	defer s.retries.Wait()
+
+	backoff := 100 * time.Millisecond
+	for ctx.Err() == nil {
+		if err := s.Start(ctx); err == nil || ctx.Err() != nil {
+			return
+		} else {
+			s.logger.Errorf("Boundary provisioning controller stopped: %v - will retry", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > 5*time.Second {
+			backoff = 5 * time.Second
+		}
+	}
 }
 
 func (s *BoundaryProvisioningSubscriber) validate() error {
@@ -133,14 +185,14 @@ func (s *BoundaryProvisioningSubscriber) validate() error {
 
 func (s *BoundaryProvisioningSubscriber) handleOrRetry(ctx context.Context, event coreeventstore.ReadEvent) {
 	if err := s.handle(ctx, event); err != nil {
-		s.logger.Errorf("Boundary provisioning failed for %s at %d/%d: %v - will retry", event.EventType, event.Position.CommitPosition, event.Position.PreparePosition, err)
+		s.logger.Errorf("Boundary lifecycle handling failed for %s at %d/%d: %v - will retry", event.EventType, event.Position.CommitPosition, event.Position.PreparePosition, err)
 		s.scheduleRetry(ctx, event)
 	}
 }
 
-// scheduleRetry gives each failed definition its own retry loop. The global
-// definition cursor can keep advancing, so one invalid or temporarily
-// unavailable boundary never starves boundaries defined after it.
+// scheduleRetry gives each failed lifecycle event its own retry loop. The
+// global cursor can keep advancing, so one temporarily unavailable boundary
+// never starves boundaries defined after it.
 func (s *BoundaryProvisioningSubscriber) scheduleRetry(ctx context.Context, event coreeventstore.ReadEvent) {
 	key := event.EventID
 	if key == "" {
@@ -154,7 +206,7 @@ func (s *BoundaryProvisioningSubscriber) scheduleRetry(ctx context.Context, even
 	s.retrying[key] = struct{}{}
 	s.retryMu.Unlock()
 
-	go func() {
+	s.retries.Go(func() error {
 		defer func() {
 			s.retryMu.Lock()
 			delete(s.retrying, key)
@@ -164,26 +216,28 @@ func (s *BoundaryProvisioningSubscriber) scheduleRetry(ctx context.Context, even
 		for {
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			case <-time.After(backoff):
 			}
 			if err := s.handle(ctx, event); err == nil {
-				return
+				return nil
 			} else {
-				s.logger.Errorf("Boundary provisioning retry failed for %s at %d/%d: %v", event.EventType, event.Position.CommitPosition, event.Position.PreparePosition, err)
+				s.logger.Errorf("Boundary lifecycle retry failed for %s at %d/%d: %v", event.EventType, event.Position.CommitPosition, event.Position.PreparePosition, err)
 			}
 			backoff *= 2
 			if backoff > 5*time.Second {
 				backoff = 5 * time.Second
 			}
 		}
-	}()
+	})
 }
 
 // Run performs a fresh durable replay after every subscription interruption,
 // then follows live definitions. This closes any NATS retention or reconnect
 // gap without relying on a shared projector checkpoint.
 func (s *BoundaryProvisioningSubscriber) Run(ctx context.Context) {
+	defer s.retries.Wait()
+
 	backoff := 100 * time.Millisecond
 	for ctx.Err() == nil {
 		if err := s.Replay(ctx); err == nil {
@@ -230,5 +284,11 @@ func boundaryDefinitionQuery() coreeventstore.Query {
 	return coreeventstore.Query{Criteria: []coreeventstore.Criterion{
 		{Tags: []coreeventstore.Tag{{Key: "eventType", Value: adminevents.EventTypeBoundaryCreated}}},
 		{Tags: []coreeventstore.Tag{{Key: "eventType", Value: adminevents.EventTypeBoundaryImported}}},
+	}}
+}
+
+func boundaryActivationQuery() coreeventstore.Query {
+	return coreeventstore.Query{Criteria: []coreeventstore.Criterion{
+		{Tags: []coreeventstore.Tag{{Key: "eventType", Value: adminevents.EventTypeBoundaryActivated}}},
 	}}
 }

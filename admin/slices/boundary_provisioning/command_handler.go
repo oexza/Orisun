@@ -54,17 +54,10 @@ func ProvisionBoundaryCommandHandler(
 	if err != nil {
 		return ProvisionBoundaryResult{}, err
 	}
-	provisionErr := provision(ctx, command.Definition)
-	// ACTIVE is a catalog state, not proof that this process has installed its
-	// local registry, NATS stream, and polling loop. Replays must run the
-	// idempotent provisioner on every node before reporting the command as
-	// already completed.
 	if model.boundary.Status == boundarymodel.StatusActive {
-		if provisionErr != nil {
-			return ProvisionBoundaryResult{}, provisionErr
-		}
 		return ProvisionBoundaryResult{}, statuscode.Errorf(statuscode.AlreadyExists, "boundary %q is already active", command.Definition.Name)
 	}
+	provisionErr := provision(ctx, command.Definition)
 	if provisionErr == nil {
 		for {
 			boundary, appendErr := appendOutcome(

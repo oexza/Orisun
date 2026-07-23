@@ -43,6 +43,7 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		AdminDB:           runtime.AdminDB,
 		EventPublishing:   runtime.EventPublishing,
 		ProvisionBoundary: runtime.ProvisionBoundary,
+		InstallBoundary:   runtime.InstallBoundary,
 		InitialBoundaries: pg.BoundaryNames(mappings),
 		LegacyBoundaries:  pg.LegacyBoundaryDefinitions(mappings),
 	}

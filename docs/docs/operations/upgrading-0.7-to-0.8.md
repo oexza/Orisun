@@ -227,7 +227,10 @@ Update to the Go, Node.js, or Java client release that accompanies Orisun 0.8.0
 when an application needs to create, import, list, or inspect boundaries.
 `CreateBoundary` and `ImportBoundary` return while the definition is still
 `PROVISIONING`; poll `GetBoundary` until it reports `ACTIVE` before issuing
-EventStore operations. See [Client libraries](../api/clients#boundary-prerequisite).
+EventStore operations. A clustered node may briefly return
+`FAILED_PRECONDITION` while installing the active definition locally; retry or
+remove that node from routing until it converges. See
+[Client libraries](../api/clients#boundary-prerequisite).
 
 ## Embedded Go changes
 

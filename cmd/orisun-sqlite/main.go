@@ -62,6 +62,7 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		EventPublishing:   runtime.EventPublishing,
 		SignalProvider:    runtime.SignalProvider,
 		ProvisionBoundary: runtime.ProvisionBoundary,
+		InstallBoundary:   runtime.InstallBoundary,
 		InitialBoundaries: boundaries,
 		LegacyBoundaries:  sqlitebackend.LegacyBoundaryDefinitions(boundaries),
 	}, nil

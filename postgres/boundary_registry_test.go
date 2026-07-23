@@ -75,7 +75,7 @@ func TestBoundaryRegistryRegisterValidatesIdentifiers(t *testing.T) {
 	}
 }
 
-func TestPostgresBoundaryProvisionerMigratesThenRegisters(t *testing.T) {
+func TestPostgresBoundaryProvisionerSeparatesMigrationFromLocalRegistration(t *testing.T) {
 	registry := NewBoundaryRegistry(nil)
 	var calls atomic.Int32
 	provisioner := newPostgresBoundaryProvisioner(registry, func(_ context.Context, boundary, schema string) error {
@@ -96,11 +96,17 @@ func TestPostgresBoundaryProvisionerMigratesThenRegisters(t *testing.T) {
 	if err := provisioner.ProvisionBoundary(t.Context(), definition); err != nil {
 		t.Fatalf("ProvisionBoundary() error = %v", err)
 	}
-	if err := provisioner.ProvisionBoundary(t.Context(), definition); err != nil {
-		t.Fatalf("idempotent ProvisionBoundary() error = %v", err)
-	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("migration calls = %d, want 1", got)
+	}
+	if _, found := registry.lookup("sales"); found {
+		t.Fatal("physical provisioning must not mutate the process-local registry")
+	}
+	if err := provisioner.InstallBoundary(t.Context(), definition); err != nil {
+		t.Fatalf("InstallBoundary() error = %v", err)
+	}
+	if err := provisioner.InstallBoundary(t.Context(), definition); err != nil {
+		t.Fatalf("idempotent InstallBoundary() error = %v", err)
 	}
 	if entry, found := registry.lookup("sales"); !found || entry.mapping.Schema != "tenant_data" {
 		t.Fatalf("registered entry = %#v, found = %v", entry, found)
@@ -127,7 +133,7 @@ func TestPostgresBoundaryProvisionerDoesNotRegisterFailedMigration(t *testing.T)
 	}
 }
 
-func TestPostgresBoundaryProvisionerSerializesDuplicateDeliveries(t *testing.T) {
+func TestPostgresBoundaryInstallerHandlesConcurrentDuplicateDeliveries(t *testing.T) {
 	registry := NewBoundaryRegistry(nil)
 	var calls atomic.Int32
 	provisioner := newPostgresBoundaryProvisioner(registry, func(context.Context, string, string) error {
@@ -145,25 +151,26 @@ func TestPostgresBoundaryProvisionerSerializesDuplicateDeliveries(t *testing.T) 
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			errorsByCall <- provisioner.ProvisionBoundary(context.Background(), definition)
+			errorsByCall <- provisioner.InstallBoundary(context.Background(), definition)
 		}()
 	}
 	wait.Wait()
 	close(errorsByCall)
 	for err := range errorsByCall {
 		if err != nil {
-			t.Errorf("ProvisionBoundary() error = %v", err)
+			t.Errorf("InstallBoundary() error = %v", err)
 		}
 	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("migration calls = %d, want 1", got)
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("local installation unexpectedly ran migration %d times", got)
+	}
+	if _, found := registry.lookup("sales"); !found {
+		t.Fatal("concurrent local installation did not register boundary")
 	}
 }
 
 func TestPostgresBoundaryProvisionerRejectsPlacementBeforeMigration(t *testing.T) {
-	registry := NewBoundaryRegistry(map[string]config.BoundaryToPostgresSchemaMapping{
-		"sales": {Boundary: "sales", Schema: "tenant_data"},
-	})
+	registry := NewBoundaryRegistry(nil)
 	var calls atomic.Int32
 	provisioner := newPostgresBoundaryProvisioner(registry, func(context.Context, string, string) error {
 		calls.Add(1)
@@ -171,7 +178,6 @@ func TestPostgresBoundaryProvisionerRejectsPlacementBeforeMigration(t *testing.T
 	})
 
 	definitions := []orisun.BoundaryDefinition{
-		{Name: "sales", Placement: orisun.BoundaryPlacement{Backend: "postgres", Namespace: "different"}},
 		{Name: "new_boundary", Placement: orisun.BoundaryPlacement{Backend: "sqlite", Namespace: "tenant_data"}},
 		{Name: "new_boundary", Placement: orisun.BoundaryPlacement{Backend: "postgres", Namespace: "bad-schema"}},
 	}
@@ -182,5 +188,21 @@ func TestPostgresBoundaryProvisionerRejectsPlacementBeforeMigration(t *testing.T
 	}
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("migration calls = %d, want 0", got)
+	}
+}
+
+func TestPostgresBoundaryInstallerRejectsConflictingLocalPlacement(t *testing.T) {
+	registry := NewBoundaryRegistry(map[string]config.BoundaryToPostgresSchemaMapping{
+		"sales": {Boundary: "sales", Schema: "tenant_data"},
+	})
+	provisioner := newPostgresBoundaryProvisioner(registry, func(context.Context, string, string) error {
+		return nil
+	})
+	err := provisioner.InstallBoundary(t.Context(), orisun.BoundaryDefinition{
+		Name:      "sales",
+		Placement: orisun.BoundaryPlacement{Backend: "postgres", Namespace: "different"},
+	})
+	if err == nil {
+		t.Fatal("InstallBoundary() conflicting placement error = nil")
 	}
 }

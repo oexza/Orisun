@@ -133,7 +133,10 @@ const {boundaries} = await admin.listBoundaries();
 
 Use `admin.importBoundary(...)` instead when the physical boundary already
 exists. Both commands return a definition in `PROVISIONING`; do not treat the
-command response as readiness.
+command response as readiness. In clustered deployments, retry an EventStore
+request that briefly returns `FAILED_PRECONDITION` after the shared catalog
+becomes `ACTIVE`; the selected node is still completing its local runtime
+installation.
 
 ## First program
 

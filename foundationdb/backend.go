@@ -170,6 +170,7 @@ func InitializeFoundationDBRuntime(
 		SaveEvents: saveEvents, GetEvents: getEvents, LockProvider: lockProvider,
 		AdminDB: adminDB, EventPublishing: publishing, SignalProvider: signalProvider,
 		ProvisionBoundary: backend.ProvisionBoundary,
+		InstallBoundary:   backend.InstallBoundary,
 		InitialBoundaries: backend.BoundaryNames(),
 		BoundaryNamespace: backend.root,
 		Close:             closeFn,
@@ -1368,6 +1369,26 @@ func (b *Backend) ProvisionBoundary(ctx context.Context, definition boundarymode
 	if b == nil {
 		return fmt.Errorf("FoundationDB boundary provisioner is not configured")
 	}
+	if err := b.validateBoundaryDefinition(definition); err != nil {
+		return err
+	}
+	return b.ensureBoundaryMarker(ctx, definition.Name)
+}
+
+func (b *Backend) InstallBoundary(_ context.Context, definition boundarymodel.Definition) error {
+	if b == nil {
+		return fmt.Errorf("FoundationDB boundary installer is not configured")
+	}
+	if err := b.validateBoundaryDefinition(definition); err != nil {
+		return err
+	}
+	b.boundaryMu.Lock()
+	b.boundaries[definition.Name] = struct{}{}
+	b.boundaryMu.Unlock()
+	return nil
+}
+
+func (b *Backend) validateBoundaryDefinition(definition boundarymodel.Definition) error {
 	if !strings.EqualFold(strings.TrimSpace(definition.Placement.Backend), "foundationdb") {
 		return fmt.Errorf("boundary %s uses unsupported backend %q", definition.Name, definition.Placement.Backend)
 	}
@@ -1377,12 +1398,6 @@ func (b *Backend) ProvisionBoundary(ctx context.Context, definition boundarymode
 	if strings.TrimSpace(definition.Placement.Namespace) != b.root {
 		return fmt.Errorf("FoundationDB boundary %s must use namespace %q", definition.Name, b.root)
 	}
-	if err := b.ensureBoundaryMarker(ctx, definition.Name); err != nil {
-		return err
-	}
-	b.boundaryMu.Lock()
-	b.boundaries[definition.Name] = struct{}{}
-	b.boundaryMu.Unlock()
 	return nil
 }
 

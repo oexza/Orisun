@@ -3,7 +3,9 @@ package boundary_provisioning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,14 +14,14 @@ import (
 	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 )
 
-func TestBoundaryProvisioningSubscriberReplaysIntoLocalRuntime(t *testing.T) {
+func TestBoundaryRuntimeSubscriberReplaysIntoLocalRuntime(t *testing.T) {
 	event := coreeventstore.ReadEvent{
-		EventID: "event-1", EventType: adminevents.EventTypeBoundaryCreated,
+		EventID: "event-1", EventType: adminevents.EventTypeBoundaryActivated,
 		Data:     `{"boundary":"sales"}`,
 		Position: coreeventstore.Position{CommitPosition: 8, PreparePosition: 9},
 	}
 	handled := make(chan coreeventstore.ReadEvent, 1)
-	subscriber := NewBoundaryProvisioningSubscriber(
+	subscriber := NewBoundaryRuntimeSubscriber(
 		"orisun_admin",
 		&definitionBatchRetriever{events: coreeventstore.ReadEventBatch{event}},
 		unusedDefinitionSubscription,
@@ -39,7 +41,7 @@ func TestBoundaryProvisioningSubscriberReplaysIntoLocalRuntime(t *testing.T) {
 	if got := subscriber.currentPosition(); got.CommitPosition != 8 || got.PreparePosition != 9 {
 		t.Fatalf("position = %d/%d", got.CommitPosition, got.PreparePosition)
 	}
-	if !strings.HasPrefix(subscriber.subscriberName, boundaryProvisioningSubscriberName+"-") {
+	if !strings.HasPrefix(subscriber.subscriberName, boundaryRuntimeSubscriberName+"-") {
 		t.Fatalf("subscriber name = %q", subscriber.subscriberName)
 	}
 }
@@ -89,12 +91,107 @@ func TestBoundaryProvisioningSubscriberRetriesFailureWithoutBlockingLaterDefinit
 	}
 }
 
-func TestBoundaryProvisioningSubscribersUseIndependentRuntimeIdentities(t *testing.T) {
+func TestBoundaryProvisioningSubscribersUseSharedControllerIdentity(t *testing.T) {
 	first := NewBoundaryProvisioningSubscriber("admin", &definitionBatchRetriever{}, unusedDefinitionSubscription, func(context.Context, coreeventstore.ReadEvent) error { return nil }, subscriberTestLogger{})
 	second := NewBoundaryProvisioningSubscriber("admin", &definitionBatchRetriever{}, unusedDefinitionSubscription, func(context.Context, coreeventstore.ReadEvent) error { return nil }, subscriberTestLogger{})
+	if first.subscriberName != boundaryProvisioningSubscriberName || second.subscriberName != boundaryProvisioningSubscriberName {
+		t.Fatalf("provisioning subscribers must share controller identity: %q, %q", first.subscriberName, second.subscriberName)
+	}
+}
+
+func TestBoundaryRuntimeSubscribersUseIndependentProcessIdentities(t *testing.T) {
+	first := NewBoundaryRuntimeSubscriber("admin", &definitionBatchRetriever{}, unusedDefinitionSubscription, func(context.Context, coreeventstore.ReadEvent) error { return nil }, subscriberTestLogger{})
+	second := NewBoundaryRuntimeSubscriber("admin", &definitionBatchRetriever{}, unusedDefinitionSubscription, func(context.Context, coreeventstore.ReadEvent) error { return nil }, subscriberTestLogger{})
 	if first.subscriberName == second.subscriberName {
 		t.Fatalf("runtime subscriber names must be unique: %q", first.subscriberName)
 	}
+	if !strings.HasPrefix(first.subscriberName, boundaryRuntimeSubscriberName+"-") {
+		t.Fatalf("runtime subscriber name = %q", first.subscriberName)
+	}
+}
+
+func TestBoundaryProvisioningSubscribersCompeteForOneClusterController(t *testing.T) {
+	subscriptions := &exclusiveSubscription{
+		held:     make(map[string]struct{}),
+		acquired: make(chan struct{}, 1),
+		event: coreeventstore.ReadEvent{
+			EventID: "created", EventType: adminevents.EventTypeBoundaryCreated,
+			Position: coreeventstore.Position{CommitPosition: 1, PreparePosition: 1},
+		},
+	}
+	var handled atomic.Int32
+	newSubscriber := func() *BoundaryProvisioningSubscriber {
+		return NewBoundaryProvisioningSubscriber(
+			"admin",
+			&definitionBatchRetriever{},
+			subscriptions.Subscribe,
+			func(context.Context, coreeventstore.ReadEvent) error {
+				handled.Add(1)
+				return nil
+			},
+			subscriberTestLogger{},
+		)
+	}
+
+	firstCtx, cancelFirst := context.WithCancel(t.Context())
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- newSubscriber().Start(firstCtx)
+	}()
+	<-subscriptions.acquired
+
+	if err := newSubscriber().Start(t.Context()); err == nil {
+		t.Fatal("second node acquired the stable provisioning subscription")
+	}
+	if got := handled.Load(); got != 1 {
+		t.Fatalf("physical provisioning handler calls = %d, want 1", got)
+	}
+	cancelFirst()
+	<-firstDone
+}
+
+func TestBoundaryRuntimeSubscribersInstallOnEveryNode(t *testing.T) {
+	subscriptions := &exclusiveSubscription{
+		held:     make(map[string]struct{}),
+		acquired: make(chan struct{}, 2),
+		event: coreeventstore.ReadEvent{
+			EventID: "activated", EventType: adminevents.EventTypeBoundaryActivated,
+			Position: coreeventstore.Position{CommitPosition: 2, PreparePosition: 1},
+		},
+	}
+	var handled atomic.Int32
+	newSubscriber := func() *BoundaryProvisioningSubscriber {
+		return NewBoundaryRuntimeSubscriber(
+			"admin",
+			&definitionBatchRetriever{},
+			subscriptions.Subscribe,
+			func(context.Context, coreeventstore.ReadEvent) error {
+				handled.Add(1)
+				return nil
+			},
+			subscriberTestLogger{},
+		)
+	}
+
+	runCtx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 2)
+	for range 2 {
+		go func() {
+			done <- newSubscriber().Start(runCtx)
+		}()
+	}
+	<-subscriptions.acquired
+	<-subscriptions.acquired
+	deadline := time.Now().Add(time.Second)
+	for handled.Load() != 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := handled.Load(); got != 2 {
+		t.Fatalf("local runtime handler calls = %d, want 2", got)
+	}
+	cancel()
+	<-done
+	<-done
 }
 
 func TestBoundaryProvisioningRetrySurvivesLiveSubscriptionRestart(t *testing.T) {
@@ -142,6 +239,36 @@ func TestBoundaryProvisioningRetrySurvivesLiveSubscriptionRestart(t *testing.T) 
 
 type definitionBatchRetriever struct {
 	events coreeventstore.ReadEventBatch
+}
+
+type exclusiveSubscription struct {
+	mu       sync.Mutex
+	held     map[string]struct{}
+	acquired chan struct{}
+	event    coreeventstore.ReadEvent
+}
+
+func (s *exclusiveSubscription) Subscribe(
+	ctx context.Context,
+	request coreeventstore.SubscribeRequest,
+	handle coreeventstore.EventHandler,
+) error {
+	s.mu.Lock()
+	if _, exists := s.held[request.SubscriberName]; exists {
+		s.mu.Unlock()
+		return fmt.Errorf("subscription %s is already held", request.SubscriberName)
+	}
+	s.held[request.SubscriberName] = struct{}{}
+	s.mu.Unlock()
+	select {
+	case s.acquired <- struct{}{}:
+	default:
+	}
+	if err := handle(ctx, s.event); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (r *definitionBatchRetriever) Read(_ context.Context, req coreeventstore.ReadRequest) (coreeventstore.ReadEventBatch, error) {

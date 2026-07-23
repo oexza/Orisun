@@ -17,6 +17,7 @@ type DatabaseRuntime struct {
 	EventPublishing   orisun.EventPublishingTracker
 	SignalProvider    func(string) orisun.EventSignal
 	ProvisionBoundary func(context.Context, boundarymodel.Definition) error
+	InstallBoundary   func(context.Context, boundarymodel.Definition) error
 	InitialBoundaries []string
 	BoundaryNamespace string
 	Close             func(context.Context)

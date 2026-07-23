@@ -32,15 +32,35 @@ func (p *SqliteBoundaryProvisioner) ProvisionBoundary(ctx context.Context, defin
 	if p == nil || p.registry == nil || p.saver == nil {
 		return fmt.Errorf("sqlite boundary provisioner is not configured")
 	}
-	if !strings.EqualFold(strings.TrimSpace(definition.Placement.Backend), "sqlite") {
-		return fmt.Errorf("boundary %s uses unsupported backend %q", definition.Name, definition.Placement.Backend)
+	if err := p.validateDefinition(definition); err != nil {
+		return err
 	}
-	if err := validateIdentifier(definition.Name); err != nil {
-		return fmt.Errorf("invalid boundary name %s: %w", definition.Name, err)
+
+	p.registry.provisionMu.Lock()
+	defer p.registry.provisionMu.Unlock()
+	if _, ok := p.registry.eventPool(definition.Name); ok {
+		return nil
 	}
-	namespace := strings.TrimSpace(definition.Placement.Namespace)
-	if namespace != definition.Name {
-		return fmt.Errorf("SQLite boundary %s must use namespace %q", definition.Name, definition.Name)
+
+	eventPool, err := OpenBoundaryPoolsWithConfig(ctx, p.config, definition.Name, p.admin.Boundary)
+	if err != nil {
+		return fmt.Errorf("provision SQLite boundary %s: %w", definition.Name, err)
+	}
+	defer eventPool.Close()
+	metadataPool, err := OpenMetadataPoolsWithConfig(ctx, p.config, definition.Name)
+	if err != nil {
+		return fmt.Errorf("provision SQLite metadata for %s: %w", definition.Name, err)
+	}
+	defer metadataPool.Close()
+	return nil
+}
+
+func (p *SqliteBoundaryProvisioner) InstallBoundary(ctx context.Context, definition boundarymodel.Definition) error {
+	if p == nil || p.registry == nil || p.saver == nil {
+		return fmt.Errorf("sqlite boundary installer is not configured")
+	}
+	if err := p.validateDefinition(definition); err != nil {
+		return err
 	}
 
 	p.registry.provisionMu.Lock()
@@ -70,5 +90,19 @@ func (p *SqliteBoundaryProvisioner) ProvisionBoundary(ctx context.Context, defin
 	p.registry.pools[definition.Name] = eventPool
 	p.registry.metadataPools[definition.Name] = metadataPool
 	p.registry.mu.Unlock()
+	return nil
+}
+
+func (p *SqliteBoundaryProvisioner) validateDefinition(definition boundarymodel.Definition) error {
+	if !strings.EqualFold(strings.TrimSpace(definition.Placement.Backend), "sqlite") {
+		return fmt.Errorf("boundary %s uses unsupported backend %q", definition.Name, definition.Placement.Backend)
+	}
+	if err := validateIdentifier(definition.Name); err != nil {
+		return fmt.Errorf("invalid boundary name %s: %w", definition.Name, err)
+	}
+	namespace := strings.TrimSpace(definition.Placement.Namespace)
+	if namespace != definition.Name {
+		return fmt.Errorf("SQLite boundary %s must use namespace %q", definition.Name, definition.Name)
+	}
 	return nil
 }

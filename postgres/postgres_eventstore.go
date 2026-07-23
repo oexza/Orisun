@@ -14,7 +14,6 @@ import (
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
-	"github.com/OrisunLabs/Orisun/orisun"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -33,10 +32,6 @@ SELECT * FROM %s.get_matching_events_v3($1::text, $2::text, $3::jsonb, $4::jsonb
 
 const selectLatestByCriteria = `
 SELECT * FROM %s.get_latest_by_criteria_v1($1::text, $2::text, $3::jsonb)
-`
-
-const setSearchPath = `
-set search_path to '%s'
 `
 
 type PostgresSaveEvents struct {
@@ -418,18 +413,18 @@ func NewPostgresAdminDBWithRegistry(db *sql.DB, logger logging.Logger, schema st
 	}
 }
 
-var userCache = map[string]*orisun.User{}
+var userCache = map[string]*eventstore.User{}
 
-func (s *PostgresAdminDB) ListAdminUsers() ([]*orisun.User, error) {
+func (s *PostgresAdminDB) ListAdminUsers() ([]*eventstore.User, error) {
 	rows, err := s.db.Query(s.qListUsers)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []*orisun.User
+	var users []*eventstore.User
 	for rows.Next() {
-		var user orisun.User
+		var user eventstore.User
 		user, err = s.scanUser(rows)
 		if err != nil {
 			return nil, err
@@ -494,21 +489,21 @@ func (p *PostgresAdminDB) DeleteUser(id string) error {
 	return nil
 }
 
-func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (orisun.User, error) {
-	var user orisun.User
+func (s *PostgresAdminDB) scanUser(rows *sql.Rows) (eventstore.User, error) {
+	var user eventstore.User
 	var roles []string
 	if err := rows.Scan(&user.Id, &user.Name, &user.Username, &user.HashedPassword, pq.Array(&roles)); err != nil {
 		s.logger.Error("Failed to scan user row: %v", err)
-		return orisun.User{}, err
+		return eventstore.User{}, err
 	}
 
 	for _, role := range roles {
-		user.Roles = append(user.Roles, orisun.Role(role))
+		user.Roles = append(user.Roles, eventstore.Role(role))
 	}
 	return user, nil
 }
 
-func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error) {
+func (s *PostgresAdminDB) GetUserByUsername(username string) (eventstore.User, error) {
 	user := userCache[username]
 	if user != nil {
 		if s.logger.IsDebugEnabled() {
@@ -520,15 +515,15 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error
 	rows, err := s.db.Query(s.qGetUserByUsername, username)
 	if err != nil {
 		s.logger.Infof("User: %v", err)
-		return orisun.User{}, err
+		return eventstore.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse orisun.User
+	var userResponse eventstore.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return orisun.User{}, err
+			return eventstore.User{}, err
 		}
 	}
 
@@ -536,34 +531,34 @@ func (s *PostgresAdminDB) GetUserByUsername(username string) (orisun.User, error
 		userCache[username] = &userResponse
 		return userResponse, nil
 	}
-	return orisun.User{}, fmt.Errorf("user not found")
+	return eventstore.User{}, fmt.Errorf("user not found")
 }
 
-func (s *PostgresAdminDB) GetUserById(id string) (orisun.User, error) {
+func (s *PostgresAdminDB) GetUserById(id string) (eventstore.User, error) {
 	rows, err := s.db.Query(s.qGetUserById, id)
 	if err != nil {
 		if s.logger.IsDebugEnabled() {
 			s.logger.Debugf("User by ID: %v", err)
 		}
-		return orisun.User{}, err
+		return eventstore.User{}, err
 	}
 	defer rows.Close()
 
-	var userResponse orisun.User
+	var userResponse eventstore.User
 	if rows.Next() {
 		userResponse, err = s.scanUser(rows)
 		if err != nil {
-			return orisun.User{}, err
+			return eventstore.User{}, err
 		}
 	}
 
 	if userResponse.Id != "" {
 		return userResponse, nil
 	}
-	return orisun.User{}, fmt.Errorf("user not found with id: %s", id)
+	return eventstore.User{}, fmt.Errorf("user not found with id: %s", id)
 }
 
-func (s *PostgresAdminDB) UpsertUser(user orisun.User) error {
+func (s *PostgresAdminDB) UpsertUser(user eventstore.User) error {
 	roleStrings := make([]string, len(user.Roles))
 	for i, role := range user.Roles {
 		roleStrings[i] = string(role)
@@ -796,6 +791,7 @@ type DatabaseRuntime struct {
 	EventPublishing   eventstore.EventPublishingTracker
 	Listener          *PGNotifyListener
 	ProvisionBoundary func(context.Context, boundarymodel.Definition) error
+	InstallBoundary   func(context.Context, boundarymodel.Definition) error
 }
 
 // InitializePostgresDatabase preserves the original tuple API for callers
@@ -968,6 +964,18 @@ func InitializePostgresDatabaseRuntime(
 		boundaryRegistry,
 	)
 	provisioner := NewPostgresBoundaryProvisioner(writeDB, boundaryRegistry, dbDialect)
+	installBoundary := provisioner.InstallBoundary
+	if pgListener != nil {
+		installBoundary = func(installCtx context.Context, definition boundarymodel.Definition) error {
+			if err := provisioner.InstallBoundary(installCtx, definition); err != nil {
+				return err
+			}
+			if err := pgListener.EnsureBoundary(installCtx, definition.Name); err != nil {
+				return fmt.Errorf("register PostgreSQL notifications for boundary %s: %w", definition.Name, err)
+			}
+			return nil
+		}
+	}
 
 	return &DatabaseRuntime{
 		SaveEvents:        saveEvents,
@@ -977,5 +985,6 @@ func InitializePostgresDatabaseRuntime(
 		EventPublishing:   eventPublishing,
 		Listener:          pgListener,
 		ProvisionBoundary: provisioner.ProvisionBoundary,
+		InstallBoundary:   installBoundary,
 	}
 }

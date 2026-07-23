@@ -17,17 +17,19 @@ import (
 	"github.com/OrisunLabs/Orisun/orisun"
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"golang.org/x/sync/errgroup"
 )
 
 type Store struct {
 	*orisun.OrisunServer
 
-	indexManager   orisun.BoundaryIndexManager
-	adminBoundary  string
-	boundaryEvents *eventstoreadapter.Adapter
-	cancel         context.CancelFunc
-	natsRuntime    *natsruntime.Runtime
-	closeFDB       func(context.Context)
+	indexManager    orisun.BoundaryIndexManager
+	adminBoundary   string
+	boundaryEvents  *eventstoreadapter.Adapter
+	cancel          context.CancelFunc
+	boundaryWorkers *errgroup.Group
+	natsRuntime     *natsruntime.Runtime
+	closeFDB        func(context.Context)
 }
 
 type StartOption func(*startOptions)
@@ -92,7 +94,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		cancel()
 		natsRuntime.Close()
 		if runtime.Close != nil {
-			runtime.Close(context.Background())
+			runtime.Close(context.WithoutCancel(ctx))
 		}
 		return nil, err
 	}
@@ -100,7 +102,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		cancel()
 		natsRuntime.Close()
 		if runtime.Close != nil {
-			runtime.Close(context.Background())
+			runtime.Close(context.WithoutCancel(ctx))
 		}
 		return nil, err
 	}
@@ -111,16 +113,19 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		runtime.GetEvents, js, runtime.EventPublishing, runtime.SignalProvider, logger,
 	)
 	provisionBoundary := func(provisionCtx context.Context, definition boundarymodel.Definition) error {
-		if err := runtime.ProvisionBoundary(provisionCtx, definition); err != nil {
-			return err
-		}
-		if err := store.EnsureBoundary(provisionCtx, definition.Name); err != nil {
+		return runtime.ProvisionBoundary(provisionCtx, definition)
+	}
+	installBoundary := func(installCtx context.Context, definition boundarymodel.Definition) error {
+		if err := runtime.InstallBoundary(installCtx, definition); err != nil {
 			return err
 		}
 		return pollingManager.StartBoundary(definition.Name)
 	}
-	handler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
-		config.Admin.Boundary, boundaryEvents, boundaryEvents, provisionBoundary, store.ActivateBoundary,
+	provisioningHandler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
+		config.Admin.Boundary, boundaryEvents, boundaryEvents, provisionBoundary, store.EnsureBoundary,
+	)
+	runtimeHandler := boundaryprovisioning.NewBoundaryRuntimeEventHandler(
+		config.Admin.Boundary, boundaryEvents, installBoundary, store.ActivateBoundary,
 	)
 	reconciliation, err := importboundary.ReconcileLegacyBoundaries(
 		runCtx,
@@ -133,7 +138,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		cancel()
 		natsRuntime.Close()
 		if runtime.Close != nil {
-			runtime.Close(context.Background())
+			runtime.Close(context.WithoutCancel(ctx))
 		}
 		return nil, fmt.Errorf("migrate FoundationDB boundaries into catalog: %w", err)
 	}
@@ -141,31 +146,47 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		"Boundary catalog migration completed: imported=%d existing=%d",
 		len(reconciliation.Imported), len(reconciliation.Existing),
 	)
-	subscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
+	provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
 		config.Admin.Boundary,
 		boundaryEvents,
 		boundaryEvents.Subscribe,
-		handler.Handle,
+		provisioningHandler.Handle,
 		logger,
 	)
-	if err := subscriber.Replay(runCtx); err != nil {
+	runtimeSubscriber := boundaryprovisioning.NewBoundaryRuntimeSubscriber(
+		config.Admin.Boundary,
+		boundaryEvents,
+		boundaryEvents.Subscribe,
+		runtimeHandler.Handle,
+		logger,
+	)
+	if err := runtimeSubscriber.Replay(runCtx); err != nil {
 		cancel()
 		natsRuntime.Close()
 		if runtime.Close != nil {
-			runtime.Close(context.Background())
+			runtime.Close(context.WithoutCancel(ctx))
 		}
 		return nil, fmt.Errorf("replay boundary catalog into embedded FoundationDB runtime: %w", err)
 	}
-	go subscriber.Run(runCtx)
+	boundaryWorkers, boundaryCtx := errgroup.WithContext(runCtx)
+	boundaryWorkers.Go(func() error {
+		runtimeSubscriber.Run(boundaryCtx)
+		return nil
+	})
+	boundaryWorkers.Go(func() error {
+		provisioningSubscriber.RunExclusive(boundaryCtx)
+		return nil
+	})
 
 	return &Store{
-		OrisunServer:   store,
-		indexManager:   runtime.AdminDB,
-		adminBoundary:  config.Admin.Boundary,
-		boundaryEvents: boundaryEvents,
-		cancel:         cancel,
-		natsRuntime:    natsRuntime,
-		closeFDB:       runtime.Close,
+		OrisunServer:    store,
+		indexManager:    runtime.AdminDB,
+		adminBoundary:   config.Admin.Boundary,
+		boundaryEvents:  boundaryEvents,
+		cancel:          cancel,
+		boundaryWorkers: boundaryWorkers,
+		natsRuntime:     natsRuntime,
+		closeFDB:        runtime.Close,
 	}, nil
 }
 
@@ -239,6 +260,9 @@ func (s *Store) Close(ctx context.Context) {
 	}
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.boundaryWorkers != nil {
+		_ = s.boundaryWorkers.Wait()
 	}
 	if s.closeFDB != nil {
 		s.closeFDB(ctx)

@@ -20,7 +20,6 @@ import (
 	l "github.com/OrisunLabs/Orisun/logging"
 	nats2 "github.com/OrisunLabs/Orisun/nats"
 	"github.com/OrisunLabs/Orisun/orisun"
-	pb "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"github.com/goccy/go-json"
 	"github.com/nats-io/nats.go/jetstream"
@@ -74,87 +73,6 @@ func ensureJetStreamStreamIsProperlySetup(ctx context.Context, js jetstream.JetS
 	return natsStream, nil
 }
 
-// setupJetStreamConsumer sets up a JetStream consumer for the given stream and handles message consumption.
-// It creates or updates the consumer, sets up message handling with retry logic, and cleans up resources when done.
-func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamName string, consumerName string, subject string, handler *orisun.MessageHandler[common.PublishRequest], logger l.Logger) error {
-	jetStreamStream, err := ensureJetStreamStreamIsProperlySetup(ctx, js, streamName, logger)
-	if err != nil {
-		return err
-	}
-
-	consumer, err := jetStreamStream.CreateOrUpdateConsumer(
-		ctx,
-		jetstream.ConsumerConfig{
-			Name:          consumerName,
-			DeliverPolicy: jetstream.DeliverNewPolicy,
-			AckPolicy:     jetstream.AckNonePolicy,
-			MaxAckPending: 100,
-			FilterSubjects: []string{
-				streamName + "." + subject,
-			},
-		},
-	)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-	}
-
-	consumption, err := consumer.Consume(func(natsNsg jetstream.Msg) {
-		// Try to send the message to the handler
-		for {
-			if logger.IsDebugEnabled() {
-				logger.Debugf("Consuming message: %v", string(natsNsg.Data()))
-			}
-			if ctx.Err() != nil {
-				return
-			}
-			message := common.PublishRequest{}
-			json.Unmarshal(natsNsg.Data(), &message)
-			if logger.IsDebugEnabled() {
-				logger.Debugf("message: %v", message)
-			}
-			err = handler.Send(&message)
-
-			if err == nil {
-				// Message sent successfully, break the retry loop
-				natsNsg.Ack()
-				break
-			}
-
-			if ctx.Err() != nil {
-				// Context is done, exit handler
-				logger.Infof("Context done, stopping message handling: %v", ctx.Err())
-				return
-			}
-
-			// Log the error and retry
-			logger.Errorf("Error handling message: %v. Retrying...", err)
-			// Add a short delay before retrying
-			time.Sleep(time.Millisecond * 100)
-		}
-	})
-
-	if err != nil {
-		return err
-	}
-	go func() {
-		<-ctx.Done()
-		logger.Infof("Context done, stopping message consumption: %v", ctx.Err())
-		consumption.Stop()
-		js.DeleteConsumer(ctx, streamName, consumerName)
-	}()
-
-	return nil
-}
-
-// getUserByIdWrapper implements the up.GetUserById interface using adminDB.
-type getUserByIdWrapper struct {
-	adminDB common.DB
-}
-
-func (w getUserByIdWrapper) Get(userId string) (orisun.User, error) {
-	return w.adminDB.GetUserById(userId)
-}
-
 type Backend struct {
 	SaveEvents        orisun.EventsSaver
 	GetEvents         orisun.EventsRetriever
@@ -163,6 +81,7 @@ type Backend struct {
 	EventPublishing   orisun.EventPublishingTracker
 	SignalProvider    func(string) orisun.EventSignal
 	ProvisionBoundary boundaryprovisioning.ProvisionBoundary
+	InstallBoundary   boundaryprovisioning.InstallBoundary
 	InitialBoundaries []string
 	LegacyBoundaries  []boundarymodel.Definition
 	Start             func(context.Context)
@@ -210,14 +129,18 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		AppLogger.Fatalf("Failed to initialize backend: %v", err)
 	}
 	if backend.Close != nil {
-		defer backend.Close(context.Background())
+		defer func() {
+			closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer closeCancel()
+			backend.Close(closeCtx)
+		}()
 	}
 	if backend.Start != nil {
 		backend.Start(ctx)
 	}
 
 	// Initialize EventStore
-	eventStore := pb.InitializeEventStore(
+	eventStore := orisun.InitializeEventStore(
 		ctx,
 		config,
 		backend.InitialBoundaries,
@@ -238,7 +161,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 			return orisun.NewPollingSignal(1 * time.Second)
 		}
 	}
-	pollingManager := pb.StartEventPolling(ctx, config, backend.InitialBoundaries, backend.LockProvider, backend.GetEvents, js, backend.EventPublishing, signalProvider, AppLogger)
+	pollingManager := orisun.StartEventPolling(ctx, config, backend.InitialBoundaries, backend.LockProvider, backend.GetEvents, js, backend.EventPublishing, signalProvider, AppLogger)
 	provisionedBoundaries := make(map[string]struct{}, len(backend.InitialBoundaries))
 	for _, boundary := range backend.InitialBoundaries {
 		provisionedBoundaries[boundary] = struct{}{}
@@ -246,17 +169,17 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	var provisionedBoundariesMu sync.Mutex
 	var eventCountProjectors *eventCountProjectionManager
 
-	if backend.ProvisionBoundary != nil {
+	if backend.ProvisionBoundary != nil && backend.InstallBoundary != nil {
 		boundaryEvents := eventstoreadapter.New(
 			backend.SaveEvents,
 			backend.GetEvents,
 			eventStore.SubscribeToAllEvents,
 		)
-		provisionBoundary := func(provisionCtx context.Context, definition boundarymodel.Definition) error {
-			if err := backend.ProvisionBoundary(provisionCtx, definition); err != nil {
-				return err
-			}
-			if err := eventStore.EnsureBoundary(provisionCtx, definition.Name); err != nil {
+		provisionPhysicalBoundary := func(provisionCtx context.Context, definition boundarymodel.Definition) error {
+			return backend.ProvisionBoundary(provisionCtx, definition)
+		}
+		installBoundary := func(installCtx context.Context, definition boundarymodel.Definition) error {
+			if err := backend.InstallBoundary(installCtx, definition); err != nil {
 				return err
 			}
 			if err := pollingManager.StartBoundary(definition.Name); err != nil {
@@ -271,24 +194,37 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 			}
 			return nil
 		}
-		handler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
+		provisioningHandler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
 			config.Admin.Boundary,
 			boundaryEvents,
 			boundaryEvents,
-			provisionBoundary,
+			provisionPhysicalBoundary,
+			eventStore.EnsureBoundary,
+		)
+		runtimeHandler := boundaryprovisioning.NewBoundaryRuntimeEventHandler(
+			config.Admin.Boundary,
+			boundaryEvents,
+			installBoundary,
 			func(_ context.Context, boundary string) error {
 				return eventStore.ActivateBoundary(boundary)
 			},
 		)
-		subscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
+		provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
 			config.Admin.Boundary,
 			boundaryEvents,
 			boundaryEvents.Subscribe,
-			handler.Handle,
+			provisioningHandler.Handle,
 			AppLogger,
 		)
-		// Legacy imports run first so the synchronous replay below installs both
-		// cataloged and freshly migrated boundaries before gRPC starts.
+		runtimeSubscriber := boundaryprovisioning.NewBoundaryRuntimeSubscriber(
+			config.Admin.Boundary,
+			boundaryEvents,
+			boundaryEvents.Subscribe,
+			runtimeHandler.Handle,
+			AppLogger,
+		)
+		// Legacy imports run first so the elected controller observes them and
+		// existing activation events can be replayed into this local runtime.
 		if len(backend.LegacyBoundaries) > 0 {
 			result, reconcileErr := importboundary.ReconcileLegacyBoundaries(
 				ctx,
@@ -306,12 +242,26 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 				len(result.Existing),
 			)
 		}
-		if err := subscriber.Replay(ctx); err != nil {
+		if err := runtimeSubscriber.Replay(ctx); err != nil {
 			AppLogger.Fatalf("Failed to replay boundary catalog into this runtime: %v", err)
 		}
-		go subscriber.Run(ctx)
-	} else if len(backend.LegacyBoundaries) > 0 {
-		AppLogger.Fatalf("Backend has legacy boundaries but no boundary provisioner")
+		boundaryWorkers, boundaryCtx := errgroup.WithContext(ctx)
+		boundaryWorkers.Go(func() error {
+			runtimeSubscriber.Run(boundaryCtx)
+			return nil
+		})
+		boundaryWorkers.Go(func() error {
+			provisioningSubscriber.RunExclusive(boundaryCtx)
+			return nil
+		})
+		defer func() {
+			cancel()
+			if err := boundaryWorkers.Wait(); err != nil {
+				AppLogger.Errorf("Boundary workers stopped: %v", err)
+			}
+		}()
+	} else if backend.ProvisionBoundary != nil || backend.InstallBoundary != nil || len(backend.LegacyBoundaries) > 0 {
+		AppLogger.Fatalf("Backend boundary provisioning requires both physical provisioner and local installer")
 	}
 
 	// Start projectors
@@ -434,6 +384,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 
 	// Start gRPC server
 	startGRPCServer(
+		ctx,
 		config,
 		eventStore,
 		authenticator,
@@ -444,7 +395,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	)
 }
 
-func createDefaultUser(ctx context.Context, adminBoundary string, eventstore *pb.EventStore, logger l.Logger) error {
+func createDefaultUser(ctx context.Context, adminBoundary string, eventstore *orisun.EventStore, logger l.Logger) error {
 	var userExistsError create_user.UserExistsError
 	if _, err := create_user.CreateUser(
 		ctx,
@@ -783,8 +734,9 @@ func LoadTLSCredentials(config c.AppConfig, logger l.Logger) (credentials.Transp
 }
 
 func startGRPCServer(
+	ctx context.Context,
 	config c.AppConfig,
-	eventStore *pb.EventStore,
+	eventStore *orisun.EventStore,
 	authenticator *admin.Authenticator,
 	adminDB common.DB,
 	boundarySaver orisun.EventsSaver,
@@ -799,13 +751,15 @@ func startGRPCServer(
 			serviceName = "orisun"
 		}
 		var err error
-		otelShutdown, err = admin.InitTracer(serviceName, config.OpenTelemetry.Endpoint, logger)
+		otelShutdown, err = admin.InitTracerWithContext(ctx, serviceName, config.OpenTelemetry.Endpoint, logger)
 		if err != nil {
 			logger.Errorf("Failed to initialize OpenTelemetry: %v", err)
 		}
 		if otelShutdown != nil {
 			defer func() {
-				if err := otelShutdown(context.Background()); err != nil {
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer shutdownCancel()
+				if err := otelShutdown(shutdownCtx); err != nil {
 					logger.Errorf("Failed to shutdown OpenTelemetry: %v", err)
 				}
 			}()
@@ -863,15 +817,19 @@ func startGRPCServer(
 	grpcapi.RegisterEventStoreServer(grpcServer, grpcapi.AdaptEventStore(eventStore))
 
 	// Register Admin service
-	grpcAdminServer := grpcapi.NewGRPCAdminServerWithBoundaryCommands(
+	grpcAdminServer := admin.NewGRPCAdminServerWithDependencies(
 		logger,
 		config.Admin.Boundary,
-		eventStore.GetEvents,
-		eventStore.SaveEvents,
-		adminDB.ListAdminUsers,
-		authenticator,
-		boundarySaver,
-		boundaryReader,
+		admin.GRPCAdminDependencies{
+			GetEvents:            eventStore.GetEvents,
+			SaveEvents:           eventStore.SaveEvents,
+			ListAdminUsers:       adminDB.ListAdminUsers,
+			GetUserCount:         adminDB.GetUsersCount,
+			GetEventCount:        adminDB.GetEventsCount,
+			CredentialsValidator: authenticator,
+			BoundarySaver:        boundarySaver,
+			BoundaryReader:       boundaryReader,
+		},
 	)
 	grpcapi.RegisterAdminServer(grpcServer, grpcAdminServer)
 

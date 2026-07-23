@@ -49,10 +49,17 @@ func TestEmbeddedSQLiteCreatesBoundaryThroughCatalog(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	_, err = store.SaveEvents(ctx, []orisun.EventWithMapTags{{
+	events := []orisun.EventWithMapTags{{
 		EventId: uuid.NewString(), EventType: "SaleOpened", Data: map[string]any{"sale_id": "1"},
-	}}, "sales", nil, nil)
-	if err != nil {
-		t.Fatalf("SaveEvents() error = %v", err)
+	}}
+	for {
+		_, err = store.SaveEvents(ctx, events, "sales", nil, nil)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("local boundary runtime did not activate: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

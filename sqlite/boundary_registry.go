@@ -42,17 +42,6 @@ func (r *BoundaryRegistry) metadataPool(boundary string) (*BoundaryPools, bool) 
 	return pool, ok
 }
 
-func (r *BoundaryRegistry) register(boundary string, eventPool, metadataPool *BoundaryPools) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.pools[boundary]; exists {
-		return false
-	}
-	r.pools[boundary] = eventPool
-	r.metadataPools[boundary] = metadataPool
-	return true
-}
-
 func (r *BoundaryRegistry) snapshots() (map[string]*BoundaryPools, map[string]*BoundaryPools) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

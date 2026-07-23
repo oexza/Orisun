@@ -36,13 +36,14 @@ func TestSqliteBoundaryProvisionerMakesBoundaryAvailableToRuntime(t *testing.T) 
 		Name:      "sales",
 		Placement: orisun.BoundaryPlacement{Backend: "sqlite", Namespace: "sales"},
 	}
+	require.NoError(t, runtime.ProvisionBoundary(ctx, definition))
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
 	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- runtime.ProvisionBoundary(ctx, definition)
+			errs <- runtime.InstallBoundary(ctx, definition)
 		}()
 	}
 	wg.Wait()

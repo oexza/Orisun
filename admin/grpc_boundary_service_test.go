@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	adminevents "github.com/OrisunLabs/Orisun/admin/events"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
+	boundaryevents "github.com/OrisunLabs/Orisun/boundary/events"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"github.com/goccy/go-json"
@@ -99,14 +101,14 @@ func TestCreateBoundaryRPCRequiresPlacement(t *testing.T) {
 }
 
 func TestAdminBoundaryCatalogRPCs(t *testing.T) {
-	created, err := json.Marshal(adminevents.BoundaryCreated{
+	created, err := json.Marshal(boundaryevents.BoundaryCreated{
 		Boundary:  "sales",
-		Placement: orisun.BoundaryPlacement{Backend: "postgres", Namespace: "tenant_data"},
+		Placement: boundarymodel.Placement{Backend: "postgres", Namespace: "tenant_data"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	activated, err := json.Marshal(adminevents.BoundaryActivated{Boundary: "sales"})
+	activated, err := json.Marshal(boundaryevents.BoundaryActivated{Boundary: "sales"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OrisunLabs/Orisun/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/OrisunLabs/Orisun/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -177,6 +177,8 @@ func TestPGNotifyListener_Integration(t *testing.T) {
 	}
 	listener, err := NewPGNotifyListener(ctx, connStr, mapping, testLogger{})
 	require.NoError(t, err)
+	var listenerBackendPID int
+	require.NoError(t, listener.conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&listenerBackendPID))
 	// Close waits for Start to stop, so the context must be cancelled first.
 	defer func() {
 		cancel()
@@ -214,4 +216,44 @@ func TestPGNotifyListener_Integration(t *testing.T) {
 	b2Ctx, b2Cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer b2Cancel()
 	assert.ErrorIs(t, sigB2.Wait(b2Ctx), context.DeadlineExceeded, "b2 must stay asleep without a NOTIFY")
+
+	// Register a boundary after Start is already blocked in
+	// WaitForNotification. EnsureBoundary must wake that wait, execute LISTEN on
+	// the listener-owned connection, coalesce concurrent registration, and
+	// install routing before returning.
+	registrationErrors := make(chan error, 8)
+	for range 8 {
+		go func() {
+			registrationErrors <- listener.EnsureBoundary(ctx, "dynamic")
+		}()
+	}
+	for range 8 {
+		require.NoError(t, <-registrationErrors, "dynamic registration must be idempotent")
+	}
+	sigDynamic := listener.Signal("dynamic", time.Hour)
+	defer sigDynamic.Stop()
+
+	_, err = notifier.Exec(ctx, "SELECT pg_notify('orisun_events_' || md5($1), '8')", "dynamic")
+	require.NoError(t, err)
+
+	dynamicCtx, dynamicCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer dynamicCancel()
+	require.NoError(t, sigDynamic.Wait(dynamicCtx), "dynamic boundary must wake on its NOTIFY")
+
+	// Force the listener connection to reconnect. Dynamic registrations must be
+	// included in the re-LISTEN set, not just startup mappings.
+	var terminated bool
+	require.NoError(t, notifier.QueryRow(ctx, "SELECT pg_terminate_backend($1)", listenerBackendPID).Scan(&terminated))
+	require.True(t, terminated)
+	require.Eventually(t, func() bool {
+		if _, notifyErr := notifier.Exec(ctx, "SELECT pg_notify('orisun_events_' || md5($1), '9')", "dynamic"); notifyErr != nil {
+			return false
+		}
+		select {
+		case <-listener.signals["dynamic"]:
+			return true
+		case <-time.After(200 * time.Millisecond):
+			return false
+		}
+	}, 10*time.Second, 250*time.Millisecond, "dynamic boundary must be re-LISTENed after reconnect")
 }

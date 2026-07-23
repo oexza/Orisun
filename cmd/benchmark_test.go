@@ -475,13 +475,13 @@ func generateRandomEvent(eventType string) *grpcapi.EventToSave {
 			"success": true,
 			"tags": ["benchmark", "test", "performance"]
 		}`, timestamp, uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()),
-		Metadata: fmt.Sprintf(`{
+		Metadata: `{
 			"source": "benchmark",
 			"hostname": "test-server",
 			"pid": 12345,
 			"thread_id": "thread-1",
 			"app_version": "2.1.0"
-		}`),
+		}`,
 	}
 }
 
@@ -1074,11 +1074,4 @@ func BenchmarkSaveEvents_DirectDatabase10KBatch(b *testing.B) {
 		b.Logf("Batch save: %d events in %v (%.1f events/sec)",
 			totalEvents, duration, eventsPerSecond)
 	}
-}
-
-// Helper function to check if error is optimistic concurrency conflict
-func isOptimisticConcurrencyError(err error) bool {
-	return err != nil && (
-	// Check for common optimistic concurrency error patterns
-	fmt.Sprintf("%v", err) == "OptimisticConcurrencyException:StreamVersionConflict")
 }

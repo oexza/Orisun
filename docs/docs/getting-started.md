@@ -359,7 +359,9 @@ grpcurl -H "$AUTH" \
 ```
 
 `CreateBoundary` returns `PROVISIONING`. Wait until `GetBoundary` reports
-`BOUNDARY_LIFECYCLE_STATUS_ACTIVE` before sending the first write:
+`BOUNDARY_LIFECYCLE_STATUS_ACTIVE` before sending the first write. If a
+clustered node briefly returns `FAILED_PRECONDITION`, retry while its local
+runtime installation converges:
 
 ```bash
 grpcurl -H "$AUTH" \

@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEventHandlerProvisionsAndActivatesBoundary(t *testing.T) {
+func TestEventHandlerProvisionsAndRecordsActivation(t *testing.T) {
 	definition := createdBoundaryEvent(t, "orders", 10, 2)
 	retriever := &scriptedBoundaryRetriever{batches: []coreeventstore.LatestByCriteriaResult{
 		lifecycleBatch(definition),
 	}}
 	saver := &scriptedOutcomeSaver{}
 	provisioner := &captureProvisioner{}
-	activated := &captureActivator{}
-	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, activated.ActivateBoundary)
+	global := &captureActivator{}
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, global.ActivateBoundary)
 
 	err := handler.Handle(context.Background(), definition)
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestEventHandlerProvisionsAndActivatesBoundary(t *testing.T) {
 	require.Equal(t, adminevents.EventTypeBoundaryActivated, saver.calls[0].events[0].EventType)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 10, PreparePosition: 2}, saver.calls[0].expectedPosition)
 	require.Equal(t, subsetQuery(lifecycleCriteria("orders")), saver.calls[0].query)
-	require.Equal(t, []string{"orders"}, activated.boundaries)
+	require.Equal(t, []string{"orders"}, global.boundaries)
 }
 
 func TestEventHandlerRecordsProvisioningFailure(t *testing.T) {
@@ -45,8 +45,7 @@ func TestEventHandlerRecordsProvisioningFailure(t *testing.T) {
 	saver := &scriptedOutcomeSaver{}
 	provisionErr := errors.New("create schema: permission denied")
 	provisioner := &captureProvisioner{err: provisionErr}
-	activated := &captureActivator{}
-	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, activated.ActivateBoundary)
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, (&captureActivator{}).ActivateBoundary)
 
 	err := handler.Handle(context.Background(), definition)
 	require.ErrorIs(t, err, provisionErr)
@@ -57,10 +56,9 @@ func TestEventHandlerRecordsProvisioningFailure(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(saver.calls[0].events[0].Data), &data))
 	require.Equal(t, "orders", data.Boundary)
 	require.Equal(t, provisionErr.Error(), data.Error)
-	require.Empty(t, activated.boundaries)
 }
 
-func TestEventHandlerDoesNotExposeBoundaryBeforeActivationIsDurable(t *testing.T) {
+func TestEventHandlerReturnsActivationAppendFailure(t *testing.T) {
 	definition := createdBoundaryEvent(t, "orders", 10, 2)
 	retriever := &scriptedBoundaryRetriever{batches: []coreeventstore.LatestByCriteriaResult{
 		lifecycleBatch(definition),
@@ -68,21 +66,19 @@ func TestEventHandlerDoesNotExposeBoundaryBeforeActivationIsDurable(t *testing.T
 	appendErr := errors.New("activation append unavailable")
 	saver := &scriptedOutcomeSaver{errors: []error{appendErr}}
 	provisioner := &captureProvisioner{}
-	activated := &captureActivator{}
 	handler := NewBoundaryProvisioningEventHandler(
 		"orisun_admin",
 		saver,
 		retriever,
 		provisioner.EnsureBoundary,
-		activated.ActivateBoundary,
+		(&captureActivator{}).ActivateBoundary,
 	)
 
 	err := handler.Handle(context.Background(), definition)
 	require.ErrorIs(t, err, appendErr)
-	require.Empty(t, activated.boundaries)
 }
 
-func TestEventHandlerRehydratesAlreadyActiveBoundaryIntoLocalRuntime(t *testing.T) {
+func TestEventHandlerDoesNotReprovisionAlreadyActiveBoundary(t *testing.T) {
 	definition := createdBoundaryEvent(t, "orders", 10, 2)
 	active := lifecycleEventRead(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
 		Boundary: "orders",
@@ -92,14 +88,14 @@ func TestEventHandlerRehydratesAlreadyActiveBoundaryIntoLocalRuntime(t *testing.
 	}}
 	saver := &scriptedOutcomeSaver{}
 	provisioner := &captureProvisioner{}
-	activated := &captureActivator{}
-	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, activated.ActivateBoundary)
+	global := &captureActivator{}
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, global.ActivateBoundary)
 
 	err := handler.Handle(context.Background(), definition)
 	require.NoError(t, err)
-	require.Len(t, provisioner.definitions, 1)
+	require.Empty(t, provisioner.definitions)
 	require.Empty(t, saver.calls)
-	require.Equal(t, []string{"orders"}, activated.boundaries)
+	require.Equal(t, []string{"orders"}, global.boundaries)
 }
 
 func TestEventHandlerPromotesFailedBoundaryAfterSuccessfulRetry(t *testing.T) {
@@ -113,15 +109,13 @@ func TestEventHandlerPromotesFailedBoundaryAfterSuccessfulRetry(t *testing.T) {
 	}}
 	saver := &scriptedOutcomeSaver{}
 	provisioner := &captureProvisioner{}
-	activated := &captureActivator{}
-	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, activated.ActivateBoundary)
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, (&captureActivator{}).ActivateBoundary)
 
 	err := handler.Handle(context.Background(), definition)
 	require.NoError(t, err)
 	require.Len(t, saver.calls, 1)
 	require.Equal(t, adminevents.EventTypeBoundaryActivated, saver.calls[0].events[0].EventType)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 12, PreparePosition: 4}, saver.calls[0].expectedPosition)
-	require.Equal(t, []string{"orders"}, activated.boundaries)
 }
 
 func TestEventHandlerReevaluatesAfterConcurrentOutcome(t *testing.T) {
@@ -139,15 +133,13 @@ func TestEventHandlerReevaluatesAfterConcurrentOutcome(t *testing.T) {
 		nil,
 	}}
 	provisioner := &captureProvisioner{}
-	activated := &captureActivator{}
-	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, activated.ActivateBoundary)
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, (&captureActivator{}).ActivateBoundary)
 
 	err := handler.Handle(context.Background(), definition)
 	require.NoError(t, err)
 	require.Len(t, saver.calls, 2)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 10, PreparePosition: 2}, saver.calls[0].expectedPosition)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 11, PreparePosition: 3}, saver.calls[1].expectedPosition)
-	require.Equal(t, []string{"orders"}, activated.boundaries)
 }
 
 type captureProvisioner struct {

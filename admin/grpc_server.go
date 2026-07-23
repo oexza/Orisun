@@ -1,4 +1,4 @@
-package grpcapi
+package admin
 
 import (
 	"context"
@@ -17,30 +17,32 @@ import (
 	"github.com/OrisunLabs/Orisun/internal/grpcstatus"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var (
-	ErrUserNotFound       = errors.New("user not found")
-	ErrUserAlreadyExists  = errors.New("username already exists")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrPasswordMismatch   = errors.New("passwords do not match")
-	ErrCannotDeleteSelf   = errors.New("cannot delete your own account")
+	ErrUserNotFound     = errors.New("user not found")
+	ErrCannotDeleteSelf = errors.New("cannot delete your own account")
 )
 
 // AdminServiceServer implements the Admin gRPC service
 type AdminServiceServer struct {
-	UnimplementedAdminServer
+	grpcapi.UnimplementedAdminServer
 	logger         l.Logger
 	boundary       string
 	getEvents      GetEventsFunc
 	saveEvents     SaveEventsFunc
 	listAdminUser  ListAdminUsersFunc
+	getUserCount   GetUserCountFunc
+	getEventCount  GetEventCountFunc
 	authenticator  CredentialsValidator
 	boundaryEvents *eventstoreadapter.Adapter
 }
+
+var _ grpcapi.AdminServer = (*AdminServiceServer)(nil)
 
 // GetEventsFunc is the function signature for getting events
 type GetEventsFunc func(ctx context.Context, req *orisun.GetEventsRequest) (*orisun.GetEventsResponse, error)
@@ -51,8 +53,23 @@ type SaveEventsFunc func(ctx context.Context, req *orisun.SaveEventsRequest) (*o
 // ListAdminUsersFunc is the function signature for listing admin users
 type ListAdminUsersFunc func() ([]*orisun.User, error)
 
+type GetUserCountFunc func() (uint32, error)
+
+type GetEventCountFunc func(boundary string) (int, error)
+
 type CredentialsValidator interface {
 	ValidateCredentials(context.Context, string, string) (orisun.User, string, error)
+}
+
+type GRPCAdminDependencies struct {
+	GetEvents            GetEventsFunc
+	SaveEvents           SaveEventsFunc
+	ListAdminUsers       ListAdminUsersFunc
+	GetUserCount         GetUserCountFunc
+	GetEventCount        GetEventCountFunc
+	CredentialsValidator CredentialsValidator
+	BoundarySaver        orisun.EventsSaver
+	BoundaryReader       orisun.EventsRetriever
 }
 
 // NewGRPCAdminServer creates a new AdminServiceServer
@@ -64,16 +81,12 @@ func NewGRPCAdminServer(
 	listAdminUsers ListAdminUsersFunc,
 	authenticator CredentialsValidator,
 ) *AdminServiceServer {
-	return NewGRPCAdminServerWithBoundaryCommands(
-		logger,
-		boundary,
-		getEvents,
-		saveEvents,
-		listAdminUsers,
-		authenticator,
-		nil,
-		nil,
-	)
+	return NewGRPCAdminServerWithDependencies(logger, boundary, GRPCAdminDependencies{
+		GetEvents:            getEvents,
+		SaveEvents:           saveEvents,
+		ListAdminUsers:       listAdminUsers,
+		CredentialsValidator: authenticator,
+	})
 }
 
 func NewGRPCAdminServerWithBoundaryCommands(
@@ -86,20 +99,37 @@ func NewGRPCAdminServerWithBoundaryCommands(
 	boundarySaver orisun.EventsSaver,
 	boundaryReader orisun.EventsRetriever,
 ) *AdminServiceServer {
+	return NewGRPCAdminServerWithDependencies(logger, boundary, GRPCAdminDependencies{
+		GetEvents:            getEvents,
+		SaveEvents:           saveEvents,
+		ListAdminUsers:       listAdminUsers,
+		CredentialsValidator: authenticator,
+		BoundarySaver:        boundarySaver,
+		BoundaryReader:       boundaryReader,
+	})
+}
+
+func NewGRPCAdminServerWithDependencies(
+	logger l.Logger,
+	boundary string,
+	dependencies GRPCAdminDependencies,
+) *AdminServiceServer {
 	return &AdminServiceServer{
 		logger:         logger,
 		boundary:       boundary,
-		getEvents:      getEvents,
-		saveEvents:     saveEvents,
-		listAdminUser:  listAdminUsers,
-		authenticator:  authenticator,
-		boundaryEvents: eventstoreadapter.New(boundarySaver, boundaryReader, nil),
+		getEvents:      dependencies.GetEvents,
+		saveEvents:     dependencies.SaveEvents,
+		listAdminUser:  dependencies.ListAdminUsers,
+		getUserCount:   dependencies.GetUserCount,
+		getEventCount:  dependencies.GetEventCount,
+		authenticator:  dependencies.CredentialsValidator,
+		boundaryEvents: eventstoreadapter.New(dependencies.BoundarySaver, dependencies.BoundaryReader, nil),
 	}
 }
 
 // CreateBoundary emits the definition event. Physical provisioning is handled
 // asynchronously by the boundary_provisioning slice subscriber.
-func (s *AdminServiceServer) CreateBoundary(ctx context.Context, req *CreateBoundaryRequest) (*CreateBoundaryResponse, error) {
+func (s *AdminServiceServer) CreateBoundary(ctx context.Context, req *grpcapi.CreateBoundaryRequest) (*grpcapi.CreateBoundaryResponse, error) {
 	if req == nil || req.Placement == nil {
 		return nil, status.Error(codes.InvalidArgument, "boundary placement is required")
 	}
@@ -121,12 +151,12 @@ func (s *AdminServiceServer) CreateBoundary(ctx context.Context, req *CreateBoun
 	if err != nil {
 		return nil, grpcstatus.FromError(err)
 	}
-	return &CreateBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
+	return &grpcapi.CreateBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
 }
 
 // ImportBoundary emits an import definition event for an existing physical
 // boundary. The provisioning adapter applies migrations idempotently.
-func (s *AdminServiceServer) ImportBoundary(ctx context.Context, req *ImportBoundaryRequest) (*ImportBoundaryResponse, error) {
+func (s *AdminServiceServer) ImportBoundary(ctx context.Context, req *grpcapi.ImportBoundaryRequest) (*grpcapi.ImportBoundaryResponse, error) {
 	if req == nil || req.Placement == nil {
 		return nil, status.Error(codes.InvalidArgument, "boundary placement is required")
 	}
@@ -148,10 +178,10 @@ func (s *AdminServiceServer) ImportBoundary(ctx context.Context, req *ImportBoun
 	if err != nil {
 		return nil, grpcstatus.FromError(err)
 	}
-	return &ImportBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
+	return &grpcapi.ImportBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
 }
 
-func (s *AdminServiceServer) ListBoundaries(ctx context.Context, _ *ListBoundariesRequest) (*ListBoundariesResponse, error) {
+func (s *AdminServiceServer) ListBoundaries(ctx context.Context, _ *grpcapi.ListBoundariesRequest) (*grpcapi.ListBoundariesResponse, error) {
 	boundaries, err := boundarycatalog.ListBoundariesQueryHandler(
 		ctx,
 		boundarycatalog.ListBoundariesQuery{},
@@ -161,14 +191,14 @@ func (s *AdminServiceServer) ListBoundaries(ctx context.Context, _ *ListBoundari
 	if err != nil {
 		return nil, grpcstatus.FromError(err)
 	}
-	response := &ListBoundariesResponse{Boundaries: make([]*BoundaryInfo, len(boundaries))}
+	response := &grpcapi.ListBoundariesResponse{Boundaries: make([]*grpcapi.BoundaryInfo, len(boundaries))}
 	for i, boundary := range boundaries {
 		response.Boundaries[i] = boundaryInfo(boundary)
 	}
 	return response, nil
 }
 
-func (s *AdminServiceServer) GetBoundary(ctx context.Context, req *GetBoundaryRequest) (*GetBoundaryResponse, error) {
+func (s *AdminServiceServer) GetBoundary(ctx context.Context, req *grpcapi.GetBoundaryRequest) (*grpcapi.GetBoundaryResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "boundary name is required")
 	}
@@ -181,11 +211,11 @@ func (s *AdminServiceServer) GetBoundary(ctx context.Context, req *GetBoundaryRe
 	if err != nil {
 		return nil, grpcstatus.FromError(err)
 	}
-	return &GetBoundaryResponse{Boundary: boundaryInfo(boundary)}, nil
+	return &grpcapi.GetBoundaryResponse{Boundary: boundaryInfo(boundary)}, nil
 }
 
 // CreateUser creates a new user with the given details
-func (s *AdminServiceServer) CreateUser(ctx context.Context, req *CreateUserRequest) (*CreateUserResponse, error) {
+func (s *AdminServiceServer) CreateUser(ctx context.Context, req *grpcapi.CreateUserRequest) (*grpcapi.CreateUserResponse, error) {
 	// Validate request
 	if err := s.validateCreateUserRequest(req); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
@@ -204,23 +234,29 @@ func (s *AdminServiceServer) CreateUser(ctx context.Context, req *CreateUserRequ
 	}
 
 	s.logger.Infof("Created user: %s (ID: %s)", user.Username, user.Id)
-	return &CreateUserResponse{User: convertToProtoUser(user)}, nil
+	return &grpcapi.CreateUserResponse{User: convertToProtoUser(user)}, nil
 }
 
 // DeleteUser deletes a user by ID
-func (s *AdminServiceServer) DeleteUser(ctx context.Context, req *DeleteUserRequest) (*DeleteUserResponse, error) {
+func (s *AdminServiceServer) DeleteUser(ctx context.Context, req *grpcapi.DeleteUserRequest) (*grpcapi.DeleteUserResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
 	if req.UserId == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "user_id is required")
 	}
 
 	// Get current user from context (set by auth interceptor)
-	currentUserId := getCurrentUserIdFromContext(ctx)
+	currentUserId, err := getCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if currentUserId == req.UserId {
 		return nil, status.Errorf(codes.FailedPrecondition, "%s", ErrCannotDeleteSelf)
 	}
 
 	// Check if user exists
-	user, err := s.getUserById(ctx, req.UserId)
+	user, err := s.getUserByID(req.UserId)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, status.Errorf(codes.NotFound, "user not found")
@@ -234,16 +270,19 @@ func (s *AdminServiceServer) DeleteUser(ctx context.Context, req *DeleteUserRequ
 	}
 
 	// Delete the user
-	if err := s.deleteUser(ctx, user, req.UserId); err != nil {
+	if err := s.deleteUser(ctx, req.UserId, currentUserId); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete user: %v", err)
 	}
 
 	s.logger.Infof("Deleted user: %s (ID: %s)", user.Username, req.UserId)
-	return &DeleteUserResponse{Success: true}, nil
+	return &grpcapi.DeleteUserResponse{Success: true}, nil
 }
 
 // ChangePassword changes a user's password
-func (s *AdminServiceServer) ChangePassword(ctx context.Context, req *ChangePasswordRequest) (*ChangePasswordResponse, error) {
+func (s *AdminServiceServer) ChangePassword(ctx context.Context, req *grpcapi.ChangePasswordRequest) (*grpcapi.ChangePasswordResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
 	if req.UserId == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "user_id is required")
 	}
@@ -255,32 +294,38 @@ func (s *AdminServiceServer) ChangePassword(ctx context.Context, req *ChangePass
 	}
 
 	// Get current user from context
-	currentUserId := getCurrentUserIdFromContext(ctx)
+	currentUserId, err := getCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if currentUserId != req.UserId {
 		return nil, status.Errorf(codes.PermissionDenied, "can only change your own password")
 	}
 
 	// Change password using existing logic
 	if err := s.changeUserPassword(ctx, req); err != nil {
-		if errors.Is(err, ErrInvalidCredentials) {
+		if errors.Is(err, changepassword.ErrInvalidCurrentPassword) {
 			return nil, status.Errorf(codes.Unauthenticated, "%s", err)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to change password: %v", err)
 	}
 
 	s.logger.Infof("Changed password for user: %s", req.UserId)
-	return &ChangePasswordResponse{Success: true}, nil
+	return &grpcapi.ChangePasswordResponse{Success: true}, nil
 }
 
 // ListUsers returns all users
-func (s *AdminServiceServer) ListUsers(ctx context.Context, req *ListUsersRequest) (*ListUsersResponse, error) {
+func (s *AdminServiceServer) ListUsers(ctx context.Context, _ *grpcapi.ListUsersRequest) (*grpcapi.ListUsersResponse, error) {
+	if s.listAdminUser == nil {
+		return nil, status.Error(codes.Internal, "admin user store is not configured")
+	}
 	users, err := s.listAdminUser()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list users: %v", err)
 	}
 
 	// Convert to proto AdminUser format
-	protoUsers := make([]*AdminUser, 0, len(users))
+	protoUsers := make([]*grpcapi.AdminUser, 0, len(users))
 	for _, user := range users {
 		// Skip deleted users
 		if isUserDeleted(ctx, s.getEvents, s.boundary, user.Id) {
@@ -289,71 +334,81 @@ func (s *AdminServiceServer) ListUsers(ctx context.Context, req *ListUsersReques
 		protoUsers = append(protoUsers, convertToProtoUser(user))
 	}
 
-	return &ListUsersResponse{Users: protoUsers}, nil
+	return &grpcapi.ListUsersResponse{Users: protoUsers}, nil
 }
 
 // ValidateCredentials validates username and password
-func (s *AdminServiceServer) ValidateCredentials(ctx context.Context, req *ValidateCredentialsRequest) (*ValidateCredentialsResponse, error) {
+func (s *AdminServiceServer) ValidateCredentials(ctx context.Context, req *grpcapi.ValidateCredentialsRequest) (*grpcapi.ValidateCredentialsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
 	if req.Username == "" || req.Password == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "username and password are required")
+	}
+	if s.authenticator == nil {
+		return nil, status.Error(codes.Internal, "credentials validator is not configured")
 	}
 
 	// Use the Authenticator to validate credentials
 	user, _, err := s.authenticator.ValidateCredentials(ctx, req.Username, req.Password)
 	if err != nil {
 		// Return success: false instead of an error for invalid credentials
-		return &ValidateCredentialsResponse{Success: false}, nil
+		return &grpcapi.ValidateCredentialsResponse{Success: false}, nil
 	}
 
 	// Convert to proto user
 	protoUser := convertToProtoUser(&user)
 
-	return &ValidateCredentialsResponse{
+	return &grpcapi.ValidateCredentialsResponse{
 		Success: true,
 		User:    protoUser,
 	}, nil
 }
 
 // GetUserCount returns the total number of users
-func (s *AdminServiceServer) GetUserCount(ctx context.Context, req *GetUserCountRequest) (*GetUserCountResponse, error) {
+func (s *AdminServiceServer) GetUserCount(ctx context.Context, _ *grpcapi.GetUserCountRequest) (*grpcapi.GetUserCountResponse, error) {
+	if s.getUserCount != nil {
+		count, err := s.getUserCount()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to count users: %v", err)
+		}
+		return &grpcapi.GetUserCountResponse{Count: int64(count)}, nil
+	}
+	if s.listAdminUser == nil {
+		return nil, status.Error(codes.Internal, "admin user store is not configured")
+	}
 	users, err := s.listAdminUser()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to count users: %v", err)
 	}
 
-	return &GetUserCountResponse{Count: int64(len(users))}, nil
+	return &grpcapi.GetUserCountResponse{Count: int64(len(users))}, nil
 }
 
 // GetEventCount returns the number of events in a boundary
-func (s *AdminServiceServer) GetEventCount(ctx context.Context, req *GetEventCountRequest) (*GetEventCountResponse, error) {
+func (s *AdminServiceServer) GetEventCount(ctx context.Context, req *grpcapi.GetEventCountRequest) (*grpcapi.GetEventCountResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
 	if req.Boundary == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "boundary is required")
 	}
-
-	// orisun.Query events to get count
-	resp, err := s.getEvents(ctx, &orisun.GetEventsRequest{
-		Boundary:  req.Boundary,
-		Count:     1,
-		Direction: orisun.Direction_DESC,
-	})
+	if s.getEventCount == nil {
+		return nil, status.Error(codes.Internal, "event count store is not configured")
+	}
+	count, err := s.getEventCount(req.Boundary)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get events: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to count events: %v", err)
 	}
-
-	// The count would be available in the latest event's position
-	// For now, we'll return a placeholder
-	// TODO: Implement proper counting logic
-	count := int64(0)
-	if len(resp.Events) > 0 && resp.Events[0].Position != nil {
-		count = resp.Events[0].Position.CommitPosition
-	}
-
-	return &GetEventCountResponse{Count: count}, nil
+	return &grpcapi.GetEventCountResponse{Count: int64(count)}, nil
 }
 
 // Helper methods
 
-func (s *AdminServiceServer) validateCreateUserRequest(req *CreateUserRequest) error {
+func (s *AdminServiceServer) validateCreateUserRequest(req *grpcapi.CreateUserRequest) error {
+	if req == nil {
+		return fmt.Errorf("request is required")
+	}
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -375,31 +430,17 @@ func (s *AdminServiceServer) validateCreateUserRequest(req *CreateUserRequest) e
 	return nil
 }
 
-func (s *AdminServiceServer) getUserByUsername(ctx context.Context, username string) (*orisun.User, error) {
-	// orisun.Query projection for user by username
+func (s *AdminServiceServer) getUserByID(userID string) (*orisun.User, error) {
+	if s.listAdminUser == nil {
+		return nil, fmt.Errorf("admin user store is not configured")
+	}
 	users, err := s.listAdminUser()
 	if err != nil {
 		return nil, err
 	}
 
 	for _, user := range users {
-		if user.Username == username {
-			return user, nil
-		}
-	}
-
-	return nil, ErrUserNotFound
-}
-
-func (s *AdminServiceServer) getUserById(ctx context.Context, userId string) (*orisun.User, error) {
-	// orisun.Query projection for user by ID
-	users, err := s.listAdminUser()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, user := range users {
-		if user.Id == userId {
+		if user.Id == userID {
 			return user, nil
 		}
 	}
@@ -433,14 +474,11 @@ func (s *AdminServiceServer) createUser(ctx context.Context, name, username, pas
 	}, nil
 }
 
-func (s *AdminServiceServer) deleteUser(ctx context.Context, user *orisun.User, userId string) error {
-	// Get current user from context (set by auth interceptor)
-	currentUserId := getCurrentUserIdFromContext(ctx)
-
+func (s *AdminServiceServer) deleteUser(ctx context.Context, userID, currentUserID string) error {
 	return deleteuser.DeleteUser(
 		ctx,
-		userId,
-		currentUserId,
+		userID,
+		currentUserID,
 		s.boundary,
 		s.saveEvents,
 		s.getEvents,
@@ -448,7 +486,7 @@ func (s *AdminServiceServer) deleteUser(ctx context.Context, user *orisun.User, 
 	)
 }
 
-func (s *AdminServiceServer) changeUserPassword(ctx context.Context, req *ChangePasswordRequest) error {
+func (s *AdminServiceServer) changeUserPassword(ctx context.Context, req *grpcapi.ChangePasswordRequest) error {
 	return changepassword.ChangePassword(
 		ctx,
 		req.CurrentPassword,
@@ -481,13 +519,21 @@ func isUserDeleted(ctx context.Context, getEvents GetEventsFunc, boundary, userI
 	return err == nil && len(resp.Events) > 0
 }
 
-func getCurrentUserIdFromContext(ctx context.Context) string {
-	// TODO: Extract user ID from context (set by auth interceptor)
-	// For now, return empty string
-	return ""
+func getCurrentUserIDFromContext(ctx context.Context) (string, error) {
+	switch user := ctx.Value(orisun.UserContextKey).(type) {
+	case orisun.User:
+		if user.Id != "" {
+			return user.Id, nil
+		}
+	case *orisun.User:
+		if user != nil && user.Id != "" {
+			return user.Id, nil
+		}
+	}
+	return "", status.Error(codes.Unauthenticated, "authenticated user is missing from context")
 }
 
-func convertToProtoUser(user *orisun.User) *AdminUser {
+func convertToProtoUser(user *orisun.User) *grpcapi.AdminUser {
 	if user == nil {
 		return nil
 	}
@@ -498,7 +544,7 @@ func convertToProtoUser(user *orisun.User) *AdminUser {
 		roles[i] = string(role)
 	}
 
-	return &AdminUser{
+	return &grpcapi.AdminUser{
 		UserId:    user.Id,
 		Name:      user.Name,
 		Username:  user.Username,
@@ -507,27 +553,27 @@ func convertToProtoUser(user *orisun.User) *AdminUser {
 	}
 }
 
-func boundaryInfo(boundary boundarymodel.Boundary) *BoundaryInfo {
-	status := BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED
+func boundaryInfo(boundary boundarymodel.Boundary) *grpcapi.BoundaryInfo {
+	status := grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED
 	switch boundary.Status {
 	case boundarymodel.StatusProvisioning:
-		status = BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING
+		status = grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING
 	case boundarymodel.StatusActive:
-		status = BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
+		status = grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
 	case boundarymodel.StatusFailed:
-		status = BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_FAILED
+		status = grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_FAILED
 	}
-	origin := BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED
+	origin := grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED
 	switch boundary.Origin {
 	case boundarymodel.OriginCreated:
-		origin = BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_CREATED
+		origin = grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_CREATED
 	case boundarymodel.OriginImported:
-		origin = BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED
+		origin = grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED
 	}
-	return &BoundaryInfo{
+	return &grpcapi.BoundaryInfo{
 		Name:        boundary.Name,
 		Description: boundary.Description,
-		Placement: &BoundaryPlacementInput{
+		Placement: &grpcapi.BoundaryPlacementInput{
 			Backend:   boundary.Placement.Backend,
 			Namespace: boundary.Placement.Namespace,
 		},
@@ -539,11 +585,11 @@ func boundaryInfo(boundary boundarymodel.Boundary) *BoundaryInfo {
 	}
 }
 
-func grpcPosition(position *coreeventstore.Position) *Position {
+func grpcPosition(position *coreeventstore.Position) *grpcapi.Position {
 	if position == nil {
 		return nil
 	}
-	return &Position{
+	return &grpcapi.Position{
 		CommitPosition:  position.CommitPosition,
 		PreparePosition: position.PreparePosition,
 	}

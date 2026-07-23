@@ -34,6 +34,12 @@ func TestFoundationDBBoundaryProvisioningPersistsDiscoveryMarker(t *testing.T) {
 	if err := backend.ProvisionBoundary(t.Context(), definition); err != nil {
 		t.Fatalf("idempotent ProvisionBoundary() error = %v", err)
 	}
+	if err := backend.checkBoundary("sales"); err == nil {
+		t.Fatal("physical provisioning must not install the boundary in local runtime state")
+	}
+	if err := backend.InstallBoundary(t.Context(), definition); err != nil {
+		t.Fatalf("InstallBoundary() error = %v", err)
+	}
 	if err := backend.checkBoundary("sales"); err != nil {
 		t.Fatalf("checkBoundary() error = %v", err)
 	}

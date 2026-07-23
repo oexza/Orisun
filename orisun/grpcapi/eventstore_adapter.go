@@ -323,15 +323,6 @@ func criterionToProto(criterion *orisun.Criterion) *Criterion {
 	return result
 }
 
-func eventToProto(event *orisun.Event) *Event {
-	if event == nil {
-		return nil
-	}
-	row := &protoEventRow{}
-	fillProtoEventRow(row, event)
-	return &row.event
-}
-
 type protoEventRow struct {
 	event     Event
 	position  Position

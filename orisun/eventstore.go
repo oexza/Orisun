@@ -4,6 +4,7 @@ package orisun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"slices"
@@ -724,14 +725,23 @@ func (s *EventStore) SubscribeToAllEvents(
 	if err != nil {
 		return statuscode.Errorf(statuscode.Internal, "failed to create consumer: %v", err)
 	}
-	// Ensure the consumer is cleaned up using the same name
-	defer subs.DeleteConsumer(context.Background(), natsSubscriptionName)
+	// Consumer cleanup must outlive the cancelled subscription context, but it
+	// must not delay shutdown indefinitely.
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cleanupCancel()
+		if err := subs.DeleteConsumer(cleanupCtx, natsSubscriptionName); err != nil &&
+			!errors.Is(err, jetstream.ErrConsumerNotFound) {
+			s.logger.Warnf("Failed to delete subscription consumer %s: %v", natsSubscriptionName, err)
+		}
+	}()
 
 	// Start consuming messages
 	msgs, err := consumer.Messages(jetstream.PullMaxMessages(200))
 	if err != nil {
 		return statuscode.Errorf(statuscode.Internal, "failed to get message iterator: %v", err)
 	}
+	defer msgs.Stop()
 
 	// Use errgroup to manage the message processing goroutine
 	g.Go(func() error {
@@ -746,7 +756,7 @@ func (s *EventStore) SubscribeToAllEvents(
 				s.logger.Info("Message processing stopped due to context cancellation")
 				return err
 			}
-			msg, err := msgs.Next()
+			msg, err := msgs.Next(jetstream.NextContext(gCtx))
 			if err != nil {
 				if gCtx.Err() != nil {
 					s.logger.Info("Context cancelled, stopping message processing")

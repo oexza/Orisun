@@ -16,31 +16,31 @@ type BoundaryProvisioningEventHandler struct {
 	appender      EventAppender
 	retriever     LatestByCriteriaRetriever
 	provision     ProvisionBoundary
-	activate      ActivateBoundary
+	ensureGlobal  EnsureGlobalBoundary
 }
 
-// ActivateBoundary exposes a successfully activated catalog boundary to
-// public event-store requests in this process.
-type ActivateBoundary func(ctx context.Context, boundary string) error
+// EnsureGlobalBoundary reconciles shared ephemeral resources, such as the
+// boundary's JetStream stream, without repeating durable backend provisioning.
+type EnsureGlobalBoundary func(ctx context.Context, boundary string) error
 
 func NewBoundaryProvisioningEventHandler(
 	adminBoundary string,
 	appender EventAppender,
 	retriever LatestByCriteriaRetriever,
 	provision ProvisionBoundary,
-	activate ActivateBoundary,
+	ensureGlobal EnsureGlobalBoundary,
 ) *BoundaryProvisioningEventHandler {
 	return &BoundaryProvisioningEventHandler{
 		adminBoundary: adminBoundary,
 		appender:      appender,
 		retriever:     retriever,
 		provision:     provision,
-		activate:      activate,
+		ensureGlobal:  ensureGlobal,
 	}
 }
 
 func (h *BoundaryProvisioningEventHandler) Handle(ctx context.Context, event coreeventstore.ReadEvent) error {
-	if h == nil || h.activate == nil {
+	if h == nil || h.provision == nil || h.ensureGlobal == nil {
 		return statuscode.New(statuscode.Internal, "boundary provisioning event handler is not configured")
 	}
 	definition, err := definitionFromEvent(event)
@@ -62,15 +62,19 @@ func (h *BoundaryProvisioningEventHandler) Handle(ctx context.Context, event cor
 				},
 			},
 		},
-	}, h.adminBoundary, h.appender, h.retriever, h.provision)
-	if err != nil && statuscode.CodeOf(err) != statuscode.AlreadyExists {
-		return err
+	}, h.adminBoundary, h.appender, h.retriever, func(provisionCtx context.Context, definition boundarymodel.Definition) error {
+		if provisionErr := h.provision(provisionCtx, definition); provisionErr != nil {
+			return provisionErr
+		}
+		return h.ensureGlobal(provisionCtx, definition.Name)
+	})
+	if statuscode.CodeOf(err) == statuscode.AlreadyExists {
+		// Controller failover must not repeat physical DDL for ACTIVE
+		// definitions, but it must restore shared ephemeral resources such as a
+		// lost in-memory JetStream stream.
+		return h.ensureGlobal(ctx, definition.Name)
 	}
-	// The public request gate advances only after BoundaryActivated is durable,
-	// or after replay proves that another node already made it durable. This
-	// keeps a partially provisioned or FAILED boundary inaccessible even when
-	// its physical backend has already been registered locally.
-	return h.activate(ctx, definition.Name)
+	return err
 }
 
 func definitionFromEvent(event coreeventstore.ReadEvent) (boundarymodel.Definition, error) {

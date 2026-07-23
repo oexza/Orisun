@@ -7,15 +7,11 @@
 package foundationdb
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/goccy/go-json"
 )
@@ -176,41 +172,6 @@ func decodeUser(value []byte) (eventstore.User, error) {
 	}, nil
 }
 
-func criteriaAsMaps(query *eventstore.Query) []map[string]string {
-	if query == nil {
-		return nil
-	}
-	out := make([]map[string]string, 0, len(query.Criteria))
-	for _, criterion := range query.Criteria {
-		m := make(map[string]string, len(criterion.Tags))
-		for _, tag := range criterion.Tags {
-			m[tag.Key] = tag.Value
-		}
-		if len(m) > 0 {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-func readCriteriaAsMaps(criteria []eventstore.ReadCriterion) []map[string]string {
-	out := make([]map[string]string, 0, len(criteria))
-	for _, criterion := range criteria {
-		m := make(map[string]string, len(criterion.Tags))
-		for _, tag := range criterion.Tags {
-			m[tag.Key] = tag.Value
-		}
-		if len(m) > 0 {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-func hasCriteria(query *eventstore.Query) bool {
-	return len(criteriaAsMaps(query)) > 0
-}
-
 func eventMatchesCriterion(dataJSON string, criterion map[string]string) bool {
 	data := map[string]any{}
 	if err := json.Unmarshal([]byte(dataJSON), &data); err != nil {
@@ -310,16 +271,6 @@ func chooseCoveringIndex(indexes []indexDefinition, criterion map[string]string)
 	return indexDefinition{}, false
 }
 
-func readyIndexes(indexes []indexDefinition) []indexDefinition {
-	ready := make([]indexDefinition, 0, len(indexes))
-	for _, idx := range indexes {
-		if idx.State == indexStateReady {
-			ready = append(ready, idx)
-		}
-	}
-	return ready
-}
-
 func indexCoversCriterion(idx indexDefinition, criterion map[string]string) bool {
 	covered := make(map[string]struct{}, len(idx.Fields)+len(idx.Conditions))
 	for _, field := range idx.Fields {
@@ -415,26 +366,6 @@ func sortEvents(events []*eventstore.Event, direction eventstore.Direction) {
 	})
 }
 
-func positionKey(pos *eventstore.Position) string {
-	return strconv.FormatInt(pos.CommitPosition, 10) + ":" + strconv.FormatInt(pos.PreparePosition, 10)
-}
-
-func contextStatusErr(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	switch err := ctx.Err(); {
-	case err == nil:
-		return nil
-	case errors.Is(err, context.Canceled):
-		return statuscode.New(statuscode.Canceled, err.Error())
-	case errors.Is(err, context.DeadlineExceeded):
-		return statuscode.New(statuscode.DeadlineExceeded, err.Error())
-	default:
-		return err
-	}
-}
-
 func validateIdentifier(name string) error {
 	if len(name) == 0 || len(name) > 63 {
 		return fmt.Errorf("identifier must be 1-63 characters, got %d", len(name))
@@ -453,27 +384,3 @@ func validateIdentifier(name string) error {
 
 func isAlpha(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-type optimisticConflictError struct {
-	expectedTx, expectedGid int64
-	actualTx, actualGid     int64
-}
-
-func (e optimisticConflictError) Error() string {
-	return fmt.Sprintf(
-		"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
-		e.expectedTx, e.expectedGid, e.actualTx, e.actualGid,
-	)
-}
-
-func optimisticConflict(expectedTx, expectedGid, actualTx, actualGid int64) error {
-	return optimisticConflictError{
-		expectedTx: expectedTx, expectedGid: expectedGid,
-		actualTx: actualTx, actualGid: actualGid,
-	}
-}
-
-func isOptimisticConflict(err error) bool {
-	var conflict optimisticConflictError
-	return errors.As(err, &conflict) || strings.Contains(err.Error(), "OptimisticConcurrencyException")
-}

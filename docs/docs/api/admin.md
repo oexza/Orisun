@@ -54,11 +54,14 @@ asynchronously.
 | Status | Meaning |
 | --- | --- |
 | `BOUNDARY_LIFECYCLE_STATUS_PROVISIONING` | The definition is durable, but the backend, runtime registry, publisher, and projectors may not be ready yet. |
-| `BOUNDARY_LIFECYCLE_STATUS_ACTIVE` | Provisioning completed and the boundary can accept EventStore requests. |
+| `BOUNDARY_LIFECYCLE_STATUS_ACTIVE` | Shared physical provisioning completed. Each server independently installs the activated boundary before accepting requests for it. |
 | `BOUNDARY_LIFECYCLE_STATUS_FAILED` | A provisioning attempt failed and no later activation has been recorded. Inspect `last_error`; the server retries the definition independently with capped exponential backoff. |
 
 Do not send EventStore requests until `GetBoundary` reports `ACTIVE`. A
-successful definition RPC is not proof that provisioning succeeded. Failed
+successful definition RPC is not proof that provisioning succeeded. In a
+cluster, a node can briefly return `FAILED_PRECONDITION` after the shared
+catalog becomes `ACTIVE` while that node finishes its local runtime install;
+retry that request or temporarily remove the lagging node from routing. Failed
 definitions remain in the catalog and cannot be re-created under the same name;
 the existing definition continues to be retried and may later transition from
 `FAILED` to `ACTIVE`.
