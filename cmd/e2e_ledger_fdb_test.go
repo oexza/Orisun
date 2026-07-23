@@ -8,8 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	pb "github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 // TestE2E_LedgerWorkload_FoundationDB runs the ledger workload through gRPC
@@ -67,5 +71,33 @@ func setupFoundationDBE2E(t *testing.T) *E2ETestSuite {
 	suite.startBinary(t)
 	suite.waitForGRPCServer(t)
 	suite.createGRPCClient(t)
+
+	// FoundationDB no longer receives a static startup boundary list. Exercise
+	// the supported control-plane path and wait for durable activation before
+	// the shared ledger workload creates its index.
+	ctx := createAuthenticatedContext("admin", "changeit")
+	adminClient := pb.NewAdminClient(suite.grpcConn)
+	created, err := adminClient.CreateBoundary(ctx, &pb.CreateBoundaryRequest{
+		Name:        "orisun_test_1",
+		Description: "FoundationDB ledger E2E boundary",
+		Placement: &pb.BoundaryPlacementInput{
+			Backend:   "foundationdb",
+			Namespace: suite.fdbRoot,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Boundary)
+	require.Equal(
+		t,
+		pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING,
+		created.Boundary.Status,
+	)
+	require.Eventually(t, func() bool {
+		response, getErr := adminClient.GetBoundary(ctx, &pb.GetBoundaryRequest{Name: "orisun_test_1"})
+		return getErr == nil &&
+			response != nil &&
+			response.Boundary != nil &&
+			response.Boundary.Status == pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
+	}, 10*time.Second, 25*time.Millisecond)
 	return suite
 }
