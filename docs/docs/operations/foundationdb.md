@@ -23,7 +23,7 @@ Every Orisun node running the FoundationDB backend needs:
 - `libfdb_c` installed on the host or baked into the image. The published `orisun:fdb` images include it.
 - A readable `fdb.cluster` file.
 - The same `ORISUN_FDB_ROOT` across all nodes that share one Orisun deployment.
-- The same `ORISUN_BOUNDARIES` and `ORISUN_ADMIN_BOUNDARY` as the rest of the cluster.
+- The same `ORISUN_ADMIN_BOUNDARY` as the rest of the cluster.
 
 ```bash
 ORISUN_BACKEND=foundationdb
@@ -33,6 +33,12 @@ ORISUN_FDB_TRANSACTION_TIMEOUT_MS=10000
 ```
 
 The Go binding API defaults to `730`, matching FoundationDB 7.3.x. Keep the installed client library compatible with the server major version. Release FDB binaries are Linux-only and still dynamically link the client library; the FDB Docker images include the FoundationDB client package.
+
+## Boundary Provisioning
+
+FoundationDB boundaries are created and imported through the Admin boundary RPCs, just like the other backends. Use placement backend `foundationdb` and set the placement namespace to the configured `ORISUN_FDB_ROOT`. A successful create/import command records a lifecycle event in the admin boundary; its event handler then provisions the key range, installs publishing, and records the active or failed result.
+
+Creation stores a boundary marker under the configured root. On startup, Orisun also discovers legacy boundary key ranges that predate the catalog and imports them through the same command/event path. Keep the root unchanged during this migration so discovery and catalog placement refer to the same physical ranges.
 
 ## Cluster File Handling
 
@@ -73,7 +79,7 @@ FoundationDB criteria reads and consistency checks require ready covering indexe
 
 Before using a criterion in production traffic:
 
-1. Create the boundary index through the admin API.
+1. Create the boundary index through `EventStore/CreateIndex`.
 2. Wait for the index to report ready.
 3. Deploy writers that use that criterion for CCC checks or DCB append conditions.
 

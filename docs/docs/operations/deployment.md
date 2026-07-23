@@ -81,6 +81,10 @@ Operational notes:
 - Persist `/var/lib/orisun` or the configured `ORISUN_SQLITE_DIR`.
 - Run exactly one active Orisun writer node.
 - Back up every `{boundary}.db` file, every `{boundary}_metadata.db` file, and the NATS store directory if live delivery retention matters during restore.
+- Treat the admin boundary files as mandatory: its event log contains the
+  boundary catalog. Restoring application files without the matching admin
+  boundary requires explicit `ImportBoundary` calls before those files are
+  usable.
 
 ## Scaling SQLite
 
@@ -101,10 +105,21 @@ The per-boundary write ceiling is fundamental: one writer per file, and the publ
 A boundary is a complete, independent event-log unit: its own database file, metadata file, and position counter. Orisun has no cross-boundary transactions, so boundaries shard cleanly across nodes with no coordination:
 
 - run N independent single-node Orisun deployments
-- give each node a disjoint subset in `ORISUN_BOUNDARIES`
+- place a disjoint set of `{boundary}.db` files in each node's `ORISUN_SQLITE_DIR`
 - route client requests by boundary to the owning node (client-side routing table, or a gRPC proxy that switches on the boundary field)
 
-Each node remains a normal standalone SQLite deployment. There is no shared storage, consensus, or rebalancing protocol. Moving a boundary to another node is a maintenance operation: stop the source node, run a final WAL checkpoint, copy `{boundary}.db` and `{boundary}_metadata.db`, then start it on the target node and update routing.
+Each node remains a normal standalone SQLite deployment. There is no shared storage, consensus, or rebalancing protocol. Moving a boundary to another node is a maintenance operation:
+
+1. Stop the source node and run a final WAL checkpoint.
+2. Copy `{boundary}.db` and `{boundary}_metadata.db` into the target node's
+   `ORISUN_SQLITE_DIR`.
+3. Start the target and call `ImportBoundary` with backend `sqlite` and a
+   namespace equal to the boundary name.
+4. Wait for `GetBoundary` to report `ACTIVE`, then update routing.
+
+The source catalog still contains its old immutable definition; do not restart
+the source against its old copy after traffic moves. Orisun does not currently
+provide a delete or ownership-transfer RPC.
 
 If one boundary alone outgrows a node, sharding cannot help. Split the domain into more boundaries or move that deployment to PostgreSQL.
 
@@ -122,7 +137,7 @@ What does not work: multi-writer SQLite replication (cr-sqlite, marmot, and simi
 
 ### 4. Graduate to PostgreSQL
 
-When a deployment needs multi-node availability or write scale beyond boundary sharding, move to the PostgreSQL backend rather than building a distributed SQLite. The public API is identical; see [Migrating between backends](../concepts/storage-backends#migrating-between-backends). Migration is an event replay: read each boundary's events in order from the SQLite deployment and `SaveEvents` them into a PostgreSQL-backed deployment. Positions are regenerated on write, so consumers must restart subscriptions from the new positions.
+When a deployment needs multi-node availability or write scale beyond boundary sharding, move to the PostgreSQL backend rather than building a distributed SQLite. The public API is identical; see [Migrating between backends](../concepts/storage-backends#migrating-between-backends). Create and activate each empty target boundary before replaying its events in order with `SaveEvents`; do not use `ImportBoundary` unless PostgreSQL storage for that boundary already exists. Positions are regenerated on write, so consumers must restart subscriptions from the new positions.
 
 ### Analytics on the side
 
@@ -150,7 +165,7 @@ Recommended upgrade sequence:
 2. Back up PostgreSQL and the NATS store directory.
 3. Upgrade PostgreSQL using your platform's normal process. If you are still running an Orisun version before `0.3.1`, prefer PostgreSQL `pg_upgrade` over dump/restore because older Orisun versions exposed PostgreSQL internal transaction IDs as public positions.
 4. Start one Orisun `0.3.1` node first.
-5. Wait for database migrations to complete for every configured boundary.
+5. Wait for database migrations to complete for every catalogued boundary.
 6. Confirm publishers/projectors are healthy, then start the rest of the Orisun nodes.
 
 During the first `0.3.1` startup, Orisun:
@@ -169,8 +184,8 @@ Clustered mode uses PostgreSQL, embedded NATS clustering, and one active publish
 Each node should share:
 
 - PostgreSQL database and schemas
-- `ORISUN_BOUNDARIES`
-- `ORISUN_PG_SCHEMAS`
+- `ORISUN_PG_SCHEMAS` (at minimum the admin mapping; keep all legacy mappings
+  during a mixed-version/catalog-migration rollout)
 - `ORISUN_NATS_CLUSTER_NAME`
 - NATS cluster credentials
 

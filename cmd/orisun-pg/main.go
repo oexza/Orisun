@@ -7,13 +7,13 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/common-nighthawk/go-figure"
-	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/OrisunLabs/Orisun/config"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
 	pg "github.com/OrisunLabs/Orisun/postgres"
 	"github.com/OrisunLabs/Orisun/server"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func main() {
@@ -34,15 +34,19 @@ func main() {
 }
 
 func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, logger)
+	runtime := pg.InitializePostgresDatabaseRuntime(ctx, config.Postgres, config.Admin, js, logger)
+	mappings := config.Postgres.GetSchemaMapping()
 	backend := server.Backend{
-		SaveEvents:      saveEvents,
-		GetEvents:       getEvents,
-		LockProvider:    lockProvider,
-		AdminDB:         adminDB,
-		EventPublishing: eventPublishing,
+		SaveEvents:        runtime.SaveEvents,
+		GetEvents:         runtime.GetEvents,
+		LockProvider:      runtime.LockProvider,
+		AdminDB:           runtime.AdminDB,
+		EventPublishing:   runtime.EventPublishing,
+		ProvisionBoundary: runtime.ProvisionBoundary,
+		InitialBoundaries: pg.BoundaryNames(mappings),
+		LegacyBoundaries:  pg.LegacyBoundaryDefinitions(mappings),
 	}
-	if pgListener == nil {
+	if runtime.Listener == nil {
 		return backend, nil
 	}
 
@@ -50,7 +54,7 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 	backend.Start = func(parent context.Context) {
 		listenerCtx, cancel := context.WithCancel(parent)
 		stopListener = cancel
-		go pgListener.Start(listenerCtx)
+		go runtime.Listener.Start(listenerCtx)
 	}
 	backend.Close = func(ctx context.Context) {
 		if stopListener != nil {
@@ -58,10 +62,10 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		}
 		waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer waitCancel()
-		pgListener.Close(waitCtx)
+		runtime.Listener.Close(waitCtx)
 	}
 	backend.SignalProvider = func(boundary string) orisun.EventSignal {
-		return pgListener.Signal(boundary, 30*time.Second)
+		return runtime.Listener.Signal(boundary, 30*time.Second)
 	}
 	return backend, nil
 }

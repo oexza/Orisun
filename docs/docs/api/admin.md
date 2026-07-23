@@ -1,9 +1,12 @@
 ---
 title: Admin API
-description: Manage users, credentials, and lightweight operational counts.
+description: Manage boundaries, users, credentials, and lightweight operational counts.
 ---
 
-The Admin service handles users, credentials, and lightweight operational statistics. It does not manage event indexes; index management belongs to the EventStore service so embedded deployments can manage indexes without exposing Admin.
+The Admin service handles the event-backed boundary catalog, users, credentials,
+and lightweight operational statistics. It does not manage event indexes; index
+management belongs to the EventStore service so embedded deployments can manage
+indexes without exposing Admin.
 
 Admin is available in every server flavor:
 
@@ -29,6 +32,10 @@ Set a production password with `ORISUN_ADMIN_PASSWORD` before exposing the serve
 
 | Method | Purpose |
 | --- | --- |
+| `CreateBoundary` | Define and asynchronously provision a new physical boundary. |
+| `ImportBoundary` | Register and validate an existing physical boundary. |
+| `ListBoundaries` | Rebuild and return the boundary catalog. |
+| `GetBoundary` | Return one boundary and its current lifecycle state. |
 | `CreateUser` | Create an admin or application user. |
 | `DeleteUser` | Delete a user by ID. Users cannot delete their own account. |
 | `ChangePassword` | Change the authenticated user's password. |
@@ -36,6 +43,135 @@ Set a production password with `ORISUN_ADMIN_PASSWORD` before exposing the serve
 | `ValidateCredentials` | Validate a username/password pair. |
 | `GetUserCount` | Return total active user count. |
 | `GetEventCount` | Return event count for a boundary. |
+
+## Boundary lifecycle
+
+Boundary definitions and lifecycle transitions are durable events in the admin
+boundary. `CreateBoundary` and `ImportBoundary` append definition events and
+return after that append commits; physical provisioning continues
+asynchronously.
+
+| Status | Meaning |
+| --- | --- |
+| `BOUNDARY_LIFECYCLE_STATUS_PROVISIONING` | The definition is durable, but the backend, runtime registry, publisher, and projectors may not be ready yet. |
+| `BOUNDARY_LIFECYCLE_STATUS_ACTIVE` | Provisioning completed and the boundary can accept EventStore requests. |
+| `BOUNDARY_LIFECYCLE_STATUS_FAILED` | A provisioning attempt failed and no later activation has been recorded. Inspect `last_error`; the server retries the definition independently with capped exponential backoff. |
+
+Do not send EventStore requests until `GetBoundary` reports `ACTIVE`. A
+successful definition RPC is not proof that provisioning succeeded. Failed
+definitions remain in the catalog and cannot be re-created under the same name;
+the existing definition continues to be retried and may later transition from
+`FAILED` to `ACTIVE`.
+
+`BoundaryInfo` also reports:
+
+| Field | Meaning |
+| --- | --- |
+| `origin` | `CREATED` for `CreateBoundary`, or `IMPORTED` for `ImportBoundary`. |
+| `placement` | The durable backend and immutable physical namespace recorded by the definition event. |
+| `last_error` | Recorded provisioning error; empty after activation. |
+| `definition_position` | Position of the definition event in the admin boundary. |
+| `status_position` | Position of the latest lifecycle event. |
+
+There is currently no rename, placement update, or delete RPC. A boundary name
+has one immutable definition.
+
+### Placement rules
+
+| Runtime backend | `placement.backend` | `placement.namespace` |
+| --- | --- | --- |
+| PostgreSQL or YugabyteDB | `postgres` | PostgreSQL schema name. Multiple boundaries may share a schema because physical objects are boundary-prefixed. |
+| SQLite | `sqlite` | Must exactly equal the boundary name. Files are created or opened beneath `ORISUN_SQLITE_DIR`. |
+| FoundationDB | `foundationdb` | Must equal the configured `ORISUN_FDB_ROOT`. |
+
+Boundary and PostgreSQL schema identifiers use the portable identifier
+contract: 1–63 characters, starting with a letter or underscore, followed by
+letters, digits, or underscores.
+
+## CreateBoundary
+
+Use `CreateBoundary` when Orisun should create and migrate the physical storage:
+
+```bash
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateBoundary <<EOF
+{
+  "name": "orders",
+  "description": "Order lifecycle events",
+  "placement": {
+    "backend": "postgres",
+    "namespace": "public"
+  }
+}
+EOF
+```
+
+The response initially contains `BOUNDARY_LIFECYCLE_STATUS_PROVISIONING`.
+
+## ImportBoundary
+
+Use `ImportBoundary` when the physical boundary already exists, for example
+after upgrading a legacy deployment or moving a SQLite boundary file. The
+normal provisioner opens the existing storage and applies migrations
+idempotently before activation:
+
+```bash
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/ImportBoundary <<EOF
+{
+  "name": "legacy_orders",
+  "description": "Orders migrated from the legacy deployment",
+  "placement": {
+    "backend": "postgres",
+    "namespace": "legacy"
+  }
+}
+EOF
+```
+
+Use `CreateBoundary`, not `ImportBoundary`, when no physical storage exists yet.
+The distinction is recorded as `origin`; both paths use the same asynchronous
+provisioning and activation flow.
+
+Legacy boundaries are normally imported automatically during the first
+upgraded startup. See
+[Boundary management and migration](../operations/configuration#boundary-management).
+
+## ListBoundaries
+
+```bash
+grpcurl -H "$AUTH" localhost:5005 orisun.Admin/ListBoundaries
+```
+
+The response includes active, provisioning, and failed definitions. Use it for
+readiness checks and operational inventory.
+
+## GetBoundary
+
+```bash
+grpcurl -H "$AUTH" \
+  -d '{"name":"orders"}' \
+  localhost:5005 orisun.Admin/GetBoundary
+```
+
+An unknown name returns `NOT_FOUND`.
+
+### Definition errors
+
+| gRPC code | Typical cause |
+| --- | --- |
+| `INVALID_ARGUMENT` | Missing placement, invalid name, or empty backend/namespace. |
+| `ALREADY_EXISTS` | A create or import definition already exists for that name, including definitions currently `FAILED`. |
+| `NOT_FOUND` | `GetBoundary` cannot find the requested definition. |
+
+Backend and namespace compatibility is checked by the asynchronous provisioner.
+An incompatible non-empty placement can therefore make the definition RPC
+succeed and the boundary subsequently become `FAILED`.
+
+:::warning
+All Admin RPCs, including boundary creation and import, currently require
+authentication but are not role-gated. Restrict access to the Admin service at
+the network and credential layers. See
+[Security & Authorization](../operations/security).
+:::
 
 ## CreateUser
 

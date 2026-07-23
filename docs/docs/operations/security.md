@@ -52,10 +52,13 @@ A role string is stored exactly as supplied and compared exactly. A user created
 Two points worth calling out:
 
 - **Reads and subscriptions are not role-gated.** Any authenticated user can read or subscribe to any boundary. Use separate credentials and network controls if you need to restrict who can read event data.
-- **Admin RPCs are not role-gated in the handler.** Authentication is required, but user management is gated by authentication alone plus per-operation self-rules (a user cannot delete their own account, and `ChangePassword` only changes the caller's own password). Restrict network access to the Admin surface accordingly.
+- **Admin RPCs are not role-gated in the handler.** Authentication is required, but user and boundary management are gated by authentication alone plus per-operation self-rules (a user cannot delete their own account, and `ChangePassword` only changes the caller's own password). Any authenticated account can currently call `CreateBoundary` or `ImportBoundary`, which can create physical storage and start runtime resources. Restrict network access and credentials for the Admin surface accordingly.
 
 ## Recommended posture
 
 - Set a strong `ORISUN_ADMIN_PASSWORD` and create per-application users with the narrowest role they need: `OPERATIONS` for services that only save and read events, `ADMIN` only where index management is required.
 - Enable gRPC TLS and, where mutual auth is needed, `ORISUN_GRPC_TLS_CLIENT_AUTH_REQUIRED`.
 - Put PostgreSQL, the gRPC port, and NATS cluster routes behind network policy. See the [Deployment security checklist](./deployment#security-checklist).
+- Monitor the event-backed boundary catalog. Treat unexpected definitions or
+  placement changes as privileged configuration changes even though the
+  current RPC handler does not enforce an `ADMIN` role.

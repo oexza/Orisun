@@ -91,9 +91,53 @@ dependencies {
 
 Use the typed clients when you want request/response objects and subscription helpers. Use `grpcurl` for operational checks, debugging, and quick experiments.
 
+## Boundary prerequisite
+
+Client event operations target an active boundary; a boundary name is not
+created implicitly by the first write. Before starting an application, define
+new storage with `Admin/CreateBoundary` or register existing storage with
+`Admin/ImportBoundary`, then wait for `Admin/GetBoundary` to report
+`BOUNDARY_LIFECYCLE_STATUS_ACTIVE`. See the
+[Admin boundary API](./admin#boundary-lifecycle) for placements, lifecycle
+states, and errors.
+
+The Node client exposes typed helpers:
+
+```typescript
+import { AdminClient, BoundaryStatus } from '@orisun/eventstore-client';
+
+const admin = new AdminClient({
+  host: 'localhost',
+  port: 5005,
+  username: 'admin',
+  password: 'changeit',
+});
+
+const {boundary: definition} = await admin.createBoundary({
+  name: 'accounts',
+  description: 'Account lifecycle events',
+  placement: {backend: 'postgres', namespace: 'public'},
+});
+
+let boundary = definition;
+while (boundary.status === BoundaryStatus.PROVISIONING) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  ({boundary} = await admin.getBoundary('accounts'));
+}
+if (boundary.status !== BoundaryStatus.ACTIVE) {
+  throw new Error(`Boundary provisioning failed: ${boundary.lastError}`);
+}
+
+const {boundaries} = await admin.listBoundaries();
+```
+
+Use `admin.importBoundary(...)` instead when the physical boundary already
+exists. Both commands return a definition in `PROVISIONING`; do not treat the
+command response as readiness.
+
 ## First program
 
-A complete command loop: connect, save an event with a Command Context Consistency check, read the latest carried state from one snapshot, handle a conflict, and subscribe a projector. Pick your language once; the same `groupId` carries over to the [EventStore API](./eventstore) and [Tutorial](../tutorial) pages.
+A complete command loop: connect, save an event with a Command Context Consistency check, read the latest carried state from one snapshot, handle a conflict, and subscribe a projector. The examples assume the `accounts` boundary has already reached `ACTIVE`. Pick your language once; the same `groupId` carries over to the [EventStore API](./eventstore) and [Tutorial](../tutorial) pages.
 
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>

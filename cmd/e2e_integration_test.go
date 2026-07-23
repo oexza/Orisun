@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -12,6 +13,13 @@ import (
 	"testing"
 	"time"
 
+	adminevents "github.com/OrisunLabs/Orisun/boundary/events"
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
+	"github.com/OrisunLabs/Orisun/orisun"
+	pgbackend "github.com/OrisunLabs/Orisun/postgres"
+	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,11 +29,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"zombiezen.com/go/sqlite/sqlitex"
 
-	"github.com/OrisunLabs/Orisun/orisun"
-	pb "github.com/OrisunLabs/Orisun/orisun"
-	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
+	pb "github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
+
+const defaultPostgresSchemas = "orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin"
 
 type E2ETestSuite struct {
 	ctx               context.Context
@@ -33,7 +42,7 @@ type E2ETestSuite struct {
 	binaryPath        string
 	binaryCmd         *exec.Cmd
 	grpcConn          *grpc.ClientConn
-	eventStoreClient  grpcapi.EventStoreClient
+	eventStoreClient  pb.EventStoreClient
 	postgresHost      string
 	postgresPort      string
 	grpcPort          string
@@ -45,16 +54,26 @@ type E2ETestSuite struct {
 	buildTags         string
 	fdbClusterFile    string
 	fdbRoot           string
+	postgresSchemas   string
 }
 
 func setupE2ETest(t *testing.T) *E2ETestSuite {
+	suite := preparePostgresE2ETest(t)
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+	return suite
+}
+
+func preparePostgresE2ETest(t *testing.T) *E2ETestSuite {
 	ctx := context.Background()
 	suite := &E2ETestSuite{
-		ctx:       ctx,
-		grpcPort:  "15005", // Use different port to avoid conflicts
-		adminPort: "18991",
-		natsPort:  "14224",
-		backend:   "postgres",
+		ctx:             ctx,
+		grpcPort:        "15005", // Use different port to avoid conflicts
+		adminPort:       "18991",
+		natsPort:        "14224",
+		backend:         "postgres",
+		postgresSchemas: defaultPostgresSchemas,
 	}
 
 	// Start PostgreSQL container
@@ -82,35 +101,39 @@ func setupE2ETest(t *testing.T) *E2ETestSuite {
 	// Build the binary
 	suite.buildBinary(t)
 
-	// Start the binary with proper environment variables
-	suite.startBinary(t)
-
-	// Wait for the gRPC server to be ready
-	suite.waitForGRPCServer(t)
-
-	// Create gRPC client
-	suite.createGRPCClient(t)
-
 	return suite
 }
 
 func setupSQLiteE2ETest(t *testing.T) *E2ETestSuite {
+	suite := prepareSQLiteE2ETest(t)
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+	return suite
+}
+
+func prepareSQLiteE2ETest(t *testing.T) *E2ETestSuite {
 	ctx := context.Background()
 	tempDir := t.TempDir()
+	sqliteDir := filepath.Join(tempDir, "sqlite")
+	require.NoError(t, os.MkdirAll(sqliteDir, 0o755))
+	// Existing SQLite boundaries are now discovered from their event database
+	// files instead of a startup boundary list. An empty file is migrated when
+	// the backend opens it.
+	for _, boundary := range []string{"orisun_test_1", "orisun_test_2"} {
+		require.NoError(t, os.WriteFile(filepath.Join(sqliteDir, boundary+".db"), nil, 0o600))
+	}
 	suite := &E2ETestSuite{
 		ctx:          ctx,
 		grpcPort:     "15007",
 		adminPort:    "18993",
 		natsPort:     "14226",
 		natsStoreDir: filepath.Join(tempDir, "nats"),
-		sqliteDir:    filepath.Join(tempDir, "sqlite"),
+		sqliteDir:    sqliteDir,
 		backend:      "sqlite",
 	}
 
 	suite.buildBinary(t)
-	suite.startBinary(t)
-	suite.waitForGRPCServer(t)
-	suite.createGRPCClient(t)
 
 	return suite
 }
@@ -169,7 +192,7 @@ func (s *E2ETestSuite) startBinary(t *testing.T) {
 		"ORISUN_PG_USER=postgres",
 		"ORISUN_PG_PASSWORD=postgres",
 		"ORISUN_PG_NAME=orisun",
-		"ORISUN_PG_SCHEMAS=orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin",
+		fmt.Sprintf("ORISUN_PG_SCHEMAS=%s", s.postgresSchemas),
 		fmt.Sprintf("ORISUN_GRPC_PORT=%s", s.grpcPort),
 		fmt.Sprintf("ORISUN_ADMIN_PORT=%s", s.adminPort),
 		"ORISUN_GRPC_ENABLE_REFLECTION=true",
@@ -180,7 +203,6 @@ func (s *E2ETestSuite) startBinary(t *testing.T) {
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=orisun_admin",
-		"ORISUN_BOUNDARIES=[{\"name\":\"orisun_test_1\",\"description\":\"boundary1\"},{\"name\":\"orisun_test_2\",\"description\":\"boundary2\"},{\"name\":\"orisun_admin\",\"description\":\"boundary3\"}]",
 	}
 	if s.sqliteDir != "" {
 		env = append(env, fmt.Sprintf("ORISUN_SQLITE_DIR=%s", s.sqliteDir))
@@ -234,7 +256,7 @@ func (s *E2ETestSuite) createGRPCClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 	s.grpcConn = conn
-	s.eventStoreClient = grpcapi.NewEventStoreClient(conn)
+	s.eventStoreClient = pb.NewEventStoreClient(conn)
 }
 
 // createAuthenticatedContext creates a context with Basic Auth headers
@@ -252,23 +274,7 @@ func createAuthenticatedContext(username, password string) context.Context {
 }
 
 func (s *E2ETestSuite) teardown(t *testing.T) {
-	// Close gRPC connection
-	if s.grpcConn != nil {
-		s.grpcConn.Close()
-	}
-
-	// Stop the binary
-	if s.binaryCmd != nil && s.binaryCmd.Process != nil {
-		err := s.binaryCmd.Process.Signal(syscall.SIGTERM)
-		if err != nil {
-			t.Logf("Failed to send SIGTERM to binary: %v", err)
-			// Force kill if SIGTERM fails
-			s.binaryCmd.Process.Kill()
-		}
-		// Wait for process to exit
-		s.binaryCmd.Wait()
-		t.Logf("Binary process stopped")
-	}
+	s.stopBinary(t)
 
 	// Stop PostgreSQL container
 	if s.postgresContainer != nil {
@@ -284,6 +290,35 @@ func (s *E2ETestSuite) teardown(t *testing.T) {
 	}
 }
 
+func (s *E2ETestSuite) stopBinary(t *testing.T) {
+	// Close gRPC connection
+	if s.grpcConn != nil {
+		if err := s.grpcConn.Close(); err != nil {
+			t.Logf("Failed to close gRPC connection: %v", err)
+		}
+		s.grpcConn = nil
+		s.eventStoreClient = nil
+	}
+
+	// Stop the binary
+	if s.binaryCmd != nil && s.binaryCmd.Process != nil {
+		signalErr := s.binaryCmd.Process.Signal(syscall.SIGTERM)
+		if signalErr != nil {
+			t.Logf("Failed to send SIGTERM to binary: %v", signalErr)
+			// Force kill if SIGTERM fails
+			if err := s.binaryCmd.Process.Kill(); err != nil {
+				t.Logf("Failed to kill binary: %v", err)
+			}
+		}
+		// Wait for process to exit
+		if err := s.binaryCmd.Wait(); err != nil && signalErr == nil {
+			t.Logf("Binary exited after SIGTERM: %v", err)
+		}
+		t.Logf("Binary process stopped")
+		s.binaryCmd = nil
+	}
+}
+
 func TestE2E_SaveAndGetEvents(t *testing.T) {
 	suite := setupE2ETest(t)
 	defer suite.teardown(t)
@@ -292,7 +327,7 @@ func TestE2E_SaveAndGetEvents(t *testing.T) {
 	ctx := createAuthenticatedContext("admin", "changeit")
 
 	// Test SaveEvents
-	position := orisun.NotExistsPosition()
+	position := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
@@ -347,7 +382,7 @@ func TestE2E_SQLite_SaveAndGetEvents(t *testing.T) {
 	defer suite.teardown(t)
 
 	ctx := createAuthenticatedContext("admin", "changeit")
-	position := orisun.NotExistsPosition()
+	position := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
@@ -388,6 +423,275 @@ func TestE2E_SQLite_SaveAndGetEvents(t *testing.T) {
 	assert.Contains(t, getResp.Events[0].Data, "Hello SQLite")
 }
 
+func TestE2E_Postgres_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
+	const (
+		boundary = "orisun_test_1"
+		schema   = "public"
+	)
+	suite := preparePostgresE2ETest(t)
+	defer suite.teardown(t)
+	seedLegacyPostgresBoundary(t, suite, boundary, schema)
+
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+
+	ctx := createAuthenticatedContext("admin", "changeit")
+	beforeRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
+	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened")
+
+	appendBoundaryEvent(t, suite, ctx, boundary, "OrderConfirmed", map[string]any{"orderId": "legacy-order-1"})
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
+
+	suite.stopBinary(t)
+	// The legacy mapping is intentionally removed. The event-backed catalog
+	// must now be sufficient to reinstall the physical/runtime registration.
+	suite.postgresSchemas = "orisun_admin:admin"
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+
+	afterRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
+	requireSamePosition(t, beforeRestart.DefinitionPosition, afterRestart.DefinitionPosition)
+	requireSamePosition(t, beforeRestart.StatusPosition, afterRestart.StatusPosition)
+	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
+}
+
+func TestE2E_SQLite_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
+	const boundary = "orisun_test_1"
+	suite := prepareSQLiteE2ETest(t)
+	defer suite.teardown(t)
+	seedLegacySQLiteBoundary(t, suite, boundary)
+
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+
+	ctx := createAuthenticatedContext("admin", "changeit")
+	beforeRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
+	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened")
+
+	appendBoundaryEvent(t, suite, ctx, boundary, "OrderConfirmed", map[string]any{"orderId": "legacy-order-1"})
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
+
+	suite.stopBinary(t)
+	suite.startBinary(t)
+	suite.waitForGRPCServer(t)
+	suite.createGRPCClient(t)
+
+	afterRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
+	requireSamePosition(t, beforeRestart.DefinitionPosition, afterRestart.DefinitionPosition)
+	requireSamePosition(t, beforeRestart.StatusPosition, afterRestart.StatusPosition)
+	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
+}
+
+type boundaryCatalogEventCounts struct {
+	imported  int
+	activated int
+}
+
+func seedLegacyPostgresBoundary(t *testing.T, suite *E2ETestSuite, boundary, schema string) {
+	t.Helper()
+	db, err := sql.Open("pgx", fmt.Sprintf(
+		"host=%s port=%s user=postgres password=postgres dbname=orisun sslmode=disable",
+		suite.postgresHost,
+		suite.postgresPort,
+	))
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, db.PingContext(suite.ctx))
+	require.NoError(t, pgbackend.RunDbScripts(db, boundary, schema, false, suite.ctx))
+
+	logger, err := logging.ZapLogger("error")
+	require.NoError(t, err)
+	saver := pgbackend.NewPostgresSaveEvents(
+		suite.ctx,
+		db,
+		logger,
+		map[string]config.BoundaryToPostgresSchemaMapping{
+			boundary: {Boundary: boundary, Schema: schema},
+		},
+	)
+	prepared, err := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{{
+		EventId:   uuid.NewString(),
+		EventType: "LegacyOrderOpened",
+		Data:      map[string]any{"orderId": "legacy-order-1"},
+		Metadata:  map[string]any{"source": "legacy-static-boundary"},
+	}})
+	require.NoError(t, err)
+	expected := orisun.NotExistsPosition()
+	_, _, err = saver.SavePrepared(suite.ctx, prepared, boundary, &expected, nil)
+	require.NoError(t, err)
+}
+
+func seedLegacySQLiteBoundary(t *testing.T, suite *E2ETestSuite, boundary string) {
+	t.Helper()
+	pools, err := sqlitebackend.OpenBoundaryPools(suite.ctx, suite.sqliteDir, boundary, "orisun_admin")
+	require.NoError(t, err)
+	defer pools.Close()
+
+	conn, err := pools.Write.Take(suite.ctx)
+	require.NoError(t, err)
+	defer pools.Write.Put(conn)
+	require.NoError(t, sqlitex.Execute(conn,
+		`INSERT INTO orisun_es_event (transaction_id, global_id, event_id, data, metadata)
+		 VALUES (?, ?, ?, ?, ?)`,
+		&sqlitex.ExecOptions{Args: []any{
+			int64(1),
+			int64(1),
+			uuid.NewString(),
+			`{"eventType":"LegacyOrderOpened","orderId":"legacy-order-1"}`,
+			`{"source":"legacy-static-boundary"}`,
+		}},
+	))
+	require.NoError(t, sqlitex.Execute(conn, "UPDATE orisun_es_seq SET next_id = 2 WHERE id = 1", nil))
+}
+
+func requireImportedActiveBoundary(
+	t *testing.T,
+	suite *E2ETestSuite,
+	ctx context.Context,
+	boundary,
+	backend,
+	namespace string,
+) *pb.BoundaryInfo {
+	t.Helper()
+	adminClient := pb.NewAdminClient(suite.grpcConn)
+	var info *pb.BoundaryInfo
+	require.Eventually(t, func() bool {
+		response, err := adminClient.GetBoundary(ctx, &pb.GetBoundaryRequest{Name: boundary})
+		if err != nil || response.Boundary == nil {
+			return false
+		}
+		info = response.Boundary
+		return info.Status == pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
+	}, 10*time.Second, 25*time.Millisecond)
+	require.Equal(t, boundary, info.Name)
+	require.Equal(t, pb.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED, info.Origin)
+	require.Equal(t, backend, info.Placement.Backend)
+	require.Equal(t, namespace, info.Placement.Namespace)
+	require.NotNil(t, info.DefinitionPosition)
+	require.NotNil(t, info.StatusPosition)
+	return info
+}
+
+func catalogEventCounts(
+	t *testing.T,
+	suite *E2ETestSuite,
+	ctx context.Context,
+	boundary string,
+) boundaryCatalogEventCounts {
+	t.Helper()
+	response, err := suite.eventStoreClient.GetEvents(ctx, &pb.GetEventsRequest{
+		Boundary:  "orisun_admin",
+		Count:     100,
+		Direction: pb.Direction_ASC,
+	})
+	require.NoError(t, err)
+	counts := boundaryCatalogEventCounts{}
+	for _, event := range response.Events {
+		var data struct {
+			Boundary string `json:"boundary"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(event.Data), &data))
+		if data.Boundary != boundary {
+			continue
+		}
+		switch event.EventType {
+		case adminevents.EventTypeBoundaryImported:
+			counts.imported++
+		case adminevents.EventTypeBoundaryActivated:
+			counts.activated++
+		}
+	}
+	return counts
+}
+
+func appendBoundaryEvent(
+	t *testing.T,
+	suite *E2ETestSuite,
+	ctx context.Context,
+	boundary,
+	eventType string,
+	data map[string]any,
+) {
+	t.Helper()
+	dataJSON, err := json.Marshal(data)
+	require.NoError(t, err)
+	_, err = suite.eventStoreClient.SaveEvents(ctx, &pb.SaveEventsRequest{
+		Boundary: boundary,
+		Events: []*pb.EventToSave{{
+			EventId:   uuid.NewString(),
+			EventType: eventType,
+			Data:      string(dataJSON),
+			Metadata:  `{"source":"catalog-migration-e2e"}`,
+		}},
+	})
+	require.NoError(t, err)
+}
+
+func requireBoundaryEventTypes(
+	t *testing.T,
+	suite *E2ETestSuite,
+	ctx context.Context,
+	boundary string,
+	expected ...string,
+) {
+	t.Helper()
+	response, err := suite.eventStoreClient.GetEvents(ctx, &pb.GetEventsRequest{
+		Boundary:  boundary,
+		Count:     100,
+		Direction: pb.Direction_ASC,
+	})
+	require.NoError(t, err)
+	actual := make([]string, len(response.Events))
+	for i, event := range response.Events {
+		actual[i] = event.EventType
+	}
+	require.Equal(t, expected, actual)
+}
+
+func requireSamePosition(t *testing.T, before, after *pb.Position) {
+	t.Helper()
+	require.NotNil(t, before)
+	require.NotNil(t, after)
+	require.Equal(t, before.CommitPosition, after.CommitPosition)
+	require.Equal(t, before.PreparePosition, after.PreparePosition)
+}
+
+func TestE2E_SQLite_CreateBoundary(t *testing.T) {
+	suite := setupSQLiteE2ETest(t)
+	defer suite.teardown(t)
+
+	ctx := createAuthenticatedContext("admin", "changeit")
+	adminClient := pb.NewAdminClient(suite.grpcConn)
+	created, err := adminClient.CreateBoundary(ctx, &pb.CreateBoundaryRequest{
+		Name:        "dynamic_sales",
+		Description: "Dynamic SQLite boundary",
+		Placement:   &pb.BoundaryPlacementInput{Backend: "sqlite", Namespace: "dynamic_sales"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING, created.Boundary.Status)
+
+	require.Eventually(t, func() bool {
+		response, getErr := adminClient.GetBoundary(ctx, &pb.GetBoundaryRequest{Name: "dynamic_sales"})
+		return getErr == nil && response.Boundary.Status == pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
+	}, 5*time.Second, 25*time.Millisecond)
+
+	_, err = suite.eventStoreClient.SaveEvents(ctx, &pb.SaveEventsRequest{
+		Boundary: "dynamic_sales",
+		Events: []*pb.EventToSave{{
+			EventId: uuid.NewString(), EventType: "SaleOpened", Data: `{"sale_id":"1"}`, Metadata: `{}`,
+		}},
+	})
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(suite.sqliteDir, "dynamic_sales.db"))
+}
+
 func TestE2E_OptimisticConcurrency(t *testing.T) {
 	suite := setupE2ETest(t)
 	defer suite.teardown(t)
@@ -396,7 +700,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 	ctx := createAuthenticatedContext("admin", "changeit")
 
 	// Save first event
-	expectedPosition := orisun.NotExistsPosition()
+	expectedPosition := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	firstSaveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
@@ -421,7 +725,7 @@ func TestE2E_OptimisticConcurrency(t *testing.T) {
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
 			ExpectedPosition: &expectedPosition,
-			SubsetQuery: &orisun.Query{
+			SubsetQuery: &pb.Query{
 				Criteria: []*pb.Criterion{
 					{
 						Tags: []*pb.Tag{
@@ -475,7 +779,7 @@ func TestE2E_MultipleBoundaries(t *testing.T) {
 	// Save events in different boundaries
 	boundaries := []string{"orisun_test_1", "orisun_test_2"}
 
-	expectedPosition := orisun.NotExistsPosition()
+	expectedPosition := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	for i, boundary := range boundaries {
 		saveReq := &pb.SaveEventsRequest{
 			Boundary: boundary,
@@ -522,7 +826,7 @@ func TestE2E_CatchUpSubscribeToEvents(t *testing.T) {
 	defer cancel()
 
 	// Save events first
-	expectedPosition := orisun.NotExistsPosition()
+	expectedPosition := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{
@@ -616,7 +920,7 @@ func TestE2E_PostgresLiveSubscribeToEvents(t *testing.T) {
 	// write-after-subscribe path for the Postgres backend.
 	time.Sleep(2 * time.Second)
 
-	expectedPosition := orisun.NotExistsPosition()
+	expectedPosition := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	saveReq := &pb.SaveEventsRequest{
 		Boundary: "orisun_test_1",
 		Query: &pb.SaveQuery{

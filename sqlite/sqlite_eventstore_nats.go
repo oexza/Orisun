@@ -24,11 +24,26 @@ func InitializeSqliteDatabase(
 	js jetstream.JetStream,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
+	runtime, err := InitializeSqliteDatabaseRuntime(ctx, sqliteCfg, adminCfg, boundaries, js, logger)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
+	return runtime.SaveEvents, runtime.GetEvents, runtime.LockProvider, runtime.AdminDB, runtime.EventPublishing, runtime.SignalProvider, nil
+}
+
+func InitializeSqliteDatabaseRuntime(
+	ctx context.Context,
+	sqliteCfg config.SqliteConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	js jetstream.JetStream,
+	logger logging.Logger,
+) (*DatabaseRuntime, error) {
 	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init lock provider: %w", err)
+		return nil, fmt.Errorf("init lock provider: %w", err)
 	}
-	return InitializeSqliteDatabaseWithLockProvider(
+	return InitializeSqliteDatabaseRuntimeWithLockProvider(
 		ctx, sqliteCfg, adminCfg, boundaries, lockProvider, logger,
 	)
 }

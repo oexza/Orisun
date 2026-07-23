@@ -112,6 +112,7 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
     links: [
       ['Tutorial', '/docs/tutorial', 'Build a two-account ledger and live projector.'],
       ['EventStore API', '/docs/api/eventstore', 'Save, query, subscribe, and manage indexes.'],
+      ['Admin API', '/docs/api/admin', 'Create, import, and inspect event-backed boundaries.'],
       ['Client libraries', '/docs/api/clients', 'Integrate with Go, Node.js, Java, or grpcurl.'],
     ],
   },
@@ -141,17 +142,11 @@ await client.saveEvents({
   events,
 });`;
 
-const dockerExample = `export ORISUN_BOUNDARIES='[
-  {"name":"orders"},
-  {"name":"orisun_admin"}
-]'
-
-docker run --rm \\
+const dockerExample = `docker run --rm \\
   -p 5005:5005 \\
   -e ORISUN_BACKEND=sqlite \\
   -e ORISUN_SQLITE_DIR=/var/lib/orisun/sqlite \\
   -e ORISUN_NATS_CLUSTER_ENABLED=false \\
-  -e ORISUN_BOUNDARIES \\
   -e ORISUN_ADMIN_BOUNDARY=orisun_admin \\
   -v orisun-data:/var/lib/orisun \\
   orisunlabs/orisun:0.6.1-sqlite`;
@@ -341,6 +336,8 @@ export default function Home(): ReactNode {
                 Command Context Consistency starts with the application decision. Dynamic
                 Consistency Boundary terminology describes the same operation from the event-store
                 side: query a dynamic set, remember its position, then append only if it is unchanged.
+                Define and activate the application boundary through the Admin API before entering
+                this command loop.
               </p>
               <div className={styles.mechanismLinks}>
                 <Link to="/docs/concepts/command-context-consistency">Understand CCC</Link>
@@ -372,6 +369,7 @@ export default function Home(): ReactNode {
               </p>
               <ul>
                 <li>Transactional event writes and context checks</li>
+                <li>Runtime boundary creation through a durable event-backed catalog</li>
                 <li>Durable per-boundary publisher checkpoints</li>
                 <li>Storage-backed catch-up before live delivery</li>
                 <li>gRPC, auth, indexes, telemetry, and admin APIs</li>

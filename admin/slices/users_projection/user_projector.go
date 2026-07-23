@@ -2,11 +2,12 @@ package users_projection
 
 import (
 	"context"
-	"github.com/goccy/go-json"
 	ev "github.com/OrisunLabs/Orisun/admin/events"
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
+	"github.com/goccy/go-json"
 	"time"
 )
 
@@ -64,64 +65,64 @@ func (p *UserProjector) Start(ctx context.Context) error {
 		return err
 	}
 
-	stream := orisun.NewMessageHandler[orisun.Event](ctx)
-
-	go func() {
-		if p.logger.IsDebugEnabled() {
-			p.logger.Debugf("Receiving events for: %s", projectorName)
+	var afterPosition *coreeventstore.Position
+	if pos != nil {
+		afterPosition = &coreeventstore.Position{
+			CommitPosition:  pos.CommitPosition,
+			PreparePosition: pos.PreparePosition,
 		}
+	}
 
-		for {
-			event, err := stream.Recv()
-			if err != nil {
-				p.logger.Error("Error receiving event: %v", err)
-				continue
+	return p.subscribeToEvents(
+		ctx,
+		coreeventstore.SubscribeRequest{
+			Boundary:       p.boundary,
+			SubscriberName: projectorName,
+			AfterPosition:  afterPosition,
+		},
+		func(ctx context.Context, event coreeventstore.ReadEvent) error {
+			if p.logger.IsDebugEnabled() {
+				p.logger.Debugf("Receiving events for: %s", projectorName)
 			}
 
 			for {
 				if err := p.handleEvent(event); err != nil {
 					p.logger.Error("Error handling event: %v", err)
 
-					time.Sleep(5 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(5 * time.Second):
+					}
 					continue
 				}
 
-				var pos = orisun.Position{
+				position := orisun.Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,
 				}
 
-				// Update checkpoint
 				err := p.updateProjectorPosition(
 					projectorName,
-					&pos,
+					&position,
 				)
 
 				if err != nil {
 					p.logger.Error("Error updating checkpoint: %v", err)
-					time.Sleep(5 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(5 * time.Second):
+					}
 					continue
 				}
-				break
+				return nil
 			}
-		}
-	}()
-	// Subscribe from last checkpoint
-	err = p.subscribeToEvents(
-		ctx,
-		p.boundary,
-		projectorName,
-		pos,
-		nil,
-		stream,
+		},
 	)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
-func (p *UserProjector) handleEvent(event *orisun.Event) error {
+func (p *UserProjector) handleEvent(event coreeventstore.ReadEvent) error {
 	if p.logger.IsDebugEnabled() {
 		p.logger.Debugf("Handling event %v", event)
 	}

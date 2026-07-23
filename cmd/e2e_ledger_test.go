@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/OrisunLabs/Orisun/orisun"
+	pb "github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 // runLedgerWorkload drives a double-entry general ledger — the canonical CCC
@@ -130,7 +130,7 @@ func runLedgerWorkloadWithConfig(t *testing.T, suite *E2ETestSuite, cfg ledgerWo
 	}
 
 	// Seed accounts: consistency context "this account is still empty".
-	notExists := pb.NotExistsPosition()
+	notExists := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	for i := 0; i < cfg.accounts; i++ {
 		_, err := client.SaveEvents(ctx, &pb.SaveEventsRequest{
 			Boundary: boundary,

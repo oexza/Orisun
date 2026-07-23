@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// readEventPosition rebuilds a protobuf Position from packed scalar fields for
+// readEventPosition rebuilds a Position from packed scalar fields for
 // cursor tracking and comparePositions in tests.
 func readEventPosition(e eventstore.ReadEvent) *eventstore.Position {
 	return &eventstore.Position{

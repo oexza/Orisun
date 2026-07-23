@@ -4,21 +4,29 @@ import (
 	"context"
 	"fmt"
 
-	natsgo "github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
+	boundarycatalog "github.com/OrisunLabs/Orisun/admin/slices/boundary_catalog"
+	boundaryprovisioning "github.com/OrisunLabs/Orisun/admin/slices/boundary_provisioning"
+	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
+	importboundary "github.com/OrisunLabs/Orisun/admin/slices/import_boundary"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	c "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/eventstoreadapter"
 	l "github.com/OrisunLabs/Orisun/logging"
 	natsruntime "github.com/OrisunLabs/Orisun/nats"
 	"github.com/OrisunLabs/Orisun/orisun"
 	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Store struct {
 	*orisun.OrisunServer
 
-	indexManager orisun.BoundaryIndexManager
-	cancel       context.CancelFunc
-	natsRuntime  *natsruntime.Runtime
+	indexManager   orisun.BoundaryIndexManager
+	adminBoundary  string
+	boundaryEvents *eventstoreadapter.Adapter
+	cancel         context.CancelFunc
+	natsRuntime    *natsruntime.Runtime
 }
 
 type StartOption func(*startOptions)
@@ -66,11 +74,17 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 	js := natsRuntime.JetStream
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
+	boundaries, err := sqlitebackend.DiscoverBoundaryNames(config.Sqlite, config.Admin.Boundary)
+	if err != nil {
+		cancel()
+		natsRuntime.Close()
+		return nil, err
+	}
+	runtime, err := sqlitebackend.InitializeSqliteDatabaseRuntime(
 		runCtx,
 		config.Sqlite,
 		config.Admin,
-		config.GetBoundaryNames(),
+		boundaries,
 		js,
 		logger,
 	)
@@ -80,28 +94,131 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 
-	store, err := orisun.NewOrisunServer(runCtx, saveEvents, getEvents, lockProvider, js, config.GetBoundaryNames(), logger)
+	store, err := orisun.NewOrisunServer(runCtx, runtime.SaveEvents, runtime.GetEvents, runtime.LockProvider, js, boundaries, logger)
 	if err != nil {
 		cancel()
 		natsRuntime.Close()
 		return nil, err
 	}
+	if err := store.EnableBoundaryActivationGate(config.Admin.Boundary); err != nil {
+		cancel()
+		natsRuntime.Close()
+		return nil, err
+	}
+	boundaryEvents := eventstoreadapter.New(runtime.SaveEvents, runtime.GetEvents, store.SubscribeToEvents)
 
-	orisun.StartEventPolling(runCtx, config, lockProvider, getEvents, js, eventPublishing, signalProvider, logger)
+	pollingManager := orisun.StartEventPolling(
+		runCtx, config, boundaries, runtime.LockProvider, runtime.GetEvents, js,
+		runtime.EventPublishing, runtime.SignalProvider, logger,
+	)
+	provisionBoundary := func(provisionCtx context.Context, definition boundarymodel.Definition) error {
+		if err := runtime.ProvisionBoundary(provisionCtx, definition); err != nil {
+			return err
+		}
+		if err := store.EnsureBoundary(provisionCtx, definition.Name); err != nil {
+			return err
+		}
+		return pollingManager.StartBoundary(definition.Name)
+	}
+	handler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
+		config.Admin.Boundary,
+		boundaryEvents,
+		boundaryEvents,
+		provisionBoundary,
+		store.ActivateBoundary,
+	)
+	reconciliation, err := importboundary.ReconcileLegacyBoundaries(
+		runCtx,
+		sqlitebackend.LegacyBoundaryDefinitions(boundaries),
+		config.Admin.Boundary,
+		boundaryEvents,
+		boundaryEvents,
+	)
+	if err != nil {
+		cancel()
+		natsRuntime.Close()
+		return nil, fmt.Errorf("migrate SQLite boundaries into catalog: %w", err)
+	}
+	logger.Infof(
+		"Boundary catalog migration completed: imported=%d existing=%d",
+		len(reconciliation.Imported),
+		len(reconciliation.Existing),
+	)
+	subscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
+		config.Admin.Boundary,
+		boundaryEvents,
+		boundaryEvents.Subscribe,
+		handler.Handle,
+		logger,
+	)
+	if err := subscriber.Replay(runCtx); err != nil {
+		cancel()
+		natsRuntime.Close()
+		return nil, fmt.Errorf("replay boundary catalog into embedded SQLite runtime: %w", err)
+	}
+	go subscriber.Run(runCtx)
 
 	return &Store{
-		OrisunServer: store,
-		indexManager: adminDB,
-		cancel:       cancel,
-		natsRuntime:  natsRuntime,
+		OrisunServer:   store,
+		indexManager:   runtime.AdminDB,
+		adminBoundary:  config.Admin.Boundary,
+		boundaryEvents: boundaryEvents,
+		cancel:         cancel,
+		natsRuntime:    natsRuntime,
 	}, nil
 }
 
+func (s *Store) CreateBoundary(ctx context.Context, definition boundarymodel.Definition) (boundarymodel.Boundary, error) {
+	result, err := createboundary.CreateBoundaryCommandHandler(
+		ctx,
+		createboundary.CreateBoundaryCommand{
+			Name: definition.Name, Description: definition.Description, Placement: definition.Placement,
+			Metadata: createboundary.CommandMetadata{"source": "embedded_sqlite", "operation": "create_boundary"},
+		},
+		s.adminBoundary,
+		s.boundaryEvents,
+		s.boundaryEvents,
+	)
+	return result.Boundary, err
+}
+
+func (s *Store) ImportBoundary(ctx context.Context, definition boundarymodel.Definition) (boundarymodel.Boundary, error) {
+	result, err := importboundary.ImportBoundaryCommandHandler(
+		ctx,
+		importboundary.ImportBoundaryCommand{
+			Name: definition.Name, Description: definition.Description, Placement: definition.Placement,
+			Metadata: importboundary.CommandMetadata{"source": "embedded_sqlite", "operation": "import_boundary"},
+		},
+		s.adminBoundary,
+		s.boundaryEvents,
+		s.boundaryEvents,
+	)
+	return result.Boundary, err
+}
+
+func (s *Store) ListBoundaries(ctx context.Context) ([]boundarymodel.Boundary, error) {
+	return boundarycatalog.ListBoundariesQueryHandler(
+		ctx, boundarycatalog.ListBoundariesQuery{}, s.adminBoundary, s.boundaryEvents,
+	)
+}
+
+func (s *Store) GetBoundary(ctx context.Context, name string) (boundarymodel.Boundary, error) {
+	return boundarycatalog.GetBoundaryQueryHandler(
+		ctx, boundarycatalog.GetBoundaryQuery{Name: name}, s.adminBoundary, s.boundaryEvents,
+	)
+}
+
 func (s *Store) CreateBoundaryIndex(ctx context.Context, boundary, name string, fields []orisun.BoundaryIndexField, conditions []orisun.BoundaryIndexCondition, combinator string) error {
+	if err := s.RequireBoundaryActive(boundary); err != nil {
+		return err
+	}
 	return s.indexManager.CreateBoundaryIndex(ctx, boundary, name, fields, conditions, combinator)
 }
 
 func (s *Store) DropBoundaryIndex(ctx context.Context, boundary, name string) error {
+	if err := s.RequireBoundaryActive(boundary); err != nil {
+		return err
+	}
 	return s.indexManager.DropBoundaryIndex(ctx, boundary, name)
 }
 

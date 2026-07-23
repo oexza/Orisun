@@ -4,9 +4,9 @@ import (
 	"context"
 	ev "github.com/OrisunLabs/Orisun/admin/events"
 	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
-	eventstore "github.com/OrisunLabs/Orisun/orisun"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -61,74 +61,70 @@ func NewUserCountProjection(
 }
 
 func (p *UserCountEventHandler) Start(ctx context.Context) error {
-	stream := orisun.NewMessageHandler[eventstore.Event](ctx)
-
 	// Get last checkpoint
 	pos, err := p.getProjectorLastPosition(projectorName)
 	if err != nil {
 		return err
 	}
 
-	go func() {
-		for {
-			if ctx.Err() != nil {
-				return
-			}
+	var afterPosition *coreeventstore.Position
+	if pos != nil {
+		afterPosition = &coreeventstore.Position{
+			CommitPosition:  pos.CommitPosition,
+			PreparePosition: pos.PreparePosition,
+		}
+	}
 
-			if p.logger.IsDebugEnabled() {
-				p.logger.Debugf("Receiving events for: %s", "users_count_projection")
-			}
-			event, err := stream.Recv()
-			if err != nil {
-				p.logger.Error("Error receiving event: %v", err)
-				continue
-			}
-
+	return p.subscribeToEventStore(
+		ctx,
+		coreeventstore.SubscribeRequest{
+			Boundary:       p.boundary,
+			SubscriberName: projectorName,
+			AfterPosition:  afterPosition,
+		},
+		func(ctx context.Context, event coreeventstore.ReadEvent) error {
 			for {
+				if p.logger.IsDebugEnabled() {
+					p.logger.Debugf("Receiving events for: %s", "users_count_projection")
+				}
+
 				if err := p.Project(ctx, event); err != nil {
 					p.logger.Error("Error handling event: %v", err)
 
-					time.Sleep(5 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(5 * time.Second):
+					}
 					continue
 				}
 
-				var pos = eventstore.Position{
+				position := orisun.Position{
 					CommitPosition:  event.Position.CommitPosition,
 					PreparePosition: event.Position.PreparePosition,
 				}
 
-				// Update checkpoint
 				err := p.updateProjectorPosition(
 					projectorName,
-					&pos,
+					&position,
 				)
 
 				if err != nil {
 					p.logger.Error("Error updating checkpoint: %v", err)
-					time.Sleep(5 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(5 * time.Second):
+					}
 					continue
 				}
-				break
+				return nil
 			}
-		}
-	}()
-
-	err = p.subscribeToEventStore(
-		ctx,
-		p.boundary,
-		projectorName,
-		pos,
-		nil,
-		stream,
+		},
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
-func (p *UserCountEventHandler) Project(ctx context.Context, event *eventstore.Event) error {
+func (p *UserCountEventHandler) Project(ctx context.Context, event coreeventstore.ReadEvent) error {
 	switch event.EventType {
 	case ev.EventTypeUserCreated:
 		{

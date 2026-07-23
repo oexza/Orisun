@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -67,6 +68,9 @@ func NewOrisunServer(
 // SaveEvents saves a batch of events to the event store
 func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags, boundary string,
 	expectedPosition *Position, streamSubSet *Query) (*Position, error) {
+	if err := c.RequireBoundaryActive(boundary); err != nil {
+		return nil, err
+	}
 	prepared, prepareErr := PrepareEventsForSave(events)
 	if prepareErr != nil {
 		return nil, fmt.Errorf("failed to prepare events: %w", prepareErr)
@@ -92,6 +96,12 @@ func (c *OrisunServer) SaveEvents(ctx context.Context, events []EventWithMapTags
 
 // GetEvents retrieves events from the event store based on the request.
 func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (ReadEventBatch, error) {
+	if req == nil {
+		return nil, fmt.Errorf("get events request is required")
+	}
+	if err := c.RequireBoundaryActive(req.Boundary); err != nil {
+		return nil, err
+	}
 	batch, err := c.getEvents.GetBatch(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get events: %w", err)
@@ -104,6 +114,9 @@ func (c *OrisunServer) GetEvents(ctx context.Context, req *GetEventsRequest) (Re
 // read snapshot, plus the max observed position as the optimistic-lock token
 // for the combined context.
 func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, query LatestByCriteriaQuery) (LatestByCriteriaBatch, error) {
+	if err := c.RequireBoundaryActive(query.Boundary); err != nil {
+		return LatestByCriteriaBatch{}, err
+	}
 	batch, err := c.getEvents.GetLatestByCriteria(ctx, query)
 	if err != nil {
 		return LatestByCriteriaBatch{}, fmt.Errorf("failed to get latest by criteria: %w", err)
@@ -115,21 +128,50 @@ func (c *OrisunServer) GetLatestByCriteria(ctx context.Context, query LatestByCr
 // SubscribeToEvents subscribes to events from a boundary with the given handler
 func (c *OrisunServer) SubscribeToEvents(
 	ctx context.Context,
-	boundary string,
-	subscriberName string,
-	afterPosition *Position, query *Query,
-	handler *MessageHandler[Event],
+	request coreeventstore.SubscribeRequest,
+	handler coreeventstore.EventHandler,
 ) error {
 
 	// Subscribe to events
 	return c.eventStore.SubscribeToAllEvents(
 		ctx,
-		boundary,
-		subscriberName,
-		afterPosition,
-		query,
+		request,
 		handler,
 	)
+}
+
+// EnsureBoundary prepares the real-time stream for a newly provisioned
+// boundary. Durable backend creation remains the backend adapter's concern.
+func (c *OrisunServer) EnsureBoundary(ctx context.Context, boundary string) error {
+	if c == nil || c.eventStore == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	return c.eventStore.EnsureBoundary(ctx, boundary)
+}
+
+// EnableBoundaryActivationGate makes public operations require an ACTIVE
+// boundary catalog state. The admin boundary is supplied during bootstrap.
+func (c *OrisunServer) EnableBoundaryActivationGate(initiallyActive ...string) error {
+	if c == nil || c.eventStore == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	return c.eventStore.EnableBoundaryActivationGate(initiallyActive...)
+}
+
+// ActivateBoundary exposes a durably activated boundary to public operations.
+func (c *OrisunServer) ActivateBoundary(_ context.Context, boundary string) error {
+	if c == nil || c.eventStore == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	return c.eventStore.ActivateBoundary(boundary)
+}
+
+// RequireBoundaryActive validates a boundary against the local catalog gate.
+func (c *OrisunServer) RequireBoundaryActive(boundary string) error {
+	if c == nil || c.eventStore == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	return c.eventStore.RequireBoundaryActive(boundary)
 }
 
 // Helper function to parse int64 from string

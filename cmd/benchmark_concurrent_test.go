@@ -89,8 +89,8 @@ func BenchmarkConcurrentSaveEvents(b *testing.B) {
 
 							_, err := cb.client.SaveEvents(
 								cb.authCtx,
-								&orisun.SaveEventsRequest{
-									Events:   []*orisun.EventToSave{event},
+								&grpcapi.SaveEventsRequest{
+									Events:   []*grpcapi.EventToSave{event},
 									Boundary: testBoundary,
 								},
 							)
@@ -207,8 +207,8 @@ func BenchmarkConcurrentWithBatching(b *testing.B) {
 
 							_, err := cb.client.SaveEvents(
 								cb.authCtx,
-								&orisun.SaveEventsRequest{
-									Events:   []*orisun.EventToSave{event},
+								&grpcapi.SaveEventsRequest{
+									Events:   []*grpcapi.EventToSave{event},
 									Boundary: testBoundary,
 								},
 							)
@@ -247,7 +247,6 @@ func (cb *ConcurrentBenchmark) startServer(b *testing.B, enableBatching bool) er
 	os.Setenv("ORISUN_PG_PASSWORD", "postgres")
 	os.Setenv("ORISUN_PG_NAME", "orisun_test")
 	os.Setenv("ORISUN_PG_SCHEMAS", fmt.Sprintf("%s:public,%s:admin", testBoundary, adminBoundary))
-	os.Setenv("ORISUN_BOUNDARIES", fmt.Sprintf(`[{"name":"%s","description":"concurrent benchmark boundary"},{"name":"%s","description":"admin boundary"}]`, testBoundary, adminBoundary))
 	os.Setenv("ORISUN_ADMIN_BOUNDARY", adminBoundary)
 	os.Setenv("ORISUN_NATS_PORT", "14225")
 	os.Setenv("ORISUN_GRPC_PORT", benchmarkPort)
@@ -329,7 +328,7 @@ func (cb *ConcurrentBenchmark) setupClient(b *testing.B) {
 
 	// Setup authentication context - retry until admin user exists
 	for i := 0; i < 30; i++ {
-		pingResp, err := cb.client.Ping(context.Background(), &orisun.PingRequest{})
+		pingResp, err := cb.client.Ping(context.Background(), &grpcapi.PingRequest{})
 		if err == nil && pingResp != nil {
 			b.Logf("Authentication successful on attempt %d", i+1)
 			break
@@ -346,9 +345,9 @@ func (cb *ConcurrentBenchmark) setupClient(b *testing.B) {
 	cb.authCtx = context.WithValue(context.Background(), orisun.UserContextKey, adminUser)
 }
 
-func (cb *ConcurrentBenchmark) createTestEvent(workerID, eventID int) *orisun.EventToSave {
+func (cb *ConcurrentBenchmark) createTestEvent(workerID, eventID int) *grpcapi.EventToSave {
 	eventUUID, _ := uuid.NewV7()
-	return &orisun.EventToSave{
+	return &grpcapi.EventToSave{
 		EventId:   eventUUID.String(),
 		EventType: "ConcurrentTestEvent",
 		Data:      fmt.Sprintf(`{"worker_id":%d,"event_id":%d,"timestamp":%d}`, workerID, eventID, time.Now().Unix()),

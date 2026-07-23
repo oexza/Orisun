@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 )
 
@@ -19,10 +18,7 @@ type AppConfig struct {
 	Postgres     PostgresDBConfig
 	Sqlite       SqliteConfig
 	FoundationDB FoundationDBConfig
-	// Boundaries []Boundary `mapstructure:"boundaries"`
-	Boundaries string
-	boundaries []Boundary
-	Grpc       struct {
+	Grpc         struct {
 		Port                         string
 		EnableReflection             bool
 		ConnectionTimeout            time.Duration
@@ -178,26 +174,36 @@ type BoundaryToPostgresSchemaMapping struct {
 	Boundary string
 }
 
-type Boundary struct {
-	Name        string
-	Description string
-}
-
 func (p *PostgresDBConfig) GetSchemaMapping() map[string]BoundaryToPostgresSchemaMapping {
-	var schmaMaps = strings.Split(p.Schemas, ",")
-	var mappings = make(map[string]BoundaryToPostgresSchemaMapping, len(schmaMaps))
-
-	for _, schema := range schmaMaps {
-		var mapped = strings.Split(schema, ":")
-		if len(mapped) != 2 {
-			panic("Invalid schema mapping " + schema)
-		}
-		mappings[mapped[0]] = BoundaryToPostgresSchemaMapping{
-			Boundary: strings.TrimSpace(mapped[0]),
-			Schema:   strings.TrimSpace(mapped[1]),
-		}
+	mappings, err := parsePostgresSchemaMappings(p.Schemas)
+	if err != nil {
+		panic(err)
 	}
 	return mappings
+}
+
+func parsePostgresSchemaMappings(raw string) (map[string]BoundaryToPostgresSchemaMapping, error) {
+	entries := strings.Split(raw, ",")
+	mappings := make(map[string]BoundaryToPostgresSchemaMapping, len(entries))
+	for _, entry := range entries {
+		parts := strings.SplitN(entry, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid PostgreSQL schema mapping %q (expected boundary:schema)", strings.TrimSpace(entry))
+		}
+		boundary := strings.TrimSpace(parts[0])
+		schema := strings.TrimSpace(parts[1])
+		if err := validateBoundaryName(boundary); err != nil {
+			return nil, fmt.Errorf("invalid boundary in PostgreSQL schema mapping %q: %w", strings.TrimSpace(entry), err)
+		}
+		if err := validateBoundaryName(schema); err != nil {
+			return nil, fmt.Errorf("invalid schema in PostgreSQL schema mapping %q: %w", strings.TrimSpace(entry), err)
+		}
+		if _, duplicate := mappings[boundary]; duplicate {
+			return nil, fmt.Errorf("PostgreSQL boundary %q is mapped more than once", boundary)
+		}
+		mappings[boundary] = BoundaryToPostgresSchemaMapping{Boundary: boundary, Schema: schema}
+	}
+	return mappings, nil
 }
 
 // nats
@@ -255,37 +261,11 @@ func LoadConfig() (AppConfig, error) {
 		return AppConfig{}, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	if err := config.ParseBoundaries(); err != nil {
-		return AppConfig{}, fmt.Errorf("failed to parse boundaries: %w", err)
-	}
-
 	err := validateConfig(config)
 	if err != nil {
 		return AppConfig{}, err
 	}
 	return config, nil
-}
-
-func (c *AppConfig) ParseBoundaries() error {
-	if c.Boundaries == "" {
-		return fmt.Errorf("No boudaries defined") // No boundaries defined
-	}
-
-	fmt.Printf("boundaries are %s\n", c.Boundaries)
-	return json.Unmarshal([]byte(c.Boundaries), &c.boundaries)
-}
-
-func (c *AppConfig) GetBoundaries() *[]Boundary {
-
-	return &c.boundaries
-}
-
-func (c *AppConfig) GetBoundaryNames() []string {
-	var boundariesArray []string
-	for _, boundary := range *c.GetBoundaries() {
-		boundariesArray = append(boundariesArray, boundary.Name)
-	}
-	return boundariesArray
 }
 
 // BackendType returns the configured backend, defaulting to "postgres" if unset.
@@ -328,19 +308,17 @@ func validateConfig(config AppConfig) error {
 		return fmt.Errorf("unknown postgres dialect %q (expected 'postgres' or 'yugabyte')", config.Postgres.Dialect)
 	}
 
-	isAdminBoundaryDefined := false
-	for _, boundary := range config.boundaries {
-		if boundary.Name == config.Admin.Boundary {
-			isAdminBoundaryDefined = true
-		}
-		// Validate boundary name is a valid PostgreSQL identifier
-		if err := validateBoundaryName(boundary.Name); err != nil {
-			return fmt.Errorf("invalid boundary name '%s': %w", boundary.Name, err)
-		}
+	if err := validateBoundaryName(config.Admin.Boundary); err != nil {
+		return fmt.Errorf("invalid admin boundary name %q: %w", config.Admin.Boundary, err)
 	}
-	if !isAdminBoundaryDefined {
-		return fmt.Errorf("admin boundary not defined")
-
+	if config.BackendType() == "postgres" {
+		mappings, err := parsePostgresSchemaMappings(config.Postgres.Schemas)
+		if err != nil {
+			return err
+		}
+		if _, ok := mappings[config.Admin.Boundary]; !ok {
+			return fmt.Errorf("admin boundary %q is missing from ORISUN_PG_SCHEMAS", config.Admin.Boundary)
+		}
 	}
 	return nil
 }

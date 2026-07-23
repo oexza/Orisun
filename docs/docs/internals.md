@@ -25,6 +25,49 @@ To make an observed position a valid *upper bound* for a later check, positions 
 
 The lock is per boundary, not global. Unrelated high-write domains in separate boundaries do not contend. See [Storage Backends](./concepts/storage-backends).
 
+## Boundary definition and provisioning path
+
+Boundary management follows the same event-first rule as application commands:
+
+1. The `create_boundary` or `import_boundary` command slice validates the
+   definition, loads its content-query consistency context, and appends exactly
+   one `BoundaryCreated` or `BoundaryImported` event to the admin boundary.
+2. The RPC or embedded method returns the event-rebuilt boundary in
+   `PROVISIONING`. It does not perform backend DDL or file creation inline.
+3. A boundary-provisioning subscriber consumes the definition event and invokes
+   the runtime's injected provisioning function.
+4. The backend adapter creates or opens physical storage, applies migrations
+   idempotently, installs the boundary in the local EventStore registry, starts
+   its polling publisher, and attaches dynamic projectors.
+5. The provisioning command emits `BoundaryActivated` or
+   `BoundaryProvisioningFailed`. The boundary-catalog query slice rebuilds
+   `ListBoundaries` and `GetBoundary` from these lifecycle events.
+
+Every server process uses its own replay cursor rather than a shared projector
+checkpoint. This is deliberate: each node must install its own registry,
+JetStream stream, and publisher participation even when another node already
+emitted `BoundaryActivated`. Startup performs a durable replay before gRPC is
+exposed, and live subscription gaps trigger another replay.
+
+A failed definition gets an independent exponential-backoff retry loop capped
+at five seconds. Its failure does not stop the global definition cursor or
+prevent later boundaries from activating. Provisioning adapters are idempotent,
+so replay and retry are safe; a conflicting immutable placement fails closed.
+
+Legacy migration feeds the same command path. PostgreSQL mappings, SQLite
+files, and FoundationDB key ranges become `BoundaryImported` events before the
+catalog is replayed into the runtime.
+
+Boundary lifecycle code is kept transport-neutral. Durable lifecycle contracts
+live in `boundary/events`; boundary state lives in `boundary`; and event-store
+positions, queries, reads, and append requests live in `eventstore`. Each slice
+declares only the narrow port used by its handler (`Append`,
+`LatestByCriteria`, `Read`, or `Subscribe`). The server and embedded composition
+roots install one adapter that converts those values to the legacy storage
+interfaces. All generated Go messages, gRPC stubs, and domain↔protobuf mapping
+live in `orisun/grpcapi`. The root `orisun`, embedded, storage, and slice
+packages do not import protobuf or generated transport types.
+
 ## Positions
 
 Every committed event gets a two-part position. See [Positions and Ordering](./concepts/positions) for the usage contract; the internals are:
@@ -48,9 +91,20 @@ This excludes events whose commit is not yet visible to the read snapshot. It is
 
 ### Packed read batches
 
-The paginated `GetEvents` storage path returns rows internally as one contiguous `ReadEventBatch`. Each row carries event strings, scalar position fields, and a `time.Time`, avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on internal consumers. PostgreSQL scans the fixed seven-column result directly instead of discovering columns and constructing a pointer map for each request.
+The paginated `GetEvents` storage path returns rows internally as one contiguous
+batch. Each row carries event strings, a value position, and a `time.Time`,
+avoiding protobuf `Event`, `Position`, and `Timestamp` allocations per row on
+internal consumers. PostgreSQL scans the fixed seven-column result directly
+instead of discovering columns and constructing a pointer map for each request.
 
-`GetLatestByCriteria` likewise uses a protobuf-free `LatestByCriteriaQuery` and returns a contiguous `LatestByCriteriaBatch`; each match contains a `Found` bit and packed `ReadEvent`, aligned by criterion index. The publisher, catch-up subscriptions, and embedded callers consume packed values directly. Only gRPC handlers materialize protobuf responses, using contiguous row slabs plus pointer indexes. Backend read pages are capped at 10,000 rows, the gRPC API rejects larger page requests, and internal drainers advance by position across pages.
+Boundary slices use the dependency-clean `eventstore.ReadRequest`,
+`ReadEventBatch`, `LatestByCriteriaRequest`, and `LatestByCriteriaResult`
+values. Each latest match contains a `Found` bit and packed `ReadEvent`, aligned
+by criterion index. The legacy storage adapter performs the temporary mapping
+to existing backend method signatures. Only transport adapters materialize
+protobuf responses, using contiguous row slabs plus pointer indexes. Backend
+read pages are capped at 10,000 rows, the gRPC API rejects larger page requests,
+and internal drainers advance by position across pages.
 
 ## The publisher and no-miss ordering
 
@@ -84,6 +138,13 @@ Cluster coordination is scoped per boundary, so a boundary failing over does not
 1. **Catch-up** reads committed events after `after_position` from the durable store, ordered by position.
 2. **Live** switches to the JetStream stream for new events.
 
+The shared subscription path delivers transport-neutral
+`eventstore.ReadEvent` values through a synchronous callback. Internal slices
+and embedded callers therefore do not depend on generated messages or gRPC
+stream helpers. Callback completion provides backpressure; a callback error
+terminates the subscription. The external gRPC method retains its streaming
+wire contract by adapting these callback values at the transport boundary.
+
 The full subscription lifetime is guarded by a lock named from the boundary
 and subscriber name. JetStream lock values carry a unique owner token and a
 renewable 15-second expiry. Acquisition, renewal, and release use KV revisions
@@ -100,7 +161,7 @@ The JetStream stream uses in-memory retention (bounded by `ORISUN_NATS_EVENT_STR
 
 | | PostgreSQL | SQLite |
 | --- | --- | --- |
-| Layout | Schema-per-boundary, tables prefixed `{boundary}_orisun_es_event` | One `.db` file per boundary, unprefixed `orisun_es_event` |
+| Layout | Schema placement with boundary-prefixed tables such as `{boundary}_orisun_es_event`; boundaries may share a schema | One `.db` file per boundary, unprefixed `orisun_es_event` |
 | Writers | Concurrent, serialized by per-boundary advisory lock | Single writer per file (`BEGIN IMMEDIATE`) |
 | Cluster | Yes, with a shared database and advisory-lock publisher ownership | No. SQLite is single-node and is rejected at startup if clustering is enabled |
 | Driver | `pgx` | `zombiezen.com/go/sqlite` (pure Go, no CGO) |

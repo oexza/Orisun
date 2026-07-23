@@ -6,13 +6,13 @@ import (
 	logger "log"
 	"runtime"
 
-	"github.com/common-nighthawk/go-figure"
-	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/OrisunLabs/Orisun/config"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"github.com/OrisunLabs/Orisun/server"
 	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func main() {
@@ -39,11 +39,15 @@ func main() {
 }
 
 func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
+	boundaries, err := sqlitebackend.DiscoverBoundaryNames(config.Sqlite, config.Admin.Boundary)
+	if err != nil {
+		return server.Backend{}, err
+	}
+	runtime, err := sqlitebackend.InitializeSqliteDatabaseRuntime(
 		ctx,
 		config.Sqlite,
 		config.Admin,
-		config.GetBoundaryNames(),
+		boundaries,
 		js,
 		logger,
 	)
@@ -51,11 +55,14 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		return server.Backend{}, err
 	}
 	return server.Backend{
-		SaveEvents:      saveEvents,
-		GetEvents:       getEvents,
-		LockProvider:    lockProvider,
-		AdminDB:         adminDB,
-		EventPublishing: eventPublishing,
-		SignalProvider:  signalProvider,
+		SaveEvents:        runtime.SaveEvents,
+		GetEvents:         runtime.GetEvents,
+		LockProvider:      runtime.LockProvider,
+		AdminDB:           runtime.AdminDB,
+		EventPublishing:   runtime.EventPublishing,
+		SignalProvider:    runtime.SignalProvider,
+		ProvisionBoundary: runtime.ProvisionBoundary,
+		InitialBoundaries: boundaries,
+		LegacyBoundaries:  sqlitebackend.LegacyBoundaryDefinitions(boundaries),
 	}, nil
 }

@@ -19,6 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Admin_CreateBoundary_FullMethodName      = "/orisun.Admin/CreateBoundary"
+	Admin_ImportBoundary_FullMethodName      = "/orisun.Admin/ImportBoundary"
+	Admin_ListBoundaries_FullMethodName      = "/orisun.Admin/ListBoundaries"
+	Admin_GetBoundary_FullMethodName         = "/orisun.Admin/GetBoundary"
 	Admin_CreateUser_FullMethodName          = "/orisun.Admin/CreateUser"
 	Admin_DeleteUser_FullMethodName          = "/orisun.Admin/DeleteUser"
 	Admin_ChangePassword_FullMethodName      = "/orisun.Admin/ChangePassword"
@@ -34,6 +38,11 @@ const (
 //
 // Admin service provides user management and administrative operations
 type AdminClient interface {
+	// Boundary Management
+	CreateBoundary(ctx context.Context, in *CreateBoundaryRequest, opts ...grpc.CallOption) (*CreateBoundaryResponse, error)
+	ImportBoundary(ctx context.Context, in *ImportBoundaryRequest, opts ...grpc.CallOption) (*ImportBoundaryResponse, error)
+	ListBoundaries(ctx context.Context, in *ListBoundariesRequest, opts ...grpc.CallOption) (*ListBoundariesResponse, error)
+	GetBoundary(ctx context.Context, in *GetBoundaryRequest, opts ...grpc.CallOption) (*GetBoundaryResponse, error)
 	// User Management
 	CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*CreateUserResponse, error)
 	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*DeleteUserResponse, error)
@@ -52,6 +61,46 @@ type adminClient struct {
 
 func NewAdminClient(cc grpc.ClientConnInterface) AdminClient {
 	return &adminClient{cc}
+}
+
+func (c *adminClient) CreateBoundary(ctx context.Context, in *CreateBoundaryRequest, opts ...grpc.CallOption) (*CreateBoundaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateBoundaryResponse)
+	err := c.cc.Invoke(ctx, Admin_CreateBoundary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminClient) ImportBoundary(ctx context.Context, in *ImportBoundaryRequest, opts ...grpc.CallOption) (*ImportBoundaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImportBoundaryResponse)
+	err := c.cc.Invoke(ctx, Admin_ImportBoundary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminClient) ListBoundaries(ctx context.Context, in *ListBoundariesRequest, opts ...grpc.CallOption) (*ListBoundariesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBoundariesResponse)
+	err := c.cc.Invoke(ctx, Admin_ListBoundaries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminClient) GetBoundary(ctx context.Context, in *GetBoundaryRequest, opts ...grpc.CallOption) (*GetBoundaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBoundaryResponse)
+	err := c.cc.Invoke(ctx, Admin_GetBoundary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *adminClient) CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*CreateUserResponse, error) {
@@ -130,6 +179,11 @@ func (c *adminClient) GetEventCount(ctx context.Context, in *GetEventCountReques
 //
 // Admin service provides user management and administrative operations
 type AdminServer interface {
+	// Boundary Management
+	CreateBoundary(context.Context, *CreateBoundaryRequest) (*CreateBoundaryResponse, error)
+	ImportBoundary(context.Context, *ImportBoundaryRequest) (*ImportBoundaryResponse, error)
+	ListBoundaries(context.Context, *ListBoundariesRequest) (*ListBoundariesResponse, error)
+	GetBoundary(context.Context, *GetBoundaryRequest) (*GetBoundaryResponse, error)
 	// User Management
 	CreateUser(context.Context, *CreateUserRequest) (*CreateUserResponse, error)
 	DeleteUser(context.Context, *DeleteUserRequest) (*DeleteUserResponse, error)
@@ -150,6 +204,18 @@ type AdminServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAdminServer struct{}
 
+func (UnimplementedAdminServer) CreateBoundary(context.Context, *CreateBoundaryRequest) (*CreateBoundaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateBoundary not implemented")
+}
+func (UnimplementedAdminServer) ImportBoundary(context.Context, *ImportBoundaryRequest) (*ImportBoundaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportBoundary not implemented")
+}
+func (UnimplementedAdminServer) ListBoundaries(context.Context, *ListBoundariesRequest) (*ListBoundariesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBoundaries not implemented")
+}
+func (UnimplementedAdminServer) GetBoundary(context.Context, *GetBoundaryRequest) (*GetBoundaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBoundary not implemented")
+}
 func (UnimplementedAdminServer) CreateUser(context.Context, *CreateUserRequest) (*CreateUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser not implemented")
 }
@@ -190,6 +256,78 @@ func RegisterAdminServer(s grpc.ServiceRegistrar, srv AdminServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Admin_ServiceDesc, srv)
+}
+
+func _Admin_CreateBoundary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateBoundaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).CreateBoundary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_CreateBoundary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).CreateBoundary(ctx, req.(*CreateBoundaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Admin_ImportBoundary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportBoundaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).ImportBoundary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_ImportBoundary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).ImportBoundary(ctx, req.(*ImportBoundaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Admin_ListBoundaries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBoundariesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).ListBoundaries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_ListBoundaries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).ListBoundaries(ctx, req.(*ListBoundariesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Admin_GetBoundary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBoundaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServer).GetBoundary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Admin_GetBoundary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServer).GetBoundary(ctx, req.(*GetBoundaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Admin_CreateUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -325,6 +463,22 @@ var Admin_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "orisun.Admin",
 	HandlerType: (*AdminServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateBoundary",
+			Handler:    _Admin_CreateBoundary_Handler,
+		},
+		{
+			MethodName: "ImportBoundary",
+			Handler:    _Admin_ImportBoundary_Handler,
+		},
+		{
+			MethodName: "ListBoundaries",
+			Handler:    _Admin_ListBoundaries_Handler,
+		},
+		{
+			MethodName: "GetBoundary",
+			Handler:    _Admin_GetBoundary_Handler,
+		},
 		{
 			MethodName: "CreateUser",
 			Handler:    _Admin_CreateUser_Handler,

@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
@@ -49,6 +51,7 @@ type Backend struct {
 	db            fdb.Database
 	root          string
 	adminBoundary string
+	boundaryMu    sync.RWMutex
 	boundaries    map[string]struct{}
 	logger        logging.Logger
 	userCacheMu   sync.RWMutex
@@ -109,9 +112,18 @@ func InitializeFoundationDB(
 	for _, boundary := range boundaries {
 		backend.boundaries[boundary] = struct{}{}
 	}
-	if _, ok := backend.boundaries[adminCfg.Boundary]; !ok {
+	discovered, err := discoverBoundaryNames(db, fdbCfg.Root)
+	if err != nil {
 		db.Close()
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("admin boundary %q is not configured", adminCfg.Boundary)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("discover FoundationDB boundaries: %w", err)
+	}
+	for _, boundary := range discovered {
+		backend.boundaries[boundary] = struct{}{}
+	}
+	backend.boundaries[adminCfg.Boundary] = struct{}{}
+	if err := backend.ensureBoundaryMarker(ctx, adminCfg.Boundary); err != nil {
+		db.Close()
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("bootstrap admin boundary: %w", err)
 	}
 
 	// With criteria reads fail-closed, Orisun's own admin slices and the auth
@@ -139,6 +151,31 @@ func InitializeFoundationDB(
 	return backend, backend, lockProvider, backend, backend, signalProvider, closeFn, nil
 }
 
+func InitializeFoundationDBRuntime(
+	ctx context.Context,
+	fdbCfg config.FoundationDBConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	js jetstream.JetStream,
+	logger logging.Logger,
+) (*DatabaseRuntime, error) {
+	saveEvents, getEvents, lockProvider, adminDB, publishing, signalProvider, closeFn, err := InitializeFoundationDB(
+		ctx, fdbCfg, adminCfg, boundaries, js, logger,
+	)
+	if err != nil {
+		return nil, err
+	}
+	backend := saveEvents.(*Backend)
+	return &DatabaseRuntime{
+		SaveEvents: saveEvents, GetEvents: getEvents, LockProvider: lockProvider,
+		AdminDB: adminDB, EventPublishing: publishing, SignalProvider: signalProvider,
+		ProvisionBoundary: backend.ProvisionBoundary,
+		InitialBoundaries: backend.BoundaryNames(),
+		BoundaryNamespace: backend.root,
+		Close:             closeFn,
+	}, nil
+}
+
 func ensureAPIVersion(version int) error {
 	apiOnce.Do(func() {
 		apiErr = fdb.APIVersion(version)
@@ -147,13 +184,16 @@ func ensureAPIVersion(version int) error {
 }
 
 // systemAdminIndexes cover the criteria shapes Orisun's own admin slices and
-// auth projector query on the admin boundary ({eventType, username},
-// {eventType, user_id}, {eventType, userId}). Criteria reads are fail-closed,
-// so these must be ready before the admin service starts.
+// auth and boundary slices query on the admin boundary ({eventType, username},
+// {eventType, user_id}, {eventType, userId}, {eventType, boundary}). Criteria
+// reads are fail-closed, so these must be ready before the admin service starts.
 var systemAdminIndexes = []struct {
 	name   string
 	fields []eventstore.BoundaryIndexField
 }{
+	{"sys_admin_event_type", []eventstore.BoundaryIndexField{
+		{JsonKey: "eventType", ValueType: "text"},
+	}},
 	{"sys_admin_et_username", []eventstore.BoundaryIndexField{
 		{JsonKey: "eventType", ValueType: "text"},
 		{JsonKey: "username", ValueType: "text"},
@@ -165,6 +205,10 @@ var systemAdminIndexes = []struct {
 	{"sys_admin_et_userid", []eventstore.BoundaryIndexField{
 		{JsonKey: "eventType", ValueType: "text"},
 		{JsonKey: "userId", ValueType: "text"},
+	}},
+	{"sys_admin_et_boundary", []eventstore.BoundaryIndexField{
+		{JsonKey: "eventType", ValueType: "text"},
+		{JsonKey: "boundary", ValueType: "text"},
 	}},
 }
 
@@ -1301,8 +1345,60 @@ func (b *Backend) loadIndexes(rt fdb.ReadTransaction, boundary string) ([]indexD
 }
 
 func (b *Backend) checkBoundary(boundary string) error {
+	b.boundaryMu.RLock()
+	defer b.boundaryMu.RUnlock()
 	if _, ok := b.boundaries[boundary]; !ok {
 		return statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
+	}
+	return nil
+}
+
+func (b *Backend) BoundaryNames() []string {
+	b.boundaryMu.RLock()
+	defer b.boundaryMu.RUnlock()
+	names := make([]string, 0, len(b.boundaries))
+	for name := range b.boundaries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (b *Backend) ProvisionBoundary(ctx context.Context, definition boundarymodel.Definition) error {
+	if b == nil {
+		return fmt.Errorf("FoundationDB boundary provisioner is not configured")
+	}
+	if !strings.EqualFold(strings.TrimSpace(definition.Placement.Backend), "foundationdb") {
+		return fmt.Errorf("boundary %s uses unsupported backend %q", definition.Name, definition.Placement.Backend)
+	}
+	if err := boundarymodel.ValidateName(definition.Name); err != nil {
+		return fmt.Errorf("invalid boundary name %s: %w", definition.Name, err)
+	}
+	if strings.TrimSpace(definition.Placement.Namespace) != b.root {
+		return fmt.Errorf("FoundationDB boundary %s must use namespace %q", definition.Name, b.root)
+	}
+	if err := b.ensureBoundaryMarker(ctx, definition.Name); err != nil {
+		return err
+	}
+	b.boundaryMu.Lock()
+	b.boundaries[definition.Name] = struct{}{}
+	b.boundaryMu.Unlock()
+	return nil
+}
+
+func (b *Backend) ensureBoundaryMarker(ctx context.Context, boundary string) error {
+	if err := boundarymodel.ValidateName(boundary); err != nil {
+		return err
+	}
+	_, err := b.db.Transact(func(tr fdb.Transaction) (interface{}, error) {
+		if err := contextStatusErr(ctx); err != nil {
+			return nil, err
+		}
+		tr.Set(b.boundaryMarkerKey(boundary), []byte{1})
+		return nil, nil
+	})
+	if err != nil {
+		return fmt.Errorf("persist FoundationDB boundary %s: %w", boundary, err)
 	}
 	return nil
 }
@@ -1316,6 +1412,10 @@ func (b *Backend) tupleKey(parts ...tuple.TupleElement) fdb.Key {
 
 func (b *Backend) eventPrefix(boundary string) fdb.Key {
 	return b.tupleKey(boundary, "event")
+}
+
+func (b *Backend) boundaryMarkerKey(boundary string) fdb.Key {
+	return b.tupleKey(boundary, "boundary")
 }
 
 // eventVersionstampKey builds an event key whose position is filled in by FDB at
@@ -1502,6 +1602,70 @@ func prefixRange(prefix fdb.Key) fdb.KeyRange {
 		panic(err)
 	}
 	return r
+}
+
+// discoverBoundaryNames walks one key per second-level tuple prefix rather
+// than scanning every event. Marker keys preserve empty dynamically-created
+// boundaries; recognized legacy key kinds recover boundaries created before
+// markers existed.
+func discoverBoundaryNames(db fdb.Database, root string) ([]string, error) {
+	result, err := db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
+		rootRange := prefixRange(fdb.Key(tuple.Tuple{root}.Pack()))
+		begin := rootRange.Begin
+		names := make(map[string]struct{})
+		for {
+			rows, err := rt.GetRange(
+				fdb.KeyRange{Begin: begin, End: rootRange.End},
+				fdb.RangeOptions{Limit: 1},
+			).GetSliceWithError()
+			if err != nil {
+				return nil, err
+			}
+			if len(rows) == 0 {
+				break
+			}
+			parts, err := tuple.Unpack(rows[0].Key)
+			if err != nil {
+				return nil, err
+			}
+			if len(parts) < 2 {
+				begin = fdb.Key(append(append([]byte(nil), rows[0].Key...), 0))
+				continue
+			}
+			boundary, ok := parts[1].(string)
+			if !ok {
+				begin = fdb.Key(append(append([]byte(nil), rows[0].Key...), 0))
+				continue
+			}
+			if len(parts) >= 3 && isBoundaryKeyKind(parts[2]) {
+				names[boundary] = struct{}{}
+			}
+			begin = prefixRange(fdb.Key(tuple.Tuple{root, boundary}.Pack())).End
+		}
+		ordered := make([]string, 0, len(names))
+		for name := range names {
+			ordered = append(ordered, name)
+		}
+		sort.Strings(ordered)
+		return ordered, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]string), nil
+}
+
+func isBoundaryKeyKind(value tuple.TupleElement) bool {
+	kind, ok := value.(string)
+	if !ok {
+		return false
+	}
+	switch kind {
+	case "boundary", "event", "signal", "last_published", "index_meta", "index_epoch", "index", "events_count":
+		return true
+	default:
+		return false
+	}
 }
 
 // keyAfter returns the smallest key strictly greater than key, used as an

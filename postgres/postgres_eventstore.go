@@ -10,6 +10,7 @@ import (
 	"time"
 
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
@@ -39,10 +40,9 @@ set search_path to '%s'
 `
 
 type PostgresSaveEvents struct {
-	db                     *sql.DB
-	logger                 logging.Logger
-	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
-	insertQueries          map[string]string // boundary -> pre-formatted insert SQL
+	db       *sql.DB
+	logger   logging.Logger
+	registry *BoundaryRegistry
 }
 
 func NewPostgresSaveEvents(
@@ -50,56 +50,49 @@ func NewPostgresSaveEvents(
 	db *sql.DB,
 	logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresSaveEvents {
-	queries := make(map[string]string, len(boundarySchemaMappings))
-	for boundary, m := range boundarySchemaMappings {
-		queries[boundary] = fmt.Sprintf(insertEventsWithConsistency, m.Schema)
-	}
+	return NewPostgresSaveEventsWithRegistry(ctx, db, logger, NewBoundaryRegistry(boundarySchemaMappings))
+}
+
+func NewPostgresSaveEventsWithRegistry(ctx context.Context, db *sql.DB, logger logging.Logger, registry *BoundaryRegistry) *PostgresSaveEvents {
 	return &PostgresSaveEvents{
-		db:                     db,
-		logger:                 logger,
-		boundarySchemaMappings: boundarySchemaMappings,
-		insertQueries:          queries,
+		db:       db,
+		logger:   logger,
+		registry: registry,
 	}
 }
 
 func (s *PostgresSaveEvents) Schema(boundary string) (string, error) {
-	schema := s.boundarySchemaMappings[boundary]
-	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
+	entry, ok := s.registry.lookup(boundary)
+	if !ok {
 		return "", errors.New("No schema found for Boundary " + boundary)
 	}
-	return schema.Schema, nil
+	return entry.mapping.Schema, nil
 }
 
 type PostgresGetEvents struct {
-	db                     *sql.DB
-	logger                 logging.Logger
-	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
-	selectQueries          map[string]string // boundary -> pre-formatted select SQL
-	latestQueries          map[string]string // boundary -> pre-formatted latest-by-criteria SQL
+	db       *sql.DB
+	logger   logging.Logger
+	registry *BoundaryRegistry
 }
 
 func (s *PostgresGetEvents) Schema(boundary string) (string, error) {
-	schema := s.boundarySchemaMappings[boundary]
-	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
+	entry, ok := s.registry.lookup(boundary)
+	if !ok {
 		return "", errors.New("No schema found for Boundary " + boundary)
 	}
-	return schema.Schema, nil
+	return entry.mapping.Schema, nil
 }
 
 func NewPostgresGetEvents(db *sql.DB, logger logging.Logger,
 	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresGetEvents {
-	queries := make(map[string]string, len(boundarySchemaMappings))
-	latestQueries := make(map[string]string, len(boundarySchemaMappings))
-	for boundary, m := range boundarySchemaMappings {
-		queries[boundary] = fmt.Sprintf(selectMatchingEvents, m.Schema)
-		latestQueries[boundary] = fmt.Sprintf(selectLatestByCriteria, m.Schema)
-	}
+	return NewPostgresGetEventsWithRegistry(db, logger, NewBoundaryRegistry(boundarySchemaMappings))
+}
+
+func NewPostgresGetEventsWithRegistry(db *sql.DB, logger logging.Logger, registry *BoundaryRegistry) *PostgresGetEvents {
 	return &PostgresGetEvents{
-		db:                     db,
-		logger:                 logger,
-		boundarySchemaMappings: boundarySchemaMappings,
-		selectQueries:          queries,
-		latestQueries:          latestQueries,
+		db:       db,
+		logger:   logger,
+		registry: registry,
 	}
 }
 
@@ -117,10 +110,11 @@ func (s *PostgresSaveEvents) SavePrepared(
 		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "events cannot be empty")
 	}
 
-	schema, err := s.Schema(boundary)
-	if err != nil {
-		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to get schema: %v", err)
+	entry, ok := s.registry.lookup(boundary)
+	if !ok {
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "no schema found for boundary: %s", boundary)
 	}
+	schema := entry.mapping.Schema
 	streamSubsetAsBytes, err := json.Marshal(getStreamSectionAsMap(expectedPosition, streamConsistencyCondition))
 	if err != nil {
 		return "", 0, statuscode.Errorf(statuscode.Internal, "failed to marshal consistency condition: %v", err)
@@ -144,7 +138,7 @@ func (s *PostgresSaveEvents) SavePrepared(
 	// implicit transaction commits.
 	row := s.db.QueryRowContext(
 		ctx,
-		s.insertQueries[boundary],
+		entry.insertEvents,
 		boundary,
 		schema,
 		streamSubsetAsBytes,
@@ -170,10 +164,11 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 		s.logger.Debugf("Getting events from request: %v", req)
 	}
 
-	schema, err := s.Schema(req.Boundary)
-	if err != nil {
+	entry, ok := s.registry.lookup(req.Boundary)
+	if !ok {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "no schema found for boundary: %s", req.Boundary)
 	}
+	schema := entry.mapping.Schema
 	count := req.Count
 	if count == 0 {
 		count = eventstore.DefaultReadBatchSize
@@ -226,7 +221,7 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 	// }
 
 	rows, err := tx.Query(
-		s.selectQueries[req.Boundary],
+		entry.selectEvents,
 		req.Boundary,
 		schema,
 		paramsJSON,
@@ -272,10 +267,11 @@ func (s *PostgresGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEve
 // queries would let an event commit in between with a position below the
 // observed maximum, invisible to a scalar expected-position check.
 func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
-	schema, err := s.Schema(query.Boundary)
-	if err != nil {
+	entry, ok := s.registry.lookup(query.Boundary)
+	if !ok {
 		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "no schema found for boundary: %s", query.Boundary)
 	}
+	schema := entry.mapping.Schema
 	if len(query.Criteria) == 0 {
 		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
 	}
@@ -289,7 +285,7 @@ func (s *PostgresGetEvents) GetLatestByCriteria(ctx context.Context, query event
 		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "failed to marshal criteria: %v", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, s.latestQueries[query.Boundary], query.Boundary, schema, paramsBytes)
+	rows, err := s.db.QueryContext(ctx, entry.selectLatest, query.Boundary, schema, paramsBytes)
 	if err != nil {
 		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.Internal, "failed to execute query: %v", err)
 	}
@@ -380,11 +376,11 @@ func getCriteriaAsList(query *eventstore.Query) []map[string]any {
 }
 
 type PostgresAdminDB struct {
-	db                     *sql.DB
-	logger                 logging.Logger
-	adminSchema            string
-	adminBoundary          string
-	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
+	db            *sql.DB
+	logger        logging.Logger
+	adminSchema   string
+	adminBoundary string
+	registry      *BoundaryRegistry
 
 	// Pre-formatted admin queries (fixed schema/boundary)
 	qListUsers          string
@@ -396,29 +392,19 @@ type PostgresAdminDB struct {
 	qUpsertUser         string
 	qGetUsersCount      string
 	qSaveUsersCount     string
-
-	// Per-boundary event count queries
-	qGetEventCount      map[string]string
-	qFallbackEventCount map[string]string
-	qSaveEventCount     map[string]string
 }
 
 func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string, boundary string, boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresAdminDB {
-	getEventCount := make(map[string]string, len(boundarySchemaMappings))
-	fallbackEventCount := make(map[string]string, len(boundarySchemaMappings))
-	saveEventCount := make(map[string]string, len(boundarySchemaMappings))
-	for b, m := range boundarySchemaMappings {
-		getEventCount[b] = fmt.Sprintf("SELECT event_count FROM %s.%s_events_count limit 1", m.Schema, b)
-		fallbackEventCount[b] = fmt.Sprintf("SELECT COUNT(*) FROM %s.%s_orisun_es_event", m.Schema, b)
-		saveEventCount[b] = fmt.Sprintf("INSERT INTO %s.%s_events_count (id, event_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET event_count = $2, updated_at = $4", m.Schema, b)
-	}
+	return NewPostgresAdminDBWithRegistry(db, logger, schema, boundary, NewBoundaryRegistry(boundarySchemaMappings))
+}
 
+func NewPostgresAdminDBWithRegistry(db *sql.DB, logger logging.Logger, schema string, boundary string, registry *BoundaryRegistry) *PostgresAdminDB {
 	return &PostgresAdminDB{
-		db:                     db,
-		logger:                 logger,
-		adminSchema:            schema,
-		adminBoundary:          boundary,
-		boundarySchemaMappings: boundarySchemaMappings,
+		db:            db,
+		logger:        logger,
+		adminSchema:   schema,
+		adminBoundary: boundary,
+		registry:      registry,
 
 		qListUsers:          fmt.Sprintf("SELECT id, name, username, password_hash, roles FROM %s.%s_users ORDER BY id", schema, boundary),
 		qGetProjectorPos:    fmt.Sprintf("SELECT COALESCE(commit_position, 0), COALESCE(prepare_position, 0) FROM %s.%s_projector_checkpoint where name = $1", schema, boundary),
@@ -429,10 +415,6 @@ func NewPostgresAdminDB(db *sql.DB, logger logging.Logger, schema string, bounda
 		qUpsertUser:         fmt.Sprintf("INSERT INTO %s.%s_users (id, name, username, password_hash, roles) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = $2, username = $3, password_hash = $4, roles = $5, updated_at = $6", schema, boundary),
 		qGetUsersCount:      fmt.Sprintf("SELECT user_count FROM %s.%s_users_count limit 1", schema, boundary),
 		qSaveUsersCount:     fmt.Sprintf("INSERT INTO %s.%s_users_count (id, user_count, created_at, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET user_count = $2, updated_at = $4", schema, boundary),
-
-		qGetEventCount:      getEventCount,
-		qFallbackEventCount: fallbackEventCount,
-		qSaveEventCount:     saveEventCount,
 	}
 }
 
@@ -629,18 +611,18 @@ func (s *PostgresAdminDB) GetUsersCount() (uint32, error) {
 }
 
 func (s *PostgresAdminDB) GetEventsCount(boundary string) (int, error) {
-	q, ok := s.qGetEventCount[boundary]
+	entry, ok := s.registry.lookup(boundary)
 	if !ok {
 		return 0, fmt.Errorf("no schema mapping found for boundary: %s", boundary)
 	}
 
-	rows, err := s.db.Query(q)
+	rows, err := s.db.Query(entry.getEventCount)
 	if err != nil {
 		if s.logger.IsDebugEnabled() {
 			s.logger.Debugf("Event count table query error: %v", err)
 		}
 		var count int
-		err := s.db.QueryRow(s.qFallbackEventCount[boundary]).Scan(&count)
+		err := s.db.QueryRow(entry.fallbackGetEventCount).Scan(&count)
 		if err != nil {
 			s.logger.Errorf("Error getting events count for boundary %s: %v", boundary, err)
 			return 0, err
@@ -688,12 +670,12 @@ func (s *PostgresAdminDB) SaveUsersCount(users_count uint32) error {
 }
 
 func (s *PostgresAdminDB) SaveEventCount(event_count int, boundary string) error {
-	q, ok := s.qSaveEventCount[boundary]
+	entry, ok := s.registry.lookup(boundary)
 	if !ok {
 		return fmt.Errorf("no schema mapping found for boundary: %s", boundary)
 	}
 	_, err := s.db.Exec(
-		q,
+		entry.saveEventCount,
 		eventCountId,
 		strconv.Itoa(event_count),
 		time.Now().UTC(),
@@ -715,11 +697,11 @@ func (db *PostgresAdminDB) CreateBoundaryIndex(
 	conditions []eventstore.BoundaryIndexCondition,
 	combinator string,
 ) error {
-	mapping, ok := db.boundarySchemaMappings[boundary]
+	entry, ok := db.registry.lookup(boundary)
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
-	schema := mapping.Schema
+	schema := entry.mapping.Schema
 
 	if err := validateBoundaryName(name); err != nil {
 		return fmt.Errorf("invalid index name %s: %w", name, err)
@@ -788,11 +770,11 @@ func (db *PostgresAdminDB) DropBoundaryIndex(
 	ctx context.Context,
 	boundary, name string,
 ) error {
-	mapping, ok := db.boundarySchemaMappings[boundary]
+	entry, ok := db.registry.lookup(boundary)
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
-	schema := mapping.Schema
+	schema := entry.mapping.Schema
 
 	if err := validateBoundaryName(name); err != nil {
 		return fmt.Errorf("invalid index name %s: %w", name, err)
@@ -806,6 +788,18 @@ func (db *PostgresAdminDB) DropBoundaryIndex(
 	return err
 }
 
+type DatabaseRuntime struct {
+	SaveEvents        eventstore.EventsSaver
+	GetEvents         eventstore.EventsRetriever
+	LockProvider      eventstore.LockProvider
+	AdminDB           common.DB
+	EventPublishing   eventstore.EventPublishingTracker
+	Listener          *PGNotifyListener
+	ProvisionBoundary func(context.Context, boundarymodel.Definition) error
+}
+
+// InitializePostgresDatabase preserves the original tuple API for callers
+// that do not yet need dynamic boundary provisioning.
 func InitializePostgresDatabase(
 	ctx context.Context,
 	postgresDBConfig config.PostgresDBConfig,
@@ -813,6 +807,17 @@ func InitializePostgresDatabase(
 	js jetstream.JetStream,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, *PGNotifyListener) {
+	runtime := InitializePostgresDatabaseRuntime(ctx, postgresDBConfig, adminConfig, js, logger)
+	return runtime.SaveEvents, runtime.GetEvents, runtime.LockProvider, runtime.AdminDB, runtime.EventPublishing, runtime.Listener
+}
+
+func InitializePostgresDatabaseRuntime(
+	ctx context.Context,
+	postgresDBConfig config.PostgresDBConfig,
+	adminConfig config.AdminConfig,
+	js jetstream.JetStream,
+	logger logging.Logger,
+) *DatabaseRuntime {
 	// Create database connection string
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -929,9 +934,14 @@ func InitializePostgresDatabase(
 		logger.Infof("Database migrations for boundary %s in schema %s completed successfully", boundary, mapping.Schema)
 	}
 
+	// Every boundary-aware component shares this registry so a provisioned
+	// boundary becomes readable, writable, publishable, and administrable as
+	// one atomic in-memory registration.
+	boundaryRegistry := NewBoundaryRegistry(postgesBoundarySchemaMappings)
+
 	// Use write pool for save operations and read pool for get operations
-	saveEvents := NewPostgresSaveEvents(ctx, writeDB, logger, postgesBoundarySchemaMappings)
-	getEvents := NewPostgresGetEvents(readDB, logger, postgesBoundarySchemaMappings)
+	saveEvents := NewPostgresSaveEventsWithRegistry(ctx, writeDB, logger, boundaryRegistry)
+	getEvents := NewPostgresGetEventsWithRegistry(readDB, logger, boundaryRegistry)
 	lockProvider, err := eventstore.NewJetStreamLockProvider(ctx, js, logger)
 	if err != nil {
 		logger.Fatalf("Failed to create lock provider: %v", err)
@@ -943,20 +953,29 @@ func InitializePostgresDatabase(
 	}
 
 	// Use admin pool for admin operations (user management)
-	adminDB := NewPostgresAdminDB(
+	adminDB := NewPostgresAdminDBWithRegistry(
 		adminDBPool,
 		logger,
 		adminSchema.Schema,
 		adminConfig.Boundary,
-		postgesBoundarySchemaMappings,
+		boundaryRegistry,
 	)
 
 	// Use write pool for event publishing operations
-	eventPublishing := NewPostgresEventPublishing(
+	eventPublishing := NewPostgresEventPublishingWithRegistry(
 		writeDB,
 		logger,
-		postgesBoundarySchemaMappings,
+		boundaryRegistry,
 	)
+	provisioner := NewPostgresBoundaryProvisioner(writeDB, boundaryRegistry, dbDialect)
 
-	return saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener
+	return &DatabaseRuntime{
+		SaveEvents:        saveEvents,
+		GetEvents:         getEvents,
+		LockProvider:      lockProvider,
+		AdminDB:           adminDB,
+		EventPublishing:   eventPublishing,
+		Listener:          pgListener,
+		ProvisionBoundary: provisioner.ProvisionBoundary,
+	}
 }

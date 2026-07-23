@@ -5,18 +5,21 @@ package orisun
 import (
 	"context"
 	"fmt"
-	c "github.com/OrisunLabs/Orisun/config"
 	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
+	c "github.com/OrisunLabs/Orisun/config"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 
 	"runtime/debug"
 	"time"
 
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 
@@ -68,15 +71,11 @@ type EventStore struct {
 	lockProvider LockProvider
 	indexManager BoundaryIndexManager
 	logger       logging.Logger
-}
+	streamConfig EventStreamConfig
 
-// CatchUpSubscribeToEventsStream is the transport-neutral portion of the gRPC
-// server stream used by EventStore. The gRPC adapter lives in server/ and
-// supplies the generated transport stream without coupling this package to the
-// generated gRPC API.
-type CatchUpSubscribeToEventsStream interface {
-	Context() context.Context
-	Send(*Event) error
+	boundaryStateMu           sync.RWMutex
+	enforceBoundaryActivation bool
+	activeBoundaries          map[string]struct{}
 }
 
 const (
@@ -132,36 +131,118 @@ func NewEventStoreServer(
 		streamCfg.MaxBytes = -1
 	}
 
+	store := &EventStore{
+		js:               js,
+		saveEventsFn:     saveEventsFn,
+		getEventsFn:      getEventsFn,
+		lockProvider:     lockProvider,
+		indexManager:     indexManager,
+		logger:           logger,
+		streamConfig:     streamCfg,
+		activeBoundaries: make(map[string]struct{}),
+	}
 	for _, boundary := range *boundaries {
-		streamName := GetEventsNatsJetstreamStreamStreamName(boundary)
-		info, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-			Name: streamName,
-			Subjects: []string{
-				GetEventsSubjectName(boundary),
-			},
-			MaxMsgs:  streamCfg.MaxMsgs,
-			MaxBytes: streamCfg.MaxBytes,
-			Storage:  jetstream.MemoryStorage,
-			MaxAge:   streamCfg.MaxAge,
-		})
-
-		if err != nil {
-			logger.Fatalf("failed to add stream: %v %v", streamName, err)
+		if err := store.EnsureBoundary(ctx, boundary); err != nil {
+			logger.Fatalf("failed to initialize boundary stream %s: %v", boundary, err)
 		}
-		logger.Infof("stream info: %v", info)
 	}
-
-	return &EventStore{
-		js:           js,
-		saveEventsFn: saveEventsFn,
-		getEventsFn:  getEventsFn,
-		lockProvider: lockProvider,
-		indexManager: indexManager,
-		logger:       logger,
-	}
+	return store
 }
 
-func prepareProtoEventsForSave(events []*EventToSave) (PreparedEventBatch, error) {
+// EnableBoundaryActivationGate makes public event-store operations require a
+// locally observed ACTIVE catalog state. The bootstrap boundary is supplied as
+// initially active so the catalog can replay itself before application
+// boundaries are exposed.
+func (s *EventStore) EnableBoundaryActivationGate(initiallyActive ...string) error {
+	if s == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	for _, boundary := range initiallyActive {
+		if err := boundarymodel.ValidateName(boundary); err != nil {
+			return fmt.Errorf("invalid active boundary %q: %w", boundary, err)
+		}
+	}
+	s.boundaryStateMu.Lock()
+	defer s.boundaryStateMu.Unlock()
+	if s.activeBoundaries == nil {
+		s.activeBoundaries = make(map[string]struct{}, len(initiallyActive))
+	}
+	for _, boundary := range initiallyActive {
+		s.activeBoundaries[boundary] = struct{}{}
+	}
+	s.enforceBoundaryActivation = true
+	return nil
+}
+
+// ActivateBoundary exposes a boundary to public requests after its activation
+// event is durable. It is idempotent for replay and clustered delivery.
+func (s *EventStore) ActivateBoundary(boundary string) error {
+	if s == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	if err := boundarymodel.ValidateName(boundary); err != nil {
+		return fmt.Errorf("invalid active boundary %q: %w", boundary, err)
+	}
+	s.boundaryStateMu.Lock()
+	if s.activeBoundaries == nil {
+		s.activeBoundaries = make(map[string]struct{})
+	}
+	s.activeBoundaries[boundary] = struct{}{}
+	s.boundaryStateMu.Unlock()
+	return nil
+}
+
+// RequireBoundaryActive rejects unknown, provisioning, and failed catalog
+// boundaries before a public request reaches a backend.
+func (s *EventStore) RequireBoundaryActive(boundary string) error {
+	if s == nil {
+		return statuscode.New(statuscode.Internal, "event store is not configured")
+	}
+	s.boundaryStateMu.RLock()
+	enforce := s.enforceBoundaryActivation
+	_, active := s.activeBoundaries[boundary]
+	s.boundaryStateMu.RUnlock()
+	if !enforce {
+		return nil
+	}
+	if err := boundarymodel.ValidateName(boundary); err != nil {
+		return statuscode.Errorf(statuscode.InvalidArgument, "invalid boundary %q: %v", boundary, err)
+	}
+	if !active {
+		return statuscode.Errorf(statuscode.FailedPrecondition, "boundary %q is not active", boundary)
+	}
+	return nil
+}
+
+// EnsureBoundary creates or updates the real-time stream for a boundary. It
+// is idempotent so provisioning retries can safely call it after the durable
+// backend has already been created.
+func (s *EventStore) EnsureBoundary(ctx context.Context, boundary string) error {
+	if s == nil || s.js == nil {
+		return fmt.Errorf("event store is not configured")
+	}
+	if err := boundarymodel.ValidateName(boundary); err != nil {
+		return fmt.Errorf("invalid boundary %q: %w", boundary, err)
+	}
+	streamName := GetEventsNatsJetstreamStreamStreamName(boundary)
+	info, err := s.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name: streamName,
+		Subjects: []string{
+			GetEventsSubjectName(boundary),
+		},
+		MaxMsgs:  s.streamConfig.MaxMsgs,
+		MaxBytes: s.streamConfig.MaxBytes,
+		Storage:  jetstream.MemoryStorage,
+		MaxAge:   s.streamConfig.MaxAge,
+	})
+	if err != nil {
+		return fmt.Errorf("create boundary stream %s: %w", streamName, err)
+	}
+	s.logger.Infof("stream info: %v", info)
+	return nil
+}
+
+func prepareRequestedEventsForSave(events []*EventToSave) (PreparedEventBatch, error) {
 	prepared := make(PreparedEventBatch, len(events))
 	for i, event := range events {
 		if event == nil {
@@ -214,28 +295,37 @@ func authorizeRequest(ctx context.Context, roles []Role) error {
 	return statuscode.Errorf(statuscode.PermissionDenied, "user does not have any of the required roles")
 }
 
-func (s *EventStore) Ping(ctx context.Context, req *PingRequest) (resp *PingResponse, err error) {
+func (s *EventStore) Ping(ctx context.Context) error {
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("Ping called")
 	}
-	return &PingResponse{}, nil
+	return nil
 }
 
-func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (*CreateIndexResponse, error) {
+func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) error {
 	if err := authorizeRequest(ctx, []Role{RoleAdmin}); err != nil {
-		return nil, err
+		return err
 	}
 	if s.indexManager == nil {
-		return nil, statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
+		return statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
+	}
+	if req == nil {
+		return statuscode.Errorf(statuscode.InvalidArgument, "create index request is required")
 	}
 	if req.Boundary == "" || req.Name == "" || len(req.Fields) == 0 {
-		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary, name, and at least one field are required")
+		return statuscode.Errorf(statuscode.InvalidArgument, "boundary, name, and at least one field are required")
+	}
+	if err := s.RequireBoundaryActive(req.Boundary); err != nil {
+		return err
 	}
 
 	fields := make([]BoundaryIndexField, len(req.Fields))
 	for i, f := range req.Fields {
+		if f == nil {
+			return statuscode.Errorf(statuscode.InvalidArgument, "field %d is nil", i)
+		}
 		if f.JsonKey == "" {
-			return nil, statuscode.Errorf(statuscode.InvalidArgument, "each field must have a json_key")
+			return statuscode.Errorf(statuscode.InvalidArgument, "each field must have a json_key")
 		}
 		fields[i] = BoundaryIndexField{
 			JsonKey:   f.JsonKey,
@@ -245,8 +335,11 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 
 	conditions := make([]BoundaryIndexCondition, len(req.Conditions))
 	for i, c := range req.Conditions {
+		if c == nil {
+			return statuscode.Errorf(statuscode.InvalidArgument, "condition %d is nil", i)
+		}
 		if c.Key == "" {
-			return nil, statuscode.Errorf(statuscode.InvalidArgument, "each condition must have a key")
+			return statuscode.Errorf(statuscode.InvalidArgument, "each condition must have a key")
 		}
 		conditions[i] = BoundaryIndexCondition{
 			Key:      c.Key,
@@ -262,30 +355,36 @@ func (s *EventStore) CreateIndex(ctx context.Context, req *CreateIndexRequest) (
 
 	if err := s.indexManager.CreateBoundaryIndex(ctx, req.Boundary, req.Name, fields, conditions, combinator); err != nil {
 		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
-			return nil, err
+			return err
 		}
-		return nil, statuscode.Errorf(statuscode.Internal, "failed to create index: %v", err)
+		return statuscode.Errorf(statuscode.Internal, "failed to create index: %v", err)
 	}
-	return &CreateIndexResponse{}, nil
+	return nil
 }
 
-func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) (*DropIndexResponse, error) {
+func (s *EventStore) DropIndex(ctx context.Context, req *DropIndexRequest) error {
 	if err := authorizeRequest(ctx, []Role{RoleAdmin}); err != nil {
-		return nil, err
+		return err
 	}
 	if s.indexManager == nil {
-		return nil, statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
+		return statuscode.Errorf(statuscode.Unimplemented, "index management is not configured")
+	}
+	if req == nil {
+		return statuscode.Errorf(statuscode.InvalidArgument, "drop index request is required")
 	}
 	if req.Boundary == "" || req.Name == "" {
-		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary and name are required")
+		return statuscode.Errorf(statuscode.InvalidArgument, "boundary and name are required")
+	}
+	if err := s.RequireBoundaryActive(req.Boundary); err != nil {
+		return err
 	}
 	if err := s.indexManager.DropBoundaryIndex(ctx, req.Boundary, req.Name); err != nil {
 		if code, _, ok := statuscode.FromError(err); ok && code != statuscode.Unknown {
-			return nil, err
+			return err
 		}
-		return nil, statuscode.Errorf(statuscode.Internal, "failed to drop index: %v", err)
+		return statuscode.Errorf(statuscode.Internal, "failed to drop index: %v", err)
 	}
-	return &DropIndexResponse{}, nil
+	return nil
 }
 
 func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (resp *WriteResult, err error) {
@@ -308,6 +407,9 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 	if err = validateSaveEventsRequest(req); err != nil {
 		return nil, err
 	}
+	if err = s.RequireBoundaryActive(req.Boundary); err != nil {
+		return nil, err
+	}
 
 	var transactionID string
 	var globalID int64
@@ -320,7 +422,7 @@ func (s *EventStore) SaveEvents(ctx context.Context, req *SaveEventsRequest) (re
 		subsetQuery = req.Query.SubsetQuery
 	}
 
-	prepared, prepareErr := prepareProtoEventsForSave(req.Events)
+	prepared, prepareErr := prepareRequestedEventsForSave(req.Events)
 	if prepareErr != nil {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "invalid event JSON: %v", prepareErr)
 	}
@@ -355,11 +457,17 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("GetEvents called with req: %v", req)
 	}
+	if req == nil {
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "get events request is required")
+	}
 	if req.Count == 0 {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "Count cannot be 0")
 	}
 	if req.Count > MaxReadBatchSize {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "Count cannot exceed %d", MaxReadBatchSize)
+	}
+	if err := s.RequireBoundaryActive(req.Boundary); err != nil {
+		return nil, err
 	}
 	// if req.FromPosition != nil && req.Stream != nil {
 	// 	return nil, status.Error(codes.InvalidArgument, "fromPosition and stream cannot be set together, you can only set one of both")
@@ -368,15 +476,21 @@ func (s *EventStore) GetEvents(ctx context.Context, req *GetEventsRequest) (*Get
 	if err != nil {
 		return nil, err
 	}
-	return batch.ProtoResponse(), nil
+	return batch.Response(), nil
 }
 
 func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCriteriaRequest) (*GetLatestByCriteriaResponse, error) {
 	if s.logger.IsDebugEnabled() {
 		s.logger.Debugf("GetLatestByCriteria called with req: %v", req)
 	}
+	if req == nil {
+		return nil, statuscode.Errorf(statuscode.InvalidArgument, "get latest by criteria request is required")
+	}
 	if req.Boundary == "" {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "boundary is required")
+	}
+	if err := s.RequireBoundaryActive(req.Boundary); err != nil {
+		return nil, err
 	}
 	if len(req.Criteria) == 0 {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "at least one criterion is required")
@@ -391,17 +505,17 @@ func (s *EventStore) GetLatestByCriteria(ctx context.Context, req *GetLatestByCr
 			}
 		}
 	}
-	batch, err := s.getEventsFn.GetLatestByCriteria(ctx, latestQueryFromProto(req))
+	batch, err := s.getEventsFn.GetLatestByCriteria(ctx, latestQueryFromRequest(req))
 	if err != nil {
 		return nil, err
 	}
 	if len(batch.Matches) != len(req.Criteria) {
 		return nil, statuscode.Errorf(statuscode.Internal, "latest result count %d does not match criterion count %d", len(batch.Matches), len(req.Criteria))
 	}
-	return latestBatchProtoResponse(batch, req.Criteria), nil
+	return latestBatchResponse(batch, req.Criteria), nil
 }
 
-func latestQueryFromProto(req *GetLatestByCriteriaRequest) LatestByCriteriaQuery {
+func latestQueryFromRequest(req *GetLatestByCriteriaRequest) LatestByCriteriaQuery {
 	tagCount := 0
 	for _, criterion := range req.Criteria {
 		tagCount += len(criterion.Tags)
@@ -420,16 +534,16 @@ func latestQueryFromProto(req *GetLatestByCriteriaRequest) LatestByCriteriaQuery
 	return LatestByCriteriaQuery{Boundary: req.Boundary, Criteria: criteria}
 }
 
-func latestBatchProtoResponse(batch LatestByCriteriaBatch, criteria []*Criterion) *GetLatestByCriteriaResponse {
-	rows := make([]protoEventRow, len(criteria))
+func latestBatchResponse(batch LatestByCriteriaBatch, criteria []*Criterion) *GetLatestByCriteriaResponse {
+	rows := make([]Event, len(criteria))
 	results := make([]LatestCriterionResult, len(criteria))
 	pointers := make([]*LatestCriterionResult, len(criteria))
 	for i, criterion := range criteria {
 		result := &results[i]
 		result.Criterion = criterion
 		if i < len(batch.Matches) && batch.Matches[i].Found {
-			fillProtoEventRow(&rows[i], &batch.Matches[i].Event)
-			result.Event = &rows[i].event
+			fillEvent(&rows[i], &batch.Matches[i].Event)
+			result.Event = &rows[i]
 		}
 		pointers[i] = result
 	}
@@ -444,12 +558,19 @@ func latestBatchProtoResponse(batch LatestByCriteriaBatch, criteria []*Criterion
 
 func (s *EventStore) SubscribeToAllEvents(
 	ctx context.Context,
-	boundary string,
-	subscriberName string,
-	afterPosition *Position,
-	query *Query,
-	handler *MessageHandler[Event],
+	request coreeventstore.SubscribeRequest,
+	handler coreeventstore.EventHandler,
 ) error {
+	if handler == nil {
+		return statuscode.New(statuscode.InvalidArgument, "event handler is required")
+	}
+	boundary := request.Boundary
+	if err := s.RequireBoundaryActive(boundary); err != nil {
+		return err
+	}
+	subscriberName := request.SubscriberName
+	afterPosition := legacySubscriptionPosition(request.AfterPosition)
+	query := legacySubscriptionQuery(request.Query)
 	subscriptionName := boundary + "__" + subscriberName
 	subscriptionCtx, cancelSubscription := context.WithCancel(ctx)
 	defer cancelSubscription()
@@ -511,7 +632,7 @@ func (s *EventStore) SubscribeToAllEvents(
 			break
 		}
 
-		// Send all events in this batch
+		// Deliver all events in this batch
 		for i := range batch {
 			if err := lease.Check(gCtx); err != nil {
 				return err
@@ -524,9 +645,8 @@ func (s *EventStore) SubscribeToAllEvents(
 				lastProcessedPosition.CommitPosition,
 				lastProcessedPosition.PreparePosition,
 			) {
-				event := readEvent.ProtoEvent()
-				if err := handler.Send(event); err != nil {
-					return statuscode.Errorf(statuscode.Internal, "failed to send event during catch-up: %v", err)
+				if err := handler(gCtx, neutralSubscriptionReadEvent(*readEvent)); err != nil {
+					return statuscode.Errorf(statuscode.Internal, "event handler failed during catch-up: %v", err)
 				}
 			}
 
@@ -637,11 +757,12 @@ func (s *EventStore) SubscribeToAllEvents(
 				return fmt.Errorf("failed to get next message: %w", err)
 			}
 
-			var event Event
-			if err := json.Unmarshal(msg.Data(), &event); err != nil {
+			var envelope publishedEventEnvelope
+			if err := json.Unmarshal(msg.Data(), &envelope); err != nil {
 				s.logger.Errorf("Failed to unmarshal event: %v", err)
 				return fmt.Errorf("failed to unmarshal event: %w", err)
 			}
+			event := envelope.event()
 
 			// Only process events newer than our last processed position
 			isNewer := false
@@ -656,9 +777,9 @@ func (s *EventStore) SubscribeToAllEvents(
 					s.logger.Info("Context cancelled, not sending event")
 					return err
 				}
-				if err := handler.Send(&event); err != nil {
-					s.logger.Errorf("Failed to send event: %v", err)
-					return fmt.Errorf("failed to send event: %w", err)
+				if err := handler(gCtx, neutralPublishedEvent(event)); err != nil {
+					s.logger.Errorf("Event handler failed: %v", err)
+					return fmt.Errorf("event handler failed: %w", err)
 				}
 
 				lastProcessedPosition = event.Position
@@ -676,61 +797,82 @@ func (s *EventStore) SubscribeToAllEvents(
 	return g.Wait()
 }
 
-func (s *EventStore) CatchUpSubscribeToEvents(req *CatchUpSubscribeToEventStoreRequest, stream CatchUpSubscribeToEventsStream) error {
-	s.logger.Infof("CatchUpSubscribeToEvents: %v", req)
+type publishedEventEnvelope struct {
+	EventId     string    `json:"event_id"`
+	EventType   string    `json:"event_type"`
+	Data        string    `json:"data"`
+	Metadata    string    `json:"metadata"`
+	Position    *Position `json:"position"`
+	DateCreated struct {
+		Seconds int64 `json:"seconds"`
+		Nanos   int32 `json:"nanos"`
+	} `json:"date_created"`
+}
 
-	g, gctx := errgroup.WithContext(stream.Context())
+func (e publishedEventEnvelope) event() Event {
+	return Event{
+		EventId:     e.EventId,
+		EventType:   e.EventType,
+		Data:        e.Data,
+		Metadata:    e.Metadata,
+		Position:    e.Position,
+		DateCreated: time.Unix(e.DateCreated.Seconds, int64(e.DateCreated.Nanos)),
+	}
+}
 
-	messageHandler := NewMessageHandler[Event](gctx)
+func neutralSubscriptionReadEvent(event ReadEvent) coreeventstore.ReadEvent {
+	return coreeventstore.ReadEvent{
+		EventID:   event.EventId,
+		EventType: event.EventType,
+		Data:      event.Data,
+		Metadata:  event.Metadata,
+		Position: coreeventstore.Position{
+			CommitPosition:  event.CommitPosition,
+			PreparePosition: event.PreparePosition,
+		},
+		DateCreated: event.DateCreated,
+	}
+}
 
-	// Forwarder worker: reads from handler and writes to gRPC stream
-	g.Go(func() error {
-		for {
-			select {
-			case <-gctx.Done():
-				s.logger.Info("Message processing stopped")
-				return gctx.Err()
-			default:
-				event, err := messageHandler.Recv()
-				if err != nil {
-					if gctx.Err() != nil {
-						s.logger.Info("Context cancelled, stopping event processing")
-						return gctx.Err()
-					}
-					s.logger.Errorf("Failed to receive event: %v", err)
-					// small backoff to avoid tight error loop
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-
-				// Check context before sending to stream
-				select {
-				case <-gctx.Done():
-					s.logger.Info("Context cancelled, not sending event to stream")
-					return gctx.Err()
-				default:
-					if err := stream.Send(event); err != nil {
-						s.logger.Errorf("Failed to send event: %v", err)
-						return fmt.Errorf("send event to subscription stream: %w", err)
-					}
-				}
-			}
+func neutralPublishedEvent(event Event) coreeventstore.ReadEvent {
+	result := coreeventstore.ReadEvent{
+		EventID:   event.EventId,
+		EventType: event.EventType,
+		Data:      event.Data,
+		Metadata:  event.Metadata,
+	}
+	if event.Position != nil {
+		result.Position = coreeventstore.Position{
+			CommitPosition:  event.Position.CommitPosition,
+			PreparePosition: event.Position.PreparePosition,
 		}
-	})
+	}
+	result.DateCreated = event.DateCreated
+	return result
+}
 
-	// Subscription worker: implements catch-up phase followed by live subscription
-	g.Go(func() error {
-		return s.SubscribeToAllEvents(
-			gctx,
-			req.Boundary,
-			req.SubscriberName,
-			req.AfterPosition,
-			req.Query,
-			messageHandler,
-		)
-	})
+func legacySubscriptionPosition(position *coreeventstore.Position) *Position {
+	if position == nil {
+		return nil
+	}
+	return &Position{
+		CommitPosition:  position.CommitPosition,
+		PreparePosition: position.PreparePosition,
+	}
+}
 
-	return g.Wait()
+func legacySubscriptionQuery(query coreeventstore.Query) *Query {
+	if len(query.Criteria) == 0 {
+		return nil
+	}
+	result := &Query{Criteria: make([]*Criterion, len(query.Criteria))}
+	for index, criterion := range query.Criteria {
+		result.Criteria[index] = &Criterion{Tags: make([]*Tag, len(criterion.Tags))}
+		for tagIndex, tag := range criterion.Tags {
+			result.Criteria[index].Tags[tagIndex] = &Tag{Key: tag.Key, Value: tag.Value}
+		}
+	}
+	return result
 }
 
 type ComparationResult int
@@ -828,6 +970,7 @@ func GetEventNatsMessageId(preparePosition int64, commitPosition int64) string {
 func InitializeEventStore(
 	ctx context.Context,
 	config c.AppConfig,
+	initialBoundaries []string,
 	saveEvents EventsSaver,
 	getEvents EventsRetriever,
 	lockProvider LockProvider,
@@ -843,7 +986,7 @@ func InitializeEventStore(
 		getEvents,
 		lockProvider,
 		indexManager,
-		getBoundaryNames(config.GetBoundaries()),
+		&initialBoundaries,
 		EventStreamConfig{
 			MaxBytes: config.Nats.EventStreamMaxBytes,
 			MaxMsgs:  config.Nats.EventStreamMaxMsgs,
@@ -854,14 +997,6 @@ func InitializeEventStore(
 	logger.Info("EventStore initialized")
 
 	return eventStore
-}
-
-func getBoundaryNames(boundary *[]c.Boundary) *[]string {
-	var names []string
-	for _, boundary := range *boundary {
-		names = append(names, boundary.Name)
-	}
-	return &names
 }
 
 type PollingSignal struct {
@@ -913,73 +1048,120 @@ func (b *Backoff) Wait(ctx context.Context) error {
 
 func (b *Backoff) Reset() { b.cur = 0 }
 
+type EventPollingManager struct {
+	ctx                    context.Context
+	batchSize              uint32
+	lockProvider           LockProvider
+	getEvents              EventsRetriever
+	js                     jetstream.JetStream
+	eventPublishingTracker EventPublishingTracker
+	signalProvider         func(string) EventSignal
+	logger                 logging.Logger
+
+	mu      sync.Mutex
+	running map[string]struct{}
+}
+
 func StartEventPolling(
 	ctx context.Context,
 	config c.AppConfig,
+	initialBoundaries []string,
 	lockProvider LockProvider,
 	getEvents EventsRetriever,
 	js jetstream.JetStream,
 	eventPublishingTracker EventPublishingTracker,
 	signalProvider func(string) EventSignal,
-	logger logging.Logger) {
-	g, gctx := errgroup.WithContext(ctx)
-	for _, name := range config.GetBoundaryNames() {
-		boundary := name
-		g.Go(func() error {
-			backoff := Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
-			for {
-				select {
-				case <-gctx.Done():
-					return gctx.Err()
-				default:
-					lease, err := acquireLockLease(gctx, lockProvider, boundary)
-					if err != nil {
-						logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary, err)
-						if waitErr := backoff.Wait(gctx); waitErr != nil {
-							return waitErr
-						}
-						continue
-					}
-					backoff.Reset()
-					logger.Infof("Successfully acquired polling lock for boundary %v", boundary)
+	logger logging.Logger) *EventPollingManager {
+	manager := &EventPollingManager{
+		ctx:                    ctx,
+		batchSize:              config.PollingPublisher.BatchSize,
+		lockProvider:           lockProvider,
+		getEvents:              getEvents,
+		js:                     js,
+		eventPublishingTracker: eventPublishingTracker,
+		signalProvider:         signalProvider,
+		logger:                 logger,
+		running:                make(map[string]struct{}),
+	}
+	for _, name := range initialBoundaries {
+		_ = manager.StartBoundary(name)
+	}
+	return manager
+}
 
-					lockCtx := lease.Context()
-					lastPosition, err := eventPublishingTracker.GetLastPublishedEventPosition(lockCtx, boundary)
-					if err != nil {
-						lease.Release()
-						logger.Errorf("Failed to get last published position for boundary %s: %v", boundary, err)
-						if waitErr := backoff.Wait(gctx); waitErr != nil {
-							return waitErr
-						}
-						continue
-					}
-					logger.Infof("Last published position for boundary %v: %v", boundary, &lastPosition)
+// StartBoundary starts exactly one publishing loop for a boundary in this
+// process. Cluster-wide exclusivity remains enforced by the lock lease.
+func (m *EventPollingManager) StartBoundary(boundary string) error {
+	if m == nil || m.ctx == nil || m.lockProvider == nil || m.getEvents == nil || m.js == nil || m.eventPublishingTracker == nil || m.signalProvider == nil || m.logger == nil {
+		return fmt.Errorf("event polling manager is not configured")
+	}
+	if err := boundarymodel.ValidateName(boundary); err != nil {
+		return fmt.Errorf("invalid boundary %q: %w", boundary, err)
+	}
+	m.mu.Lock()
+	if _, exists := m.running[boundary]; exists {
+		m.mu.Unlock()
+		return nil
+	}
+	m.running[boundary] = struct{}{}
+	m.mu.Unlock()
 
-					err = publishEventsLoopWithLease(
-						lockCtx,
-						js,
-						getEvents,
-						config.PollingPublisher.BatchSize,
-						&lastPosition,
-						boundary,
-						eventPublishingTracker,
-						signalProvider(boundary),
-						lease,
-						logger,
-					)
-					lease.Release()
+	go m.runBoundary(boundary)
+	return nil
+}
 
-					if err != nil {
-						logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary, err)
-						if waitErr := backoff.Wait(gctx); waitErr != nil {
-							return waitErr
-						}
-					}
+func (m *EventPollingManager) runBoundary(boundary string) {
+	backoff := Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		default:
+			lease, err := acquireLockLease(m.ctx, m.lockProvider, boundary)
+			if err != nil {
+				m.logger.Warnf("Failed to acquire lock for boundary %s: %v - will retry", boundary, err)
+				if waitErr := backoff.Wait(m.ctx); waitErr != nil {
+					return
+				}
+				continue
+			}
+			backoff.Reset()
+			m.logger.Infof("Successfully acquired polling lock for boundary %v", boundary)
+
+			lockCtx := lease.Context()
+			lastPosition, err := m.eventPublishingTracker.GetLastPublishedEventPosition(lockCtx, boundary)
+			if err != nil {
+				lease.Release()
+				m.logger.Errorf("Failed to get last published position for boundary %s: %v", boundary, err)
+				if waitErr := backoff.Wait(m.ctx); waitErr != nil {
+					return
+				}
+				continue
+			}
+			m.logger.Infof("Last published position for boundary %v: %v", boundary, &lastPosition)
+
+			err = publishEventsLoopWithLease(
+				lockCtx,
+				m.js,
+				m.getEvents,
+				m.batchSize,
+				&lastPosition,
+				boundary,
+				m.eventPublishingTracker,
+				m.signalProvider(boundary),
+				lease,
+				m.logger,
+			)
+			lease.Release()
+
+			if err != nil {
+				m.logger.Errorf("Polling stopped for boundary %s: %v - will retry", boundary, err)
+				if waitErr := backoff.Wait(m.ctx); waitErr != nil {
+					return
 				}
 			}
-		})
+		}
 	}
-	// Not waiting here; goroutines will be governed by ctx lifecycle.
 }
 
 func publishEventsLoop(

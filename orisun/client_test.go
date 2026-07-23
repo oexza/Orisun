@@ -37,7 +37,7 @@ func (s *capturePreparedSaver) SavePrepared(_ context.Context, events PreparedEv
 
 func TestOrisunServerSaveEventsAddsEventTypeToData(t *testing.T) {
 	saver := &capturePreparedSaver{}
-	server := &OrisunServer{saveEvents: saver}
+	server := &OrisunServer{eventStore: &EventStore{}, saveEvents: saver}
 
 	pos, err := server.SaveEvents(context.Background(), []EventWithMapTags{
 		{
@@ -74,7 +74,7 @@ func TestOrisunServerSaveEventsAddsEventTypeToData(t *testing.T) {
 
 func TestOrisunServerSaveEventsUsesPreparedBatch(t *testing.T) {
 	saver := &capturePreparedSaver{}
-	server := &OrisunServer{saveEvents: saver}
+	server := &OrisunServer{eventStore: &EventStore{}, saveEvents: saver}
 
 	_, err := server.SaveEvents(context.Background(), []EventWithMapTags{{
 		EventId:   "event-1",
@@ -134,7 +134,7 @@ func TestOrisunServerGetEventsReturnsPackedBatch(t *testing.T) {
 		PreparePosition: 8,
 		DateCreated:     created,
 	}}}
-	server := &OrisunServer{getEvents: retriever}
+	server := &OrisunServer{eventStore: &EventStore{}, getEvents: retriever}
 
 	batch, err := server.GetEvents(context.Background(), &GetEventsRequest{Count: 1})
 	if err != nil {
@@ -170,7 +170,7 @@ func TestOrisunServerGetLatestByCriteriaUsesPackedTypes(t *testing.T) {
 		ContextCommitPosition:  7,
 		ContextPreparePosition: 8,
 	}}
-	server := &OrisunServer{getEvents: retriever}
+	server := &OrisunServer{eventStore: &EventStore{}, getEvents: retriever}
 	query := LatestByCriteriaQuery{
 		Boundary: "orders",
 		Criteria: []ReadCriterion{{Tags: []ReadTag{{Key: "order_id", Value: "order-1"}}}},

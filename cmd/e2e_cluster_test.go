@@ -20,8 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/OrisunLabs/Orisun/orisun"
-	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
+	pb "github.com/OrisunLabs/Orisun/orisun/grpcapi"
 )
 
 type ClusterTestSuite struct {
@@ -40,7 +39,7 @@ type ClusterNode struct {
 	natsPort    string
 	clusterPort string
 	adminPort   string
-	client      grpcapi.EventStoreClient
+	client      pb.EventStoreClient
 	conn        *grpc.ClientConn
 }
 
@@ -170,7 +169,6 @@ func (s *ClusterTestSuite) startBinary(t *testing.T, nodeIndex int) {
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=orisun_admin",
-		"ORISUN_BOUNDARIES=[{\"name\":\"orisun_test_1\",\"description\":\"boundary1\"},{\"name\":\"orisun_test_2\",\"description\":\"boundary2\"},{\"name\":\"orisun_test_3\",\"description\":\"boundary3\"},{\"name\":\"orisun_admin\",\"description\":\"admin\"}]",
 	}
 
 	// Start the binary with environment variables
@@ -225,7 +223,7 @@ func (s *ClusterTestSuite) createGRPCClient(t *testing.T, nodeIndex int) {
 	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	node.conn = conn
-	node.client = grpcapi.NewEventStoreClient(conn)
+	node.client = pb.NewEventStoreClient(conn)
 }
 
 func (s *ClusterTestSuite) teardown(t *testing.T) {
@@ -283,7 +281,7 @@ func testBasicClusterFunctionality(t *testing.T, suite *ClusterTestSuite) {
 		}
 	}
 
-	expectedPosition := pb.NotExistsPosition()
+	expectedPosition := pb.Position{CommitPosition: -1, PreparePosition: -1}
 	// Test that both nodes are operational
 	for i, node := range suite.nodes {
 		// Save an event to each node
@@ -350,7 +348,7 @@ func testEventConsistencyAcrossNodes(t *testing.T, suite *ClusterTestSuite) {
 		t.Logf("Found existing events in orisun_test_1, current position: commit=%d prepare=%d", expectedPosition.CommitPosition, expectedPosition.PreparePosition)
 	} else {
 		// No events exist, use NotExistsPosition
-		notExists := pb.NotExistsPosition()
+		notExists := pb.Position{CommitPosition: -1, PreparePosition: -1}
 		expectedPosition = &pb.Position{
 			CommitPosition:  notExists.CommitPosition,
 			PreparePosition: notExists.PreparePosition,

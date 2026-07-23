@@ -9,6 +9,7 @@ import (
 	"time"
 
 	c "github.com/OrisunLabs/Orisun/config"
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
 	pg "github.com/OrisunLabs/Orisun/postgres"
@@ -39,12 +40,17 @@ func main() {
 	config.Postgres.User = "postgres"
 	config.Postgres.Password = "password@1"
 	config.Postgres.ListenEnabled = false
+	// This low-level example uses the legacy mapping as a migration/bootstrap
+	// source. Server and embedded applications can instead call CreateBoundary.
+	config.Postgres.Schemas = "example:public," + config.Admin.Boundary + ":admin"
 	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, _ := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, jetStream, logger)
+	boundaries := pg.BoundaryNames(config.Postgres.GetSchemaMapping())
 
 	// Initialize EventStore
 	_ = orisun.InitializeEventStore(
 		ctx,
 		config,
+		boundaries,
 		saveEvents,
 		getEvents,
 		lockProvider,
@@ -54,7 +60,7 @@ func main() {
 	)
 
 	// Start polling events from the event store and publish them to NATS jetstream
-	orisun.StartEventPolling(ctx, config, lockProvider, getEvents, jetStream, eventPublishing, func(boundary string) orisun.EventSignal {
+	orisun.StartEventPolling(ctx, config, boundaries, lockProvider, getEvents, jetStream, eventPublishing, func(boundary string) orisun.EventSignal {
 		return orisun.NewPollingSignal(25 * time.Millisecond)
 	}, logger)
 
@@ -64,7 +70,7 @@ func main() {
 		saveEvents,
 		getEvents,
 		lockProvider, jetStream,
-		config.GetBoundaryNames(),
+		boundaries,
 		logger,
 	)
 	if err != nil {
@@ -105,7 +111,7 @@ func main() {
 	}
 
 	// Save events to the event store
-	boundary := config.GetBoundaryNames()[0]
+	boundary := "example"
 	position := orisun.NotExistsPosition()
 	// Save events
 	newPosition, err := orisunServer.SaveEvents(
@@ -147,34 +153,6 @@ func main() {
 	// Example 3: Subscribe to events
 	logger.Info("=== Subscribing to Events Example ===")
 
-	// Create a message handler to process received events
-	messageHandler := orisun.NewMessageHandler[orisun.Event](ctx)
-
-	// Start a goroutine to process received events
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				logger.Info("Stopping event processor")
-				return
-			default:
-				event, err := messageHandler.Recv()
-
-				if err != nil {
-					if ctx.Err() != nil {
-						// Context was cancelled
-						return
-					}
-					logger.Errorf("Error receiving event: %v", err)
-					continue
-				}
-
-				logger.Infof("Received event: ID=%s, Type=%s, Data=%s",
-					event.EventId, event.EventType, event.Data)
-			}
-		}
-	}()
-
 	// Subscribe to all events in the boundary
 	subscriberName := "example-subscriber"
 
@@ -183,11 +161,15 @@ func main() {
 		logger.Info("Starting subscription to all events...")
 		err := orisunServer.SubscribeToEvents(
 			ctx,
-			boundary,
-			subscriberName,
-			nil, // Start from the beginning
-			nil, // No query filter
-			messageHandler,
+			coreeventstore.SubscribeRequest{
+				Boundary:       boundary,
+				SubscriberName: subscriberName,
+			},
+			func(_ context.Context, event coreeventstore.ReadEvent) error {
+				logger.Infof("Received event: ID=%s, Type=%s, Data=%s",
+					event.EventID, event.EventType, event.Data)
+				return nil
+			},
 		)
 		if err != nil {
 			logger.Errorf("Subscription failed: %v", err)

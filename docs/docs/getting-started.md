@@ -36,7 +36,8 @@ Use SQLite first when you want the shortest feedback loop:
 1. Download `orisun-sqlite` from [GitHub Releases](https://github.com/OrisunLabs/Orisun/releases).
 2. Start it with the [SQLite binary example](#run-sqlite-from-a-binary).
 3. Verify the server with [grpcurl](#verify-the-api).
-4. Save the first event with [Save your first event](#save-your-first-event).
+4. Create the `orders` boundary with [Create the SQLite boundary](#create-the-sqlite-boundary).
+5. Save the first event with [Save your first event](#save-your-first-event).
 
 You can move to PostgreSQL later without changing the EventStore API.
 
@@ -123,7 +124,6 @@ ORISUN_BACKEND=sqlite \
 ORISUN_SQLITE_DIR=./data/orisun/sqlite \
 ORISUN_NATS_STORE_DIR=./data/orisun/nats \
 ORISUN_NATS_CLUSTER_ENABLED=false \
-ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
@@ -146,7 +146,6 @@ ORISUN_PG_USER=postgres \
 ORISUN_PG_PASSWORD='password@1' \
 ORISUN_PG_NAME=orisun \
 ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin \
-ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
@@ -183,7 +182,6 @@ ORISUN_PG_PASSWORD=yugabyte \
 ORISUN_PG_NAME=yugabyte \
 ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin \
 ORISUN_PG_LISTEN_ENABLED=true \
-ORISUN_BOUNDARIES='[{"name":"orders"},{"name":"orisun_admin"}]' \
 ORISUN_ADMIN_BOUNDARY=orisun_admin \
 ORISUN_ADMIN_USERNAME=admin \
 ORISUN_ADMIN_PASSWORD=changeit \
@@ -205,7 +203,6 @@ services:
       ORISUN_BACKEND: sqlite
       ORISUN_SQLITE_DIR: /var/lib/orisun/sqlite
       ORISUN_NATS_CLUSTER_ENABLED: "false"
-      ORISUN_BOUNDARIES: '[{"name":"orders"},{"name":"orisun_admin"}]'
       ORISUN_ADMIN_BOUNDARY: orisun_admin
       ORISUN_ADMIN_USERNAME: admin
       ORISUN_ADMIN_PASSWORD: changeit
@@ -252,7 +249,6 @@ services:
       ORISUN_PG_PASSWORD: password@1
       ORISUN_PG_NAME: orisun
       ORISUN_PG_SCHEMAS: orders:public,orisun_admin:admin
-      ORISUN_BOUNDARIES: '[{"name":"orders"},{"name":"orisun_admin"}]'
       ORISUN_ADMIN_BOUNDARY: orisun_admin
       ORISUN_ADMIN_USERNAME: admin
       ORISUN_ADMIN_PASSWORD: changeit
@@ -308,7 +304,6 @@ services:
       ORISUN_PG_NAME: yugabyte
       ORISUN_PG_SCHEMAS: orders:public,orisun_admin:admin
       ORISUN_PG_LISTEN_ENABLED: "true"
-      ORISUN_BOUNDARIES: '[{"name":"orders"},{"name":"orisun_admin"}]'
       ORISUN_ADMIN_BOUNDARY: orisun_admin
       ORISUN_ADMIN_USERNAME: admin
       ORISUN_ADMIN_PASSWORD: changeit
@@ -351,6 +346,31 @@ orisun.EventStore
 :::warning
 Change `ORISUN_ADMIN_PASSWORD` before production use.
 :::
+
+## Create the SQLite boundary
+
+A fresh SQLite directory contains only the admin boundary. Create the application
+boundary through the event-backed Admin API before writing application events:
+
+```bash
+grpcurl -H "$AUTH" \
+  -d '{"name":"orders","description":"Order events","placement":{"backend":"sqlite","namespace":"orders"}}' \
+  localhost:5005 orisun.Admin/CreateBoundary
+```
+
+`CreateBoundary` returns `PROVISIONING`. Wait until `GetBoundary` reports
+`BOUNDARY_LIFECYCLE_STATUS_ACTIVE` before sending the first write:
+
+```bash
+grpcurl -H "$AUTH" \
+  -d '{"name":"orders"}' \
+  localhost:5005 orisun.Admin/GetBoundary
+```
+
+The PostgreSQL and YugabyteDB examples below include `orders:public` as a
+legacy migration mapping, so startup imports and activates `orders`
+automatically. New deployments may instead keep only the admin mapping and call
+`CreateBoundary` with backend `postgres` and the desired schema namespace.
 
 ## Save your first event
 

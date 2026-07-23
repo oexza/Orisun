@@ -21,11 +21,28 @@ Orisun provides:
 - Transactional event storage with SQLite, PostgreSQL, YugabyteDB, and FoundationDB (beta).
 - Query-driven optimistic concurrency and Dynamic Consistency Boundary-style append conditions.
 - Per-boundary ordered catch-up and live subscriptions through embedded NATS JetStream.
+- Event-backed boundary creation and import at runtime, without a startup boundary list.
 - gRPC APIs, generated clients, server binaries, Docker images, and embedded runtimes.
+
+## Boundary management
+
+Boundaries are durable definitions in the admin event log. Create new physical
+boundaries with `Admin/CreateBoundary`, register existing storage with
+`Admin/ImportBoundary`, and wait for `Admin/GetBoundary` to report `ACTIVE`
+before sending event operations. The same lifecycle methods are available from
+the Go embedding packages.
+
+Legacy PostgreSQL schema mappings, SQLite boundary files, and FoundationDB key
+ranges are imported into the catalog during the first upgraded startup.
+`ORISUN_BOUNDARIES` is no longer used. PostgreSQL retains
+`ORISUN_PG_SCHEMAS` for the required admin mapping and as the one-time source of
+legacy `boundary:schema` mappings.
 
 ## Documentation
 
-See the [Orisun documentation](https://orisunlabs.github.io/Orisun/) for concepts, setup, APIs, client libraries, embedding, and operations.
+See the [Orisun documentation](https://orisunlabs.github.io/Orisun/) for concepts, setup, the
+[Admin boundary API](https://orisunlabs.github.io/Orisun/docs/api/admin#boundary-lifecycle),
+client libraries, embedding, migration, and operations.
 
 ## License
 

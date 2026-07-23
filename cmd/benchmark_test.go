@@ -239,7 +239,6 @@ func (s *BenchmarkSetup) startBinary(b *testing.B) {
 		"ORISUN_ADMIN_USERNAME=admin",
 		"ORISUN_ADMIN_PASSWORD=changeit",
 		"ORISUN_ADMIN_BOUNDARY=benchmark_admin",
-		"ORISUN_BOUNDARIES=[{\"name\":\"benchmark_test\",\"description\":\"benchmark boundary\"},{\"name\":\"benchmark_admin\",\"description\":\"admin boundary\"},{\"name\":\"subscribe_boundary\",\"description\":\"subscription benchmark boundary\"}]",
 	}
 
 	switch s.backend {
@@ -338,10 +337,10 @@ func (s *BenchmarkSetup) createGRPCEventStoreClient(b *testing.B, captureAuthTok
 func (s *BenchmarkSetup) authenticateGRPCClient(b *testing.B, client grpcapi.EventStoreClient) {
 	b.Helper()
 
-	var pingResp *orisun.PingResponse
+	var pingResp *grpcapi.PingResponse
 	var err error
 	for i := range 30 {
-		pingResp, err = client.Ping(s.authContext(), &orisun.PingRequest{})
+		pingResp, err = client.Ping(s.authContext(), &grpcapi.PingRequest{})
 		if err == nil {
 			b.Logf("Authentication successful on attempt %d", i+1)
 			return
@@ -356,7 +355,7 @@ func (s *BenchmarkSetup) authTokenForGRPCClient(b *testing.B, client grpcapi.Eve
 	b.Helper()
 
 	var responseMD metadata.MD
-	_, err := client.Ping(s.authContext(), &orisun.PingRequest{}, grpc.Header(&responseMD))
+	_, err := client.Ping(s.authContext(), &grpcapi.PingRequest{}, grpc.Header(&responseMD))
 	require.NoError(b, err)
 
 	tokens := responseMD.Get("x-auth-token")
@@ -449,9 +448,9 @@ func (s *BenchmarkSetup) authContext() context.Context {
 	return metadata.AppendToOutgoingContext(s.ctx, "authorization", "Basic "+creds)
 }
 
-func generateRandomEvent(eventType string) *orisun.EventToSave {
+func generateRandomEvent(eventType string) *grpcapi.EventToSave {
 	timestamp := time.Now().Format(time.RFC3339)
-	return &orisun.EventToSave{
+	return &grpcapi.EventToSave{
 		EventId:   uuid.New().String(),
 		EventType: eventType,
 		Data: fmt.Sprintf(`{
@@ -486,11 +485,11 @@ func generateRandomEvent(eventType string) *orisun.EventToSave {
 	}
 }
 
-func generateEvents(count int, streamId string) []*orisun.EventToSave {
+func generateEvents(count int, streamId string) []*grpcapi.EventToSave {
 	timestamp := time.Now().Format(time.RFC3339)
-	events := make([]*orisun.EventToSave, count)
+	events := make([]*grpcapi.EventToSave, count)
 	for i := range count {
-		events[i] = &orisun.EventToSave{
+		events[i] = &grpcapi.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "TestEvent",
 			Data: fmt.Sprintf(`{
@@ -538,10 +537,10 @@ func BenchmarkGetEvents(b *testing.B) {
 	boundary := "benchmark_test"
 	streamId := uuid.New().String()
 	events := generateEvents(1000, streamId)
-	p := orisun.NotExistsPosition()
-	_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
+	p := grpcapi.Position{CommitPosition: -1, PreparePosition: -1}
+	_, err := setup.client.SaveEvents(setup.authContext(), &grpcapi.SaveEventsRequest{
 		Boundary: boundary,
-		Query: &orisun.SaveQuery{
+		Query: &grpcapi.SaveQuery{
 			ExpectedPosition: &p,
 		},
 		Events: events,
@@ -552,7 +551,7 @@ func BenchmarkGetEvents(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := setup.client.GetEvents(setup.authContext(), &orisun.GetEventsRequest{
+		_, err := setup.client.GetEvents(setup.authContext(), &grpcapi.GetEventsRequest{
 			Boundary: boundary,
 			Count:    50,
 		})
@@ -572,13 +571,13 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 	// Pre-populate with events to ensure subscription has data to read
 	for range 100 {
 		event := generateRandomEvent("PrePopulateEvent")
-		p := orisun.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
+		p := grpcapi.Position{CommitPosition: -1, PreparePosition: -1}
+		_, err := setup.client.SaveEvents(setup.authContext(), &grpcapi.SaveEventsRequest{
 			Boundary: boundary,
-			Query: &orisun.SaveQuery{
+			Query: &grpcapi.SaveQuery{
 				ExpectedPosition: &p,
 			},
-			Events: []*orisun.EventToSave{event},
+			Events: []*grpcapi.EventToSave{event},
 		})
 		if err != nil {
 			b.Fatalf("Failed to pre-populate events: %v", err)
@@ -587,7 +586,7 @@ func BenchmarkSubscribeToEvents(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		stream, err := setup.client.CatchUpSubscribeToEvents(setup.authContext(), &orisun.CatchUpSubscribeToEventStoreRequest{
+		stream, err := setup.client.CatchUpSubscribeToEvents(setup.authContext(), &grpcapi.CatchUpSubscribeToEventStoreRequest{
 			Boundary:       boundary,
 			SubscriberName: fmt.Sprintf("benchmark_subscriber_%d", i),
 		})
@@ -695,7 +694,7 @@ func benchmarkSaveEventsBurst10000WithMaxInFlight(b *testing.B, clients []benchm
 	start := make(chan struct{})
 
 	// Pre-create all events to reduce allocation during timing
-	events := make([]*orisun.EventToSave, concurrency)
+	events := make([]*grpcapi.EventToSave, concurrency)
 	for i := range concurrency {
 		events[i] = generateRandomEvent("BurstEvent")
 	}
@@ -715,9 +714,9 @@ func benchmarkSaveEventsBurst10000WithMaxInFlight(b *testing.B, clients []benchm
 				defer func() { <-inFlight }()
 			}
 			client := clients[w%len(clients)]
-			_, err := client.client.SaveEvents(client.ctx, &orisun.SaveEventsRequest{
+			_, err := client.client.SaveEvents(client.ctx, &grpcapi.SaveEventsRequest{
 				Boundary: boundary,
-				Events:   []*orisun.EventToSave{events[w]},
+				Events:   []*grpcapi.EventToSave{events[w]},
 			})
 			if err == nil {
 				atomic.AddInt64(&totalEvents, 1)
@@ -750,14 +749,14 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	boundary := "benchmark_test"
 
 	// Pre-generate all events and stream IDs before timing
-	events := make([]*orisun.EventToSave, b.N)
+	events := make([]*grpcapi.EventToSave, b.N)
 	streamIds := make([]string, b.N)
 	for i := 0; i < b.N; i++ {
 		// Create large events to test memory handling
 		largeData := make([]byte, 1024) // 1KB per event
 		rand.Read(largeData)
 
-		events[i] = &orisun.EventToSave{
+		events[i] = &grpcapi.EventToSave{
 			EventId:   uuid.New().String(),
 			EventType: "LargeEvent",
 			Data:      fmt.Sprintf(`{"large_field": "%s", "size": %d, "iteration": %d}`, base64.StdEncoding.EncodeToString(largeData), len(largeData), i),
@@ -768,13 +767,13 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p := orisun.NotExistsPosition()
-		_, err := setup.client.SaveEvents(setup.authContext(), &orisun.SaveEventsRequest{
+		p := grpcapi.Position{CommitPosition: -1, PreparePosition: -1}
+		_, err := setup.client.SaveEvents(setup.authContext(), &grpcapi.SaveEventsRequest{
 			Boundary: boundary,
-			Query: &orisun.SaveQuery{
+			Query: &grpcapi.SaveQuery{
 				ExpectedPosition: &p,
 			},
-			Events: []*orisun.EventToSave{events[i]},
+			Events: []*grpcapi.EventToSave{events[i]},
 		})
 		if err != nil {
 			b.Errorf("Failed to save large event: %v", err)
