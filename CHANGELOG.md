@@ -39,8 +39,14 @@
 
 ### Migration Notes
 
+- Follow the complete
+  [0.7.0 to 0.8.0 upgrade guide](docs/docs/operations/upgrading-0.7-to-0.8.md)
+  for preflight checks, backend-specific configuration, rolling-upgrade
+  sequencing, verification, client changes, and rollback.
 - Back up the durable store and admin boundary, remove
-  `ORISUN_BOUNDARIES`, and start one upgraded node first.
+  `ORISUN_BOUNDARIES` from the 0.8.0 configuration, and start one upgraded node
+  first. If a template is shared with 0.7.0 nodes, retain the setting until the
+  last old node is drained.
 - Keep all existing PostgreSQL `boundary:schema` mappings in
   `ORISUN_PG_SCHEMAS` during the first startup and any mixed-version rollout.
   SQLite and FoundationDB deployments must keep their existing storage

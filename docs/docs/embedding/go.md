@@ -5,13 +5,16 @@ description: Run Orisun directly inside a Go service.
 
 Go services can embed Orisun directly instead of running the gRPC server as a separate process.
 
-This guide targets Orisun `0.6.1`. Install the canonical module path with:
+This guide targets Orisun `0.8.0`. Install the canonical module path with:
 
 ```bash
-go get github.com/OrisunLabs/Orisun@v0.6.1
+go get github.com/OrisunLabs/Orisun@v0.8.0
 ```
 
-If you are upgrading from `v0.5.0`, replace `github.com/oexza/Orisun` with `github.com/OrisunLabs/Orisun` in `go.mod` and imports, then run `go mod tidy`. The module-path move does not change the gRPC wire contract or persisted data.
+If you are upgrading from `v0.7.0`, follow the
+[0.7.0 to 0.8.0 upgrade guide](../operations/upgrading-0.7-to-0.8#embedded-go-changes)
+for the generated-type import move, subscription callback change, and boundary
+catalog migration.
 
 Backend-specific embedding packages keep deployments explicit:
 

@@ -91,8 +91,15 @@ Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63
 
 ### Upgrading existing boundaries into the catalog
 
-`ORISUN_BOUNDARIES` has been removed. Delete it from manifests and service
-configuration; it no longer defines runtime boundaries.
+For a production upgrade from 0.7.0, follow the dedicated
+[0.7.0 to 0.8.0 upgrade guide](./upgrading-0.7-to-0.8). It includes preflight
+inventory, backend-specific preparation, mixed-version restrictions,
+verification commands, client changes, failure recovery, and rollback.
+
+`ORISUN_BOUNDARIES` has been removed. Delete it from 0.8.0 manifests and
+service configuration; it no longer defines runtime boundaries. If one
+configuration template is shared during a mixed-version rollout, keep the
+setting until the last 0.7.0 node is drained because 0.7.0 still requires it.
 
 Use this rollout sequence:
 

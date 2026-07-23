@@ -89,6 +89,7 @@ const sidebars: SidebarsConfig = {
           'Everything for running Orisun in production: configuration, security, deployment topologies, observability, and troubleshooting.',
       },
       items: [
+        'operations/upgrading-0.7-to-0.8',
         'operations/configuration',
         'operations/security',
         'operations/deployment',

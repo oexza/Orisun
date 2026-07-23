@@ -54,7 +54,8 @@ Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun no
 | Model a business invariant | [Command Context Consistency](/docs/concepts/command-context-consistency) | [Positions](/docs/concepts/positions) |
 | Use DCB terminology | [Dynamic Consistency Boundaries](/docs/concepts/dynamic-consistency-boundaries) | [EventStore API](/docs/api/eventstore) |
 | Save, query, and subscribe | [EventStore API](/docs/api/eventstore) | [Clients](/docs/api/clients) |
-| Create or import boundaries | [Admin API](/docs/api/admin#boundary-lifecycle) | [Configuration migration](/docs/operations/configuration#upgrading-existing-boundaries-into-the-catalog) |
+| Upgrade from 0.7.0 | [0.8.0 upgrade guide](/docs/operations/upgrading-0.7-to-0.8) | [Configuration reference](/docs/operations/configuration#boundary-management) |
+| Create or import boundaries | [Admin API](/docs/api/admin#boundary-lifecycle) | [Boundary configuration](/docs/operations/configuration#boundary-management) |
 | Prepare production settings | [Configuration](/docs/operations/configuration) | [Deployment](/docs/operations/deployment) |
 | Debug a running node | [Troubleshooting](/docs/operations/troubleshooting) | [Observability](/docs/operations/observability) |
 
