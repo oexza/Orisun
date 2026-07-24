@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
-	"time"
 )
 
 const insertLastPublishedPosition = `
@@ -25,33 +26,27 @@ select transaction_id, global_id from %s.%s_orisun_last_published_event_position
 `
 
 type PostgresEventPublishing struct {
-	db                     *sql.DB
-	logger                 logging.Logger
-	boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping
-	getQueries             map[string]string // boundary -> pre-formatted SELECT
-	insertQueries          map[string]string // boundary -> pre-formatted INSERT
+	db       *sql.DB
+	logger   logging.Logger
+	registry *BoundaryRegistry
 }
 
 func (s *PostgresEventPublishing) Schema(boundary string) (string, error) {
-	schema := s.boundarySchemaMappings[boundary]
-	if (schema == config.BoundaryToPostgresSchemaMapping{}) {
+	entry, ok := s.registry.lookup(boundary)
+	if !ok {
 		return "", fmt.Errorf("no schema found for Boundary %s", boundary)
 	}
-	return schema.Schema, nil
+	return entry.mapping.Schema, nil
 }
 func NewPostgresEventPublishing(db *sql.DB, logger logging.Logger, boundarySchemaMappings map[string]config.BoundaryToPostgresSchemaMapping) *PostgresEventPublishing {
-	getQ := make(map[string]string, len(boundarySchemaMappings))
-	insQ := make(map[string]string, len(boundarySchemaMappings))
-	for boundary, m := range boundarySchemaMappings {
-		getQ[boundary] = fmt.Sprintf(getLastPublishedEventQuery, m.Schema, boundary)
-		insQ[boundary] = fmt.Sprintf(insertLastPublishedPosition, m.Schema, boundary)
-	}
+	return NewPostgresEventPublishingWithRegistry(db, logger, NewBoundaryRegistry(boundarySchemaMappings))
+}
+
+func NewPostgresEventPublishingWithRegistry(db *sql.DB, logger logging.Logger, registry *BoundaryRegistry) *PostgresEventPublishing {
 	return &PostgresEventPublishing{
-		db:                     db,
-		logger:                 logger,
-		boundarySchemaMappings: boundarySchemaMappings,
-		getQueries:             getQ,
-		insertQueries:          insQ,
+		db:       db,
+		logger:   logger,
+		registry: registry,
 	}
 }
 
@@ -70,14 +65,14 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 		return orisun.Position{}, err
 	}
 
-	query, ok := s.getQueries[boundary]
+	entry, ok := s.registry.lookup(boundary)
 	if !ok {
 		return orisun.Position{}, fmt.Errorf("no schema found for Boundary %s", boundary)
 	}
 
 	var transactionID int64
 	var globalID int64
-	err = tx.QueryRowContext(ctx, query, boundary).Scan(&transactionID, &globalID)
+	err = tx.QueryRowContext(ctx, entry.getLastPublished, boundary).Scan(&transactionID, &globalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return orisun.NotExistsPosition(), nil
@@ -93,14 +88,14 @@ func (s *PostgresEventPublishing) GetLastPublishedEventPosition(ctx context.Cont
 
 func (s *PostgresEventPublishing) InsertLastPublishedEvent(ctx context.Context,
 	boundaryOfInterest string, transactionId int64, globalId int64) error {
-	query, ok := s.insertQueries[boundaryOfInterest]
+	entry, ok := s.registry.lookup(boundaryOfInterest)
 	if !ok {
 		return fmt.Errorf("no schema found for Boundary %s", boundaryOfInterest)
 	}
 
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		query,
+		entry.insertLastPublished,
 		boundaryOfInterest,
 		transactionId,
 		globalId,

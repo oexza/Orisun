@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-func TestLatestByCriteriaProtoConversionStaysAtBoundary(t *testing.T) {
+func TestLatestByCriteriaResponsePreservesDomainValues(t *testing.T) {
 	criteria := []*Criterion{
 		{Tags: []*Tag{{Key: "account_id", Value: "a-1"}, {Key: "currency", Value: "USD"}}},
 		{Tags: []*Tag{{Key: "account_id", Value: "missing"}}},
 	}
-	query := latestQueryFromProto(&GetLatestByCriteriaRequest{Boundary: "ledger", Criteria: criteria})
+	query := latestQueryFromRequest(&GetLatestByCriteriaRequest{Boundary: "ledger", Criteria: criteria})
 	if query.Boundary != "ledger" || len(query.Criteria) != 2 || len(query.Criteria[0].Tags) != 2 {
 		t.Fatalf("unexpected packed query: %+v", query)
 	}
@@ -19,7 +19,7 @@ func TestLatestByCriteriaProtoConversionStaysAtBoundary(t *testing.T) {
 	}
 
 	created := time.Unix(1_700_000_000, 123).UTC()
-	resp := latestBatchProtoResponse(LatestByCriteriaBatch{
+	resp := latestBatchResponse(LatestByCriteriaBatch{
 		Matches: []LatestCriterionMatch{
 			{Found: true, Event: ReadEvent{
 				EventId: "event-1", EventType: "Credited", Data: `{}`, Metadata: `{}`,
@@ -32,15 +32,15 @@ func TestLatestByCriteriaProtoConversionStaysAtBoundary(t *testing.T) {
 	}, criteria)
 
 	if len(resp.Results) != 2 || resp.Results[0].Criterion != criteria[0] || resp.Results[1].Event != nil {
-		t.Fatalf("unexpected protobuf latest response: %+v", resp)
+		t.Fatalf("unexpected latest response: %+v", resp)
 	}
 	if resp.Results[0].Event.EventId != "event-1" || resp.Results[0].Event.Position.PreparePosition != 8 {
-		t.Fatalf("unexpected protobuf event: %+v", resp.Results[0].Event)
+		t.Fatalf("unexpected event: %+v", resp.Results[0].Event)
 	}
-	if got := resp.Results[0].Event.DateCreated.AsTime(); !got.Equal(created) {
-		t.Fatalf("unexpected protobuf timestamp: %v", got)
+	if got := resp.Results[0].Event.DateCreated; !got.Equal(created) {
+		t.Fatalf("unexpected timestamp: %v", got)
 	}
 	if resp.ContextPosition.CommitPosition != 7 || resp.ContextPosition.PreparePosition != 8 {
-		t.Fatalf("unexpected protobuf context: %+v", resp.ContextPosition)
+		t.Fatalf("unexpected context: %+v", resp.ContextPosition)
 	}
 }

@@ -31,18 +31,6 @@ func NewDeleteUserHandler(logger l.Logger, saveEvents admin_common.SaveEventsTyp
 	}
 }
 
-func (dUH *DeleteUserHandler) deleteUser(ctx context.Context, userId string, currentUserId string) error {
-	return DeleteUser(
-		ctx,
-		userId,
-		currentUserId,
-		dUH.boundary,
-		dUH.saveEvents,
-		dUH.getEvents,
-		dUH.logger,
-	)
-}
-
 func DeleteUser(
 	ctx context.Context,
 	userId string,

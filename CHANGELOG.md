@@ -2,9 +2,68 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+- Removed `ORISUN_BOUNDARIES`. Application boundaries are now immutable,
+  event-backed definitions in the admin catalog and can be created or imported
+  while the server is running. PostgreSQL keeps `ORISUN_PG_SCHEMAS` for the
+  required admin mapping and as a one-time legacy `boundary:schema` import
+  source.
+- Embedded `SubscribeToEvents` now accepts an `eventstore.SubscribeRequest`
+  and a synchronous `eventstore.EventHandler`. Embedded callers no longer
+  receive generated `Event` messages through `MessageHandler`.
+- Generated Go protobuf messages and gRPC stubs now live together in
+  `github.com/OrisunLabs/Orisun/orisun/grpcapi`. Server-module callers that
+  used generated request, response, event, or client types from
+  `github.com/OrisunLabs/Orisun/orisun` must update that import. The gRPC wire
+  contract is unchanged.
+
+### Added
+
+- Added Admin `CreateBoundary`, `ListBoundaries`, and
+  `GetBoundary` RPCs, including asynchronous `PROVISIONING`, `ACTIVE`, and
+  `FAILED` lifecycle states.
+- Added matching boundary-management methods to the PostgreSQL, SQLite, and
+  FoundationDB Go embedding packages and the Node Admin client.
+- Added per-process durable catalog replay and independent provisioning retries
+  so every clustered node installs newly defined boundaries without a restart
+  and one failed definition does not block later definitions.
+
 ### Changed
 
 - Moved Docker Hub publishing and image documentation from `orexza/orisun` to the OrisunLabs-owned `orisunlabs/orisun` repository.
+- PostgreSQL schema mappings and SQLite boundary files are reconciled through
+  `BoundaryCreated` events marked `existedBeforeCatalog` during the first
+  upgraded startup. FoundationDB is beta and does not perform legacy catalog
+  migration. New definitions provision backend storage, runtime registries,
+  publishers, and dynamic projectors from the same event flow.
+
+### Migration Notes
+
+- Follow the complete
+  [0.7.0 to 0.8.0 upgrade guide](docs/docs/operations/upgrading-0.7-to-0.8.md)
+  for preflight checks, backend-specific configuration, rolling-upgrade
+  sequencing, verification, client changes, and rollback.
+- Back up the durable store and admin boundary, remove
+  `ORISUN_BOUNDARIES` from the 0.8.0 configuration, and start one upgraded node
+  first. If a template is shared with 0.7.0 nodes, retain the setting until the
+  last old node is drained.
+- Keep all existing PostgreSQL `boundary:schema` mappings in
+  `ORISUN_PG_SCHEMAS` during the first startup and any mixed-version rollout.
+  SQLite deployments must keep their existing storage directory unchanged for
+  discovery.
+- Verify every expected entry from `Admin/ListBoundaries` is `ACTIVE` before
+  moving traffic or starting the remaining cluster nodes. Inspect `last_error`
+  for failed provisioning.
+- Replace embedded `MessageHandler[orisun.Event]` subscriptions with an
+  `eventstore.EventHandler` callback. Return an error from the callback to stop
+  the subscription; use the callback context for cancellation.
+- Update direct imports of server-module generated Go types from
+  `orisun` to `orisun/grpcapi`. Embedded domain types remain in `orisun` and
+  do not depend on generated messages.
+- After every PostgreSQL node is upgraded and the catalog is verified,
+  non-admin legacy mappings may be removed from `ORISUN_PG_SCHEMAS`; the admin
+  boundary mapping remains required.
 
 ## 0.6.1 - 2026-07-18
 

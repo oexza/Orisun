@@ -4,7 +4,7 @@
 // 	protoc        v6.32.0
 // source: eventstore.proto
 
-package orisun
+package grpcapi
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -1513,8 +1513,8 @@ const file_eventstore_proto_rawDesc = "" +
 	"\x18CatchUpSubscribeToEvents\x12+.orisun.CatchUpSubscribeToEventStoreRequest\x1a\r.orisun.Event\"\x000\x01\x123\n" +
 	"\x04Ping\x12\x13.orisun.PingRequest\x1a\x14.orisun.PingResponse\"\x00\x12H\n" +
 	"\vCreateIndex\x12\x1a.orisun.CreateIndexRequest\x1a\x1b.orisun.CreateIndexResponse\"\x00\x12B\n" +
-	"\tDropIndex\x12\x18.orisun.DropIndexRequest\x1a\x19.orisun.DropIndexResponse\"\x00B<\n" +
-	"\x15com.orisun.eventstoreZ#github.com/OrisunLabs/Orisun/orisunb\x06proto3"
+	"\tDropIndex\x12\x18.orisun.DropIndexRequest\x1a\x19.orisun.DropIndexResponse\"\x00BD\n" +
+	"\x15com.orisun.eventstoreZ+github.com/OrisunLabs/Orisun/orisun/grpcapib\x06proto3"
 
 var (
 	file_eventstore_proto_rawDescOnce sync.Once

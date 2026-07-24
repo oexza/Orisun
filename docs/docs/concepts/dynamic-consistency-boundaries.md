@@ -42,7 +42,7 @@ In Orisun that operation is `SaveEvents` with both `query.expected_position` and
 Orisun is not a literal implementation of a DCB-specific API surface. The differences are intentional:
 
 - **CCC is the primary model.** Orisun documentation, code, and API names are command-first: a command reads a context, decides, then saves with the same context. DCB describes the same consistency behavior from the event store's append-condition perspective.
-- **Orisun boundaries are not DCB consistency boundaries.** An Orisun boundary is a configured storage partition. A DCB consistency boundary is the event subset matched by a query at write time.
+- **Orisun boundaries are not DCB consistency boundaries.** An Orisun boundary is a catalogued storage partition. A DCB consistency boundary is the event subset matched by a query at write time.
 - **Tags are JSON data fields.** Orisun does not have a separate tag store. Event type and tags are queryable fields in the stored JSON event data.
 - **The append method is `SaveEvents`.** There is no separate `appendWithCondition` method. The condition is encoded by `expected_position` plus `subsetQuery`.
 - **The conflict status is gRPC-shaped.** DCB literature may call this an append-condition failure; Orisun returns gRPC `ALREADY_EXISTS`.
@@ -63,7 +63,12 @@ The practical rule: use DCB terminology for modeling and discussion when it help
 | Consistency boundary | The event subset matched by `subsetQuery` |
 | Conflict | `ALREADY_EXISTS` |
 
-The most important naming difference is boundary. An Orisun boundary is a configured physical/logical partition: PostgreSQL schema, SQLite file, FoundationDB key range prefix, or equivalent backend namespace. A DCB consistency boundary is the dynamic subset matched by the write's query. Most applications use one Orisun boundary for a product/domain area, then define many DCB consistency boundaries inside it.
+The most important naming difference is boundary. An Orisun boundary is an
+event-backed physical/logical partition created or imported at runtime:
+PostgreSQL schema placement, SQLite files, a FoundationDB key range, or an
+equivalent backend namespace. A DCB consistency boundary is the dynamic subset
+matched by the write's query. Most applications use one Orisun boundary for a
+product/domain area, then define many DCB consistency boundaries inside it.
 
 ## Example
 

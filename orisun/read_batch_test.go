@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadEventMarshalJSONMatchesProtoEnvelope(t *testing.T) {
+func TestReadEventMarshalJSONPreservesPublishedEnvelope(t *testing.T) {
 	event := ReadEvent{
 		EventId:         "event-1",
 		EventType:       "AccountCredited",
@@ -22,12 +22,17 @@ func TestReadEventMarshalJSONMatchesProtoEnvelope(t *testing.T) {
 
 	packedJSON, err := json.Marshal(event)
 	require.NoError(t, err)
-	protoJSON, err := json.Marshal(event.ProtoEvent())
-	require.NoError(t, err)
-	assert.JSONEq(t, string(protoJSON), string(packedJSON))
+	assert.JSONEq(t, `{
+		"event_id":"event-1",
+		"event_type":"AccountCredited",
+		"data":"{\"eventType\":\"AccountCredited\",\"amount\":10}",
+		"metadata":"{\"trace\":\"abc\"}",
+		"position":{"commit_position":42,"prepare_position":7},
+		"date_created":{"seconds":1700000000,"nanos":123000000}
+	}`, string(packedJSON))
 }
 
-func TestReadEventMarshalJSONMatchesProtoEscapingAndOmissions(t *testing.T) {
+func TestReadEventMarshalJSONProducesValidEscapedJSON(t *testing.T) {
 	events := []ReadEvent{
 		{
 			EventId:     "<event>&\"\n",
@@ -40,13 +45,11 @@ func TestReadEventMarshalJSONMatchesProtoEscapingAndOmissions(t *testing.T) {
 	for _, event := range events {
 		packedJSON, err := json.Marshal(event)
 		require.NoError(t, err)
-		protoJSON, err := json.Marshal(event.ProtoEvent())
-		require.NoError(t, err)
-		assert.Equal(t, string(protoJSON), string(packedJSON))
+		assert.True(t, json.Valid(packedJSON), string(packedJSON))
 	}
 }
 
-func TestReadEventBatchProtoResponsePreservesRows(t *testing.T) {
+func TestReadEventBatchResponsePreservesRows(t *testing.T) {
 	created := time.Unix(1_700_000_000, 321).UTC()
 	batch := ReadEventBatch{
 		{
@@ -69,12 +72,12 @@ func TestReadEventBatchProtoResponsePreservesRows(t *testing.T) {
 		},
 	}
 
-	resp := batch.ProtoResponse()
+	resp := batch.Response()
 	require.Len(t, resp.Events, 2)
 	assert.Equal(t, "event-1", resp.Events[0].EventId)
 	assert.Equal(t, int64(4), resp.Events[0].Position.CommitPosition)
 	assert.Equal(t, int64(9), resp.Events[0].Position.PreparePosition)
-	assert.Equal(t, created, resp.Events[0].DateCreated.AsTime())
+	assert.Equal(t, created, resp.Events[0].DateCreated)
 	assert.Equal(t, `{"reason":"done"}`, resp.Events[1].Metadata)
 	assert.Equal(t, int64(10), resp.Events[1].Position.PreparePosition)
 }
@@ -89,7 +92,7 @@ func BenchmarkPublisherEventMarshal(b *testing.B) {
 		PreparePosition: 7,
 		DateCreated:     time.Unix(1_700_000_000, 123_000_000).UTC(),
 	}
-	protoEvent := event.ProtoEvent()
+	materializedEvent := event.Event()
 
 	b.Run("packed", func(b *testing.B) {
 		b.ReportAllocs()
@@ -99,10 +102,10 @@ func BenchmarkPublisherEventMarshal(b *testing.B) {
 			}
 		}
 	})
-	b.Run("protobuf", func(b *testing.B) {
+	b.Run("materialized", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
-			if _, err := json.Marshal(protoEvent); err != nil {
+			if _, err := json.Marshal(materializedEvent); err != nil {
 				b.Fatal(err)
 			}
 		}

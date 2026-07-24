@@ -28,6 +28,8 @@ Logs are structured and leveled. Set the level with `ORISUN_LOGGING_LEVEL` (`DEB
 Operationally useful log lines include:
 
 - effective `GOMAXPROCS`, `GOMEMLIMIT`, and `GOGC` at startup,
+- legacy boundary-catalog reconciliation totals,
+- boundary provisioning failures and independent retry attempts,
 - publisher boundary-lock acquisition and contention in clustered deployments,
 - publisher checkpoint progress and any publish errors.
 
@@ -51,6 +53,9 @@ Leave pprof disabled in production unless you are actively profiling, and never 
 
 ## What to watch
 
+- **Boundary readiness** is the set of `PROVISIONING` or `FAILED` entries from
+  `Admin/ListBoundaries`. Alert on definitions that stay non-active and include
+  `last_error`, `placement`, and `status_position` in diagnostics.
 - **Publisher lag** measures the gap between committed and published positions. Investigate with the [Troubleshooting](./troubleshooting#publisher-lag) steps.
 - **Catch-up vs live** tells you whether subscribers are repeatedly falling out of live delivery. If they are, the JetStream retention window may be too small for their pace. See [Delivery Guarantees](../concepts/delivery-guarantees#jetstream-retention-is-in-memory).
 - **Consistency conflicts** show a high `ALREADY_EXISTS` rate, which is a domain hotspot, not an error. Narrow the consistency context or add an [index](../concepts/indexing).

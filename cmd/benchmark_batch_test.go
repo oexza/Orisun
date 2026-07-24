@@ -173,7 +173,6 @@ func (bb *BatchBenchmark) startServer(b *testing.B) {
 	os.Setenv("ORISUN_PG_PASSWORD", "postgres")
 	os.Setenv("ORISUN_PG_NAME", "orisun_test")
 	os.Setenv("ORISUN_PG_SCHEMAS", "benchmark_test:public,benchmark_admin:admin")
-	os.Setenv("ORISUN_BOUNDARIES", `[{"name":"benchmark_test","description":"benchmark boundary"},{"name":"benchmark_admin","description":"admin boundary"}]`)
 	os.Setenv("ORISUN_ADMIN_BOUNDARY", "benchmark_admin")
 	os.Setenv("ORISUN_NATS_PORT", "14224")
 	os.Setenv("ORISUN_GRPC_PORT", "15006")
@@ -220,9 +219,9 @@ func (bb *BatchBenchmark) waitForServer(b *testing.B) {
 	bb.client = grpcapi.NewEventStoreClient(conn)
 
 	// Test authentication
-	var pingResp *orisun.PingResponse
+	var pingResp *grpcapi.PingResponse
 	for i := 0; i < 30; i++ {
-		pingResp, err = bb.client.Ping(bb.authContext(), &orisun.PingRequest{})
+		pingResp, err = bb.client.Ping(bb.authContext(), &grpcapi.PingRequest{})
 		if err == nil {
 			b.Logf("Authentication successful on attempt %d", i+1)
 			break

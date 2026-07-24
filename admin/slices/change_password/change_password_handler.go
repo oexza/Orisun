@@ -3,17 +3,18 @@ package changepassword
 import (
 	"context"
 	"errors"
+
+	admin_events "github.com/OrisunLabs/Orisun/admin/events"
 	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
-	// "sync"
-
-	admin_events "github.com/OrisunLabs/Orisun/admin/events"
 
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
+
+var ErrInvalidCurrentPassword = errors.New("invalid current password")
 
 type ChangePasswordHandler struct {
 	logger     l.Logger
@@ -39,22 +40,6 @@ type ChangePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`
 	ConfirmPassword string `json:"confirmPassword"`
-}
-
-func (r *ChangePasswordRequest) validate() error {
-	if r.CurrentPassword == "" {
-		return errors.New("current password is required")
-	}
-	if r.NewPassword == "" {
-		return errors.New("new password is required")
-	}
-	if r.ConfirmPassword == "" {
-		return errors.New("confirm password is required")
-	}
-	if r.NewPassword != r.ConfirmPassword {
-		return errors.New("new password and confirm password do not match")
-	}
-	return nil
 }
 
 func ChangePassword(
@@ -147,7 +132,7 @@ func ChangePassword(
 
 	// Verify current password
 	if err := admin_common.ComparePassword(currentPasswordHash, currentPassword); err != nil {
-		return errors.New("invalid current password")
+		return ErrInvalidCurrentPassword
 	}
 
 	// Save password change event

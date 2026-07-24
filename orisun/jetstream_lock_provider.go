@@ -262,7 +262,7 @@ func (p *JetStreamLockProvider) renew(lease *jetStreamLockLeaseHandle) (bool, er
 		return false, err
 	}
 
-	opCtx, cancel := context.WithTimeout(context.Background(), p.config.operationTimeout)
+	opCtx, cancel := context.WithTimeout(lease.ctx, p.config.operationTimeout)
 	defer cancel()
 	revision, err := p.bucket.Update(opCtx, lease.name, encoded, lease.revision.Load())
 	if err != nil {
@@ -294,7 +294,7 @@ func (p *JetStreamLockProvider) stillOwns(ctx context.Context, lease *jetStreamL
 
 func (p *JetStreamLockProvider) releaseRemote(lease *jetStreamLockLeaseHandle) {
 	for attempt := 0; attempt < p.config.maxRetries; attempt++ {
-		opCtx, cancel := context.WithTimeout(context.Background(), p.config.operationTimeout)
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(lease.ctx), p.config.operationTimeout)
 		entry, err := p.bucket.Get(opCtx, lease.name)
 		if err != nil {
 			cancel()

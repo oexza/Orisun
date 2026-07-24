@@ -17,17 +17,24 @@ Money moves between two accounts by transfer. A transfer posts two events in the
 
 Following the [scoping events](./patterns/event-scopes) pattern, an account has no separate entity identity. It *is* its `AccountOpened` event. Later events reference that event's own id, not a hand-rolled `account_id` foreign key. See [Command Context Consistency](./concepts/command-context-consistency#example-context) for the same `accountOpenedId` / `scopes.*AccountOpenedId` convention used here.
 
-The ledger uses an `accounts` boundary. Add it to the server configuration before startup:
+The ledger uses an `accounts` boundary. Create it through the Admin API after
+the server starts:
 
 ```bash
-ORISUN_BOUNDARIES='[{"name":"accounts"},{"name":"orisun_admin"}]'
-ORISUN_ADMIN_BOUNDARY=orisun_admin
+grpcurl -plaintext \
+  -H 'Authorization: Basic YWRtaW46Y2hhbmdlaXQ=' \
+  -d '{"name":"accounts","description":"ledger","placement":{"backend":"postgres","namespace":"public"}}' \
+  localhost:5005 orisun.Admin/CreateBoundary
 ```
 
-For PostgreSQL-compatible backends, including YugabyteDB, also map it to a schema:
+The command returns while the boundary is `PROVISIONING`. Use `GetBoundary` and
+continue once its status is `BOUNDARY_LIFECYCLE_STATUS_ACTIVE`.
+
+Only the admin boundary needs a startup mapping for a fresh PostgreSQL-compatible
+deployment, including YugabyteDB:
 
 ```bash
-ORISUN_PG_SCHEMAS=accounts:public,orisun_admin:admin
+ORISUN_PG_SCHEMAS=orisun_admin:admin
 ```
 
 ## Connect

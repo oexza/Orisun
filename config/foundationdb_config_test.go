@@ -15,10 +15,6 @@ func TestValidateConfigAcceptsFoundationDB(t *testing.T) {
 			Root:       "orisun",
 		},
 		Admin: AdminConfig{Boundary: "orisun_admin"},
-		boundaries: []Boundary{
-			{Name: "orders"},
-			{Name: "orisun_admin"},
-		},
 	}
 
 	if err := validateConfig(cfg); err != nil {
@@ -31,9 +27,6 @@ func TestValidateConfigRejectsFoundationDBWithoutRoot(t *testing.T) {
 		Backend:      BackendConfig{Type: "foundationdb"},
 		FoundationDB: FoundationDBConfig{APIVersion: 730},
 		Admin:        AdminConfig{Boundary: "orisun_admin"},
-		boundaries: []Boundary{
-			{Name: "orisun_admin"},
-		},
 	}
 
 	err := validateConfig(cfg)

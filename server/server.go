@@ -7,16 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"github.com/OrisunLabs/Orisun/admin"
+	boundaryprovisioning "github.com/OrisunLabs/Orisun/admin/slices/boundary_provisioning"
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
 	"github.com/OrisunLabs/Orisun/admin/slices/create_user"
 	"github.com/OrisunLabs/Orisun/admin/slices/dashboard/event_count"
 	"github.com/OrisunLabs/Orisun/admin/slices/dashboard/user_count"
 	up "github.com/OrisunLabs/Orisun/admin/slices/users_projection"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	c "github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/internal/eventstoreadapter"
 	l "github.com/OrisunLabs/Orisun/logging"
 	nats2 "github.com/OrisunLabs/Orisun/nats"
 	"github.com/OrisunLabs/Orisun/orisun"
-	pb "github.com/OrisunLabs/Orisun/orisun"
 	"github.com/OrisunLabs/Orisun/orisun/grpcapi"
 	"github.com/goccy/go-json"
 	"github.com/nats-io/nats.go/jetstream"
@@ -37,6 +40,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -69,96 +73,19 @@ func ensureJetStreamStreamIsProperlySetup(ctx context.Context, js jetstream.JetS
 	return natsStream, nil
 }
 
-// setupJetStreamConsumer sets up a JetStream consumer for the given stream and handles message consumption.
-// It creates or updates the consumer, sets up message handling with retry logic, and cleans up resources when done.
-func setupJetStreamConsumer(ctx context.Context, js jetstream.JetStream, streamName string, consumerName string, subject string, handler *orisun.MessageHandler[common.PublishRequest], logger l.Logger) error {
-	jetStreamStream, err := ensureJetStreamStreamIsProperlySetup(ctx, js, streamName, logger)
-	if err != nil {
-		return err
-	}
-
-	consumer, err := jetStreamStream.CreateOrUpdateConsumer(
-		ctx,
-		jetstream.ConsumerConfig{
-			Name:          consumerName,
-			DeliverPolicy: jetstream.DeliverNewPolicy,
-			AckPolicy:     jetstream.AckNonePolicy,
-			MaxAckPending: 100,
-			FilterSubjects: []string{
-				streamName + "." + subject,
-			},
-		},
-	)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe: %v", err)
-	}
-
-	consumption, err := consumer.Consume(func(natsNsg jetstream.Msg) {
-		// Try to send the message to the handler
-		for {
-			if logger.IsDebugEnabled() {
-				logger.Debugf("Consuming message: %v", string(natsNsg.Data()))
-			}
-			if ctx.Err() != nil {
-				return
-			}
-			message := common.PublishRequest{}
-			json.Unmarshal(natsNsg.Data(), &message)
-			if logger.IsDebugEnabled() {
-				logger.Debugf("message: %v", message)
-			}
-			err = handler.Send(&message)
-
-			if err == nil {
-				// Message sent successfully, break the retry loop
-				natsNsg.Ack()
-				break
-			}
-
-			if ctx.Err() != nil {
-				// Context is done, exit handler
-				logger.Infof("Context done, stopping message handling: %v", ctx.Err())
-				return
-			}
-
-			// Log the error and retry
-			logger.Errorf("Error handling message: %v. Retrying...", err)
-			// Add a short delay before retrying
-			time.Sleep(time.Millisecond * 100)
-		}
-	})
-
-	if err != nil {
-		return err
-	}
-	go func() {
-		<-ctx.Done()
-		logger.Infof("Context done, stopping message consumption: %v", ctx.Err())
-		consumption.Stop()
-		js.DeleteConsumer(ctx, streamName, consumerName)
-	}()
-
-	return nil
-}
-
-// getUserByIdWrapper implements the up.GetUserById interface using adminDB.
-type getUserByIdWrapper struct {
-	adminDB common.DB
-}
-
-func (w getUserByIdWrapper) Get(userId string) (orisun.User, error) {
-	return w.adminDB.GetUserById(userId)
-}
-
 type Backend struct {
-	SaveEvents      orisun.EventsSaver
-	GetEvents       orisun.EventsRetriever
-	LockProvider    orisun.LockProvider
-	AdminDB         common.DB
-	EventPublishing orisun.EventPublishingTracker
-	SignalProvider  func(string) orisun.EventSignal
-	Start           func(context.Context)
-	Close           func(context.Context)
+	SaveEvents        orisun.EventsSaver
+	GetEvents         orisun.EventsRetriever
+	LockProvider      orisun.LockProvider
+	AdminDB           common.DB
+	EventPublishing   orisun.EventPublishingTracker
+	SignalProvider    func(string) orisun.EventSignal
+	ProvisionBoundary boundaryprovisioning.ProvisionBoundary
+	InstallBoundary   boundaryprovisioning.InstallBoundary
+	InitialBoundaries []string
+	LegacyBoundaries  []boundarymodel.Definition
+	Start             func(context.Context)
+	Close             func(context.Context)
 }
 
 type BackendInitializer func(context.Context, c.AppConfig, jetstream.JetStream, l.Logger) (Backend, error)
@@ -202,16 +129,21 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		AppLogger.Fatalf("Failed to initialize backend: %v", err)
 	}
 	if backend.Close != nil {
-		defer backend.Close(context.Background())
+		defer func() {
+			closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer closeCancel()
+			backend.Close(closeCtx)
+		}()
 	}
 	if backend.Start != nil {
 		backend.Start(ctx)
 	}
 
 	// Initialize EventStore
-	eventStore := pb.InitializeEventStore(
+	eventStore := orisun.InitializeEventStore(
 		ctx,
 		config,
+		backend.InitialBoundaries,
 		backend.SaveEvents,
 		backend.GetEvents,
 		backend.LockProvider,
@@ -219,6 +151,9 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		js,
 		AppLogger,
 	)
+	if err := eventStore.EnableBoundaryActivationGate(config.Admin.Boundary); err != nil {
+		AppLogger.Fatalf("Failed to enable boundary activation gate: %v", err)
+	}
 
 	signalProvider := backend.SignalProvider
 	if signalProvider == nil {
@@ -226,7 +161,108 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 			return orisun.NewPollingSignal(1 * time.Second)
 		}
 	}
-	pb.StartEventPolling(ctx, config, backend.LockProvider, backend.GetEvents, js, backend.EventPublishing, signalProvider, AppLogger)
+	pollingManager := orisun.StartEventPolling(ctx, config, backend.InitialBoundaries, backend.LockProvider, backend.GetEvents, js, backend.EventPublishing, signalProvider, AppLogger)
+	provisionedBoundaries := make(map[string]struct{}, len(backend.InitialBoundaries))
+	for _, boundary := range backend.InitialBoundaries {
+		provisionedBoundaries[boundary] = struct{}{}
+	}
+	var provisionedBoundariesMu sync.Mutex
+	var eventCountProjectors *eventCountProjectionManager
+
+	if backend.ProvisionBoundary != nil && backend.InstallBoundary != nil {
+		boundaryEvents := eventstoreadapter.New(
+			backend.SaveEvents,
+			backend.GetEvents,
+			eventStore.SubscribeToAllEvents,
+		)
+		provisionPhysicalBoundary := func(provisionCtx context.Context, definition boundarymodel.Definition) error {
+			return backend.ProvisionBoundary(provisionCtx, definition)
+		}
+		installBoundary := func(installCtx context.Context, definition boundarymodel.Definition) error {
+			if err := backend.InstallBoundary(installCtx, definition); err != nil {
+				return err
+			}
+			if err := pollingManager.StartBoundary(definition.Name); err != nil {
+				return err
+			}
+			provisionedBoundariesMu.Lock()
+			provisionedBoundaries[definition.Name] = struct{}{}
+			projectors := eventCountProjectors
+			provisionedBoundariesMu.Unlock()
+			if projectors != nil {
+				projectors.StartBoundary(definition.Name)
+			}
+			return nil
+		}
+		provisioningHandler := boundaryprovisioning.NewBoundaryProvisioningEventHandler(
+			config.Admin.Boundary,
+			boundaryEvents,
+			boundaryEvents,
+			provisionPhysicalBoundary,
+			eventStore.EnsureBoundary,
+		)
+		runtimeHandler := boundaryprovisioning.NewBoundaryRuntimeEventHandler(
+			config.Admin.Boundary,
+			boundaryEvents,
+			installBoundary,
+			func(_ context.Context, boundary string) error {
+				return eventStore.ActivateBoundary(boundary)
+			},
+		)
+		provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
+			config.Admin.Boundary,
+			boundaryEvents,
+			boundaryEvents.Subscribe,
+			provisioningHandler.Handle,
+			AppLogger,
+		)
+		runtimeSubscriber := boundaryprovisioning.NewBoundaryRuntimeSubscriber(
+			config.Admin.Boundary,
+			boundaryEvents,
+			boundaryEvents.Subscribe,
+			runtimeHandler.Handle,
+			AppLogger,
+		)
+		// Legacy definitions run first so the elected controller observes them and
+		// existing activation events can be replayed into this local runtime.
+		if len(backend.LegacyBoundaries) > 0 {
+			result, reconcileErr := createboundary.ReconcileLegacyBoundaries(
+				ctx,
+				backend.LegacyBoundaries,
+				config.Admin.Boundary,
+				boundaryEvents,
+				boundaryEvents,
+			)
+			if reconcileErr != nil {
+				AppLogger.Fatalf("Failed to migrate configured boundaries into the catalog: %v", reconcileErr)
+			}
+			AppLogger.Infof(
+				"Boundary catalog migration completed: created=%d existing=%d",
+				len(result.Created),
+				len(result.Existing),
+			)
+		}
+		if err := runtimeSubscriber.Replay(ctx); err != nil {
+			AppLogger.Fatalf("Failed to replay boundary catalog into this runtime: %v", err)
+		}
+		boundaryWorkers, boundaryCtx := errgroup.WithContext(ctx)
+		boundaryWorkers.Go(func() error {
+			runtimeSubscriber.Run(boundaryCtx)
+			return nil
+		})
+		boundaryWorkers.Go(func() error {
+			provisioningSubscriber.RunExclusive(boundaryCtx)
+			return nil
+		})
+		defer func() {
+			cancel()
+			if err := boundaryWorkers.Wait(); err != nil {
+				AppLogger.Errorf("Boundary workers stopped: %v", err)
+			}
+		}()
+	} else if backend.ProvisionBoundary != nil || backend.InstallBoundary != nil || len(backend.LegacyBoundaries) > 0 {
+		AppLogger.Fatalf("Backend boundary provisioning requires both physical provisioner and local installer")
+	}
 
 	// Start projectors
 	pubsubStreamName := "ORISUN-ADMIN"
@@ -282,44 +318,29 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		config.Admin.Boundary,
 		backend.AdminDB.GetProjectorLastPosition,
 		backend.AdminDB.UpdateProjectorPosition,
-		func(
-			ctx context.Context,
-			boundary string,
-			subscriberName string,
-			pos *pb.Position,
-			query *pb.Query,
-			handler *orisun.MessageHandler[pb.Event]) error {
-			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, query, handler,
-			)
-		},
+		eventStore.SubscribeToAllEvents,
 		getUserCount,
 		jetStreamPublishFunction,
 		backend.AdminDB.SaveUsersCount,
 		AppLogger,
 	)
 
-	startEventCountProjector(
+	newEventCountProjectors := newEventCountProjectionManager(
 		ctx,
-		config.GetBoundaryNames(),
 		backend.AdminDB.GetProjectorLastPosition,
 		backend.AdminDB.UpdateProjectorPosition,
-		func(
-			ctx context.Context,
-			boundary string,
-			subscriberName string,
-			pos *pb.Position,
-			query *pb.Query,
-			handler *orisun.MessageHandler[pb.Event]) error {
-			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, query, handler,
-			)
-		},
+		eventStore.SubscribeToAllEvents,
 		getEventCount,
 		jetStreamPublishFunction,
 		backend.AdminDB.SaveEventCount,
 		AppLogger,
 	)
+	provisionedBoundariesMu.Lock()
+	eventCountProjectors = newEventCountProjectors
+	for boundary := range provisionedBoundaries {
+		newEventCountProjectors.StartBoundary(boundary)
+	}
+	provisionedBoundariesMu.Unlock()
 
 	startUserProjector(
 		ctx,
@@ -329,17 +350,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 		backend.AdminDB.UpsertUser,
 		backend.AdminDB.DeleteUser,
 		backend.AdminDB.GetUserById,
-		func(
-			ctx context.Context,
-			boundary string,
-			subscriberName string,
-			pos *pb.Position,
-			query *pb.Query,
-			handler *orisun.MessageHandler[pb.Event]) error {
-			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, query, handler,
-			)
-		},
+		eventStore.SubscribeToAllEvents,
 		eventStore.SaveEvents,
 		eventStore.GetEvents,
 		AppLogger,
@@ -348,17 +359,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	startAuthUserProjector(
 		ctx,
 		config.Admin.Boundary,
-		func(
-			ctx context.Context,
-			boundary string,
-			subscriberName string,
-			pos *pb.Position,
-			query *pb.Query,
-			handler *orisun.MessageHandler[pb.Event]) error {
-			return eventStore.SubscribeToAllEvents(
-				ctx, boundary, subscriberName, pos, query, handler,
-			)
-		},
+		eventStore.SubscribeToAllEvents,
 		AppLogger,
 	)
 
@@ -366,7 +367,7 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	err = createDefaultUser(
 		ctx,
 		config.Admin.Boundary,
-		*eventStore,
+		eventStore,
 		AppLogger,
 	)
 	if err != nil {
@@ -382,10 +383,19 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 	)
 
 	// Start gRPC server
-	startGRPCServer(config, eventStore, authenticator, backend.AdminDB, AppLogger)
+	startGRPCServer(
+		ctx,
+		config,
+		eventStore,
+		authenticator,
+		backend.AdminDB,
+		backend.SaveEvents,
+		backend.GetEvents,
+		AppLogger,
+	)
 }
 
-func createDefaultUser(ctx context.Context, adminBoundary string, eventstore pb.EventStore, logger l.Logger) error {
+func createDefaultUser(ctx context.Context, adminBoundary string, eventstore *orisun.EventStore, logger l.Logger) error {
 	var userExistsError create_user.UserExistsError
 	if _, err := create_user.CreateUser(
 		ctx,
@@ -538,54 +548,81 @@ func startUserCountProjector(
 
 }
 
-func startEventCountProjector(
+type eventCountProjectionManager struct {
+	ctx                      context.Context
+	getProjectorLastPosition common.GetProjectorLastPositionType
+	updateProjectorPosition  common.UpdateProjectorPositionType
+	subscribeToEvents        common.SubscribeToEventStoreType
+	getEventCount            event_count.GetEventCount
+	publishToPubSub          common.PublishToPubSubType
+	saveEventCount           event_count.SaveEventCount
+	logger                   l.Logger
+
+	mu      sync.Mutex
+	running map[string]struct{}
+}
+
+func newEventCountProjectionManager(
 	ctx context.Context,
-	boundaries []string,
 	getProjectorLastPosition common.GetProjectorLastPositionType,
 	updateProjectorPosition common.UpdateProjectorPositionType,
 	subscribeToEvents common.SubscribeToEventStoreType,
 	getEventCount event_count.GetEventCount,
 	publishToPubSub common.PublishToPubSubType,
 	saveEventCount event_count.SaveEventCount,
-	logger l.Logger) {
-	group, groupCtx := errgroup.WithContext(ctx)
-	for _, boundary := range boundaries {
-		b := boundary
-		group.Go(func() error {
-			eventProjector := event_count.NewEventCountProjection(
-				b,
-				getProjectorLastPosition,
-				publishToPubSub,
-				getEventCount,
-				saveEventCount,
-				subscribeToEvents,
-				updateProjectorPosition,
-				logger,
-			)
-			backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
-			for {
-				select {
-				case <-groupCtx.Done():
-					return groupCtx.Err()
-				default:
-					err := eventProjector.Start(groupCtx)
-
-					if err != nil {
-						if logger.IsDebugEnabled() {
-							logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", b, err)
-						}
-						if waitErr := backoff.Wait(groupCtx); waitErr != nil {
-							return waitErr
-						}
-						continue
-					}
-					logger.Infof("Event count projector started for boundary %s", b)
-					return nil
-				}
-			}
-		})
+	logger l.Logger,
+) *eventCountProjectionManager {
+	return &eventCountProjectionManager{
+		ctx:                      ctx,
+		getProjectorLastPosition: getProjectorLastPosition,
+		updateProjectorPosition:  updateProjectorPosition,
+		subscribeToEvents:        subscribeToEvents,
+		getEventCount:            getEventCount,
+		publishToPubSub:          publishToPubSub,
+		saveEventCount:           saveEventCount,
+		logger:                   logger,
+		running:                  make(map[string]struct{}),
 	}
+}
 
+func (m *eventCountProjectionManager) StartBoundary(boundary string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if _, exists := m.running[boundary]; exists {
+		m.mu.Unlock()
+		return
+	}
+	m.running[boundary] = struct{}{}
+	m.mu.Unlock()
+
+	go func() {
+		eventProjector := event_count.NewEventCountProjection(
+			boundary,
+			m.getProjectorLastPosition,
+			m.publishToPubSub,
+			m.getEventCount,
+			m.saveEventCount,
+			m.subscribeToEvents,
+			m.updateProjectorPosition,
+			m.logger,
+		)
+		backoff := orisun.Backoff{Base: 100 * time.Millisecond, Max: 5 * time.Second}
+		for m.ctx.Err() == nil {
+			if err := eventProjector.Start(m.ctx); err != nil {
+				if m.logger.IsDebugEnabled() {
+					m.logger.Debugf("Failed to start event count projection for boundary %s (likely due to lock contention): %v - will retry", boundary, err)
+				}
+				if waitErr := backoff.Wait(m.ctx); waitErr != nil {
+					return
+				}
+				continue
+			}
+			m.logger.Infof("Event count projector started for boundary %s", boundary)
+			return
+		}
+	}()
 }
 
 func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
@@ -596,6 +633,9 @@ func streamErrorInterceptor(logger l.Logger) grpc.StreamServerInterceptor {
 		err := handler(srv, ss)
 		if err != nil {
 			logger.Errorf("Error in streaming RPC %s: %v", info.FullMethod, err)
+			if _, ok := status.FromError(err); ok {
+				return err
+			}
 			return status.Errorf(codes.Internal, "Error: %v", err)
 		}
 
@@ -693,8 +733,16 @@ func LoadTLSCredentials(config c.AppConfig, logger l.Logger) (credentials.Transp
 	return creds, nil
 }
 
-func startGRPCServer(config c.AppConfig, eventStore *pb.EventStore,
-	authenticator *admin.Authenticator, adminDB common.DB, logger l.Logger) {
+func startGRPCServer(
+	ctx context.Context,
+	config c.AppConfig,
+	eventStore *orisun.EventStore,
+	authenticator *admin.Authenticator,
+	adminDB common.DB,
+	boundarySaver orisun.EventsSaver,
+	boundaryReader orisun.EventsRetriever,
+	logger l.Logger,
+) {
 	// Initialize OpenTelemetry
 	var otelShutdown func(context.Context) error
 	if config.OpenTelemetry.Enabled {
@@ -703,13 +751,15 @@ func startGRPCServer(config c.AppConfig, eventStore *pb.EventStore,
 			serviceName = "orisun"
 		}
 		var err error
-		otelShutdown, err = admin.InitTracer(serviceName, config.OpenTelemetry.Endpoint, logger)
+		otelShutdown, err = admin.InitTracerWithContext(ctx, serviceName, config.OpenTelemetry.Endpoint, logger)
 		if err != nil {
 			logger.Errorf("Failed to initialize OpenTelemetry: %v", err)
 		}
 		if otelShutdown != nil {
 			defer func() {
-				if err := otelShutdown(context.Background()); err != nil {
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer shutdownCancel()
+				if err := otelShutdown(shutdownCtx); err != nil {
 					logger.Errorf("Failed to shutdown OpenTelemetry: %v", err)
 				}
 			}()
@@ -767,13 +817,19 @@ func startGRPCServer(config c.AppConfig, eventStore *pb.EventStore,
 	grpcapi.RegisterEventStoreServer(grpcServer, grpcapi.AdaptEventStore(eventStore))
 
 	// Register Admin service
-	grpcAdminServer := admin.NewGRPCAdminServer(
+	grpcAdminServer := admin.NewGRPCAdminServerWithDependencies(
 		logger,
 		config.Admin.Boundary,
-		eventStore.GetEvents,
-		eventStore.SaveEvents,
-		adminDB.ListAdminUsers,
-		authenticator,
+		admin.GRPCAdminDependencies{
+			GetEvents:            eventStore.GetEvents,
+			SaveEvents:           eventStore.SaveEvents,
+			ListAdminUsers:       adminDB.ListAdminUsers,
+			GetUserCount:         adminDB.GetUsersCount,
+			GetEventCount:        adminDB.GetEventsCount,
+			CredentialsValidator: authenticator,
+			BoundarySaver:        boundarySaver,
+			BoundaryReader:       boundaryReader,
+		},
 	)
 	grpcapi.RegisterAdminServer(grpcServer, grpcAdminServer)
 

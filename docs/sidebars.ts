@@ -41,7 +41,7 @@ const sidebars: SidebarsConfig = {
         title: 'API reference',
         slug: '/api',
         description:
-          'The gRPC surface: save, query, and subscribe with the EventStore service, manage users and indexes with Admin, and integrate from Go, Node.js, or Java.',
+          'The gRPC surface: save, query, subscribe, and manage indexes with EventStore; manage boundaries and users with Admin; and integrate from Go, Node.js, or Java.',
       },
       items: ['api/eventstore', 'api/admin', 'api/clients'],
     },
@@ -89,6 +89,7 @@ const sidebars: SidebarsConfig = {
           'Everything for running Orisun in production: configuration, security, deployment topologies, observability, and troubleshooting.',
       },
       items: [
+        'operations/upgrading-0.7-to-0.8',
         'operations/configuration',
         'operations/security',
         'operations/deployment',

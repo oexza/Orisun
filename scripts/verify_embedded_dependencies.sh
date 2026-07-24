@@ -29,21 +29,20 @@ embedded_packages=(
   ./embedded/foundationdb
 )
 embedded_dependencies="$(go list -deps "${embedded_packages[@]}")"
-if matches="$(printf '%s\n' "${embedded_dependencies}" | grep -E '^google\.golang\.org/grpc($|/)')"; then
-  echo "embedded package dependency guard rejected gRPC packages:" >&2
+if matches="$(printf '%s\n' "${embedded_dependencies}" | grep -E '^google\.golang\.org/(grpc|protobuf)($|/)')"; then
+  echo "embedded package dependency guard rejected gRPC/protobuf packages:" >&2
   printf '%s\n' "${matches}" >&2
   exit 1
 fi
 
 foundationdb_dependencies="$(go list -tags=foundationdb -deps ./embedded/foundationdb)"
-if matches="$(printf '%s\n' "${foundationdb_dependencies}" | grep -E '^google\.golang\.org/grpc($|/)')"; then
-  echo "FoundationDB embedded dependency guard rejected gRPC packages:" >&2
+if matches="$(printf '%s\n' "${foundationdb_dependencies}" | grep -E '^google\.golang\.org/(grpc|protobuf)($|/)')"; then
+  echo "FoundationDB embedded dependency guard rejected gRPC/protobuf packages:" >&2
   printf '%s\n' "${matches}" >&2
   exit 1
 fi
 
 generated_files=(
-  orisun/*.pb.go
   orisun/grpcapi/*.pb.go
 )
 if matches="$(grep -l -E '^//go:build' "${generated_files[@]}" || true)"; [[ -n "${matches}" ]]; then
@@ -52,4 +51,4 @@ if matches="$(grep -l -E '^//go:build' "${generated_files[@]}" || true)"; [[ -n 
   exit 1
 fi
 
-echo "Embedded core is transport-free; embedded runtimes are gRPC-free."
+echo "Embedded core and runtimes are gRPC/protobuf-free."

@@ -22,6 +22,14 @@ Every example on this page assumes an authenticated client connected to a runnin
 
 Pick your client once; every tabbed example below follows that choice across this page and the tutorial.
 
+:::important
+The `orders` and `ledger` boundaries used below must already exist and report
+`BOUNDARY_LIFECYCLE_STATUS_ACTIVE`. Create new boundaries—or import existing
+physical boundaries—through the [Admin boundary API](./admin#boundary-lifecycle)
+before using EventStore methods. Requests to unknown or not-yet-installed
+boundaries are rejected.
+:::
+
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
 

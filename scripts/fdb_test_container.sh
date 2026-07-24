@@ -32,8 +32,9 @@ docker run --rm \
   -e ORISUN_FDB_SOAK="${ORISUN_FDB_SOAK:-}" \
   "$GO_IMAGE" bash -ec '
     base="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}"
-    curl -fsSL -o /tmp/clients.deb "${base}/foundationdb-clients_${FDB_VERSION}-1_${DEB_ARCH}.deb"
-    curl -fsSL -o /tmp/server.deb  "${base}/foundationdb-server_${FDB_VERSION}-1_${DEB_ARCH}.deb"
+    curl_args=(-fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 120 --connect-timeout 30)
+    curl "${curl_args[@]}" -o /tmp/clients.deb "${base}/foundationdb-clients_${FDB_VERSION}-1_${DEB_ARCH}.deb"
+    curl "${curl_args[@]}" -o /tmp/server.deb  "${base}/foundationdb-server_${FDB_VERSION}-1_${DEB_ARCH}.deb"
     dpkg -i /tmp/clients.deb >/dev/null
     # The server postinst tries to start a service; install files only and run manually.
     dpkg --unpack /tmp/server.deb >/dev/null 2>&1 || true

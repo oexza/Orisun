@@ -4,7 +4,7 @@
 // 	protoc        v6.32.0
 // source: admin.proto
 
-package orisun
+package grpcapi
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -21,6 +21,58 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type BoundaryLifecycleStatus int32
+
+const (
+	BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED  BoundaryLifecycleStatus = 0
+	BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING BoundaryLifecycleStatus = 1
+	BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE       BoundaryLifecycleStatus = 2
+	BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_FAILED       BoundaryLifecycleStatus = 3
+)
+
+// Enum value maps for BoundaryLifecycleStatus.
+var (
+	BoundaryLifecycleStatus_name = map[int32]string{
+		0: "BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED",
+		1: "BOUNDARY_LIFECYCLE_STATUS_PROVISIONING",
+		2: "BOUNDARY_LIFECYCLE_STATUS_ACTIVE",
+		3: "BOUNDARY_LIFECYCLE_STATUS_FAILED",
+	}
+	BoundaryLifecycleStatus_value = map[string]int32{
+		"BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED":  0,
+		"BOUNDARY_LIFECYCLE_STATUS_PROVISIONING": 1,
+		"BOUNDARY_LIFECYCLE_STATUS_ACTIVE":       2,
+		"BOUNDARY_LIFECYCLE_STATUS_FAILED":       3,
+	}
+)
+
+func (x BoundaryLifecycleStatus) Enum() *BoundaryLifecycleStatus {
+	p := new(BoundaryLifecycleStatus)
+	*p = x
+	return p
+}
+
+func (x BoundaryLifecycleStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BoundaryLifecycleStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_admin_proto_enumTypes[0].Descriptor()
+}
+
+func (BoundaryLifecycleStatus) Type() protoreflect.EnumType {
+	return &file_admin_proto_enumTypes[0]
+}
+
+func (x BoundaryLifecycleStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BoundaryLifecycleStatus.Descriptor instead.
+func (BoundaryLifecycleStatus) EnumDescriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{0}
+}
 
 // AdminUser represents a user in the system
 type AdminUser struct {
@@ -777,11 +829,446 @@ func (x *GetEventCountResponse) GetCount() int64 {
 	return 0
 }
 
+// BoundaryPlacementInput selects the durable backend and its physical
+// namespace (a PostgreSQL schema or SQLite database namespace).
+type BoundaryPlacementInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backend       string                 `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
+	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BoundaryPlacementInput) Reset() {
+	*x = BoundaryPlacementInput{}
+	mi := &file_admin_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BoundaryPlacementInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoundaryPlacementInput) ProtoMessage() {}
+
+func (x *BoundaryPlacementInput) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoundaryPlacementInput.ProtoReflect.Descriptor instead.
+func (*BoundaryPlacementInput) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *BoundaryPlacementInput) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *BoundaryPlacementInput) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+type BoundaryInfo struct {
+	state                protoimpl.MessageState  `protogen:"open.v1"`
+	Name                 string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description          string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Placement            *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
+	Status               BoundaryLifecycleStatus `protobuf:"varint,4,opt,name=status,proto3,enum=orisun.BoundaryLifecycleStatus" json:"status,omitempty"`
+	ExistedBeforeCatalog bool                    `protobuf:"varint,5,opt,name=existed_before_catalog,json=existedBeforeCatalog,proto3" json:"existed_before_catalog,omitempty"`
+	LastError            string                  `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	DefinitionPosition   *Position               `protobuf:"bytes,7,opt,name=definition_position,json=definitionPosition,proto3" json:"definition_position,omitempty"`
+	StatusPosition       *Position               `protobuf:"bytes,8,opt,name=status_position,json=statusPosition,proto3" json:"status_position,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *BoundaryInfo) Reset() {
+	*x = BoundaryInfo{}
+	mi := &file_admin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BoundaryInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoundaryInfo) ProtoMessage() {}
+
+func (x *BoundaryInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoundaryInfo.ProtoReflect.Descriptor instead.
+func (*BoundaryInfo) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *BoundaryInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BoundaryInfo) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *BoundaryInfo) GetPlacement() *BoundaryPlacementInput {
+	if x != nil {
+		return x.Placement
+	}
+	return nil
+}
+
+func (x *BoundaryInfo) GetStatus() BoundaryLifecycleStatus {
+	if x != nil {
+		return x.Status
+	}
+	return BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED
+}
+
+func (x *BoundaryInfo) GetExistedBeforeCatalog() bool {
+	if x != nil {
+		return x.ExistedBeforeCatalog
+	}
+	return false
+}
+
+func (x *BoundaryInfo) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *BoundaryInfo) GetDefinitionPosition() *Position {
+	if x != nil {
+		return x.DefinitionPosition
+	}
+	return nil
+}
+
+func (x *BoundaryInfo) GetStatusPosition() *Position {
+	if x != nil {
+		return x.StatusPosition
+	}
+	return nil
+}
+
+type CreateBoundaryRequest struct {
+	state       protoimpl.MessageState  `protogen:"open.v1"`
+	Name        string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Placement   *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
+	// Set when adopting physical storage that predates the catalog definition.
+	ExistedBeforeCatalog bool `protobuf:"varint,4,opt,name=existed_before_catalog,json=existedBeforeCatalog,proto3" json:"existed_before_catalog,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *CreateBoundaryRequest) Reset() {
+	*x = CreateBoundaryRequest{}
+	mi := &file_admin_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBoundaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBoundaryRequest) ProtoMessage() {}
+
+func (x *CreateBoundaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBoundaryRequest.ProtoReflect.Descriptor instead.
+func (*CreateBoundaryRequest) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *CreateBoundaryRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateBoundaryRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CreateBoundaryRequest) GetPlacement() *BoundaryPlacementInput {
+	if x != nil {
+		return x.Placement
+	}
+	return nil
+}
+
+func (x *CreateBoundaryRequest) GetExistedBeforeCatalog() bool {
+	if x != nil {
+		return x.ExistedBeforeCatalog
+	}
+	return false
+}
+
+type CreateBoundaryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Boundary      *BoundaryInfo          `protobuf:"bytes,1,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBoundaryResponse) Reset() {
+	*x = CreateBoundaryResponse{}
+	mi := &file_admin_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBoundaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBoundaryResponse) ProtoMessage() {}
+
+func (x *CreateBoundaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBoundaryResponse.ProtoReflect.Descriptor instead.
+func (*CreateBoundaryResponse) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CreateBoundaryResponse) GetBoundary() *BoundaryInfo {
+	if x != nil {
+		return x.Boundary
+	}
+	return nil
+}
+
+type ListBoundariesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBoundariesRequest) Reset() {
+	*x = ListBoundariesRequest{}
+	mi := &file_admin_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBoundariesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBoundariesRequest) ProtoMessage() {}
+
+func (x *ListBoundariesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBoundariesRequest.ProtoReflect.Descriptor instead.
+func (*ListBoundariesRequest) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{19}
+}
+
+type ListBoundariesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Boundaries    []*BoundaryInfo        `protobuf:"bytes,1,rep,name=boundaries,proto3" json:"boundaries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBoundariesResponse) Reset() {
+	*x = ListBoundariesResponse{}
+	mi := &file_admin_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBoundariesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBoundariesResponse) ProtoMessage() {}
+
+func (x *ListBoundariesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBoundariesResponse.ProtoReflect.Descriptor instead.
+func (*ListBoundariesResponse) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListBoundariesResponse) GetBoundaries() []*BoundaryInfo {
+	if x != nil {
+		return x.Boundaries
+	}
+	return nil
+}
+
+type GetBoundaryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBoundaryRequest) Reset() {
+	*x = GetBoundaryRequest{}
+	mi := &file_admin_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBoundaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBoundaryRequest) ProtoMessage() {}
+
+func (x *GetBoundaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBoundaryRequest.ProtoReflect.Descriptor instead.
+func (*GetBoundaryRequest) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetBoundaryRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetBoundaryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Boundary      *BoundaryInfo          `protobuf:"bytes,1,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBoundaryResponse) Reset() {
+	*x = GetBoundaryResponse{}
+	mi := &file_admin_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBoundaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBoundaryResponse) ProtoMessage() {}
+
+func (x *GetBoundaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBoundaryResponse.ProtoReflect.Descriptor instead.
+func (*GetBoundaryResponse) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GetBoundaryResponse) GetBoundary() *BoundaryInfo {
+	if x != nil {
+		return x.Boundary
+	}
+	return nil
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
 	"\n" +
-	"\vadmin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
+	"\vadmin.proto\x12\x06orisun\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x10eventstore.proto\"\xe0\x01\n" +
 	"\tAdminUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -823,8 +1310,45 @@ const file_admin_proto_rawDesc = "" +
 	"\x14GetEventCountRequest\x12\x1a\n" +
 	"\bboundary\x18\x01 \x01(\tR\bboundary\"-\n" +
 	"\x15GetEventCountResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x03R\x05count2\x9d\x04\n" +
-	"\x05Admin\x12C\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count\"P\n" +
+	"\x16BoundaryPlacementInput\x12\x18\n" +
+	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1c\n" +
+	"\tnamespace\x18\x02 \x01(\tR\tnamespace\"\x8e\x03\n" +
+	"\fBoundaryInfo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12<\n" +
+	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\x127\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1f.orisun.BoundaryLifecycleStatusR\x06status\x124\n" +
+	"\x16existed_before_catalog\x18\x05 \x01(\bR\x14existedBeforeCatalog\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\x06 \x01(\tR\tlastError\x12A\n" +
+	"\x13definition_position\x18\a \x01(\v2\x10.orisun.PositionR\x12definitionPosition\x129\n" +
+	"\x0fstatus_position\x18\b \x01(\v2\x10.orisun.PositionR\x0estatusPosition\"\xc1\x01\n" +
+	"\x15CreateBoundaryRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12<\n" +
+	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\x124\n" +
+	"\x16existed_before_catalog\x18\x04 \x01(\bR\x14existedBeforeCatalog\"J\n" +
+	"\x16CreateBoundaryResponse\x120\n" +
+	"\bboundary\x18\x01 \x01(\v2\x14.orisun.BoundaryInfoR\bboundary\"\x17\n" +
+	"\x15ListBoundariesRequest\"N\n" +
+	"\x16ListBoundariesResponse\x124\n" +
+	"\n" +
+	"boundaries\x18\x01 \x03(\v2\x14.orisun.BoundaryInfoR\n" +
+	"boundaries\"(\n" +
+	"\x12GetBoundaryRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"G\n" +
+	"\x13GetBoundaryResponse\x120\n" +
+	"\bboundary\x18\x01 \x01(\v2\x14.orisun.BoundaryInfoR\bboundary*\xbc\x01\n" +
+	"\x17BoundaryLifecycleStatus\x12)\n" +
+	"%BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED\x10\x00\x12*\n" +
+	"&BOUNDARY_LIFECYCLE_STATUS_PROVISIONING\x10\x01\x12$\n" +
+	" BOUNDARY_LIFECYCLE_STATUS_ACTIVE\x10\x02\x12$\n" +
+	" BOUNDARY_LIFECYCLE_STATUS_FAILED\x10\x032\x87\x06\n" +
+	"\x05Admin\x12O\n" +
+	"\x0eCreateBoundary\x12\x1d.orisun.CreateBoundaryRequest\x1a\x1e.orisun.CreateBoundaryResponse\x12O\n" +
+	"\x0eListBoundaries\x12\x1d.orisun.ListBoundariesRequest\x1a\x1e.orisun.ListBoundariesResponse\x12F\n" +
+	"\vGetBoundary\x12\x1a.orisun.GetBoundaryRequest\x1a\x1b.orisun.GetBoundaryResponse\x12C\n" +
 	"\n" +
 	"CreateUser\x12\x19.orisun.CreateUserRequest\x1a\x1a.orisun.CreateUserResponse\x12C\n" +
 	"\n" +
@@ -833,8 +1357,8 @@ const file_admin_proto_rawDesc = "" +
 	"\tListUsers\x12\x18.orisun.ListUsersRequest\x1a\x19.orisun.ListUsersResponse\x12^\n" +
 	"\x13ValidateCredentials\x12\".orisun.ValidateCredentialsRequest\x1a#.orisun.ValidateCredentialsResponse\x12I\n" +
 	"\fGetUserCount\x12\x1b.orisun.GetUserCountRequest\x1a\x1c.orisun.GetUserCountResponse\x12L\n" +
-	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponseB7\n" +
-	"\x10com.orisun.adminZ#github.com/OrisunLabs/Orisun/orisunb\x06proto3"
+	"\rGetEventCount\x12\x1c.orisun.GetEventCountRequest\x1a\x1d.orisun.GetEventCountResponseB?\n" +
+	"\x10com.orisun.adminZ+github.com/OrisunLabs/Orisun/orisun/grpcapib\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -848,50 +1372,75 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_admin_proto_goTypes = []any{
-	(*AdminUser)(nil),                   // 0: orisun.AdminUser
-	(*CreateUserRequest)(nil),           // 1: orisun.CreateUserRequest
-	(*CreateUserResponse)(nil),          // 2: orisun.CreateUserResponse
-	(*DeleteUserRequest)(nil),           // 3: orisun.DeleteUserRequest
-	(*DeleteUserResponse)(nil),          // 4: orisun.DeleteUserResponse
-	(*ChangePasswordRequest)(nil),       // 5: orisun.ChangePasswordRequest
-	(*ChangePasswordResponse)(nil),      // 6: orisun.ChangePasswordResponse
-	(*ListUsersRequest)(nil),            // 7: orisun.ListUsersRequest
-	(*ListUsersResponse)(nil),           // 8: orisun.ListUsersResponse
-	(*ValidateCredentialsRequest)(nil),  // 9: orisun.ValidateCredentialsRequest
-	(*ValidateCredentialsResponse)(nil), // 10: orisun.ValidateCredentialsResponse
-	(*GetUserCountRequest)(nil),         // 11: orisun.GetUserCountRequest
-	(*GetUserCountResponse)(nil),        // 12: orisun.GetUserCountResponse
-	(*GetEventCountRequest)(nil),        // 13: orisun.GetEventCountRequest
-	(*GetEventCountResponse)(nil),       // 14: orisun.GetEventCountResponse
-	(*timestamppb.Timestamp)(nil),       // 15: google.protobuf.Timestamp
+	(BoundaryLifecycleStatus)(0),        // 0: orisun.BoundaryLifecycleStatus
+	(*AdminUser)(nil),                   // 1: orisun.AdminUser
+	(*CreateUserRequest)(nil),           // 2: orisun.CreateUserRequest
+	(*CreateUserResponse)(nil),          // 3: orisun.CreateUserResponse
+	(*DeleteUserRequest)(nil),           // 4: orisun.DeleteUserRequest
+	(*DeleteUserResponse)(nil),          // 5: orisun.DeleteUserResponse
+	(*ChangePasswordRequest)(nil),       // 6: orisun.ChangePasswordRequest
+	(*ChangePasswordResponse)(nil),      // 7: orisun.ChangePasswordResponse
+	(*ListUsersRequest)(nil),            // 8: orisun.ListUsersRequest
+	(*ListUsersResponse)(nil),           // 9: orisun.ListUsersResponse
+	(*ValidateCredentialsRequest)(nil),  // 10: orisun.ValidateCredentialsRequest
+	(*ValidateCredentialsResponse)(nil), // 11: orisun.ValidateCredentialsResponse
+	(*GetUserCountRequest)(nil),         // 12: orisun.GetUserCountRequest
+	(*GetUserCountResponse)(nil),        // 13: orisun.GetUserCountResponse
+	(*GetEventCountRequest)(nil),        // 14: orisun.GetEventCountRequest
+	(*GetEventCountResponse)(nil),       // 15: orisun.GetEventCountResponse
+	(*BoundaryPlacementInput)(nil),      // 16: orisun.BoundaryPlacementInput
+	(*BoundaryInfo)(nil),                // 17: orisun.BoundaryInfo
+	(*CreateBoundaryRequest)(nil),       // 18: orisun.CreateBoundaryRequest
+	(*CreateBoundaryResponse)(nil),      // 19: orisun.CreateBoundaryResponse
+	(*ListBoundariesRequest)(nil),       // 20: orisun.ListBoundariesRequest
+	(*ListBoundariesResponse)(nil),      // 21: orisun.ListBoundariesResponse
+	(*GetBoundaryRequest)(nil),          // 22: orisun.GetBoundaryRequest
+	(*GetBoundaryResponse)(nil),         // 23: orisun.GetBoundaryResponse
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*Position)(nil),                    // 25: orisun.Position
 }
 var file_admin_proto_depIdxs = []int32{
-	15, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: orisun.AdminUser.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 2: orisun.CreateUserResponse.user:type_name -> orisun.AdminUser
-	0,  // 3: orisun.ListUsersResponse.users:type_name -> orisun.AdminUser
-	0,  // 4: orisun.ValidateCredentialsResponse.user:type_name -> orisun.AdminUser
-	1,  // 5: orisun.Admin.CreateUser:input_type -> orisun.CreateUserRequest
-	3,  // 6: orisun.Admin.DeleteUser:input_type -> orisun.DeleteUserRequest
-	5,  // 7: orisun.Admin.ChangePassword:input_type -> orisun.ChangePasswordRequest
-	7,  // 8: orisun.Admin.ListUsers:input_type -> orisun.ListUsersRequest
-	9,  // 9: orisun.Admin.ValidateCredentials:input_type -> orisun.ValidateCredentialsRequest
-	11, // 10: orisun.Admin.GetUserCount:input_type -> orisun.GetUserCountRequest
-	13, // 11: orisun.Admin.GetEventCount:input_type -> orisun.GetEventCountRequest
-	2,  // 12: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
-	4,  // 13: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
-	6,  // 14: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
-	8,  // 15: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
-	10, // 16: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
-	12, // 17: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
-	14, // 18: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
-	12, // [12:19] is the sub-list for method output_type
-	5,  // [5:12] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	24, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
+	24, // 1: orisun.AdminUser.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 2: orisun.CreateUserResponse.user:type_name -> orisun.AdminUser
+	1,  // 3: orisun.ListUsersResponse.users:type_name -> orisun.AdminUser
+	1,  // 4: orisun.ValidateCredentialsResponse.user:type_name -> orisun.AdminUser
+	16, // 5: orisun.BoundaryInfo.placement:type_name -> orisun.BoundaryPlacementInput
+	0,  // 6: orisun.BoundaryInfo.status:type_name -> orisun.BoundaryLifecycleStatus
+	25, // 7: orisun.BoundaryInfo.definition_position:type_name -> orisun.Position
+	25, // 8: orisun.BoundaryInfo.status_position:type_name -> orisun.Position
+	16, // 9: orisun.CreateBoundaryRequest.placement:type_name -> orisun.BoundaryPlacementInput
+	17, // 10: orisun.CreateBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
+	17, // 11: orisun.ListBoundariesResponse.boundaries:type_name -> orisun.BoundaryInfo
+	17, // 12: orisun.GetBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
+	18, // 13: orisun.Admin.CreateBoundary:input_type -> orisun.CreateBoundaryRequest
+	20, // 14: orisun.Admin.ListBoundaries:input_type -> orisun.ListBoundariesRequest
+	22, // 15: orisun.Admin.GetBoundary:input_type -> orisun.GetBoundaryRequest
+	2,  // 16: orisun.Admin.CreateUser:input_type -> orisun.CreateUserRequest
+	4,  // 17: orisun.Admin.DeleteUser:input_type -> orisun.DeleteUserRequest
+	6,  // 18: orisun.Admin.ChangePassword:input_type -> orisun.ChangePasswordRequest
+	8,  // 19: orisun.Admin.ListUsers:input_type -> orisun.ListUsersRequest
+	10, // 20: orisun.Admin.ValidateCredentials:input_type -> orisun.ValidateCredentialsRequest
+	12, // 21: orisun.Admin.GetUserCount:input_type -> orisun.GetUserCountRequest
+	14, // 22: orisun.Admin.GetEventCount:input_type -> orisun.GetEventCountRequest
+	19, // 23: orisun.Admin.CreateBoundary:output_type -> orisun.CreateBoundaryResponse
+	21, // 24: orisun.Admin.ListBoundaries:output_type -> orisun.ListBoundariesResponse
+	23, // 25: orisun.Admin.GetBoundary:output_type -> orisun.GetBoundaryResponse
+	3,  // 26: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
+	5,  // 27: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
+	7,  // 28: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
+	9,  // 29: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
+	11, // 30: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
+	13, // 31: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
+	15, // 32: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
+	23, // [23:33] is the sub-list for method output_type
+	13, // [13:23] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }
@@ -899,18 +1448,20 @@ func file_admin_proto_init() {
 	if File_admin_proto != nil {
 		return
 	}
+	file_eventstore_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   15,
+			NumEnums:      1,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_admin_proto_goTypes,
 		DependencyIndexes: file_admin_proto_depIdxs,
+		EnumInfos:         file_admin_proto_enumTypes,
 		MessageInfos:      file_admin_proto_msgTypes,
 	}.Build()
 	File_admin_proto = out.File

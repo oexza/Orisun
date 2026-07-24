@@ -114,8 +114,13 @@ func (s *SqliteSaveEvents) enqueue(
 		query:    query,
 		result:   make(chan sqliteSaveResult, 1),
 	}
+	queue := s.queues[boundary]
+	if queue == nil {
+		s.enqueueMu.RUnlock()
+		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
+	}
 	select {
-	case s.queues[boundary] <- req:
+	case queue <- req:
 		s.enqueueMu.RUnlock()
 	case <-ctx.Done():
 		s.enqueueMu.RUnlock()

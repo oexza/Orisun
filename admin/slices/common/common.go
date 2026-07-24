@@ -2,6 +2,7 @@ package admin_common
 
 import (
 	"context"
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
@@ -34,11 +35,8 @@ type GetProjectorLastPositionType = func(projectorName string) (*orisun.Position
 type UpdateProjectorPositionType = func(projectorName string, position *orisun.Position) error
 type SubscribeToEventStoreType = func(
 	ctx context.Context,
-	boundary string,
-	subscriberName string,
-	pos *orisun.Position,
-	query *orisun.Query,
-	handler *orisun.MessageHandler[orisun.Event],
+	request coreeventstore.SubscribeRequest,
+	handler coreeventstore.EventHandler,
 ) error
 
 type PublishRequest struct {

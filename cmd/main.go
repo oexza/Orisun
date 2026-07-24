@@ -7,8 +7,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/common-nighthawk/go-figure"
-	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/OrisunLabs/Orisun/config"
 	fdbbackend "github.com/OrisunLabs/Orisun/foundationdb"
 	l "github.com/OrisunLabs/Orisun/logging"
@@ -16,6 +14,8 @@ import (
 	pg "github.com/OrisunLabs/Orisun/postgres"
 	"github.com/OrisunLabs/Orisun/server"
 	sqlitebackend "github.com/OrisunLabs/Orisun/sqlite"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -34,20 +34,25 @@ func main() {
 func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
 	switch config.BackendType() {
 	case "postgres":
-		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, pgListener := pg.InitializePostgresDatabase(ctx, config.Postgres, config.Admin, js, logger)
+		runtime := pg.InitializePostgresDatabaseRuntime(ctx, config.Postgres, config.Admin, js, logger)
+		mappings := config.Postgres.GetSchemaMapping()
 		backend := server.Backend{
-			SaveEvents:      saveEvents,
-			GetEvents:       getEvents,
-			LockProvider:    lockProvider,
-			AdminDB:         adminDB,
-			EventPublishing: eventPublishing,
+			SaveEvents:        runtime.SaveEvents,
+			GetEvents:         runtime.GetEvents,
+			LockProvider:      runtime.LockProvider,
+			AdminDB:           runtime.AdminDB,
+			EventPublishing:   runtime.EventPublishing,
+			ProvisionBoundary: runtime.ProvisionBoundary,
+			InstallBoundary:   runtime.InstallBoundary,
+			InitialBoundaries: pg.BoundaryNames(mappings),
+			LegacyBoundaries:  pg.LegacyBoundaryDefinitions(mappings),
 		}
-		if pgListener != nil {
+		if runtime.Listener != nil {
 			var stopListener context.CancelFunc
 			backend.Start = func(parent context.Context) {
 				listenerCtx, cancel := context.WithCancel(parent)
 				stopListener = cancel
-				go pgListener.Start(listenerCtx)
+				go runtime.Listener.Start(listenerCtx)
 			}
 			backend.Close = func(ctx context.Context) {
 				if stopListener != nil {
@@ -55,19 +60,23 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 				}
 				waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
 				defer waitCancel()
-				pgListener.Close(waitCtx)
+				runtime.Listener.Close(waitCtx)
 			}
 			backend.SignalProvider = func(boundary string) orisun.EventSignal {
-				return pgListener.Signal(boundary, 30*time.Second)
+				return runtime.Listener.Signal(boundary, 30*time.Second)
 			}
 		}
 		return backend, nil
 	case "sqlite":
-		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, err := sqlitebackend.InitializeSqliteDatabase(
+		boundaries, err := sqlitebackend.DiscoverBoundaryNames(config.Sqlite, config.Admin.Boundary)
+		if err != nil {
+			return server.Backend{}, err
+		}
+		runtime, err := sqlitebackend.InitializeSqliteDatabaseRuntime(
 			ctx,
 			config.Sqlite,
 			config.Admin,
-			config.GetBoundaryNames(),
+			boundaries,
 			js,
 			logger,
 		)
@@ -75,19 +84,23 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 			return server.Backend{}, err
 		}
 		return server.Backend{
-			SaveEvents:      saveEvents,
-			GetEvents:       getEvents,
-			LockProvider:    lockProvider,
-			AdminDB:         adminDB,
-			EventPublishing: eventPublishing,
-			SignalProvider:  signalProvider,
+			SaveEvents:        runtime.SaveEvents,
+			GetEvents:         runtime.GetEvents,
+			LockProvider:      runtime.LockProvider,
+			AdminDB:           runtime.AdminDB,
+			EventPublishing:   runtime.EventPublishing,
+			SignalProvider:    runtime.SignalProvider,
+			ProvisionBoundary: runtime.ProvisionBoundary,
+			InstallBoundary:   runtime.InstallBoundary,
+			InitialBoundaries: boundaries,
+			LegacyBoundaries:  sqlitebackend.LegacyBoundaryDefinitions(boundaries),
 		}, nil
 	case "foundationdb":
-		saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, closeFn, err := fdbbackend.InitializeFoundationDB(
+		runtime, err := fdbbackend.InitializeFoundationDBRuntime(
 			ctx,
 			config.FoundationDB,
 			config.Admin,
-			config.GetBoundaryNames(),
+			[]string{config.Admin.Boundary},
 			js,
 			logger,
 		)
@@ -95,13 +108,16 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 			return server.Backend{}, err
 		}
 		return server.Backend{
-			SaveEvents:      saveEvents,
-			GetEvents:       getEvents,
-			LockProvider:    lockProvider,
-			AdminDB:         adminDB,
-			EventPublishing: eventPublishing,
-			SignalProvider:  signalProvider,
-			Close:           closeFn,
+			SaveEvents:        runtime.SaveEvents,
+			GetEvents:         runtime.GetEvents,
+			LockProvider:      runtime.LockProvider,
+			AdminDB:           runtime.AdminDB,
+			EventPublishing:   runtime.EventPublishing,
+			SignalProvider:    runtime.SignalProvider,
+			ProvisionBoundary: runtime.ProvisionBoundary,
+			InstallBoundary:   runtime.InstallBoundary,
+			InitialBoundaries: runtime.InitialBoundaries,
+			Close:             runtime.Close,
 		}, nil
 	default:
 		return server.Backend{}, fmt.Errorf("unsupported backend: %s", config.BackendType())

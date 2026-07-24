@@ -11,7 +11,6 @@ services:
       - ORISUN_PG_HOST=postgres
       - ORISUN_PG_PORT=5432
       - ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
-      - 'ORISUN_BOUNDARIES=[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]'
       - ORISUN_ADMIN_BOUNDARY=orisun_admin
       - ORISUN_NATS_STORE_DIR=/var/lib/orisun/data
       - ORISUN_LOGGING_LEVEL=INFO

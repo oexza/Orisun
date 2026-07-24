@@ -16,26 +16,29 @@ import (
 type SqliteEventPublishing struct {
 	pools         map[string]*BoundaryPools
 	metadataPools map[string]*BoundaryPools
+	registry      *BoundaryRegistry
 	logger        logging.Logger
 }
 
 func NewSqliteEventPublishing(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteEventPublishing {
-	return &SqliteEventPublishing{pools: pools, logger: logger}
+	return newSqliteEventPublishingWithRegistry(NewBoundaryRegistry(pools, nil), logger)
 }
 
 func NewSqliteEventPublishingWithMetadata(metadataPools map[string]*BoundaryPools, logger logging.Logger) *SqliteEventPublishing {
-	return &SqliteEventPublishing{metadataPools: metadataPools, logger: logger}
+	return newSqliteEventPublishingWithRegistry(NewBoundaryRegistry(nil, metadataPools), logger)
+}
+
+func newSqliteEventPublishingWithRegistry(registry *BoundaryRegistry, logger logging.Logger) *SqliteEventPublishing {
+	return &SqliteEventPublishing{
+		pools: registry.pools, metadataPools: registry.metadataPools, registry: registry, logger: logger,
+	}
 }
 
 func (p *SqliteEventPublishing) poolForBoundary(boundary string) (*BoundaryPools, error) {
-	if p.metadataPools != nil {
-		pool, ok := p.metadataPools[boundary]
-		if !ok {
-			return nil, fmt.Errorf("unknown boundary: %s", boundary)
-		}
+	if pool, ok := p.registry.metadataPool(boundary); ok {
 		return pool, nil
 	}
-	pool, ok := p.pools[boundary]
+	pool, ok := p.registry.eventPool(boundary)
 	if !ok {
 		return nil, fmt.Errorf("unknown boundary: %s", boundary)
 	}

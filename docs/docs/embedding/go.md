@@ -5,13 +5,16 @@ description: Run Orisun directly inside a Go service.
 
 Go services can embed Orisun directly instead of running the gRPC server as a separate process.
 
-This guide targets Orisun `0.6.1`. Install the canonical module path with:
+This guide targets Orisun `0.8.0`. Install the canonical module path with:
 
 ```bash
-go get github.com/OrisunLabs/Orisun@v0.6.1
+go get github.com/OrisunLabs/Orisun@v0.8.0
 ```
 
-If you are upgrading from `v0.5.0`, replace `github.com/oexza/Orisun` with `github.com/OrisunLabs/Orisun` in `go.mod` and imports, then run `go mod tidy`. The module-path move does not change the gRPC wire contract or persisted data.
+If you are upgrading from `v0.7.0`, follow the
+[0.7.0 to 0.8.0 upgrade guide](../operations/upgrading-0.7-to-0.8#embedded-go-changes)
+for the generated-type import move, subscription callback change, and boundary
+catalog migration.
 
 Backend-specific embedding packages keep deployments explicit:
 
@@ -128,6 +131,131 @@ Use the same NATS options as the other embedded stores. Build the host service w
 go build -tags foundationdb ./...
 ```
 
+Application boundaries must exist and be `ACTIVE` before they are used by
+`SaveEvents`, reads, subscriptions, or index management. Embedded stores expose
+the same event-backed lifecycle as the Admin gRPC API.
+
+## Embedded boundary management
+
+The examples below use:
+
+```go
+import (
+	"context"
+	"fmt"
+	"time"
+
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
+)
+```
+
+Use `CreateBoundary` when the embedded runtime should create the physical
+storage:
+
+```go
+created, err := store.CreateBoundary(ctx, boundarymodel.Definition{
+	Name:        "orders",
+	Description: "Order lifecycle events",
+	Placement: boundarymodel.Placement{
+		Backend:   "sqlite",
+		Namespace: "orders",
+	},
+})
+if err != nil {
+	return err
+}
+_ = created // the initial status is PROVISIONING
+```
+
+For PostgreSQL use backend `postgres` and a schema namespace. For FoundationDB
+use backend `foundationdb` and the configured root. SQLite requires the
+namespace to equal the boundary name.
+
+Creation is asynchronous because the method first emits a durable definition
+event. Poll `GetBoundary` before using the boundary:
+
+```go
+for {
+	boundary, err := store.GetBoundary(ctx, "orders")
+	if err != nil {
+		return err
+	}
+	switch boundary.Status {
+	case boundarymodel.StatusActive:
+		// The runtime registry, publisher, and physical storage are ready.
+		goto ready
+	case boundarymodel.StatusFailed:
+		// Provisioning is retried automatically; expose the current cause.
+		return fmt.Errorf("provision orders: %s", boundary.LastError)
+	}
+	if err := sleepContext(ctx, 100*time.Millisecond); err != nil {
+		return err
+	}
+}
+
+ready:
+```
+
+Here `sleepContext` is any context-aware delay used by the host application.
+Avoid an unbounded `time.Sleep` loop during shutdown.
+
+```go
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+```
+
+Use `CreateBoundary` with `ExistedBeforeCatalog` for physical storage that
+already exists:
+
+```go
+existing, err := store.CreateBoundary(ctx, boundarymodel.Definition{
+	Name:                 "legacy_orders",
+	Description:          "Existing order event log",
+	ExistedBeforeCatalog: true,
+	Placement: boundarymodel.Placement{
+		Backend:   "postgres",
+		Namespace: "legacy",
+	},
+})
+if err != nil {
+	return err
+}
+_ = existing // wait for ACTIVE
+```
+
+The definition is returned as `PROVISIONING`; the provisioner opens the
+existing storage, applies migrations idempotently, and then activates it.
+Duplicate create commands return an already-exists error because every
+successful command must produce exactly one definition event.
+
+Inspect the complete event-rebuilt catalog with:
+
+```go
+boundaries, err := store.ListBoundaries(ctx)
+if err != nil {
+	return err
+}
+boundary, err := store.GetBoundary(ctx, "orders")
+if err != nil {
+	return err
+}
+use(boundaries, boundary)
+```
+
+At startup, embedded PostgreSQL and SQLite stores migrate legacy physical
+boundaries into this same catalog before replaying all definitions into the
+local runtime. PostgreSQL uses `ORISUN_PG_SCHEMAS`, and SQLite discovers
+boundary files. FoundationDB is beta and only installs definitions replayed
+from its catalog.
+
 ## Reading events in-process
 
 Embedded reads skip protobuf materialization. In Orisun `0.6.1`, `GetEvents` returns a packed `ReadEventBatch` whose events carry scalar `CommitPosition` and `PreparePosition` fields and a `time.Time` `DateCreated`:
@@ -171,6 +299,38 @@ Use `latest.ContextCommitPosition` and `latest.ContextPreparePosition` as the ex
 
 The public gRPC and protobuf contract is unchanged; these packed types apply only to in-process callers.
 
+## Embedded Subscriptions
+
+Embedded subscriptions use the transport-neutral `eventstore` model and an
+ordered callback. They do not expose a protobuf event stream:
+
+```go
+import (
+	"context"
+
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
+)
+
+after := coreeventstore.BeginningPosition()
+err := store.SubscribeToEvents(
+	ctx,
+	coreeventstore.SubscribeRequest{
+		Boundary:       "orders",
+		SubscriberName: "orders-projection",
+		AfterPosition:  &after,
+	},
+	func(ctx context.Context, event coreeventstore.ReadEvent) error {
+		return project(ctx, event)
+	},
+)
+```
+
+The callback runs synchronously and receives events in subscription order.
+Returning `nil` advances delivery to the next event. Returning an error stops
+the subscription and propagates the error to `SubscribeToEvents`; canceling the
+context also stops the subscription. Keep the callback bounded, or deliberately
+use it to apply backpressure while updating a projection and its checkpoint.
+
 ## Embedded Index Management
 
 Embedded stores expose boundary index management directly. Applications do not need to expose Admin to create JSON expression indexes.
@@ -195,6 +355,8 @@ Embedded stores expose the same high-level behavior as the server:
 - save events
 - query events
 - subscribe to events
+- create and import boundaries
+- list and inspect boundary lifecycle state
 - create and drop boundary indexes
 - preserve backend-specific publishing guarantees
 

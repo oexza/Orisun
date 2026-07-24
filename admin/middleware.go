@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	l "github.com/OrisunLabs/Orisun/logging"
@@ -69,8 +68,6 @@ func StreamAuthInterceptor(auth *Authenticator, logger l.Logger) grpc.StreamServ
 }
 
 const tokenHeaderName = "x-auth-token"
-
-var mutex sync.RWMutex
 
 func authenticate(ctx context.Context, auth *Authenticator, logger l.Logger) (orisun.User, string, error) {
 	md, ok := metadata.FromIncomingContext(ctx)

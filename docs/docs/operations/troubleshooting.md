@@ -9,6 +9,7 @@ Start with the symptom table, then use the focused sections below.
 | --- | --- |
 | Cannot connect | PostgreSQL/YugabyteDB host and port, gRPC port, firewall, Docker networking. |
 | `ALREADY_EXISTS` | Expected CCC conflict or DCB append-condition failure; re-query context and retry only if the command is still valid. |
+| Boundary stays `PROVISIONING` or becomes `FAILED` | Inspect `Admin/GetBoundary.last_error`, placement, backend connectivity, and provisioning retry logs. |
 | Slow criteria queries | Missing JSON field indexes for the selected backend. |
 | Publisher lag | PostgreSQL/YugabyteDB listener health, SQLite signal/polling health, NATS health, boundary lock ownership. |
 | Duplicate delivery | Expected after publish/checkpoint failure; deduplicate by `event_id`. |
@@ -32,9 +33,35 @@ grpcurl -H "$AUTH" localhost:5005 list
 
 ## Boundary Not Found
 
-Requests to unknown boundaries are rejected. Make sure the requested boundary exists in `ORISUN_BOUNDARIES`.
+Requests to unknown or not-yet-installed boundaries are rejected. Query the
+catalog first:
 
-For PostgreSQL-compatible backends, including YugabyteDB, also make sure `ORISUN_PG_SCHEMAS` includes a matching `boundary:schema` entry.
+```bash
+grpcurl -H "$AUTH" localhost:5005 orisun.Admin/ListBoundaries
+grpcurl -H "$AUTH" \
+  -d '{"name":"orders"}' \
+  localhost:5005 orisun.Admin/GetBoundary
+```
+
+- If the definition is absent, call `CreateBoundary`; set
+  `existed_before_catalog` for storage that already exists.
+- If it is `PROVISIONING`, wait; the definition event committed but the local
+  runtime is not ready yet.
+- If it is `FAILED`, inspect `last_error`. Verify that backend and namespace
+  match the running backend: PostgreSQL uses a schema, SQLite requires the
+  boundary name, and FoundationDB requires `ORISUN_FDB_ROOT`.
+- Do not call create again for a failed definition. Its immutable name
+  already exists and the server is retrying it independently.
+
+For a legacy PostgreSQL-compatible boundary, including YugabyteDB, make sure
+`ORISUN_PG_SCHEMAS` includes its `boundary:schema` mapping on the first startup
+that migrates it into the catalog. A mismatch between this mapping and an
+existing catalog placement fails startup rather than remapping stored data.
+
+For SQLite, verify both `{boundary}.db` and `{boundary}_metadata.db` are in
+`ORISUN_SQLITE_DIR` before registration. FoundationDB does not discover legacy
+key ranges into the catalog; define beta-backend boundaries explicitly through
+`CreateBoundary`.
 
 ## Publisher Lag
 

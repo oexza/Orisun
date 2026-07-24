@@ -6,13 +6,13 @@ import (
 	logger "log"
 	"runtime"
 
-	"github.com/common-nighthawk/go-figure"
-	"github.com/nats-io/nats.go/jetstream"
 	c "github.com/OrisunLabs/Orisun/config"
 	fdbbackend "github.com/OrisunLabs/Orisun/foundationdb"
 	l "github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"github.com/OrisunLabs/Orisun/server"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func main() {
@@ -33,11 +33,11 @@ func main() {
 }
 
 func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.JetStream, logger l.Logger) (server.Backend, error) {
-	saveEvents, getEvents, lockProvider, adminDB, eventPublishing, signalProvider, closeFn, err := fdbbackend.InitializeFoundationDB(
+	runtime, err := fdbbackend.InitializeFoundationDBRuntime(
 		ctx,
 		config.FoundationDB,
 		config.Admin,
-		config.GetBoundaryNames(),
+		[]string{config.Admin.Boundary},
 		js,
 		logger,
 	)
@@ -45,12 +45,15 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		return server.Backend{}, err
 	}
 	return server.Backend{
-		SaveEvents:      saveEvents,
-		GetEvents:       getEvents,
-		LockProvider:    lockProvider,
-		AdminDB:         adminDB,
-		EventPublishing: eventPublishing,
-		SignalProvider:  signalProvider,
-		Close:           closeFn,
+		SaveEvents:        runtime.SaveEvents,
+		GetEvents:         runtime.GetEvents,
+		LockProvider:      runtime.LockProvider,
+		AdminDB:           runtime.AdminDB,
+		EventPublishing:   runtime.EventPublishing,
+		SignalProvider:    runtime.SignalProvider,
+		ProvisionBoundary: runtime.ProvisionBoundary,
+		InstallBoundary:   runtime.InstallBoundary,
+		InitialBoundaries: runtime.InitialBoundaries,
+		Close:             runtime.Close,
 	}, nil
 }

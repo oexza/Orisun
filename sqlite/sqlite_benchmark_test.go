@@ -389,10 +389,10 @@ func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
 		require.NoError(b, err)
 		client := grpcapi.NewEventStoreClient(conn)
 
-		events := make([]*orisun.EventToSave, burst)
+		events := make([]*grpcapi.EventToSave, burst)
 		for j := 0; j < burst; j++ {
 			id, _ := uuid.NewV7()
-			events[j] = &orisun.EventToSave{
+			events[j] = &grpcapi.EventToSave{
 				EventId:   id.String(),
 				EventType: "BurstEvent",
 				Data:      `{"k":"v"}`,
@@ -410,9 +410,9 @@ func BenchmarkSqlite_GRPCEventStoreBurst10000(b *testing.B) {
 			go func() {
 				defer wg.Done()
 				<-startCh
-				if _, err := client.SaveEvents(ctx, &orisun.SaveEventsRequest{
+				if _, err := client.SaveEvents(ctx, &grpcapi.SaveEventsRequest{
 					Boundary: benchBoundary,
-					Events:   []*orisun.EventToSave{ev},
+					Events:   []*grpcapi.EventToSave{ev},
 				}); err != nil {
 					atomic.AddInt64(&fail, 1)
 					return
@@ -458,12 +458,17 @@ const (
 	sqliteBenchGRPCReadBufferSize  = 65536
 )
 
-func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter *SqliteGetEvents) *grpcapi.EventStoreAdapter {
+type benchmarkEventStoreServer struct {
+	grpcapi.EventStoreServer
+	getEvents common.GetEventsType
+}
+
+func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter *SqliteGetEvents) *benchmarkEventStoreServer {
 	b.Helper()
 	logger, err := logging.ZapLogger("warn")
 	require.NoError(b, err)
 	boundaries := []string{benchBoundary}
-	return grpcapi.AdaptEventStore(orisun.NewEventStoreServer(
+	domain := orisun.NewEventStoreServer(
 		context.Background(),
 		benchFakeJetStream{},
 		saver,
@@ -473,10 +478,14 @@ func newBenchmarkEventStoreServer(b *testing.B, saver *SqliteSaveEvents, getter 
 		&boundaries,
 		orisun.EventStreamConfig{},
 		logger,
-	))
+	)
+	return &benchmarkEventStoreServer{
+		EventStoreServer: grpcapi.AdaptEventStore(domain),
+		getEvents:        domain.GetEvents,
+	}
 }
 
-func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStore grpcapi.EventStoreServer) []grpc.ServerOption {
+func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStore *benchmarkEventStoreServer) []grpc.ServerOption {
 	b.Helper()
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(sqliteBenchGRPCMaxMessageSize),
@@ -504,7 +513,7 @@ func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStor
 			Roles:          []orisun.Role{orisun.RoleAdmin, orisun.RoleOperations},
 		}
 		authenticator := admin.NewAuthenticator(
-			eventStore.GetEvents,
+			eventStore.getEvents,
 			logger,
 			benchBoundary,
 			func(username string) (orisun.User, error) {
@@ -521,14 +530,14 @@ func sqliteGRPCServerOptions(b *testing.B, optionSet, authMode string, eventStor
 
 func startTCPEventStoreServer(
 	b *testing.B,
-	eventStore grpcapi.EventStoreServer,
+	eventStore *benchmarkEventStoreServer,
 	optionSet, authMode string,
 ) (addr string, stop func()) {
 	b.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(b, err)
 	grpcServer := grpc.NewServer(sqliteGRPCServerOptions(b, optionSet, authMode, eventStore)...)
-	grpcapi.RegisterEventStoreServer(grpcServer, eventStore)
+	grpcapi.RegisterEventStoreServer(grpcServer, eventStore.EventStoreServer)
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- grpcServer.Serve(lis)
@@ -550,7 +559,7 @@ func authContextBasic() context.Context {
 func staticTokenContextForClient(b *testing.B, client grpcapi.EventStoreClient) context.Context {
 	b.Helper()
 	var responseMD metadata.MD
-	_, err := client.Ping(authContextBasic(), &orisun.PingRequest{}, grpc.Header(&responseMD))
+	_, err := client.Ping(authContextBasic(), &grpcapi.PingRequest{}, grpc.Header(&responseMD))
 	require.NoError(b, err)
 	tokens := responseMD.Get("x-auth-token")
 	require.NotEmpty(b, tokens)
@@ -590,10 +599,10 @@ func runGRPCSaveBurst10000(b *testing.B, clients []sqliteGRPCBenchClient) {
 	b.Helper()
 	const burst = 10000
 
-	events := make([]*orisun.EventToSave, burst)
+	events := make([]*grpcapi.EventToSave, burst)
 	for j := range burst {
 		id, _ := uuid.NewV7()
-		events[j] = &orisun.EventToSave{
+		events[j] = &grpcapi.EventToSave{
 			EventId:   id.String(),
 			EventType: "BurstEvent",
 			Data:      `{"k":"v"}`,
@@ -611,9 +620,9 @@ func runGRPCSaveBurst10000(b *testing.B, clients []sqliteGRPCBenchClient) {
 		go func() {
 			defer wg.Done()
 			<-startCh
-			if _, err := client.client.SaveEvents(client.ctx, &orisun.SaveEventsRequest{
+			if _, err := client.client.SaveEvents(client.ctx, &grpcapi.SaveEventsRequest{
 				Boundary: benchBoundary,
-				Events:   []*orisun.EventToSave{ev},
+				Events:   []*grpcapi.EventToSave{ev},
 			}); err != nil {
 				atomic.AddInt64(&fail, 1)
 				return
@@ -698,12 +707,11 @@ func startBenchmarkPollingPublisher(
 	logger, err := logging.ZapLogger("warn")
 	require.NoError(b, err)
 	cfg := config.AppConfig{}
-	cfg.Boundaries = fmt.Sprintf(`[{"name":"%s","description":"benchmark boundary"}]`, benchBoundary)
-	require.NoError(b, cfg.ParseBoundaries())
 	cfg.PollingPublisher.BatchSize = 1000
 	orisun.StartEventPolling(
 		ctx,
 		cfg,
+		[]string{benchBoundary},
 		benchNoopLockProvider{},
 		getter,
 		benchFakeJetStream{},
@@ -1081,7 +1089,7 @@ func BenchmarkSqlite_GetEvents(b *testing.B) {
 			},
 		})
 		require.NoError(b, err)
-		_ = batch.ProtoResponse()
+		_ = batch.Response()
 	}
 	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "gets/sec")
 }

@@ -166,7 +166,7 @@ func CreateUser(
 	}
 
 	position := orisun.NotExistsPosition()
-	_, err = saveEvents(ctx, &orisun.SaveEventsRequest{
+	if _, err := saveEvents(ctx, &orisun.SaveEventsRequest{
 		Boundary: boundary,
 		Events:   eventsToSave,
 		Query: &orisun.SaveQuery{
@@ -188,7 +188,9 @@ func CreateUser(
 				},
 			},
 		},
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	userCreated, ok := newEvents[0].Data.(ev.UserCreated)
 	if !ok {

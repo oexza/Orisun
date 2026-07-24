@@ -5,6 +5,7 @@ import (
 	"fmt"
 	admin_events "github.com/OrisunLabs/Orisun/admin/events"
 	admin_common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"sync"
 	"time"
@@ -116,46 +117,31 @@ func (p *AuthUserProjector) Start(ctx context.Context) error {
 	var projectorName = "auth-user-projector-" + uuid.New().String()
 	p.logger.Info("Starting auth user projector %s", projectorName)
 
-	stream := orisun.NewMessageHandler[orisun.Event](ctx)
-
-	go func() {
-		for {
-			if p.logger.IsDebugEnabled() {
-				p.logger.Debugf("Receiving events for: %s", projectorName)
-			}
-			event, err := stream.Recv()
-			if err != nil {
-				p.logger.Error("Error receiving event: %v", err)
-				continue
-			}
-
+	return p.subscribeToEvents(
+		ctx,
+		coreeventstore.SubscribeRequest{
+			Boundary:       p.boundary,
+			SubscriberName: projectorName,
+		},
+		func(ctx context.Context, event coreeventstore.ReadEvent) error {
 			for {
 				if err := p.handleEvent(event); err != nil {
 					p.logger.Error("Error handling event: %v", err)
 
-					time.Sleep(5 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(5 * time.Second):
+					}
 					continue
 				}
-				break
+				return nil
 			}
-		}
-	}()
-	// Subscribe from last checkpoint
-	err := p.subscribeToEvents(
-		ctx,
-		p.boundary,
-		projectorName,
-		nil,
-		nil,
-		stream,
+		},
 	)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
-func (p *AuthUserProjector) handleEvent(event *orisun.Event) error {
+func (p *AuthUserProjector) handleEvent(event coreeventstore.ReadEvent) error {
 	if p.logger.IsDebugEnabled() {
 		p.logger.Debugf("Handling event %v", event)
 	}

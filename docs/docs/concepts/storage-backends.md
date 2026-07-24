@@ -124,15 +124,15 @@ Choose SQLite when a single active node is acceptable and simplicity matters. It
 
 ## Boundary State
 
-A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. In SQLite, event logs and indexes are physically per-boundary files, and publisher/projector/admin metadata lives in the matching `{boundary}_metadata.db` file.
+A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. The admin boundary contains the event-sourced boundary catalog. Use the Admin `CreateBoundary` RPC for both new and existing physical storage; set `existed_before_catalog` when adopting storage that predates the catalog definition. Active servers and embedded stores provision and begin publishing the boundary without a restart.
 
-PostgreSQL maps boundaries to schemas with `ORISUN_PG_SCHEMAS`:
+PostgreSQL maps boundaries to schemas. `ORISUN_PG_SCHEMAS` bootstraps the admin boundary and is the one-time migration source for legacy mappings:
 
 ```bash
 ORISUN_PG_SCHEMAS=orders:public,payments:public,orisun_admin:admin
 ```
 
-SQLite maps each boundary to a file:
+New PostgreSQL boundaries specify their schema in the command placement and do not need to be added to the environment variable. SQLite maps each boundary to files and discovers legacy files during startup:
 
 ```text
 /var/lib/orisun/sqlite/orders.db
@@ -141,8 +141,33 @@ SQLite maps each boundary to a file:
 /var/lib/orisun/sqlite/orisun_admin_metadata.db
 ```
 
-FoundationDB maps each boundary to tuple-encoded key ranges under `ORISUN_FDB_ROOT`.
+FoundationDB maps each boundary to tuple-encoded key ranges under
+`ORISUN_FDB_ROOT`. A FoundationDB placement uses backend `foundationdb` and the
+configured root as its namespace. Because this backend is beta, startup does
+not discover or migrate legacy key ranges into the catalog; define boundaries
+through `CreateBoundary`.
 
 ## Migrating between backends
 
-The public API is the same across supported backends, but storage files, keyspaces, and database schemas are backend-specific. Treat backend migration as a data migration: export from one backend, replay or import into the other, then move traffic after validation.
+The public API is the same across supported backends, but storage files,
+keyspaces, and database schemas are backend-specific. Treat a backend change as
+an event replay:
+
+1. Stop writes to the source or establish an application-level cutover point.
+2. On the target deployment, call `CreateBoundary` for each new empty physical
+   boundary and wait for `ACTIVE`. Use target-backend placement values.
+3. Read source events in ascending position order and replay them with
+   `SaveEvents`, preserving event IDs and payloads. Chunk the replay within the
+   target backend's transaction limits.
+4. Validate event counts, representative criteria queries, indexes, and
+   projectors.
+5. Start consumers from target positions and move traffic. Source positions
+   are not portable because the target assigns new positions.
+
+`CreateBoundary` is not a cross-backend data-copy operation. Setting
+`existed_before_catalog` only records that compatible storage is already
+present; it does not copy events.
+
+Do not replay the source admin boundary as application data. Create the target
+application boundaries through its own Admin service so its catalog
+records placements for the target backend.

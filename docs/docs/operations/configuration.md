@@ -12,7 +12,6 @@ Configuration is shared across release binaries, Docker images, and embedded dep
 | Variable | Description |
 | --- | --- |
 | `ORISUN_BACKEND` | `postgres`, `sqlite`, or `foundationdb`; defaults to `postgres`. |
-| `ORISUN_BOUNDARIES` | JSON array of boundary definitions. |
 | `ORISUN_ADMIN_BOUNDARY` | Boundary used for admin state. |
 | `ORISUN_ADMIN_PASSWORD` | Bootstrap admin password. The default is for local development only. |
 
@@ -25,7 +24,7 @@ For PostgreSQL-compatible backends, also set:
 | `ORISUN_PG_USER` | `postgres` | PostgreSQL user. |
 | `ORISUN_PG_PASSWORD` | `postgres` | PostgreSQL password. |
 | `ORISUN_PG_NAME` | `orisun` | PostgreSQL database. |
-| `ORISUN_PG_SCHEMAS` | `orisun_test_1:public,orisun_test_2:test2,orisun_admin:admin` | Comma-separated `boundary:schema` mappings. |
+| `ORISUN_PG_SCHEMAS` | `orisun_admin:admin` | Admin bootstrap mapping plus existing `boundary:schema` mappings to import into the catalog. |
 | `ORISUN_PG_SSLMODE` | `disable` | PostgreSQL SSL mode passed to the driver. |
 | `ORISUN_PG_DIALECT` | `postgres` | SQL dialect for the PostgreSQL-compatible backend. Use `yugabyte` for YugabyteDB; this selects committed-watermark visibility. YugabyteDB deployments must run `v2025.2.3+` with `LISTEN/NOTIFY` enabled. |
 
@@ -67,21 +66,69 @@ For FoundationDB beta deployments, set:
 
 FoundationDB support is beta. It is compiled with `-tags foundationdb` and requires native FoundationDB client libraries on the host, unless you use the published `orisun:fdb` Docker image. Review the FDB-specific release notes before upgrading, because storage layout and operational defaults may still change while the backend hardens.
 
-## Boundary configuration
+## Boundary management
 
-`ORISUN_BOUNDARIES` is a JSON array:
+Boundaries are defined through the Admin `CreateBoundary` RPC and stored as
+lifecycle events in the admin boundary. They do not require a startup boundary
+list.
 
-```bash
-ORISUN_BOUNDARIES='[{"name":"orders","description":"orders"},{"name":"orisun_admin","description":"admin"}]'
-```
-
-For PostgreSQL-compatible backends, every boundary should also appear in `ORISUN_PG_SCHEMAS`:
+For PostgreSQL-compatible backends, `ORISUN_PG_SCHEMAS` must contain the admin
+boundary. Additional mappings identify pre-existing physical boundaries and
+are recorded in the catalog automatically during startup:
 
 ```bash
 ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
 ```
 
+After migration, new PostgreSQL boundaries can name their schema in the RPC
+placement without being added to `ORISUN_PG_SCHEMAS`. SQLite discovers existing
+`{boundary}.db` files from `ORISUN_SQLITE_DIR` and always bootstraps the admin
+boundary on a fresh installation. FoundationDB is beta and does not discover
+legacy key ranges into the catalog; define its boundaries through
+`CreateBoundary`, using the configured `ORISUN_FDB_ROOT` as the namespace.
+
 Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63 characters, starting with a letter or underscore, then letters, digits, or underscores. This keeps boundary names portable across backends.
+
+### Upgrading existing boundaries into the catalog
+
+For a production upgrade from 0.7.0, follow the dedicated
+[0.7.0 to 0.8.0 upgrade guide](./upgrading-0.7-to-0.8). It includes preflight
+inventory, backend-specific preparation, mixed-version restrictions,
+verification commands, client changes, failure recovery, and rollback.
+
+`ORISUN_BOUNDARIES` has been removed. Delete it from 0.8.0 manifests and
+service configuration; it no longer defines runtime boundaries. If one
+configuration template is shared during a mixed-version rollout, keep the
+setting until the last 0.7.0 node is drained because 0.7.0 still requires it.
+
+Use this rollout sequence:
+
+1. Back up the durable store and the admin boundary.
+2. Preserve the legacy physical-boundary source for the first upgraded startup:
+   all existing `boundary:schema` entries in `ORISUN_PG_SCHEMAS`, the SQLite
+   files in `ORISUN_SQLITE_DIR`.
+3. Start one upgraded node first. Before exposing gRPC, Orisun discovers those
+   definitions and runs each through `CreateBoundary` with
+   `existed_before_catalog`, producing `BoundaryCreated` followed by
+   `BoundaryActivated` or `BoundaryProvisioningFailed`.
+4. Call `ListBoundaries` and verify every expected definition is `ACTIVE`.
+   Resolve any `last_error` before moving traffic or starting the remaining
+   cluster nodes.
+5. Finish the rolling upgrade. Every process replays the catalog into its local
+   registry and starts its own publisher participation; the catalog itself is
+   shared durable state.
+6. PostgreSQL deployments may then remove non-admin legacy mappings from
+   `ORISUN_PG_SCHEMAS`. Keep the required
+   `<ORISUN_ADMIN_BOUNDARY>:<admin-schema>` mapping. Keep all legacy mappings
+   during a mixed-version rollout because older nodes still need them.
+
+Reconciliation is repeatable. If a definition is already catalogued with the
+same placement, startup leaves it unchanged. If the discovered placement
+conflicts with the recorded placement, startup fails instead of silently
+remapping the boundary.
+
+For storage restored or attached after the upgrade, call `CreateBoundary`
+with `existed_before_catalog: true`.
 
 ## Server settings
 

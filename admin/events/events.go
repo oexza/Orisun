@@ -1,6 +1,7 @@
 package events
 
 import (
+	boundaryevents "github.com/OrisunLabs/Orisun/boundary/events"
 	"github.com/OrisunLabs/Orisun/orisun"
 )
 
@@ -14,6 +15,9 @@ const (
 	EventTypeUserDeleted         = "$UserDeleted"
 	EventTypeRolesChanged        = "$RolesChanged"
 	EventTypeUserPasswordChanged = "$UserPasswordChanged"
+	EventTypeBoundaryCreated     = boundaryevents.EventTypeBoundaryCreated
+	EventTypeBoundaryActivated   = boundaryevents.EventTypeBoundaryActivated
+	EventTypeBoundaryFailed      = boundaryevents.EventTypeBoundaryFailed
 )
 
 type UserCreated struct {
@@ -32,3 +36,12 @@ type UserPasswordChanged struct {
 	UserId       string `json:"user_id"`
 	PasswordHash string `json:"password_hash,omitempty"`
 }
+
+// Deprecated: use boundary/events.BoundaryCreated.
+type BoundaryCreated = boundaryevents.BoundaryCreated
+
+// Deprecated: use boundary/events.BoundaryActivated.
+type BoundaryActivated = boundaryevents.BoundaryActivated
+
+// Deprecated: use boundary/events.BoundaryProvisioningFailed.
+type BoundaryProvisioningFailed = boundaryevents.BoundaryProvisioningFailed

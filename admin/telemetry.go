@@ -23,12 +23,16 @@ var (
 
 // InitTracer initializes the OpenTelemetry tracer
 func InitTracer(serviceName, otelEndpoint string, logger l.Logger) (func(context.Context) error, error) {
+	return InitTracerWithContext(context.Background(), serviceName, otelEndpoint, logger)
+}
+
+// InitTracerWithContext initializes the OpenTelemetry tracer using the
+// caller's lifecycle for exporter and resource setup.
+func InitTracerWithContext(ctx context.Context, serviceName, otelEndpoint string, logger l.Logger) (func(context.Context) error, error) {
 	if otelEndpoint == "" {
 		logger.Info("OpenTelemetry endpoint not configured, tracing disabled")
 		return nil, nil
 	}
-
-	ctx := context.Background()
 
 	// Create OTLP gRPC exporter
 	exporter, err := otlptracegrpc.New(ctx,

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
@@ -253,6 +254,7 @@ func criteriaAsList(query *eventstore.Query) []map[string]any {
 
 type SqliteSaveEvents struct {
 	pools    map[string]*BoundaryPools
+	registry *BoundaryRegistry
 	logger   logging.Logger
 	notifier *SqliteEventNotifier
 
@@ -262,6 +264,7 @@ type SqliteSaveEvents struct {
 	gcMaxBatchRequests int
 	gcMaxBatchEvents   int
 	gcMaxDelay         time.Duration
+	gcMaxPending       int
 	gcFlushTimeout     time.Duration
 
 	queues    map[string]chan *sqliteSaveRequest
@@ -297,22 +300,33 @@ func NewSqliteSaveEventsWithConfig(
 	logger logging.Logger,
 	gcCfg config.SqliteGroupCommitConfig,
 ) (*SqliteSaveEvents, error) {
+	return newSqliteSaveEventsWithRegistry(NewBoundaryRegistry(pools, nil), logger, gcCfg)
+}
+
+func newSqliteSaveEventsWithRegistry(
+	registry *BoundaryRegistry,
+	logger logging.Logger,
+	gcCfg config.SqliteGroupCommitConfig,
+) (*SqliteSaveEvents, error) {
 	gcCfg, err := normalizeGroupCommitConfig(gcCfg)
 	if err != nil {
 		return nil, err
 	}
 	s := &SqliteSaveEvents{
-		pools:  pools,
-		logger: logger,
+		pools:    registry.pools,
+		registry: registry,
+		logger:   logger,
 
 		gcMaxBatchRequests: gcCfg.MaxBatchRequests,
 		gcMaxBatchEvents:   gcCfg.MaxBatchEvents,
 		gcMaxDelay:         gcCfg.MaxDelay,
+		gcMaxPending:       gcCfg.MaxPending,
 		gcFlushTimeout:     gcCfg.FlushTimeout,
 
-		queues: make(map[string]chan *sqliteSaveRequest, len(pools)),
+		queues: make(map[string]chan *sqliteSaveRequest, len(registry.pools)),
 		closed: make(chan struct{}),
 	}
+	pools, _ := registry.snapshots()
 	for boundary, pool := range pools {
 		queue := make(chan *sqliteSaveRequest, gcCfg.MaxPending)
 		s.queues[boundary] = queue
@@ -320,6 +334,22 @@ func NewSqliteSaveEventsWithConfig(
 		go s.runWorker(boundary, pool, queue)
 	}
 	return s, nil
+}
+
+func (s *SqliteSaveEvents) addBoundary(boundary string, pool *BoundaryPools) error {
+	s.enqueueMu.Lock()
+	defer s.enqueueMu.Unlock()
+	if s.isClosed() {
+		return errSaverClosed
+	}
+	if _, exists := s.queues[boundary]; exists {
+		return nil
+	}
+	queue := make(chan *sqliteSaveRequest, s.gcMaxPending)
+	s.queues[boundary] = queue
+	s.workerWG.Add(1)
+	go s.runWorker(boundary, pool, queue)
+	return nil
 }
 
 // close stops accepting new saves and fails queued-but-unflushed requests.
@@ -330,12 +360,16 @@ func (s *SqliteSaveEvents) close() {
 		close(s.closed)
 
 		// Wait for enqueue calls that passed the closed check but have not yet
-		// completed their channel send. After this barrier, no goroutine can
-		// send to a queue, so it is safe to close the queues and let workers exit.
+		// completed their channel send. Snapshotting under the same lock also
+		// prevents queue iteration from racing with boundary installation.
 		s.enqueueMu.Lock()
+		queues := make([]chan *sqliteSaveRequest, 0, len(s.queues))
+		for _, queue := range s.queues {
+			queues = append(queues, queue)
+		}
 		s.enqueueMu.Unlock()
 
-		for _, queue := range s.queues {
+		for _, queue := range queues {
 			close(queue)
 		}
 		s.workerWG.Wait()
@@ -361,7 +395,7 @@ func (s *SqliteSaveEvents) SavePrepared(
 	if len(events) == 0 {
 		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "events cannot be empty")
 	}
-	if _, ok := s.pools[boundary]; !ok {
+	if _, ok := s.registry.eventPool(boundary); !ok {
 		return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", boundary)
 	}
 	return s.enqueue(ctx, boundary, events, expectedPosition, streamConsistencyCondition)
@@ -473,16 +507,21 @@ func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, f
 // ---------------------------------------------------------------------------
 
 type SqliteGetEvents struct {
-	pools  map[string]*BoundaryPools
-	logger logging.Logger
+	pools    map[string]*BoundaryPools
+	registry *BoundaryRegistry
+	logger   logging.Logger
 }
 
 func NewSqliteGetEvents(pools map[string]*BoundaryPools, logger logging.Logger) *SqliteGetEvents {
-	return &SqliteGetEvents{pools: pools, logger: logger}
+	return newSqliteGetEventsWithRegistry(NewBoundaryRegistry(pools, nil), logger)
+}
+
+func newSqliteGetEventsWithRegistry(registry *BoundaryRegistry, logger logging.Logger) *SqliteGetEvents {
+	return &SqliteGetEvents{pools: registry.pools, registry: registry, logger: logger}
 }
 
 func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEventsRequest) (eventstore.ReadEventBatch, error) {
-	pool, ok := s.pools[req.Boundary]
+	pool, ok := s.registry.eventPool(req.Boundary)
 	if !ok {
 		return nil, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", req.Boundary)
 	}
@@ -571,7 +610,7 @@ func (s *SqliteGetEvents) GetBatch(ctx context.Context, req *eventstore.GetEvent
 // sees the same database state. Independent client reads cannot substitute —
 // an event committing between them can hide below the observed max position.
 func (s *SqliteGetEvents) GetLatestByCriteria(ctx context.Context, query eventstore.LatestByCriteriaQuery) (eventstore.LatestByCriteriaBatch, error) {
-	pool, ok := s.pools[query.Boundary]
+	pool, ok := s.registry.eventPool(query.Boundary)
 	if !ok {
 		return eventstore.LatestByCriteriaBatch{}, statuscode.Errorf(statuscode.InvalidArgument, "unknown boundary: %s", query.Boundary)
 	}
@@ -666,8 +705,10 @@ func parseSQLiteEventTime(created string) time.Time {
 // ---------------------------------------------------------------------------
 
 type SqliteAdminDB struct {
+	ctx           context.Context
 	pools         map[string]*BoundaryPools
 	metadataPools map[string]*BoundaryPools
+	registry      *BoundaryRegistry
 	adminBoundary string
 	logger        logging.Logger
 	userCacheMu   sync.RWMutex
@@ -675,8 +716,11 @@ type SqliteAdminDB struct {
 }
 
 func NewSqliteAdminDB(pools map[string]*BoundaryPools, adminBoundary string, logger logging.Logger) *SqliteAdminDB {
+	registry := NewBoundaryRegistry(pools, nil)
 	return &SqliteAdminDB{
+		ctx:           context.Background(),
 		pools:         pools,
+		registry:      registry,
 		adminBoundary: adminBoundary,
 		logger:        logger,
 		userCache:     make(map[string]*eventstore.User),
@@ -684,9 +728,15 @@ func NewSqliteAdminDB(pools map[string]*BoundaryPools, adminBoundary string, log
 }
 
 func NewSqliteAdminDBWithMetadata(pools map[string]*BoundaryPools, metadataPools map[string]*BoundaryPools, adminBoundary string, logger logging.Logger) *SqliteAdminDB {
+	return newSqliteAdminDBWithRegistry(context.Background(), NewBoundaryRegistry(pools, metadataPools), adminBoundary, logger)
+}
+
+func newSqliteAdminDBWithRegistry(ctx context.Context, registry *BoundaryRegistry, adminBoundary string, logger logging.Logger) *SqliteAdminDB {
 	return &SqliteAdminDB{
-		pools:         pools,
-		metadataPools: metadataPools,
+		ctx:           ctx,
+		pools:         registry.pools,
+		metadataPools: registry.metadataPools,
+		registry:      registry,
 		adminBoundary: adminBoundary,
 		logger:        logger,
 		userCache:     make(map[string]*eventstore.User),
@@ -694,21 +744,19 @@ func NewSqliteAdminDBWithMetadata(pools map[string]*BoundaryPools, metadataPools
 }
 
 func (a *SqliteAdminDB) adminPool() *BoundaryPools {
-	if a.metadataPools != nil {
-		if pool := a.metadataPools[a.adminBoundary]; pool != nil {
-			return pool
-		}
+	if pool, ok := a.registry.metadataPool(a.adminBoundary); ok {
+		return pool
 	}
-	return a.pools[a.adminBoundary]
+	pool, _ := a.registry.eventPool(a.adminBoundary)
+	return pool
 }
 
 func (a *SqliteAdminDB) metadataPoolForBoundary(boundary string) *BoundaryPools {
-	if a.metadataPools != nil {
-		if pool := a.metadataPools[boundary]; pool != nil {
-			return pool
-		}
+	if pool, ok := a.registry.metadataPool(boundary); ok {
+		return pool
 	}
-	return a.pools[boundary]
+	pool, _ := a.registry.eventPool(boundary)
+	return pool
 }
 
 func (a *SqliteAdminDB) poolForProjectorName(projectorName string) *BoundaryPools {
@@ -746,7 +794,7 @@ func csvToRoles(s string) []eventstore.Role {
 
 func (a *SqliteAdminDB) ListAdminUsers() ([]*eventstore.User, error) {
 	pool := a.adminPool()
-	conn, err := pool.Read.Take(context.Background())
+	conn, err := pool.Read.Take(a.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +821,7 @@ func (a *SqliteAdminDB) ListAdminUsers() ([]*eventstore.User, error) {
 
 func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventstore.Position, error) {
 	pool := a.poolForProjectorName(projectorName)
-	conn, err := pool.Read.Take(context.Background())
+	conn, err := pool.Read.Take(a.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -804,7 +852,7 @@ func (a *SqliteAdminDB) GetProjectorLastPosition(projectorName string) (*eventst
 
 func (a *SqliteAdminDB) UpdateProjectorPosition(name string, position *eventstore.Position) error {
 	pool := a.poolForProjectorName(name)
-	conn, err := pool.Write.Take(context.Background())
+	conn, err := pool.Write.Take(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -825,7 +873,7 @@ func (a *SqliteAdminDB) UpdateProjectorPosition(name string, position *eventstor
 
 func (a *SqliteAdminDB) UpsertUser(user eventstore.User) error {
 	pool := a.adminPool()
-	conn, err := pool.Write.Take(context.Background())
+	conn, err := pool.Write.Take(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -858,7 +906,7 @@ func (a *SqliteAdminDB) UpsertUser(user eventstore.User) error {
 
 func (a *SqliteAdminDB) DeleteUser(id string) error {
 	pool := a.adminPool()
-	conn, err := pool.Write.Take(context.Background())
+	conn, err := pool.Write.Take(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -881,7 +929,7 @@ func (a *SqliteAdminDB) GetUserByUsername(username string) (eventstore.User, err
 	a.userCacheMu.RUnlock()
 
 	pool := a.adminPool()
-	conn, err := pool.Read.Take(context.Background())
+	conn, err := pool.Read.Take(a.ctx)
 	if err != nil {
 		return eventstore.User{}, err
 	}
@@ -919,7 +967,7 @@ func (a *SqliteAdminDB) GetUserByUsername(username string) (eventstore.User, err
 
 func (a *SqliteAdminDB) GetUserById(id string) (eventstore.User, error) {
 	pool := a.adminPool()
-	conn, err := pool.Read.Take(context.Background())
+	conn, err := pool.Read.Take(a.ctx)
 	if err != nil {
 		return eventstore.User{}, err
 	}
@@ -954,7 +1002,7 @@ func (a *SqliteAdminDB) GetUserById(id string) (eventstore.User, error) {
 
 func (a *SqliteAdminDB) GetUsersCount() (uint32, error) {
 	pool := a.adminPool()
-	conn, err := pool.Read.Take(context.Background())
+	conn, err := pool.Read.Take(a.ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -976,7 +1024,7 @@ const (
 
 func (a *SqliteAdminDB) SaveUsersCount(count uint32) error {
 	pool := a.adminPool()
-	conn, err := pool.Write.Take(context.Background())
+	conn, err := pool.Write.Take(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -993,12 +1041,12 @@ func (a *SqliteAdminDB) SaveUsersCount(count uint32) error {
 }
 
 func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
-	eventPool, ok := a.pools[boundary]
+	eventPool, ok := a.registry.eventPool(boundary)
 	if !ok {
 		return 0, fmt.Errorf("unknown boundary: %s", boundary)
 	}
 	cachePool := a.metadataPoolForBoundary(boundary)
-	conn, err := cachePool.Read.Take(context.Background())
+	conn, err := cachePool.Read.Take(a.ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -1022,7 +1070,7 @@ func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
 	cachePool.Read.Put(conn)
 
 	var total int64
-	conn, err = eventPool.Read.Take(context.Background())
+	conn, err = eventPool.Read.Take(a.ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -1040,11 +1088,11 @@ func (a *SqliteAdminDB) GetEventsCount(boundary string) (int, error) {
 }
 
 func (a *SqliteAdminDB) SaveEventCount(count int, boundary string) error {
-	if _, ok := a.pools[boundary]; !ok {
+	if _, ok := a.registry.eventPool(boundary); !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
 	pool := a.metadataPoolForBoundary(boundary)
-	conn, err := pool.Write.Take(context.Background())
+	conn, err := pool.Write.Take(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -1069,7 +1117,7 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 	conditions []eventstore.BoundaryIndexCondition,
 	combinator string,
 ) (err error) {
-	pool, ok := a.pools[boundary]
+	pool, ok := a.registry.eventPool(boundary)
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
@@ -1178,7 +1226,7 @@ func (a *SqliteAdminDB) CreateBoundaryIndex(
 }
 
 func (a *SqliteAdminDB) DropBoundaryIndex(ctx context.Context, boundary, name string) (err error) {
-	pool, ok := a.pools[boundary]
+	pool, ok := a.registry.eventPool(boundary)
 	if !ok {
 		return fmt.Errorf("unknown boundary: %s", boundary)
 	}
@@ -1263,38 +1311,6 @@ func buildIndexConditionPredicate(
 
 func quoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-// normalizeJSON returns valid JSON for the SQLite TEXT column.
-// Mirrors PG's jsonb_typeof check: if v is already a JSON string (e.g. `{"k":"v"}`),
-// preserve it as-is; otherwise marshal. Empty/nil → "{}" (matches PG's COALESCE default).
-func normalizeJSON(v any) (string, error) {
-	if v == nil {
-		return "{}", nil
-	}
-	if s, ok := v.(string); ok {
-		if s == "" {
-			return "{}", nil
-		}
-		if !json.Valid([]byte(s)) {
-			return "", fmt.Errorf("invalid JSON")
-		}
-		return s, nil
-	}
-	if b, ok := v.([]byte); ok {
-		if len(b) == 0 {
-			return "{}", nil
-		}
-		if !json.Valid(b) {
-			return "", fmt.Errorf("invalid JSON")
-		}
-		return string(b), nil
-	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
 }
 
 func sqlEscapeLiteral(v string) string {
@@ -1615,9 +1631,19 @@ func copyLegacyUsersCount(src, dst *sqlite.Conn) error {
 		})
 }
 
-// InitializeSqliteDatabaseWithLockProvider opens the SQLite backend with an
-// injected coordination strategy. Embedded runtimes can supply a process-local
-// lock provider without linking the server's NATS transport.
+type DatabaseRuntime struct {
+	SaveEvents        eventstore.EventsSaver
+	GetEvents         eventstore.EventsRetriever
+	LockProvider      eventstore.LockProvider
+	AdminDB           common.DB
+	EventPublishing   eventstore.EventPublishingTracker
+	SignalProvider    func(string) eventstore.EventSignal
+	ProvisionBoundary func(context.Context, boundarymodel.Definition) error
+	InstallBoundary   func(context.Context, boundarymodel.Definition) error
+}
+
+// InitializeSqliteDatabaseWithLockProvider preserves the tuple API while the
+// runtime form exposes dynamic boundary provisioning.
 func InitializeSqliteDatabaseWithLockProvider(
 	ctx context.Context,
 	sqliteCfg config.SqliteConfig,
@@ -1626,14 +1652,29 @@ func InitializeSqliteDatabaseWithLockProvider(
 	lockProvider eventstore.LockProvider,
 	logger logging.Logger,
 ) (eventstore.EventsSaver, eventstore.EventsRetriever, eventstore.LockProvider, common.DB, eventstore.EventPublishingTracker, func(string) eventstore.EventSignal, error) {
+	runtime, err := InitializeSqliteDatabaseRuntimeWithLockProvider(ctx, sqliteCfg, adminCfg, boundaries, lockProvider, logger)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
+	return runtime.SaveEvents, runtime.GetEvents, runtime.LockProvider, runtime.AdminDB, runtime.EventPublishing, runtime.SignalProvider, nil
+}
+
+func InitializeSqliteDatabaseRuntimeWithLockProvider(
+	ctx context.Context,
+	sqliteCfg config.SqliteConfig,
+	adminCfg config.AdminConfig,
+	boundaries []string,
+	lockProvider eventstore.LockProvider,
+	logger logging.Logger,
+) (*DatabaseRuntime, error) {
 	if sqliteCfg.Dir == "" {
-		return nil, nil, nil, nil, nil, nil, errors.New("sqlite dir is empty")
+		return nil, errors.New("sqlite dir is empty")
 	}
 	if lockProvider == nil {
-		return nil, nil, nil, nil, nil, nil, errors.New("sqlite lock provider is nil")
+		return nil, errors.New("sqlite lock provider is nil")
 	}
 	if err := ensureDir(sqliteCfg.Dir); err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("create sqlite dir: %w", err)
+		return nil, fmt.Errorf("create sqlite dir: %w", err)
 	}
 
 	pools := make(map[string]*BoundaryPools, len(boundaries))
@@ -1641,12 +1682,12 @@ func InitializeSqliteDatabaseWithLockProvider(
 	for _, b := range boundaries {
 		if err := validateIdentifier(b); err != nil {
 			closeAll(pools)
-			return nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid boundary %q: %w", b, err)
+			return nil, fmt.Errorf("invalid boundary %q: %w", b, err)
 		}
 		bp, err := OpenBoundaryPoolsWithConfig(ctx, sqliteCfg, b, adminCfg.Boundary)
 		if err != nil {
 			closeAll(pools)
-			return nil, nil, nil, nil, nil, nil, err
+			return nil, err
 		}
 		pools[b] = bp
 
@@ -1654,38 +1695,46 @@ func InitializeSqliteDatabaseWithLockProvider(
 		if err != nil {
 			closeAll(pools)
 			closeAll(metadataPools)
-			return nil, nil, nil, nil, nil, nil, err
+			return nil, err
 		}
 		metadataPools[b] = mp
 	}
 	if err := migrateLegacyMetadata(ctx, metadataPools, pools, adminCfg.Boundary, sqliteCfg); err != nil {
 		closeAll(pools)
 		closeAll(metadataPools)
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, err
 	}
 
+	registry := NewBoundaryRegistry(pools, metadataPools)
 	notifier := NewSqliteEventNotifierWithWakeDelay(time.Second, sqliteCfg.PublisherWakeDelay)
-	saver, err := NewSqliteSaveEventsWithConfig(pools, logger, sqliteCfg.GroupCommit)
+	saver, err := newSqliteSaveEventsWithRegistry(registry, logger, sqliteCfg.GroupCommit)
 	if err != nil {
 		closeAll(pools)
 		closeAll(metadataPools)
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("init sqlite saver: %w", err)
+		return nil, fmt.Errorf("init sqlite saver: %w", err)
 	}
 	saver.notifier = notifier
-	getter := NewSqliteGetEvents(pools, logger)
-	admin := NewSqliteAdminDBWithMetadata(pools, metadataPools, adminCfg.Boundary, logger)
-	publishing := NewSqliteEventPublishingWithMetadata(metadataPools, logger)
+	getter := newSqliteGetEventsWithRegistry(registry, logger)
+	admin := newSqliteAdminDBWithRegistry(ctx, registry, adminCfg.Boundary, logger)
+	publishing := newSqliteEventPublishingWithRegistry(registry, logger)
+	provisioner := NewSqliteBoundaryProvisioner(sqliteCfg, adminCfg, registry, saver)
 
 	go func() {
 		<-ctx.Done()
 		// Stop the group-commit workers before the pools close so no flush
 		// runs against a closed pool.
 		saver.close()
-		closeAll(pools)
+		eventPools, metadataPools := registry.snapshots()
+		closeAll(eventPools)
 		closeAll(metadataPools)
 	}()
 
-	return saver, getter, lockProvider, admin, publishing, notifier.Signal, nil
+	return &DatabaseRuntime{
+		SaveEvents: saver, GetEvents: getter, LockProvider: lockProvider,
+		AdminDB: admin, EventPublishing: publishing, SignalProvider: notifier.Signal,
+		ProvisionBoundary: provisioner.ProvisionBoundary,
+		InstallBoundary:   provisioner.InstallBoundary,
+	}, nil
 }
 
 func closeAll(pools map[string]*BoundaryPools) {

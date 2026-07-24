@@ -73,7 +73,6 @@ test_arch() {
         -e ORISUN_PG_PASSWORD=postgres \
         -e ORISUN_PG_NAME=orisun \
         -e ORISUN_PG_SCHEMAS="test:public,test_admin:admin" \
-        -e ORISUN_BOUNDARIES='[{"name":"test","description":"test boundary"},{"name":"test_admin","description":"admin boundary"}]' \
         -e ORISUN_ADMIN_BOUNDARY=test_admin \
         --platform $ARCH_PLATFORM \
         ${TAG} > "$log_file" 2>&1 &
