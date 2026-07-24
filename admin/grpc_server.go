@@ -10,7 +10,6 @@ import (
 	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
 	createuser "github.com/OrisunLabs/Orisun/admin/slices/create_user"
 	deleteuser "github.com/OrisunLabs/Orisun/admin/slices/delete_user"
-	importboundary "github.com/OrisunLabs/Orisun/admin/slices/import_boundary"
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	coreeventstore "github.com/OrisunLabs/Orisun/eventstore"
 	"github.com/OrisunLabs/Orisun/internal/eventstoreadapter"
@@ -142,7 +141,8 @@ func (s *AdminServiceServer) CreateBoundary(ctx context.Context, req *grpcapi.Cr
 				Backend:   req.Placement.Backend,
 				Namespace: req.Placement.Namespace,
 			},
-			Metadata: createboundary.CommandMetadata{"source": "grpc", "operation": "create_boundary"},
+			ExistedBeforeCatalog: req.ExistedBeforeCatalog,
+			Metadata:             createboundary.CommandMetadata{"source": "grpc", "operation": "create_boundary"},
 		},
 		s.boundary,
 		s.boundaryEvents,
@@ -152,33 +152,6 @@ func (s *AdminServiceServer) CreateBoundary(ctx context.Context, req *grpcapi.Cr
 		return nil, grpcstatus.FromError(err)
 	}
 	return &grpcapi.CreateBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
-}
-
-// ImportBoundary emits an import definition event for an existing physical
-// boundary. The provisioning adapter applies migrations idempotently.
-func (s *AdminServiceServer) ImportBoundary(ctx context.Context, req *grpcapi.ImportBoundaryRequest) (*grpcapi.ImportBoundaryResponse, error) {
-	if req == nil || req.Placement == nil {
-		return nil, status.Error(codes.InvalidArgument, "boundary placement is required")
-	}
-	result, err := importboundary.ImportBoundaryCommandHandler(
-		ctx,
-		importboundary.ImportBoundaryCommand{
-			Name:        req.Name,
-			Description: req.Description,
-			Placement: boundarymodel.Placement{
-				Backend:   req.Placement.Backend,
-				Namespace: req.Placement.Namespace,
-			},
-			Metadata: importboundary.CommandMetadata{"source": "grpc", "operation": "import_boundary"},
-		},
-		s.boundary,
-		s.boundaryEvents,
-		s.boundaryEvents,
-	)
-	if err != nil {
-		return nil, grpcstatus.FromError(err)
-	}
-	return &grpcapi.ImportBoundaryResponse{Boundary: boundaryInfo(result.Boundary)}, nil
 }
 
 func (s *AdminServiceServer) ListBoundaries(ctx context.Context, _ *grpcapi.ListBoundariesRequest) (*grpcapi.ListBoundariesResponse, error) {
@@ -563,13 +536,6 @@ func boundaryInfo(boundary boundarymodel.Boundary) *grpcapi.BoundaryInfo {
 	case boundarymodel.StatusFailed:
 		status = grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_FAILED
 	}
-	origin := grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED
-	switch boundary.Origin {
-	case boundarymodel.OriginCreated:
-		origin = grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_CREATED
-	case boundarymodel.OriginImported:
-		origin = grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED
-	}
 	return &grpcapi.BoundaryInfo{
 		Name:        boundary.Name,
 		Description: boundary.Description,
@@ -577,11 +543,11 @@ func boundaryInfo(boundary boundarymodel.Boundary) *grpcapi.BoundaryInfo {
 			Backend:   boundary.Placement.Backend,
 			Namespace: boundary.Placement.Namespace,
 		},
-		Status:             status,
-		Origin:             origin,
-		LastError:          boundary.LastError,
-		DefinitionPosition: grpcPosition(boundary.DefinitionPosition),
-		StatusPosition:     grpcPosition(boundary.StatusPosition),
+		Status:               status,
+		ExistedBeforeCatalog: boundary.ExistedBeforeCatalog,
+		LastError:            boundary.LastError,
+		DefinitionPosition:   grpcPosition(boundary.DefinitionPosition),
+		StatusPosition:       grpcPosition(boundary.StatusPosition),
 	}
 }
 

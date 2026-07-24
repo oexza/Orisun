@@ -15,10 +15,11 @@ import (
 type CommandMetadata map[string]any
 
 type CreateBoundaryCommand struct {
-	Name        string
-	Description string
-	Placement   boundarymodel.Placement
-	Metadata    CommandMetadata
+	Name                 string
+	Description          string
+	Placement            boundarymodel.Placement
+	ExistedBeforeCatalog bool
+	Metadata             CommandMetadata
 }
 
 type CreateBoundaryResult struct {
@@ -51,7 +52,7 @@ func CreateBoundaryCommandHandler(
 	if err != nil {
 		return CreateBoundaryResult{}, err
 	}
-	if model.exists {
+	if model.existing != nil {
 		return CreateBoundaryResult{}, statuscode.Errorf(statuscode.AlreadyExists, "boundary %q already exists", definition.Name)
 	}
 
@@ -60,9 +61,10 @@ func CreateBoundaryCommandHandler(
 		return CreateBoundaryResult{}, statuscode.Errorf(statuscode.Internal, "create boundary event id: %v", err)
 	}
 	data, err := eventData(adminevents.EventTypeBoundaryCreated, adminevents.BoundaryCreated{
-		Boundary:    definition.Name,
-		Description: definition.Description,
-		Placement:   definition.Placement,
+		Boundary:             definition.Name,
+		Description:          definition.Description,
+		Placement:            definition.Placement,
+		ExistedBeforeCatalog: definition.ExistedBeforeCatalog,
 	})
 	if err != nil {
 		return CreateBoundaryResult{}, statuscode.Errorf(statuscode.Internal, "prepare %s data: %v", adminevents.EventTypeBoundaryCreated, err)
@@ -87,18 +89,18 @@ func CreateBoundaryCommandHandler(
 	}
 	position := appendResult.Position
 	return CreateBoundaryResult{Boundary: boundarymodel.Boundary{
-		Name:               definition.Name,
-		Description:        definition.Description,
-		Placement:          definition.Placement,
-		Status:             boundarymodel.StatusProvisioning,
-		Origin:             boundarymodel.OriginCreated,
-		DefinitionPosition: &position,
-		StatusPosition:     &coreeventstore.Position{CommitPosition: position.CommitPosition, PreparePosition: position.PreparePosition},
+		Name:                 definition.Name,
+		Description:          definition.Description,
+		Placement:            definition.Placement,
+		Status:               boundarymodel.StatusProvisioning,
+		ExistedBeforeCatalog: definition.ExistedBeforeCatalog,
+		DefinitionPosition:   &position,
+		StatusPosition:       &coreeventstore.Position{CommitPosition: position.CommitPosition, PreparePosition: position.PreparePosition},
 	}}, nil
 }
 
 type commandContext struct {
-	exists   bool
+	existing *coreeventstore.ReadEvent
 	position *coreeventstore.Position
 	query    coreeventstore.Query
 }
@@ -123,15 +125,20 @@ func loadContext(ctx context.Context, adminBoundary, name string, retriever Late
 		if !match.Found {
 			continue
 		}
-		model.exists = true
+		if model.existing != nil {
+			return nil, statuscode.Errorf(statuscode.Internal, "boundary %q has multiple definition events", name)
+		}
+		event := match.Event
+		model.existing = &event
 	}
 	return model, nil
 }
 
 func normalize(command CreateBoundaryCommand) (boundarymodel.Definition, error) {
 	definition := boundarymodel.Definition{
-		Name:        strings.TrimSpace(command.Name),
-		Description: strings.TrimSpace(command.Description),
+		Name:                 strings.TrimSpace(command.Name),
+		Description:          strings.TrimSpace(command.Description),
+		ExistedBeforeCatalog: command.ExistedBeforeCatalog,
 		Placement: boundarymodel.Placement{
 			Backend:   strings.TrimSpace(command.Placement.Backend),
 			Namespace: strings.TrimSpace(command.Placement.Namespace),
@@ -149,7 +156,6 @@ func normalize(command CreateBoundaryCommand) (boundarymodel.Definition, error) 
 func definitionCriteria(name string) []coreeventstore.Criterion {
 	return []coreeventstore.Criterion{
 		{Tags: []coreeventstore.Tag{{Key: "boundary", Value: name}, {Key: "eventType", Value: adminevents.EventTypeBoundaryCreated}}},
-		{Tags: []coreeventstore.Tag{{Key: "boundary", Value: name}, {Key: "eventType", Value: adminevents.EventTypeBoundaryImported}}},
 	}
 }
 

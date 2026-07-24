@@ -98,6 +98,28 @@ func TestEventHandlerDoesNotReprovisionAlreadyActiveBoundary(t *testing.T) {
 	require.Equal(t, []string{"orders"}, global.boundaries)
 }
 
+func TestEventHandlerIgnoresOutcomeBeforeDefinition(t *testing.T) {
+	staleActive := lifecycleEventRead(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
+		Boundary: "orders",
+	}, 9, 1)
+	definition := createdBoundaryEvent(t, "orders", 10, 2)
+	retriever := &scriptedBoundaryRetriever{batches: []coreeventstore.LatestByCriteriaResult{
+		lifecycleBatch(definition, staleActive),
+	}}
+	saver := &scriptedOutcomeSaver{}
+	provisioner := &captureProvisioner{}
+	global := &captureActivator{}
+	handler := NewBoundaryProvisioningEventHandler("orisun_admin", saver, retriever, provisioner.EnsureBoundary, global.ActivateBoundary)
+
+	err := handler.Handle(t.Context(), definition)
+	require.NoError(t, err)
+	require.Len(t, provisioner.definitions, 1)
+	require.Len(t, saver.calls, 1)
+	require.Equal(t, adminevents.EventTypeBoundaryActivated, saver.calls[0].events[0].EventType)
+	require.Equal(t, &coreeventstore.Position{CommitPosition: 10, PreparePosition: 2}, saver.calls[0].expectedPosition)
+	require.Equal(t, []string{"orders"}, global.boundaries)
+}
+
 func TestEventHandlerPromotesFailedBoundaryAfterSuccessfulRetry(t *testing.T) {
 	definition := createdBoundaryEvent(t, "orders", 10, 2)
 	failed := lifecycleEventRead(t, adminevents.EventTypeBoundaryFailed, adminevents.BoundaryProvisioningFailed{
@@ -210,7 +232,7 @@ func (s *scriptedOutcomeSaver) Append(
 
 func lifecycleBatch(events ...coreeventstore.ReadEvent) coreeventstore.LatestByCriteriaResult {
 	batch := coreeventstore.LatestByCriteriaResult{
-		Matches:         make([]coreeventstore.LatestCriterionMatch, 4),
+		Matches:         make([]coreeventstore.LatestCriterionMatch, 3),
 		ContextPosition: coreeventstore.NotExistsPosition(),
 	}
 	for _, event := range events {
@@ -227,12 +249,10 @@ func lifecycleEventIndex(eventType string) int {
 	switch eventType {
 	case adminevents.EventTypeBoundaryCreated:
 		return 0
-	case adminevents.EventTypeBoundaryImported:
-		return 1
 	case adminevents.EventTypeBoundaryActivated:
-		return 2
+		return 1
 	case adminevents.EventTypeBoundaryFailed:
-		return 3
+		return 2
 	default:
 		panic("unexpected lifecycle event type: " + eventType)
 	}

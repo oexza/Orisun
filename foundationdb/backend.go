@@ -112,14 +112,6 @@ func InitializeFoundationDB(
 	for _, boundary := range boundaries {
 		backend.boundaries[boundary] = struct{}{}
 	}
-	discovered, err := discoverBoundaryNames(db, fdbCfg.Root)
-	if err != nil {
-		db.Close()
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("discover FoundationDB boundaries: %w", err)
-	}
-	for _, boundary := range discovered {
-		backend.boundaries[boundary] = struct{}{}
-	}
 	backend.boundaries[adminCfg.Boundary] = struct{}{}
 	if err := backend.ensureBoundaryMarker(ctx, adminCfg.Boundary); err != nil {
 		db.Close()
@@ -172,7 +164,6 @@ func InitializeFoundationDBRuntime(
 		ProvisionBoundary: backend.ProvisionBoundary,
 		InstallBoundary:   backend.InstallBoundary,
 		InitialBoundaries: backend.BoundaryNames(),
-		BoundaryNamespace: backend.root,
 		Close:             closeFn,
 	}, nil
 }
@@ -1617,70 +1608,6 @@ func prefixRange(prefix fdb.Key) fdb.KeyRange {
 		panic(err)
 	}
 	return r
-}
-
-// discoverBoundaryNames walks one key per second-level tuple prefix rather
-// than scanning every event. Marker keys preserve empty dynamically-created
-// boundaries; recognized legacy key kinds recover boundaries created before
-// markers existed.
-func discoverBoundaryNames(db fdb.Database, root string) ([]string, error) {
-	result, err := db.ReadTransact(func(rt fdb.ReadTransaction) (interface{}, error) {
-		rootRange := prefixRange(fdb.Key(tuple.Tuple{root}.Pack()))
-		begin := rootRange.Begin
-		names := make(map[string]struct{})
-		for {
-			rows, err := rt.GetRange(
-				fdb.KeyRange{Begin: begin, End: rootRange.End},
-				fdb.RangeOptions{Limit: 1},
-			).GetSliceWithError()
-			if err != nil {
-				return nil, err
-			}
-			if len(rows) == 0 {
-				break
-			}
-			parts, err := tuple.Unpack(rows[0].Key)
-			if err != nil {
-				return nil, err
-			}
-			if len(parts) < 2 {
-				begin = fdb.Key(append(append([]byte(nil), rows[0].Key...), 0))
-				continue
-			}
-			boundary, ok := parts[1].(string)
-			if !ok {
-				begin = fdb.Key(append(append([]byte(nil), rows[0].Key...), 0))
-				continue
-			}
-			if len(parts) >= 3 && isBoundaryKeyKind(parts[2]) {
-				names[boundary] = struct{}{}
-			}
-			begin = prefixRange(fdb.Key(tuple.Tuple{root, boundary}.Pack())).End
-		}
-		ordered := make([]string, 0, len(names))
-		for name := range names {
-			ordered = append(ordered, name)
-		}
-		sort.Strings(ordered)
-		return ordered, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]string), nil
-}
-
-func isBoundaryKeyKind(value tuple.TupleElement) bool {
-	kind, ok := value.(string)
-	if !ok {
-		return false
-	}
-	switch kind {
-	case "boundary", "event", "signal", "last_published", "index_meta", "index_epoch", "index", "events_count":
-		return true
-	default:
-		return false
-	}
 }
 
 // keyAfter returns the smallest key strictly greater than key, used as an

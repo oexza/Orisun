@@ -23,7 +23,7 @@ func TestCreateBoundaryCommandHandlerEmitsBoundaryCreatedWithCCCContext(t *testi
 	}, "orisun_admin", saver, retriever)
 	require.NoError(t, err)
 	require.Equal(t, "orders", result.Boundary.Name)
-	require.Equal(t, boundarymodel.OriginCreated, result.Boundary.Origin)
+	require.False(t, result.Boundary.ExistedBeforeCatalog)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 17, PreparePosition: 9}, result.Boundary.DefinitionPosition)
 	require.Equal(t, &coreeventstore.Position{CommitPosition: -1, PreparePosition: -1}, saver.expected)
 	require.Equal(t, subsetQuery(definitionCriteria("orders")), saver.query)
@@ -40,13 +40,30 @@ func TestCreateBoundaryCommandHandlerEmitsBoundaryCreatedWithCCCContext(t *testi
 	require.NotEmpty(t, metadata["query"])
 }
 
+func TestCreateBoundaryCommandHandlerRecordsExistingStorage(t *testing.T) {
+	retriever := &fakeRetriever{batch: emptyBatch()}
+	saver := &fakeSaver{position: coreeventstore.Position{CommitPosition: 17, PreparePosition: 9}}
+	result, err := CreateBoundaryCommandHandler(t.Context(), CreateBoundaryCommand{
+		Name:                 "orders",
+		Placement:            boundarymodel.Placement{Backend: "postgres", Namespace: "public"},
+		ExistedBeforeCatalog: true,
+	}, "orisun_admin", saver, retriever)
+	require.NoError(t, err)
+	require.True(t, result.Boundary.ExistedBeforeCatalog)
+
+	var data adminevents.BoundaryCreated
+	require.NoError(t, json.Unmarshal([]byte(saver.events[0].Data), &data))
+	require.True(t, data.ExistedBeforeCatalog)
+}
+
 func TestCreateBoundaryCommandHandlerRejectsExistingBoundaryWithoutEvent(t *testing.T) {
-	existing := readEvent(t, adminevents.EventTypeBoundaryImported, adminevents.BoundaryImported{
-		Boundary:  "orders",
-		Placement: boundarymodel.Placement{Backend: "postgres", Namespace: "public"},
+	existing := readEvent(t, adminevents.EventTypeBoundaryCreated, adminevents.BoundaryCreated{
+		Boundary:             "orders",
+		Placement:            boundarymodel.Placement{Backend: "postgres", Namespace: "public"},
+		ExistedBeforeCatalog: true,
 	}, 4, 5)
 	batch := emptyBatch()
-	batch.Matches[1] = coreeventstore.LatestCriterionMatch{Event: existing, Found: true}
+	batch.Matches[0] = coreeventstore.LatestCriterionMatch{Event: existing, Found: true}
 	batch.ContextPosition = coreeventstore.Position{CommitPosition: 4, PreparePosition: 5}
 	saver := &fakeSaver{}
 
@@ -81,7 +98,7 @@ func (r *fakeRetriever) LatestByCriteria(context.Context, coreeventstore.LatestB
 
 func emptyBatch() coreeventstore.LatestByCriteriaResult {
 	return coreeventstore.LatestByCriteriaResult{
-		Matches:         make([]coreeventstore.LatestCriterionMatch, 2),
+		Matches:         make([]coreeventstore.LatestCriterionMatch, 1),
 		ContextPosition: coreeventstore.NotExistsPosition(),
 	}
 }

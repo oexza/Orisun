@@ -20,7 +20,7 @@
 
 ### Added
 
-- Added Admin `CreateBoundary`, `ImportBoundary`, `ListBoundaries`, and
+- Added Admin `CreateBoundary`, `ListBoundaries`, and
   `GetBoundary` RPCs, including asynchronous `PROVISIONING`, `ACTIVE`, and
   `FAILED` lifecycle states.
 - Added matching boundary-management methods to the PostgreSQL, SQLite, and
@@ -32,10 +32,11 @@
 ### Changed
 
 - Moved Docker Hub publishing and image documentation from `orexza/orisun` to the OrisunLabs-owned `orisunlabs/orisun` repository.
-- PostgreSQL schema mappings, SQLite boundary files, and FoundationDB legacy key
-  ranges are reconciled through `ImportBoundary` events during the first
-  upgraded startup. New definitions provision backend storage, runtime
-  registries, publishers, and dynamic projectors from the same event flow.
+- PostgreSQL schema mappings and SQLite boundary files are reconciled through
+  `BoundaryCreated` events marked `existedBeforeCatalog` during the first
+  upgraded startup. FoundationDB is beta and does not perform legacy catalog
+  migration. New definitions provision backend storage, runtime registries,
+  publishers, and dynamic projectors from the same event flow.
 
 ### Migration Notes
 
@@ -49,8 +50,8 @@
   last old node is drained.
 - Keep all existing PostgreSQL `boundary:schema` mappings in
   `ORISUN_PG_SCHEMAS` during the first startup and any mixed-version rollout.
-  SQLite and FoundationDB deployments must keep their existing storage
-  directory/root unchanged for discovery.
+  SQLite deployments must keep their existing storage directory unchanged for
+  discovery.
 - Verify every expected entry from `Admin/ListBoundaries` is `ACTIVE` before
   moving traffic or starting the remaining cluster nodes. Inspect `last_error`
   for failed provisioning.

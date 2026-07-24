@@ -53,6 +53,66 @@ func TestRuntimeEventHandlerKeepsGateClosedWhenLocalInstallFails(t *testing.T) {
 	require.Empty(t, activator.boundaries)
 }
 
+func TestRuntimeEventHandlerIgnoresActivationBeforeCurrentDefinition(t *testing.T) {
+	staleActivation := lifecycleEventRead(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
+		Boundary: "orders",
+	}, 9, 1)
+	definitionEvent := createdBoundaryEvent(t, "orders", 10, 2)
+	installer := &captureInstaller{}
+	activator := &captureActivator{}
+	handler := NewBoundaryRuntimeEventHandler(
+		"orisun_admin",
+		runtimeCatalogRetriever{events: coreeventstore.ReadEventBatch{staleActivation, definitionEvent}},
+		installer.InstallBoundary,
+		activator.ActivateBoundary,
+	)
+
+	require.NoError(t, handler.Handle(t.Context(), staleActivation))
+	require.Empty(t, installer.definitions)
+	require.Empty(t, activator.boundaries)
+}
+
+func TestRuntimeEventHandlerIgnoresOrphanActivation(t *testing.T) {
+	orphanActivation := lifecycleEventRead(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
+		Boundary: "removed_boundary",
+	}, 9, 1)
+	installer := &captureInstaller{}
+	activator := &captureActivator{}
+	handler := NewBoundaryRuntimeEventHandler(
+		"orisun_admin",
+		runtimeCatalogRetriever{},
+		installer.InstallBoundary,
+		activator.ActivateBoundary,
+	)
+
+	require.NoError(t, handler.Handle(t.Context(), orphanActivation))
+	require.Empty(t, installer.definitions)
+	require.Empty(t, activator.boundaries)
+}
+
+func TestRuntimeEventHandlerPreservesExistingStorageFlag(t *testing.T) {
+	definitionEvent := lifecycleEventRead(t, adminevents.EventTypeBoundaryCreated, adminevents.BoundaryCreated{
+		Boundary:             "orders",
+		Description:          "Orders context",
+		Placement:            boundarymodel.Placement{Backend: "postgres", Namespace: "sales"},
+		ExistedBeforeCatalog: true,
+	}, 10, 2)
+	activationEvent := lifecycleEventRead(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
+		Boundary: "orders",
+	}, 11, 3)
+	installer := &captureInstaller{}
+	handler := NewBoundaryRuntimeEventHandler(
+		"orisun_admin",
+		runtimeCatalogRetriever{events: coreeventstore.ReadEventBatch{definitionEvent, activationEvent}},
+		installer.InstallBoundary,
+		(&captureActivator{}).ActivateBoundary,
+	)
+
+	require.NoError(t, handler.Handle(t.Context(), activationEvent))
+	require.Len(t, installer.definitions, 1)
+	require.True(t, installer.definitions[0].ExistedBeforeCatalog)
+}
+
 type runtimeCatalogRetriever struct {
 	events coreeventstore.ReadEventBatch
 }

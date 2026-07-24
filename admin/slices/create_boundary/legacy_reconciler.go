@@ -1,4 +1,4 @@
-package import_boundary
+package create_boundary
 
 import (
 	"context"
@@ -14,13 +14,13 @@ import (
 )
 
 type LegacyReconciliationResult struct {
-	Imported []string
+	Created  []string
 	Existing []string
 }
 
-// ReconcileLegacyBoundaries migrates startup-configured definitions through
-// the normal import command. It is orchestration, not a command: each missing
-// definition is handled by ImportBoundaryCommandHandler and emits its event.
+// ReconcileLegacyBoundaries records startup-discovered physical boundaries
+// through the normal create command, marking that their storage predates the
+// catalog definition.
 func ReconcileLegacyBoundaries(
 	ctx context.Context,
 	definitions []boundarymodel.Definition,
@@ -31,7 +31,7 @@ func ReconcileLegacyBoundaries(
 	ordered := append([]boundarymodel.Definition(nil), definitions...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	result := LegacyReconciliationResult{
-		Imported: make([]string, 0, len(ordered)),
+		Created:  make([]string, 0, len(ordered)),
 		Existing: make([]string, 0, len(ordered)),
 	}
 	seen := make(map[string]struct{}, len(ordered))
@@ -40,15 +40,16 @@ func ReconcileLegacyBoundaries(
 			return LegacyReconciliationResult{}, fmt.Errorf("legacy boundary %q is configured more than once", definition.Name)
 		}
 		seen[definition.Name] = struct{}{}
-		_, err := ImportBoundaryCommandHandler(
+		_, err := CreateBoundaryCommandHandler(
 			ctx,
-			ImportBoundaryCommand{
-				Name:        definition.Name,
-				Description: definition.Description,
-				Placement:   definition.Placement,
+			CreateBoundaryCommand{
+				Name:                 definition.Name,
+				Description:          definition.Description,
+				Placement:            definition.Placement,
+				ExistedBeforeCatalog: true,
 				Metadata: CommandMetadata{
 					"source":    "legacy_config",
-					"operation": "import_boundary",
+					"operation": "create_boundary",
 					"migration": "configured_boundaries_to_catalog",
 				},
 			},
@@ -66,7 +67,7 @@ func ReconcileLegacyBoundaries(
 		if err != nil {
 			return result, fmt.Errorf("reconcile legacy boundary %q: %w", definition.Name, err)
 		}
-		result.Imported = append(result.Imported, definition.Name)
+		result.Created = append(result.Created, definition.Name)
 	}
 	return result, nil
 }
@@ -108,13 +109,12 @@ func definitionFromEvent(event coreeventstore.ReadEvent) (boundarymodel.Definiti
 		if err := json.Unmarshal([]byte(event.Data), &data); err != nil {
 			return boundarymodel.Definition{}, err
 		}
-		return boundarymodel.Definition{Name: data.Boundary, Description: data.Description, Placement: data.Placement}, nil
-	case adminevents.EventTypeBoundaryImported:
-		var data adminevents.BoundaryImported
-		if err := json.Unmarshal([]byte(event.Data), &data); err != nil {
-			return boundarymodel.Definition{}, err
-		}
-		return boundarymodel.Definition{Name: data.Boundary, Description: data.Description, Placement: data.Placement}, nil
+		return boundarymodel.Definition{
+			Name:                 data.Boundary,
+			Description:          data.Description,
+			Placement:            data.Placement,
+			ExistedBeforeCatalog: data.ExistedBeforeCatalog,
+		}, nil
 	default:
 		return boundarymodel.Definition{}, fmt.Errorf("unsupported definition event %q", event.EventType)
 	}

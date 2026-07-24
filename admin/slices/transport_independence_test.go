@@ -58,7 +58,6 @@ func TestBoundarySlicesRemainTransportIndependent(t *testing.T) {
 	root := repositoryRoot(t)
 	roots := []string{
 		modulePath + "/admin/slices/create_boundary",
-		modulePath + "/admin/slices/import_boundary",
 		modulePath + "/admin/slices/boundary_catalog",
 		modulePath + "/admin/slices/boundary_provisioning",
 	}

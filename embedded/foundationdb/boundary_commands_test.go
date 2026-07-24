@@ -12,12 +12,11 @@ import (
 
 func TestEmbeddedFoundationDBBoundaryCommandsEmitEvents(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		eventType string
-		invoke    func(*Store, context.Context, boundarymodel.Definition) (boundarymodel.Boundary, error)
+		name                 string
+		existedBeforeCatalog bool
 	}{
-		{name: "create", eventType: adminevents.EventTypeBoundaryCreated, invoke: (*Store).CreateBoundary},
-		{name: "import", eventType: adminevents.EventTypeBoundaryImported, invoke: (*Store).ImportBoundary},
+		{name: "new storage"},
+		{name: "existing storage", existedBeforeCatalog: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			saver := &foundationDBBoundarySaver{}
@@ -25,16 +24,19 @@ func TestEmbeddedFoundationDBBoundaryCommandsEmitEvents(t *testing.T) {
 				adminBoundary:  "orisun_admin",
 				boundaryEvents: eventstoreadapter.New(saver, foundationDBBoundaryRetriever{}, nil),
 			}
-			boundary, err := test.invoke(store, t.Context(), boundarymodel.Definition{
-				Name: "sales", Placement: boundarymodel.Placement{Backend: "foundationdb", Namespace: "orisun"},
+			boundary, err := store.CreateBoundary(t.Context(), boundarymodel.Definition{
+				Name:                 "sales",
+				Placement:            boundarymodel.Placement{Backend: "foundationdb", Namespace: "orisun"},
+				ExistedBeforeCatalog: test.existedBeforeCatalog,
 			})
 			if err != nil {
 				t.Fatalf("command error = %v", err)
 			}
-			if len(saver.events) != 1 || saver.events[0].EventType != test.eventType {
+			if len(saver.events) != 1 || saver.events[0].EventType != adminevents.EventTypeBoundaryCreated {
 				t.Fatalf("events = %#v", saver.events)
 			}
-			if boundary.Status != boundarymodel.StatusProvisioning {
+			if boundary.Status != boundarymodel.StatusProvisioning ||
+				boundary.ExistedBeforeCatalog != test.existedBeforeCatalog {
 				t.Fatalf("boundary = %#v", boundary)
 			}
 		})

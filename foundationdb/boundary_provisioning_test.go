@@ -22,7 +22,7 @@ func TestFoundationDBSystemIndexesCoverBoundaryDefinitionReplay(t *testing.T) {
 	t.Fatal("missing eventType-only system index required by catalog replay")
 }
 
-func TestFoundationDBBoundaryProvisioningPersistsDiscoveryMarker(t *testing.T) {
+func TestFoundationDBBoundaryProvisioningIsIdempotentAndInstallsSeparately(t *testing.T) {
 	backend := newTestBackend(t)
 	definition := eventstore.BoundaryDefinition{
 		Name:      "sales",
@@ -42,14 +42,6 @@ func TestFoundationDBBoundaryProvisioningPersistsDiscoveryMarker(t *testing.T) {
 	}
 	if err := backend.checkBoundary("sales"); err != nil {
 		t.Fatalf("checkBoundary() error = %v", err)
-	}
-
-	discovered, err := discoverBoundaryNames(backend.db, backend.root)
-	if err != nil {
-		t.Fatalf("discoverBoundaryNames() error = %v", err)
-	}
-	if !slices.Contains(discovered, "sales") {
-		t.Fatalf("discovered boundaries = %#v", discovered)
 	}
 }
 

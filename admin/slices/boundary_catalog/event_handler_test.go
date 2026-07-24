@@ -28,7 +28,7 @@ func TestCatalogFoldsCreatedBoundaryLifecycle(t *testing.T) {
 	boundary, ok := catalog.Get("orders")
 	require.True(t, ok)
 	require.Equal(t, boundarymodel.StatusProvisioning, boundary.Status)
-	require.Equal(t, boundarymodel.OriginCreated, boundary.Origin)
+	require.False(t, boundary.ExistedBeforeCatalog)
 	require.Equal(t, "Orders context", boundary.Description)
 	require.Equal(t, "postgres", boundary.Placement.Backend)
 	require.Equal(t, "sales", boundary.Placement.Namespace)
@@ -48,11 +48,12 @@ func TestCatalogFoldsCreatedBoundaryLifecycle(t *testing.T) {
 	require.Equal(t, &coreeventstore.Position{CommitPosition: 11, PreparePosition: 3}, boundary.StatusPosition)
 }
 
-func TestCatalogFoldsImportedFailureAndRecovery(t *testing.T) {
+func TestCatalogFoldsExistingStorageFailureAndRecovery(t *testing.T) {
 	catalog := NewCatalog()
 
-	_, err := catalog.Apply(lifecycleEvent(t, adminevents.EventTypeBoundaryImported, adminevents.BoundaryImported{
-		Boundary: "billing",
+	_, err := catalog.Apply(lifecycleEvent(t, adminevents.EventTypeBoundaryCreated, adminevents.BoundaryCreated{
+		Boundary:             "billing",
+		ExistedBeforeCatalog: true,
 		Placement: boundarymodel.Placement{
 			Backend:   "sqlite",
 			Namespace: "billing.db",
@@ -68,7 +69,7 @@ func TestCatalogFoldsImportedFailureAndRecovery(t *testing.T) {
 
 	boundary, ok := catalog.Get("billing")
 	require.True(t, ok)
-	require.Equal(t, boundarymodel.OriginImported, boundary.Origin)
+	require.True(t, boundary.ExistedBeforeCatalog)
 	require.Equal(t, boundarymodel.StatusFailed, boundary.Status)
 	require.Equal(t, "database is locked", boundary.LastError)
 
@@ -106,6 +107,27 @@ func TestCatalogDoesNotDowngradeActiveBoundary(t *testing.T) {
 	require.Empty(t, boundary.LastError)
 }
 
+func TestCatalogIgnoresOutcomeBeforeDefinition(t *testing.T) {
+	catalog := NewCatalog()
+
+	applied, err := catalog.Apply(lifecycleEvent(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
+		Boundary: "orders",
+	}, 1, 1))
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.Empty(t, catalog.List())
+
+	_, err = catalog.Apply(lifecycleEvent(t, adminevents.EventTypeBoundaryCreated, adminevents.BoundaryCreated{
+		Boundary:  "orders",
+		Placement: boundarymodel.Placement{Backend: "postgres", Namespace: "public"},
+	}, 2, 2))
+	require.NoError(t, err)
+
+	boundary, ok := catalog.Get("orders")
+	require.True(t, ok)
+	require.Equal(t, boundarymodel.StatusProvisioning, boundary.Status)
+}
+
 func TestCatalogRejectsInvalidLifecycle(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -113,11 +135,9 @@ func TestCatalogRejectsInvalidLifecycle(t *testing.T) {
 		want  string
 	}{
 		{
-			name: "outcome before definition",
-			event: lifecycleEvent(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{
-				Boundary: "missing",
-			}, 1, 1),
-			want: "undefined boundary",
+			name:  "outcome without boundary",
+			event: lifecycleEvent(t, adminevents.EventTypeBoundaryActivated, adminevents.BoundaryActivated{}, 1, 1),
+			want:  "has no boundary",
 		},
 		{
 			name: "definition without backend",

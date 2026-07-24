@@ -22,8 +22,9 @@ func NewCatalog() *Catalog {
 }
 
 // Apply applies one event and reports whether it was a boundary lifecycle
-// event. A lifecycle outcome without a preceding definition is rejected so a
-// corrupt or incomplete replay cannot make a boundary appear usable.
+// event. An outcome before its definition is ignored. This is fail-closed—the
+// outcome cannot expose a boundary—and permits a new BoundaryCreated event to
+// supersede lifecycle outcomes from a removed pre-catalog definition path.
 func (c *Catalog) Apply(event coreeventstore.ReadEvent) (bool, error) {
 	if c.boundaries == nil {
 		c.boundaries = make(map[string]boundarymodel.Boundary)
@@ -35,23 +36,25 @@ func (c *Catalog) Apply(event coreeventstore.ReadEvent) (bool, error) {
 		if err := decode(event, &data); err != nil {
 			return true, err
 		}
-		return true, c.define(data.Boundary, data.Description, data.Placement, boundarymodel.OriginCreated, &event.Position)
-
-	case adminevents.EventTypeBoundaryImported:
-		var data adminevents.BoundaryImported
-		if err := decode(event, &data); err != nil {
-			return true, err
-		}
-		return true, c.define(data.Boundary, data.Description, data.Placement, boundarymodel.OriginImported, &event.Position)
+		return true, c.define(
+			data.Boundary,
+			data.Description,
+			data.Placement,
+			data.ExistedBeforeCatalog,
+			&event.Position,
+		)
 
 	case adminevents.EventTypeBoundaryActivated:
 		var data adminevents.BoundaryActivated
 		if err := decode(event, &data); err != nil {
 			return true, err
 		}
-		boundary, err := c.defined(data.Boundary, event.EventType)
-		if err != nil {
-			return true, err
+		if data.Boundary == "" {
+			return true, fmt.Errorf("boundary catalog: %s has no boundary", event.EventType)
+		}
+		boundary, defined := c.boundaries[data.Boundary]
+		if !defined {
+			return true, nil
 		}
 		boundary.Status = boundarymodel.StatusActive
 		boundary.LastError = ""
@@ -64,9 +67,12 @@ func (c *Catalog) Apply(event coreeventstore.ReadEvent) (bool, error) {
 		if err := decode(event, &data); err != nil {
 			return true, err
 		}
-		boundary, err := c.defined(data.Boundary, event.EventType)
-		if err != nil {
-			return true, err
+		if data.Boundary == "" {
+			return true, fmt.Errorf("boundary catalog: %s has no boundary", event.EventType)
+		}
+		boundary, defined := c.boundaries[data.Boundary]
+		if !defined {
+			return true, nil
 		}
 		if data.Error == "" {
 			return true, fmt.Errorf("boundary catalog: %s has empty error", event.EventType)
@@ -112,7 +118,7 @@ func (c *Catalog) define(
 	name string,
 	description string,
 	placement boundarymodel.Placement,
-	origin boundarymodel.Origin,
+	existedBeforeCatalog bool,
 	position *coreeventstore.Position,
 ) error {
 	if name == "" {
@@ -128,26 +134,15 @@ func (c *Catalog) define(
 		return fmt.Errorf("boundary catalog: boundary %q is already defined", name)
 	}
 	c.boundaries[name] = boundarymodel.Boundary{
-		Name:               name,
-		Description:        description,
-		Placement:          placement,
-		Status:             boundarymodel.StatusProvisioning,
-		Origin:             origin,
-		DefinitionPosition: clonePosition(position),
-		StatusPosition:     clonePosition(position),
+		Name:                 name,
+		Description:          description,
+		Placement:            placement,
+		Status:               boundarymodel.StatusProvisioning,
+		ExistedBeforeCatalog: existedBeforeCatalog,
+		DefinitionPosition:   clonePosition(position),
+		StatusPosition:       clonePosition(position),
 	}
 	return nil
-}
-
-func (c *Catalog) defined(name, eventType string) (boundarymodel.Boundary, error) {
-	if name == "" {
-		return boundarymodel.Boundary{}, fmt.Errorf("boundary catalog: %s has no boundary", eventType)
-	}
-	boundary, ok := c.boundaries[name]
-	if !ok {
-		return boundarymodel.Boundary{}, fmt.Errorf("boundary catalog: %s references undefined boundary %q", eventType, name)
-	}
-	return boundary, nil
 }
 
 func decode(event coreeventstore.ReadEvent, target any) error {

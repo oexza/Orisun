@@ -29,9 +29,10 @@ The lock is per boundary, not global. Unrelated high-write domains in separate b
 
 Boundary management follows the same event-first rule as application commands:
 
-1. The `create_boundary` or `import_boundary` command slice validates the
-   definition, loads its content-query consistency context, and appends exactly
-   one `BoundaryCreated` or `BoundaryImported` event to the admin boundary.
+1. The `create_boundary` command slice validates the definition, loads its
+   content-query consistency context, and appends exactly one `BoundaryCreated`
+   event to the admin boundary. Its `existedBeforeCatalog` field records whether
+   physical storage predates that definition.
 2. The RPC or embedded method returns the event-rebuilt boundary in
    `PROVISIONING`. It does not perform backend DDL or file creation inline.
 3. Every server establishes the same `boundary-provisioning` catch-up
@@ -64,9 +65,10 @@ either lifecycle cursor or prevent later boundaries from progressing.
 Provisioning adapters remain idempotent for retries after partial failure, and
 a conflicting immutable placement fails closed.
 
-Legacy migration feeds the same command path. PostgreSQL mappings, SQLite
-files, and FoundationDB key ranges become `BoundaryImported` events before the
-catalog is replayed into the runtime.
+Legacy migration feeds the same command path. PostgreSQL mappings and SQLite
+files become `BoundaryCreated` events marked `existedBeforeCatalog` before the
+catalog is replayed into the runtime. FoundationDB is beta and has no legacy
+catalog-migration path.
 
 Boundary lifecycle code is kept transport-neutral. Durable lifecycle contracts
 live in `boundary/events`; boundary state lives in `boundary`; and event-store

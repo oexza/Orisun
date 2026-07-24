@@ -124,7 +124,7 @@ Choose SQLite when a single active node is acceptable and simplicity matters. It
 
 ## Boundary State
 
-A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. The admin boundary contains the event-sourced boundary catalog. Use the Admin `CreateBoundary` RPC for new physical storage and `ImportBoundary` to register storage that already exists; active servers and embedded stores provision and begin publishing the boundary without a restart.
+A boundary is a logical domain. Boundaries isolate event logs, indexes, publisher checkpoints, and projector checkpoints. The admin boundary contains the event-sourced boundary catalog. Use the Admin `CreateBoundary` RPC for both new and existing physical storage; set `existed_before_catalog` when adopting storage that predates the catalog definition. Active servers and embedded stores provision and begin publishing the boundary without a restart.
 
 PostgreSQL maps boundaries to schemas. `ORISUN_PG_SCHEMAS` bootstraps the admin boundary and is the one-time migration source for legacy mappings:
 
@@ -141,7 +141,11 @@ New PostgreSQL boundaries specify their schema in the command placement and do n
 /var/lib/orisun/sqlite/orisun_admin_metadata.db
 ```
 
-FoundationDB maps each boundary to tuple-encoded key ranges under `ORISUN_FDB_ROOT`. Creating a boundary persists a marker in that range; startup also discovers legacy ranges and imports them into the catalog. A FoundationDB placement uses backend `foundationdb` and the configured root as its namespace.
+FoundationDB maps each boundary to tuple-encoded key ranges under
+`ORISUN_FDB_ROOT`. A FoundationDB placement uses backend `foundationdb` and the
+configured root as its namespace. Because this backend is beta, startup does
+not discover or migrate legacy key ranges into the catalog; define boundaries
+through `CreateBoundary`.
 
 ## Migrating between backends
 
@@ -160,10 +164,10 @@ an event replay:
 5. Start consumers from target positions and move traffic. Source positions
    are not portable because the target assigns new positions.
 
-`ImportBoundary` is not a cross-backend data-copy operation. Use it only when
-compatible physical storage is already present in the target runtime, such as a
-restored PostgreSQL schema or copied SQLite boundary files.
+`CreateBoundary` is not a cross-backend data-copy operation. Setting
+`existed_before_catalog` only records that compatible storage is already
+present; it does not copy events.
 
-Do not replay the source admin boundary as application data. Create/import the
-target application boundaries through its own Admin service so its catalog
+Do not replay the source admin boundary as application data. Create the target
+application boundaries through its own Admin service so its catalog
 records placements for the target backend.

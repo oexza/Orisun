@@ -7,7 +7,6 @@ import (
 	boundarycatalog "github.com/OrisunLabs/Orisun/admin/slices/boundary_catalog"
 	boundaryprovisioning "github.com/OrisunLabs/Orisun/admin/slices/boundary_provisioning"
 	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
-	importboundary "github.com/OrisunLabs/Orisun/admin/slices/import_boundary"
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	c "github.com/OrisunLabs/Orisun/config"
 	fdbbackend "github.com/OrisunLabs/Orisun/foundationdb"
@@ -127,25 +126,6 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 	runtimeHandler := boundaryprovisioning.NewBoundaryRuntimeEventHandler(
 		config.Admin.Boundary, boundaryEvents, installBoundary, store.ActivateBoundary,
 	)
-	reconciliation, err := importboundary.ReconcileLegacyBoundaries(
-		runCtx,
-		fdbbackend.LegacyBoundaryDefinitions(runtime.InitialBoundaries, runtime.BoundaryNamespace),
-		config.Admin.Boundary,
-		boundaryEvents,
-		boundaryEvents,
-	)
-	if err != nil {
-		cancel()
-		natsRuntime.Close()
-		if runtime.Close != nil {
-			runtime.Close(context.WithoutCancel(ctx))
-		}
-		return nil, fmt.Errorf("migrate FoundationDB boundaries into catalog: %w", err)
-	}
-	logger.Infof(
-		"Boundary catalog migration completed: imported=%d existing=%d",
-		len(reconciliation.Imported), len(reconciliation.Existing),
-	)
 	provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
 		config.Admin.Boundary,
 		boundaryEvents,
@@ -195,19 +175,8 @@ func (s *Store) CreateBoundary(ctx context.Context, definition boundarymodel.Def
 		ctx,
 		createboundary.CreateBoundaryCommand{
 			Name: definition.Name, Description: definition.Description, Placement: definition.Placement,
-			Metadata: createboundary.CommandMetadata{"source": "embedded_foundationdb", "operation": "create_boundary"},
-		},
-		s.adminBoundary, s.boundaryEvents, s.boundaryEvents,
-	)
-	return result.Boundary, err
-}
-
-func (s *Store) ImportBoundary(ctx context.Context, definition boundarymodel.Definition) (boundarymodel.Boundary, error) {
-	result, err := importboundary.ImportBoundaryCommandHandler(
-		ctx,
-		importboundary.ImportBoundaryCommand{
-			Name: definition.Name, Description: definition.Description, Placement: definition.Placement,
-			Metadata: importboundary.CommandMetadata{"source": "embedded_foundationdb", "operation": "import_boundary"},
+			ExistedBeforeCatalog: definition.ExistedBeforeCatalog,
+			Metadata:             createboundary.CommandMetadata{"source": "embedded_foundationdb", "operation": "create_boundary"},
 		},
 		s.adminBoundary, s.boundaryEvents, s.boundaryEvents,
 	)

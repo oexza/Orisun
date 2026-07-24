@@ -123,9 +123,27 @@ func loadContext(ctx context.Context, adminBoundary, name string, retriever Late
 		return nil, statuscode.Errorf(statuscode.Internal, "boundary lifecycle query returned %d matches, expected %d", len(latest.Matches), len(criteria))
 	}
 
-	events := make([]coreeventstore.ReadEvent, 0, len(latest.Matches))
+	var definition *coreeventstore.ReadEvent
 	for _, match := range latest.Matches {
-		if match.Found {
+		if match.Found && match.Event.EventType == adminevents.EventTypeBoundaryCreated {
+			event := match.Event
+			definition = &event
+			break
+		}
+	}
+	if definition == nil {
+		return nil, statuscode.Errorf(statuscode.FailedPrecondition, "boundary %q has no definition event", name)
+	}
+
+	events := []coreeventstore.ReadEvent{*definition}
+	for _, match := range latest.Matches {
+		if !match.Found || match.Event.EventType == adminevents.EventTypeBoundaryCreated {
+			continue
+		}
+		// Outcomes written before the current definition belong to a removed
+		// pre-catalog definition path and must not suppress provisioning of the
+		// replacement BoundaryCreated event.
+		if match.Event.Position.After(definition.Position) {
 			events = append(events, match.Event)
 		}
 	}
@@ -148,7 +166,7 @@ func loadContext(ctx context.Context, adminBoundary, name string, retriever Late
 	}
 	boundary, ok := catalog.Get(name)
 	if !ok {
-		return nil, statuscode.Errorf(statuscode.FailedPrecondition, "boundary %q has no definition event", name)
+		return nil, statuscode.Errorf(statuscode.Internal, "boundary definition event does not describe %q", name)
 	}
 	return &commandContext{
 		boundary: &boundary,
@@ -220,7 +238,6 @@ func validateDefinition(definition boundarymodel.Definition) error {
 func lifecycleCriteria(name string) []coreeventstore.Criterion {
 	eventTypes := []string{
 		adminevents.EventTypeBoundaryCreated,
-		adminevents.EventTypeBoundaryImported,
 		adminevents.EventTypeBoundaryActivated,
 		adminevents.EventTypeBoundaryFailed,
 	}

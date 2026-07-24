@@ -16,15 +16,12 @@ import (
 
 func TestAdminBoundaryRPCsEmitDefinitionEvents(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		eventType string
-		origin    grpcapi.BoundaryRegistrationOrigin
-		invoke    func(*AdminServiceServer) (*grpcapi.BoundaryInfo, error)
+		name                 string
+		existedBeforeCatalog bool
+		invoke               func(*AdminServiceServer) (*grpcapi.BoundaryInfo, error)
 	}{
 		{
-			name:      "create",
-			eventType: adminevents.EventTypeBoundaryCreated,
-			origin:    grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_CREATED,
+			name: "new storage",
 			invoke: func(server *AdminServiceServer) (*grpcapi.BoundaryInfo, error) {
 				response, err := server.CreateBoundary(t.Context(), &grpcapi.CreateBoundaryRequest{
 					Name:        "sales",
@@ -38,14 +35,14 @@ func TestAdminBoundaryRPCsEmitDefinitionEvents(t *testing.T) {
 			},
 		},
 		{
-			name:      "import",
-			eventType: adminevents.EventTypeBoundaryImported,
-			origin:    grpcapi.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED,
+			name:                 "existing storage",
+			existedBeforeCatalog: true,
 			invoke: func(server *AdminServiceServer) (*grpcapi.BoundaryInfo, error) {
-				response, err := server.ImportBoundary(t.Context(), &grpcapi.ImportBoundaryRequest{
-					Name:        "sales",
-					Description: "Sales domain",
-					Placement:   &grpcapi.BoundaryPlacementInput{Backend: "postgres", Namespace: "tenant_data"},
+				response, err := server.CreateBoundary(t.Context(), &grpcapi.CreateBoundaryRequest{
+					Name:                 "sales",
+					Description:          "Sales domain",
+					Placement:            &grpcapi.BoundaryPlacementInput{Backend: "postgres", Namespace: "tenant_data"},
+					ExistedBeforeCatalog: true,
 				})
 				if err != nil {
 					return nil, err
@@ -61,8 +58,8 @@ func TestAdminBoundaryRPCsEmitDefinitionEvents(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RPC error = %v", err)
 			}
-			if len(saver.events) != 1 || saver.events[0].EventType != test.eventType {
-				t.Fatalf("saved events = %#v, want one %s", saver.events, test.eventType)
+			if len(saver.events) != 1 || saver.events[0].EventType != adminevents.EventTypeBoundaryCreated {
+				t.Fatalf("saved events = %#v, want one %s", saver.events, adminevents.EventTypeBoundaryCreated)
 			}
 			if boundary.Name != "sales" || boundary.Placement.Namespace != "tenant_data" {
 				t.Fatalf("boundary = %#v", boundary)
@@ -70,8 +67,8 @@ func TestAdminBoundaryRPCsEmitDefinitionEvents(t *testing.T) {
 			if boundary.Status != grpcapi.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_PROVISIONING {
 				t.Fatalf("status = %s", boundary.Status)
 			}
-			if boundary.Origin != test.origin {
-				t.Fatalf("origin = %s, want %s", boundary.Origin, test.origin)
+			if boundary.ExistedBeforeCatalog != test.existedBeforeCatalog {
+				t.Fatalf("existed_before_catalog = %t, want %t", boundary.ExistedBeforeCatalog, test.existedBeforeCatalog)
 			}
 			if boundary.DefinitionPosition.CommitPosition != 12 || boundary.DefinitionPosition.PreparePosition != 13 {
 				t.Fatalf("definition position = %#v", boundary.DefinitionPosition)

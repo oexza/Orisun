@@ -16,7 +16,6 @@ const (
 	EventTypeRolesChanged        = "$RolesChanged"
 	EventTypeUserPasswordChanged = "$UserPasswordChanged"
 	EventTypeBoundaryCreated     = boundaryevents.EventTypeBoundaryCreated
-	EventTypeBoundaryImported    = boundaryevents.EventTypeBoundaryImported
 	EventTypeBoundaryActivated   = boundaryevents.EventTypeBoundaryActivated
 	EventTypeBoundaryFailed      = boundaryevents.EventTypeBoundaryFailed
 )
@@ -40,9 +39,6 @@ type UserPasswordChanged struct {
 
 // Deprecated: use boundary/events.BoundaryCreated.
 type BoundaryCreated = boundaryevents.BoundaryCreated
-
-// Deprecated: use boundary/events.BoundaryImported.
-type BoundaryImported = boundaryevents.BoundaryImported
 
 // Deprecated: use boundary/events.BoundaryActivated.
 type BoundaryActivated = boundaryevents.BoundaryActivated

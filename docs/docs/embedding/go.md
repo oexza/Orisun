@@ -212,12 +212,14 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 }
 ```
 
-Use `ImportBoundary` for physical storage that already exists:
+Use `CreateBoundary` with `ExistedBeforeCatalog` for physical storage that
+already exists:
 
 ```go
-imported, err := store.ImportBoundary(ctx, boundarymodel.Definition{
-	Name:        "legacy_orders",
-	Description: "Existing order event log",
+existing, err := store.CreateBoundary(ctx, boundarymodel.Definition{
+	Name:                 "legacy_orders",
+	Description:          "Existing order event log",
+	ExistedBeforeCatalog: true,
 	Placement: boundarymodel.Placement{
 		Backend:   "postgres",
 		Namespace: "legacy",
@@ -226,12 +228,12 @@ imported, err := store.ImportBoundary(ctx, boundarymodel.Definition{
 if err != nil {
 	return err
 }
-_ = imported // wait for ACTIVE exactly as for a created boundary
+_ = existing // wait for ACTIVE
 ```
 
-The import definition is also returned as `PROVISIONING`; the provisioner opens
-the existing storage, applies migrations idempotently, and then activates it.
-Duplicate create or import commands return an already-exists error because every
+The definition is returned as `PROVISIONING`; the provisioner opens the
+existing storage, applies migrations idempotently, and then activates it.
+Duplicate create commands return an already-exists error because every
 successful command must produce exactly one definition event.
 
 Inspect the complete event-rebuilt catalog with:
@@ -248,10 +250,11 @@ if err != nil {
 use(boundaries, boundary)
 ```
 
-At startup, embedded stores migrate legacy physical boundaries into this same
-catalog before replaying all definitions into the local runtime. PostgreSQL
-uses `ORISUN_PG_SCHEMAS`, SQLite discovers boundary files, and FoundationDB
-discovers its existing key ranges.
+At startup, embedded PostgreSQL and SQLite stores migrate legacy physical
+boundaries into this same catalog before replaying all definitions into the
+local runtime. PostgreSQL uses `ORISUN_PG_SCHEMAS`, and SQLite discovers
+boundary files. FoundationDB is beta and only installs definitions replayed
+from its catalog.
 
 ## Reading events in-process
 

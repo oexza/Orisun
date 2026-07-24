@@ -437,8 +437,8 @@ func TestE2E_Postgres_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
 	suite.createGRPCClient(t)
 
 	ctx := createAuthenticatedContext("admin", "changeit")
-	beforeRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
-	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	beforeRestart := requireExistingActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
+	require.Equal(t, boundaryCatalogEventCounts{created: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
 	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened")
 
 	appendBoundaryEvent(t, suite, ctx, boundary, "OrderConfirmed", map[string]any{"orderId": "legacy-order-1"})
@@ -452,10 +452,10 @@ func TestE2E_Postgres_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
 	suite.waitForGRPCServer(t)
 	suite.createGRPCClient(t)
 
-	afterRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
+	afterRestart := requireExistingActiveBoundary(t, suite, ctx, boundary, "postgres", schema)
 	requireSamePosition(t, beforeRestart.DefinitionPosition, afterRestart.DefinitionPosition)
 	requireSamePosition(t, beforeRestart.StatusPosition, afterRestart.StatusPosition)
-	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	require.Equal(t, boundaryCatalogEventCounts{created: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
 	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
 }
 
@@ -470,8 +470,8 @@ func TestE2E_SQLite_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
 	suite.createGRPCClient(t)
 
 	ctx := createAuthenticatedContext("admin", "changeit")
-	beforeRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
-	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	beforeRestart := requireExistingActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
+	require.Equal(t, boundaryCatalogEventCounts{created: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
 	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened")
 
 	appendBoundaryEvent(t, suite, ctx, boundary, "OrderConfirmed", map[string]any{"orderId": "legacy-order-1"})
@@ -482,15 +482,15 @@ func TestE2E_SQLite_MigratesLegacyBoundaryAndSurvivesRestart(t *testing.T) {
 	suite.waitForGRPCServer(t)
 	suite.createGRPCClient(t)
 
-	afterRestart := requireImportedActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
+	afterRestart := requireExistingActiveBoundary(t, suite, ctx, boundary, "sqlite", boundary)
 	requireSamePosition(t, beforeRestart.DefinitionPosition, afterRestart.DefinitionPosition)
 	requireSamePosition(t, beforeRestart.StatusPosition, afterRestart.StatusPosition)
-	require.Equal(t, boundaryCatalogEventCounts{imported: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
+	require.Equal(t, boundaryCatalogEventCounts{created: 1, activated: 1}, catalogEventCounts(t, suite, ctx, boundary))
 	requireBoundaryEventTypes(t, suite, ctx, boundary, "LegacyOrderOpened", "OrderConfirmed")
 }
 
 type boundaryCatalogEventCounts struct {
-	imported  int
+	created   int
 	activated int
 }
 
@@ -551,7 +551,7 @@ func seedLegacySQLiteBoundary(t *testing.T, suite *E2ETestSuite, boundary string
 	require.NoError(t, sqlitex.Execute(conn, "UPDATE orisun_es_seq SET next_id = 2 WHERE id = 1", nil))
 }
 
-func requireImportedActiveBoundary(
+func requireExistingActiveBoundary(
 	t *testing.T,
 	suite *E2ETestSuite,
 	ctx context.Context,
@@ -571,7 +571,7 @@ func requireImportedActiveBoundary(
 		return info.Status == pb.BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_ACTIVE
 	}, 10*time.Second, 25*time.Millisecond)
 	require.Equal(t, boundary, info.Name)
-	require.Equal(t, pb.BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED, info.Origin)
+	require.True(t, info.ExistedBeforeCatalog)
 	require.Equal(t, backend, info.Placement.Backend)
 	require.Equal(t, namespace, info.Placement.Namespace)
 	require.NotNil(t, info.DefinitionPosition)
@@ -602,8 +602,8 @@ func catalogEventCounts(
 			continue
 		}
 		switch event.EventType {
-		case adminevents.EventTypeBoundaryImported:
-			counts.imported++
+		case adminevents.EventTypeBoundaryCreated:
+			counts.created++
 		case adminevents.EventTypeBoundaryActivated:
 			counts.activated++
 		}

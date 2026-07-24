@@ -74,55 +74,6 @@ func (BoundaryLifecycleStatus) EnumDescriptor() ([]byte, []int) {
 	return file_admin_proto_rawDescGZIP(), []int{0}
 }
 
-type BoundaryRegistrationOrigin int32
-
-const (
-	BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED BoundaryRegistrationOrigin = 0
-	BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_CREATED     BoundaryRegistrationOrigin = 1
-	BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_IMPORTED    BoundaryRegistrationOrigin = 2
-)
-
-// Enum value maps for BoundaryRegistrationOrigin.
-var (
-	BoundaryRegistrationOrigin_name = map[int32]string{
-		0: "BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED",
-		1: "BOUNDARY_REGISTRATION_ORIGIN_CREATED",
-		2: "BOUNDARY_REGISTRATION_ORIGIN_IMPORTED",
-	}
-	BoundaryRegistrationOrigin_value = map[string]int32{
-		"BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED": 0,
-		"BOUNDARY_REGISTRATION_ORIGIN_CREATED":     1,
-		"BOUNDARY_REGISTRATION_ORIGIN_IMPORTED":    2,
-	}
-)
-
-func (x BoundaryRegistrationOrigin) Enum() *BoundaryRegistrationOrigin {
-	p := new(BoundaryRegistrationOrigin)
-	*p = x
-	return p
-}
-
-func (x BoundaryRegistrationOrigin) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (BoundaryRegistrationOrigin) Descriptor() protoreflect.EnumDescriptor {
-	return file_admin_proto_enumTypes[1].Descriptor()
-}
-
-func (BoundaryRegistrationOrigin) Type() protoreflect.EnumType {
-	return &file_admin_proto_enumTypes[1]
-}
-
-func (x BoundaryRegistrationOrigin) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use BoundaryRegistrationOrigin.Descriptor instead.
-func (BoundaryRegistrationOrigin) EnumDescriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{1}
-}
-
 // AdminUser represents a user in the system
 type AdminUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -933,17 +884,17 @@ func (x *BoundaryPlacementInput) GetNamespace() string {
 }
 
 type BoundaryInfo struct {
-	state              protoimpl.MessageState     `protogen:"open.v1"`
-	Name               string                     `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description        string                     `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Placement          *BoundaryPlacementInput    `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
-	Status             BoundaryLifecycleStatus    `protobuf:"varint,4,opt,name=status,proto3,enum=orisun.BoundaryLifecycleStatus" json:"status,omitempty"`
-	Origin             BoundaryRegistrationOrigin `protobuf:"varint,5,opt,name=origin,proto3,enum=orisun.BoundaryRegistrationOrigin" json:"origin,omitempty"`
-	LastError          string                     `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	DefinitionPosition *Position                  `protobuf:"bytes,7,opt,name=definition_position,json=definitionPosition,proto3" json:"definition_position,omitempty"`
-	StatusPosition     *Position                  `protobuf:"bytes,8,opt,name=status_position,json=statusPosition,proto3" json:"status_position,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                protoimpl.MessageState  `protogen:"open.v1"`
+	Name                 string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description          string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Placement            *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
+	Status               BoundaryLifecycleStatus `protobuf:"varint,4,opt,name=status,proto3,enum=orisun.BoundaryLifecycleStatus" json:"status,omitempty"`
+	ExistedBeforeCatalog bool                    `protobuf:"varint,5,opt,name=existed_before_catalog,json=existedBeforeCatalog,proto3" json:"existed_before_catalog,omitempty"`
+	LastError            string                  `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	DefinitionPosition   *Position               `protobuf:"bytes,7,opt,name=definition_position,json=definitionPosition,proto3" json:"definition_position,omitempty"`
+	StatusPosition       *Position               `protobuf:"bytes,8,opt,name=status_position,json=statusPosition,proto3" json:"status_position,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *BoundaryInfo) Reset() {
@@ -1004,11 +955,11 @@ func (x *BoundaryInfo) GetStatus() BoundaryLifecycleStatus {
 	return BoundaryLifecycleStatus_BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED
 }
 
-func (x *BoundaryInfo) GetOrigin() BoundaryRegistrationOrigin {
+func (x *BoundaryInfo) GetExistedBeforeCatalog() bool {
 	if x != nil {
-		return x.Origin
+		return x.ExistedBeforeCatalog
 	}
-	return BoundaryRegistrationOrigin_BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED
+	return false
 }
 
 func (x *BoundaryInfo) GetLastError() string {
@@ -1033,12 +984,14 @@ func (x *BoundaryInfo) GetStatusPosition() *Position {
 }
 
 type CreateBoundaryRequest struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Name          string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Placement     *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState  `protogen:"open.v1"`
+	Name        string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Placement   *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
+	// Set when adopting physical storage that predates the catalog definition.
+	ExistedBeforeCatalog bool `protobuf:"varint,4,opt,name=existed_before_catalog,json=existedBeforeCatalog,proto3" json:"existed_before_catalog,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *CreateBoundaryRequest) Reset() {
@@ -1092,6 +1045,13 @@ func (x *CreateBoundaryRequest) GetPlacement() *BoundaryPlacementInput {
 	return nil
 }
 
+func (x *CreateBoundaryRequest) GetExistedBeforeCatalog() bool {
+	if x != nil {
+		return x.ExistedBeforeCatalog
+	}
+	return false
+}
+
 type CreateBoundaryResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Boundary      *BoundaryInfo          `protobuf:"bytes,1,opt,name=boundary,proto3" json:"boundary,omitempty"`
@@ -1136,112 +1096,6 @@ func (x *CreateBoundaryResponse) GetBoundary() *BoundaryInfo {
 	return nil
 }
 
-// ImportBoundary registers a physical boundary that already exists. The
-// normal provisioning handler validates/applies its migrations idempotently.
-type ImportBoundaryRequest struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Name          string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	Placement     *BoundaryPlacementInput `protobuf:"bytes,3,opt,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ImportBoundaryRequest) Reset() {
-	*x = ImportBoundaryRequest{}
-	mi := &file_admin_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ImportBoundaryRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ImportBoundaryRequest) ProtoMessage() {}
-
-func (x *ImportBoundaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ImportBoundaryRequest.ProtoReflect.Descriptor instead.
-func (*ImportBoundaryRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{19}
-}
-
-func (x *ImportBoundaryRequest) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *ImportBoundaryRequest) GetDescription() string {
-	if x != nil {
-		return x.Description
-	}
-	return ""
-}
-
-func (x *ImportBoundaryRequest) GetPlacement() *BoundaryPlacementInput {
-	if x != nil {
-		return x.Placement
-	}
-	return nil
-}
-
-type ImportBoundaryResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Boundary      *BoundaryInfo          `protobuf:"bytes,1,opt,name=boundary,proto3" json:"boundary,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ImportBoundaryResponse) Reset() {
-	*x = ImportBoundaryResponse{}
-	mi := &file_admin_proto_msgTypes[20]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ImportBoundaryResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ImportBoundaryResponse) ProtoMessage() {}
-
-func (x *ImportBoundaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[20]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ImportBoundaryResponse.ProtoReflect.Descriptor instead.
-func (*ImportBoundaryResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{20}
-}
-
-func (x *ImportBoundaryResponse) GetBoundary() *BoundaryInfo {
-	if x != nil {
-		return x.Boundary
-	}
-	return nil
-}
-
 type ListBoundariesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1250,7 +1104,7 @@ type ListBoundariesRequest struct {
 
 func (x *ListBoundariesRequest) Reset() {
 	*x = ListBoundariesRequest{}
-	mi := &file_admin_proto_msgTypes[21]
+	mi := &file_admin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1262,7 +1116,7 @@ func (x *ListBoundariesRequest) String() string {
 func (*ListBoundariesRequest) ProtoMessage() {}
 
 func (x *ListBoundariesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[21]
+	mi := &file_admin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1275,7 +1129,7 @@ func (x *ListBoundariesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoundariesRequest.ProtoReflect.Descriptor instead.
 func (*ListBoundariesRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{21}
+	return file_admin_proto_rawDescGZIP(), []int{19}
 }
 
 type ListBoundariesResponse struct {
@@ -1287,7 +1141,7 @@ type ListBoundariesResponse struct {
 
 func (x *ListBoundariesResponse) Reset() {
 	*x = ListBoundariesResponse{}
-	mi := &file_admin_proto_msgTypes[22]
+	mi := &file_admin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1153,7 @@ func (x *ListBoundariesResponse) String() string {
 func (*ListBoundariesResponse) ProtoMessage() {}
 
 func (x *ListBoundariesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[22]
+	mi := &file_admin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1166,7 @@ func (x *ListBoundariesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoundariesResponse.ProtoReflect.Descriptor instead.
 func (*ListBoundariesResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{22}
+	return file_admin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListBoundariesResponse) GetBoundaries() []*BoundaryInfo {
@@ -1331,7 +1185,7 @@ type GetBoundaryRequest struct {
 
 func (x *GetBoundaryRequest) Reset() {
 	*x = GetBoundaryRequest{}
-	mi := &file_admin_proto_msgTypes[23]
+	mi := &file_admin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1343,7 +1197,7 @@ func (x *GetBoundaryRequest) String() string {
 func (*GetBoundaryRequest) ProtoMessage() {}
 
 func (x *GetBoundaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[23]
+	mi := &file_admin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1356,7 +1210,7 @@ func (x *GetBoundaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBoundaryRequest.ProtoReflect.Descriptor instead.
 func (*GetBoundaryRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{23}
+	return file_admin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetBoundaryRequest) GetName() string {
@@ -1375,7 +1229,7 @@ type GetBoundaryResponse struct {
 
 func (x *GetBoundaryResponse) Reset() {
 	*x = GetBoundaryResponse{}
-	mi := &file_admin_proto_msgTypes[24]
+	mi := &file_admin_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1387,7 +1241,7 @@ func (x *GetBoundaryResponse) String() string {
 func (*GetBoundaryResponse) ProtoMessage() {}
 
 func (x *GetBoundaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[24]
+	mi := &file_admin_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1400,7 +1254,7 @@ func (x *GetBoundaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBoundaryResponse.ProtoReflect.Descriptor instead.
 func (*GetBoundaryResponse) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{24}
+	return file_admin_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetBoundaryResponse) GetBoundary() *BoundaryInfo {
@@ -1459,28 +1313,23 @@ const file_admin_proto_rawDesc = "" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\"P\n" +
 	"\x16BoundaryPlacementInput\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\"\x94\x03\n" +
+	"\tnamespace\x18\x02 \x01(\tR\tnamespace\"\x8e\x03\n" +
 	"\fBoundaryInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12<\n" +
 	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\x127\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1f.orisun.BoundaryLifecycleStatusR\x06status\x12:\n" +
-	"\x06origin\x18\x05 \x01(\x0e2\".orisun.BoundaryRegistrationOriginR\x06origin\x12\x1d\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1f.orisun.BoundaryLifecycleStatusR\x06status\x124\n" +
+	"\x16existed_before_catalog\x18\x05 \x01(\bR\x14existedBeforeCatalog\x12\x1d\n" +
 	"\n" +
 	"last_error\x18\x06 \x01(\tR\tlastError\x12A\n" +
 	"\x13definition_position\x18\a \x01(\v2\x10.orisun.PositionR\x12definitionPosition\x129\n" +
-	"\x0fstatus_position\x18\b \x01(\v2\x10.orisun.PositionR\x0estatusPosition\"\x8b\x01\n" +
+	"\x0fstatus_position\x18\b \x01(\v2\x10.orisun.PositionR\x0estatusPosition\"\xc1\x01\n" +
 	"\x15CreateBoundaryRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12<\n" +
-	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\"J\n" +
+	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\x124\n" +
+	"\x16existed_before_catalog\x18\x04 \x01(\bR\x14existedBeforeCatalog\"J\n" +
 	"\x16CreateBoundaryResponse\x120\n" +
-	"\bboundary\x18\x01 \x01(\v2\x14.orisun.BoundaryInfoR\bboundary\"\x8b\x01\n" +
-	"\x15ImportBoundaryRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\x12<\n" +
-	"\tplacement\x18\x03 \x01(\v2\x1e.orisun.BoundaryPlacementInputR\tplacement\"J\n" +
-	"\x16ImportBoundaryResponse\x120\n" +
 	"\bboundary\x18\x01 \x01(\v2\x14.orisun.BoundaryInfoR\bboundary\"\x17\n" +
 	"\x15ListBoundariesRequest\"N\n" +
 	"\x16ListBoundariesResponse\x124\n" +
@@ -1495,14 +1344,9 @@ const file_admin_proto_rawDesc = "" +
 	"%BOUNDARY_LIFECYCLE_STATUS_UNSPECIFIED\x10\x00\x12*\n" +
 	"&BOUNDARY_LIFECYCLE_STATUS_PROVISIONING\x10\x01\x12$\n" +
 	" BOUNDARY_LIFECYCLE_STATUS_ACTIVE\x10\x02\x12$\n" +
-	" BOUNDARY_LIFECYCLE_STATUS_FAILED\x10\x03*\x9f\x01\n" +
-	"\x1aBoundaryRegistrationOrigin\x12,\n" +
-	"(BOUNDARY_REGISTRATION_ORIGIN_UNSPECIFIED\x10\x00\x12(\n" +
-	"$BOUNDARY_REGISTRATION_ORIGIN_CREATED\x10\x01\x12)\n" +
-	"%BOUNDARY_REGISTRATION_ORIGIN_IMPORTED\x10\x022\xd8\x06\n" +
+	" BOUNDARY_LIFECYCLE_STATUS_FAILED\x10\x032\x87\x06\n" +
 	"\x05Admin\x12O\n" +
 	"\x0eCreateBoundary\x12\x1d.orisun.CreateBoundaryRequest\x1a\x1e.orisun.CreateBoundaryResponse\x12O\n" +
-	"\x0eImportBoundary\x12\x1d.orisun.ImportBoundaryRequest\x1a\x1e.orisun.ImportBoundaryResponse\x12O\n" +
 	"\x0eListBoundaries\x12\x1d.orisun.ListBoundariesRequest\x1a\x1e.orisun.ListBoundariesResponse\x12F\n" +
 	"\vGetBoundary\x12\x1a.orisun.GetBoundaryRequest\x1a\x1b.orisun.GetBoundaryResponse\x12C\n" +
 	"\n" +
@@ -1528,83 +1372,75 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_admin_proto_goTypes = []any{
 	(BoundaryLifecycleStatus)(0),        // 0: orisun.BoundaryLifecycleStatus
-	(BoundaryRegistrationOrigin)(0),     // 1: orisun.BoundaryRegistrationOrigin
-	(*AdminUser)(nil),                   // 2: orisun.AdminUser
-	(*CreateUserRequest)(nil),           // 3: orisun.CreateUserRequest
-	(*CreateUserResponse)(nil),          // 4: orisun.CreateUserResponse
-	(*DeleteUserRequest)(nil),           // 5: orisun.DeleteUserRequest
-	(*DeleteUserResponse)(nil),          // 6: orisun.DeleteUserResponse
-	(*ChangePasswordRequest)(nil),       // 7: orisun.ChangePasswordRequest
-	(*ChangePasswordResponse)(nil),      // 8: orisun.ChangePasswordResponse
-	(*ListUsersRequest)(nil),            // 9: orisun.ListUsersRequest
-	(*ListUsersResponse)(nil),           // 10: orisun.ListUsersResponse
-	(*ValidateCredentialsRequest)(nil),  // 11: orisun.ValidateCredentialsRequest
-	(*ValidateCredentialsResponse)(nil), // 12: orisun.ValidateCredentialsResponse
-	(*GetUserCountRequest)(nil),         // 13: orisun.GetUserCountRequest
-	(*GetUserCountResponse)(nil),        // 14: orisun.GetUserCountResponse
-	(*GetEventCountRequest)(nil),        // 15: orisun.GetEventCountRequest
-	(*GetEventCountResponse)(nil),       // 16: orisun.GetEventCountResponse
-	(*BoundaryPlacementInput)(nil),      // 17: orisun.BoundaryPlacementInput
-	(*BoundaryInfo)(nil),                // 18: orisun.BoundaryInfo
-	(*CreateBoundaryRequest)(nil),       // 19: orisun.CreateBoundaryRequest
-	(*CreateBoundaryResponse)(nil),      // 20: orisun.CreateBoundaryResponse
-	(*ImportBoundaryRequest)(nil),       // 21: orisun.ImportBoundaryRequest
-	(*ImportBoundaryResponse)(nil),      // 22: orisun.ImportBoundaryResponse
-	(*ListBoundariesRequest)(nil),       // 23: orisun.ListBoundariesRequest
-	(*ListBoundariesResponse)(nil),      // 24: orisun.ListBoundariesResponse
-	(*GetBoundaryRequest)(nil),          // 25: orisun.GetBoundaryRequest
-	(*GetBoundaryResponse)(nil),         // 26: orisun.GetBoundaryResponse
-	(*timestamppb.Timestamp)(nil),       // 27: google.protobuf.Timestamp
-	(*Position)(nil),                    // 28: orisun.Position
+	(*AdminUser)(nil),                   // 1: orisun.AdminUser
+	(*CreateUserRequest)(nil),           // 2: orisun.CreateUserRequest
+	(*CreateUserResponse)(nil),          // 3: orisun.CreateUserResponse
+	(*DeleteUserRequest)(nil),           // 4: orisun.DeleteUserRequest
+	(*DeleteUserResponse)(nil),          // 5: orisun.DeleteUserResponse
+	(*ChangePasswordRequest)(nil),       // 6: orisun.ChangePasswordRequest
+	(*ChangePasswordResponse)(nil),      // 7: orisun.ChangePasswordResponse
+	(*ListUsersRequest)(nil),            // 8: orisun.ListUsersRequest
+	(*ListUsersResponse)(nil),           // 9: orisun.ListUsersResponse
+	(*ValidateCredentialsRequest)(nil),  // 10: orisun.ValidateCredentialsRequest
+	(*ValidateCredentialsResponse)(nil), // 11: orisun.ValidateCredentialsResponse
+	(*GetUserCountRequest)(nil),         // 12: orisun.GetUserCountRequest
+	(*GetUserCountResponse)(nil),        // 13: orisun.GetUserCountResponse
+	(*GetEventCountRequest)(nil),        // 14: orisun.GetEventCountRequest
+	(*GetEventCountResponse)(nil),       // 15: orisun.GetEventCountResponse
+	(*BoundaryPlacementInput)(nil),      // 16: orisun.BoundaryPlacementInput
+	(*BoundaryInfo)(nil),                // 17: orisun.BoundaryInfo
+	(*CreateBoundaryRequest)(nil),       // 18: orisun.CreateBoundaryRequest
+	(*CreateBoundaryResponse)(nil),      // 19: orisun.CreateBoundaryResponse
+	(*ListBoundariesRequest)(nil),       // 20: orisun.ListBoundariesRequest
+	(*ListBoundariesResponse)(nil),      // 21: orisun.ListBoundariesResponse
+	(*GetBoundaryRequest)(nil),          // 22: orisun.GetBoundaryRequest
+	(*GetBoundaryResponse)(nil),         // 23: orisun.GetBoundaryResponse
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*Position)(nil),                    // 25: orisun.Position
 }
 var file_admin_proto_depIdxs = []int32{
-	27, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
-	27, // 1: orisun.AdminUser.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 2: orisun.CreateUserResponse.user:type_name -> orisun.AdminUser
-	2,  // 3: orisun.ListUsersResponse.users:type_name -> orisun.AdminUser
-	2,  // 4: orisun.ValidateCredentialsResponse.user:type_name -> orisun.AdminUser
-	17, // 5: orisun.BoundaryInfo.placement:type_name -> orisun.BoundaryPlacementInput
+	24, // 0: orisun.AdminUser.created_at:type_name -> google.protobuf.Timestamp
+	24, // 1: orisun.AdminUser.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 2: orisun.CreateUserResponse.user:type_name -> orisun.AdminUser
+	1,  // 3: orisun.ListUsersResponse.users:type_name -> orisun.AdminUser
+	1,  // 4: orisun.ValidateCredentialsResponse.user:type_name -> orisun.AdminUser
+	16, // 5: orisun.BoundaryInfo.placement:type_name -> orisun.BoundaryPlacementInput
 	0,  // 6: orisun.BoundaryInfo.status:type_name -> orisun.BoundaryLifecycleStatus
-	1,  // 7: orisun.BoundaryInfo.origin:type_name -> orisun.BoundaryRegistrationOrigin
-	28, // 8: orisun.BoundaryInfo.definition_position:type_name -> orisun.Position
-	28, // 9: orisun.BoundaryInfo.status_position:type_name -> orisun.Position
-	17, // 10: orisun.CreateBoundaryRequest.placement:type_name -> orisun.BoundaryPlacementInput
-	18, // 11: orisun.CreateBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
-	17, // 12: orisun.ImportBoundaryRequest.placement:type_name -> orisun.BoundaryPlacementInput
-	18, // 13: orisun.ImportBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
-	18, // 14: orisun.ListBoundariesResponse.boundaries:type_name -> orisun.BoundaryInfo
-	18, // 15: orisun.GetBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
-	19, // 16: orisun.Admin.CreateBoundary:input_type -> orisun.CreateBoundaryRequest
-	21, // 17: orisun.Admin.ImportBoundary:input_type -> orisun.ImportBoundaryRequest
-	23, // 18: orisun.Admin.ListBoundaries:input_type -> orisun.ListBoundariesRequest
-	25, // 19: orisun.Admin.GetBoundary:input_type -> orisun.GetBoundaryRequest
-	3,  // 20: orisun.Admin.CreateUser:input_type -> orisun.CreateUserRequest
-	5,  // 21: orisun.Admin.DeleteUser:input_type -> orisun.DeleteUserRequest
-	7,  // 22: orisun.Admin.ChangePassword:input_type -> orisun.ChangePasswordRequest
-	9,  // 23: orisun.Admin.ListUsers:input_type -> orisun.ListUsersRequest
-	11, // 24: orisun.Admin.ValidateCredentials:input_type -> orisun.ValidateCredentialsRequest
-	13, // 25: orisun.Admin.GetUserCount:input_type -> orisun.GetUserCountRequest
-	15, // 26: orisun.Admin.GetEventCount:input_type -> orisun.GetEventCountRequest
-	20, // 27: orisun.Admin.CreateBoundary:output_type -> orisun.CreateBoundaryResponse
-	22, // 28: orisun.Admin.ImportBoundary:output_type -> orisun.ImportBoundaryResponse
-	24, // 29: orisun.Admin.ListBoundaries:output_type -> orisun.ListBoundariesResponse
-	26, // 30: orisun.Admin.GetBoundary:output_type -> orisun.GetBoundaryResponse
-	4,  // 31: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
-	6,  // 32: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
-	8,  // 33: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
-	10, // 34: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
-	12, // 35: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
-	14, // 36: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
-	16, // 37: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
-	27, // [27:38] is the sub-list for method output_type
-	16, // [16:27] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	25, // 7: orisun.BoundaryInfo.definition_position:type_name -> orisun.Position
+	25, // 8: orisun.BoundaryInfo.status_position:type_name -> orisun.Position
+	16, // 9: orisun.CreateBoundaryRequest.placement:type_name -> orisun.BoundaryPlacementInput
+	17, // 10: orisun.CreateBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
+	17, // 11: orisun.ListBoundariesResponse.boundaries:type_name -> orisun.BoundaryInfo
+	17, // 12: orisun.GetBoundaryResponse.boundary:type_name -> orisun.BoundaryInfo
+	18, // 13: orisun.Admin.CreateBoundary:input_type -> orisun.CreateBoundaryRequest
+	20, // 14: orisun.Admin.ListBoundaries:input_type -> orisun.ListBoundariesRequest
+	22, // 15: orisun.Admin.GetBoundary:input_type -> orisun.GetBoundaryRequest
+	2,  // 16: orisun.Admin.CreateUser:input_type -> orisun.CreateUserRequest
+	4,  // 17: orisun.Admin.DeleteUser:input_type -> orisun.DeleteUserRequest
+	6,  // 18: orisun.Admin.ChangePassword:input_type -> orisun.ChangePasswordRequest
+	8,  // 19: orisun.Admin.ListUsers:input_type -> orisun.ListUsersRequest
+	10, // 20: orisun.Admin.ValidateCredentials:input_type -> orisun.ValidateCredentialsRequest
+	12, // 21: orisun.Admin.GetUserCount:input_type -> orisun.GetUserCountRequest
+	14, // 22: orisun.Admin.GetEventCount:input_type -> orisun.GetEventCountRequest
+	19, // 23: orisun.Admin.CreateBoundary:output_type -> orisun.CreateBoundaryResponse
+	21, // 24: orisun.Admin.ListBoundaries:output_type -> orisun.ListBoundariesResponse
+	23, // 25: orisun.Admin.GetBoundary:output_type -> orisun.GetBoundaryResponse
+	3,  // 26: orisun.Admin.CreateUser:output_type -> orisun.CreateUserResponse
+	5,  // 27: orisun.Admin.DeleteUser:output_type -> orisun.DeleteUserResponse
+	7,  // 28: orisun.Admin.ChangePassword:output_type -> orisun.ChangePasswordResponse
+	9,  // 29: orisun.Admin.ListUsers:output_type -> orisun.ListUsersResponse
+	11, // 30: orisun.Admin.ValidateCredentials:output_type -> orisun.ValidateCredentialsResponse
+	13, // 31: orisun.Admin.GetUserCount:output_type -> orisun.GetUserCountResponse
+	15, // 32: orisun.Admin.GetEventCount:output_type -> orisun.GetEventCountResponse
+	23, // [23:33] is the sub-list for method output_type
+	13, // [13:23] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }
@@ -1618,8 +1454,8 @@ func file_admin_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   25,
+			NumEnums:      1,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -20,7 +20,6 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Admin_CreateBoundary_FullMethodName      = "/orisun.Admin/CreateBoundary"
-	Admin_ImportBoundary_FullMethodName      = "/orisun.Admin/ImportBoundary"
 	Admin_ListBoundaries_FullMethodName      = "/orisun.Admin/ListBoundaries"
 	Admin_GetBoundary_FullMethodName         = "/orisun.Admin/GetBoundary"
 	Admin_CreateUser_FullMethodName          = "/orisun.Admin/CreateUser"
@@ -40,7 +39,6 @@ const (
 type AdminClient interface {
 	// Boundary Management
 	CreateBoundary(ctx context.Context, in *CreateBoundaryRequest, opts ...grpc.CallOption) (*CreateBoundaryResponse, error)
-	ImportBoundary(ctx context.Context, in *ImportBoundaryRequest, opts ...grpc.CallOption) (*ImportBoundaryResponse, error)
 	ListBoundaries(ctx context.Context, in *ListBoundariesRequest, opts ...grpc.CallOption) (*ListBoundariesResponse, error)
 	GetBoundary(ctx context.Context, in *GetBoundaryRequest, opts ...grpc.CallOption) (*GetBoundaryResponse, error)
 	// User Management
@@ -67,16 +65,6 @@ func (c *adminClient) CreateBoundary(ctx context.Context, in *CreateBoundaryRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateBoundaryResponse)
 	err := c.cc.Invoke(ctx, Admin_CreateBoundary_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminClient) ImportBoundary(ctx context.Context, in *ImportBoundaryRequest, opts ...grpc.CallOption) (*ImportBoundaryResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImportBoundaryResponse)
-	err := c.cc.Invoke(ctx, Admin_ImportBoundary_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +169,6 @@ func (c *adminClient) GetEventCount(ctx context.Context, in *GetEventCountReques
 type AdminServer interface {
 	// Boundary Management
 	CreateBoundary(context.Context, *CreateBoundaryRequest) (*CreateBoundaryResponse, error)
-	ImportBoundary(context.Context, *ImportBoundaryRequest) (*ImportBoundaryResponse, error)
 	ListBoundaries(context.Context, *ListBoundariesRequest) (*ListBoundariesResponse, error)
 	GetBoundary(context.Context, *GetBoundaryRequest) (*GetBoundaryResponse, error)
 	// User Management
@@ -206,9 +193,6 @@ type UnimplementedAdminServer struct{}
 
 func (UnimplementedAdminServer) CreateBoundary(context.Context, *CreateBoundaryRequest) (*CreateBoundaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateBoundary not implemented")
-}
-func (UnimplementedAdminServer) ImportBoundary(context.Context, *ImportBoundaryRequest) (*ImportBoundaryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ImportBoundary not implemented")
 }
 func (UnimplementedAdminServer) ListBoundaries(context.Context, *ListBoundariesRequest) (*ListBoundariesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBoundaries not implemented")
@@ -272,24 +256,6 @@ func _Admin_CreateBoundary_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServer).CreateBoundary(ctx, req.(*CreateBoundaryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Admin_ImportBoundary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ImportBoundaryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServer).ImportBoundary(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Admin_ImportBoundary_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServer).ImportBoundary(ctx, req.(*ImportBoundaryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -466,10 +432,6 @@ var Admin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateBoundary",
 			Handler:    _Admin_CreateBoundary_Handler,
-		},
-		{
-			MethodName: "ImportBoundary",
-			Handler:    _Admin_ImportBoundary_Handler,
 		},
 		{
 			MethodName: "ListBoundaries",

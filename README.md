@@ -26,15 +26,17 @@ Orisun provides:
 
 ## Boundary management
 
-Boundaries are durable definitions in the admin event log. Create new physical
-boundaries with `Admin/CreateBoundary`, register existing storage with
-`Admin/ImportBoundary`, and wait for `Admin/GetBoundary` to report `ACTIVE`
+Boundaries are durable definitions in the admin event log. Define and
+idempotently provision them with `Admin/CreateBoundary`; set
+`existed_before_catalog: true` when adopting existing physical storage, and wait
+for `Admin/GetBoundary` to report `ACTIVE`
 before sending event operations. The same lifecycle methods are available from
 the Go embedding packages.
 
-Legacy PostgreSQL schema mappings, SQLite boundary files, and FoundationDB key
-ranges are imported into the catalog during the first upgraded startup.
-`ORISUN_BOUNDARIES` is no longer used. PostgreSQL retains
+Legacy PostgreSQL schema mappings and SQLite boundary files are recorded in the
+catalog during the first upgraded startup. FoundationDB is beta and has no
+legacy catalog-migration path. `ORISUN_BOUNDARIES` is no longer used.
+PostgreSQL retains
 `ORISUN_PG_SCHEMAS` for the required admin mapping and as the one-time source of
 legacy `boundary:schema` mappings.
 

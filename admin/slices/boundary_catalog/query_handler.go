@@ -97,7 +97,6 @@ func replayCatalog(ctx context.Context, adminBoundary, name string, retriever Ev
 func lifecycleQuery(name string) coreeventstore.Query {
 	eventTypes := []string{
 		adminevents.EventTypeBoundaryCreated,
-		adminevents.EventTypeBoundaryImported,
 		adminevents.EventTypeBoundaryActivated,
 		adminevents.EventTypeBoundaryFailed,
 	}

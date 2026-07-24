@@ -14,16 +14,6 @@ const (
 	BoundaryStatusFailed = boundarymodel.StatusFailed
 )
 
-// Deprecated: use boundary.Origin.
-type BoundaryOrigin = boundarymodel.Origin
-
-const (
-	// Deprecated: use boundary.OriginCreated.
-	BoundaryOriginCreated = boundarymodel.OriginCreated
-	// Deprecated: use boundary.OriginImported.
-	BoundaryOriginImported = boundarymodel.OriginImported
-)
-
 // Deprecated: use boundary.Placement.
 type BoundaryPlacement = boundarymodel.Placement
 

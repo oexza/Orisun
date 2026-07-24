@@ -13,12 +13,11 @@ import (
 
 func TestEmbeddedBoundaryCommandsEmitEvents(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		eventType string
-		invoke    func(*Store, context.Context, boundarymodel.Definition) (boundarymodel.Boundary, error)
+		name                 string
+		existedBeforeCatalog bool
 	}{
-		{name: "create", eventType: adminevents.EventTypeBoundaryCreated, invoke: (*Store).CreateBoundary},
-		{name: "import", eventType: adminevents.EventTypeBoundaryImported, invoke: (*Store).ImportBoundary},
+		{name: "new storage"},
+		{name: "existing storage", existedBeforeCatalog: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			saver := &embeddedBoundarySaver{}
@@ -30,18 +29,20 @@ func TestEmbeddedBoundaryCommandsEmitEvents(t *testing.T) {
 					nil,
 				),
 			}
-			boundary, err := test.invoke(store, t.Context(), boundarymodel.Definition{
-				Name:        "sales",
-				Description: "Sales domain",
-				Placement:   boundarymodel.Placement{Backend: "postgres", Namespace: "tenant_data"},
+			boundary, err := store.CreateBoundary(t.Context(), boundarymodel.Definition{
+				Name:                 "sales",
+				Description:          "Sales domain",
+				Placement:            boundarymodel.Placement{Backend: "postgres", Namespace: "tenant_data"},
+				ExistedBeforeCatalog: test.existedBeforeCatalog,
 			})
 			if err != nil {
 				t.Fatalf("command error = %v", err)
 			}
-			if len(saver.events) != 1 || saver.events[0].EventType != test.eventType {
-				t.Fatalf("saved events = %#v, want one %s", saver.events, test.eventType)
+			if len(saver.events) != 1 || saver.events[0].EventType != adminevents.EventTypeBoundaryCreated {
+				t.Fatalf("saved events = %#v, want one %s", saver.events, adminevents.EventTypeBoundaryCreated)
 			}
-			if boundary.Name != "sales" || boundary.Status != boundarymodel.StatusProvisioning {
+			if boundary.Name != "sales" || boundary.Status != boundarymodel.StatusProvisioning ||
+				boundary.ExistedBeforeCatalog != test.existedBeforeCatalog {
 				t.Fatalf("boundary = %#v", boundary)
 			}
 		})

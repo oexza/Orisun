@@ -1,4 +1,4 @@
-package import_boundary
+package create_boundary
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/goccy/go-json"
 )
 
-func TestReconcileLegacyBoundariesImportsOnlyMissingDefinitions(t *testing.T) {
+func TestReconcileLegacyBoundariesCreatesOnlyMissingDefinitions(t *testing.T) {
 	retriever := &legacyRetriever{existing: map[string]boundarymodel.Definition{
 		"orders": {Name: "orders", Description: "Catalog description", Placement: boundarymodel.Placement{Backend: "postgres", Namespace: "public"}},
 	}}
@@ -28,20 +28,20 @@ func TestReconcileLegacyBoundariesImportsOnlyMissingDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReconcileLegacyBoundaries() error = %v", err)
 	}
-	if len(result.Imported) != 1 || result.Imported[0] != "sales" {
-		t.Fatalf("imported = %#v", result.Imported)
+	if len(result.Created) != 1 || result.Created[0] != "sales" {
+		t.Fatalf("created = %#v", result.Created)
 	}
 	if len(result.Existing) != 1 || result.Existing[0] != "orders" {
 		t.Fatalf("existing = %#v", result.Existing)
 	}
-	if len(saver.events) != 1 || saver.events[0].EventType != adminevents.EventTypeBoundaryImported {
+	if len(saver.events) != 1 || saver.events[0].EventType != adminevents.EventTypeBoundaryCreated {
 		t.Fatalf("events = %#v", saver.events)
 	}
-	var data adminevents.BoundaryImported
+	var data adminevents.BoundaryCreated
 	if err := json.Unmarshal([]byte(saver.events[0].Data), &data); err != nil {
 		t.Fatal(err)
 	}
-	if data.Boundary != "sales" || data.Placement.Namespace != "tenant_data" {
+	if data.Boundary != "sales" || data.Placement.Namespace != "tenant_data" || !data.ExistedBeforeCatalog {
 		t.Fatalf("event data = %#v", data)
 	}
 }
@@ -84,15 +84,18 @@ func (r *legacyRetriever) LatestByCriteria(_ context.Context, query coreeventsto
 	matches := make([]coreeventstore.LatestCriterionMatch, len(query.Criteria))
 	name := query.Criteria[0].Tags[0].Value
 	if definition, ok := r.existing[name]; ok {
-		data, err := json.Marshal(adminevents.BoundaryImported{
-			Boundary: definition.Name, Description: definition.Description, Placement: definition.Placement,
+		data, err := json.Marshal(adminevents.BoundaryCreated{
+			Boundary:             definition.Name,
+			Description:          definition.Description,
+			Placement:            definition.Placement,
+			ExistedBeforeCatalog: true,
 		})
 		if err != nil {
 			return coreeventstore.LatestByCriteriaResult{}, err
 		}
-		matches[1] = coreeventstore.LatestCriterionMatch{
+		matches[0] = coreeventstore.LatestCriterionMatch{
 			Found: true,
-			Event: coreeventstore.ReadEvent{EventType: adminevents.EventTypeBoundaryImported, Data: string(data)},
+			Event: coreeventstore.ReadEvent{EventType: adminevents.EventTypeBoundaryCreated, Data: string(data)},
 		}
 	}
 	return coreeventstore.LatestByCriteriaResult{
@@ -112,10 +115,13 @@ func (s *legacySaver) Append(_ context.Context, request coreeventstore.AppendReq
 		if s.retriever.existing == nil {
 			s.retriever.existing = make(map[string]boundarymodel.Definition)
 		}
-		var data adminevents.BoundaryImported
+		var data adminevents.BoundaryCreated
 		if err := json.Unmarshal([]byte(request.Events[0].Data), &data); err == nil {
 			s.retriever.existing[data.Boundary] = boundarymodel.Definition{
-				Name: data.Boundary, Description: data.Description, Placement: data.Placement,
+				Name:                 data.Boundary,
+				Description:          data.Description,
+				Placement:            data.Placement,
+				ExistedBeforeCatalog: data.ExistedBeforeCatalog,
 			}
 		}
 	}

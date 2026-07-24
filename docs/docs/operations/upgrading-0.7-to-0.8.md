@@ -6,9 +6,11 @@ description: A production runbook for migrating existing boundaries into the 0.8
 Orisun 0.8.0 replaces the static `ORISUN_BOUNDARIES` startup list with a
 durable, event-backed boundary catalog. This is an operator-visible change and,
 for embedded Go users, an API-breaking change. Existing application events are
-not copied or rewritten: the first 0.8.0 startup discovers each physical
-boundary, records an `ImportBoundary` definition in the admin boundary, and
-activates that boundary in the running server.
+not copied or rewritten: for PostgreSQL-compatible and SQLite deployments, the
+first 0.8.0 startup discovers each physical boundary, records a
+`BoundaryCreated` definition marked `existed_before_catalog` in the admin
+boundary, and activates that boundary in the running server. FoundationDB is
+beta and is excluded from this automatic migration.
 
 Use this guide for a direct upgrade from 0.7.0. Test the complete procedure
 against a recent production backup before upgrading production.
@@ -17,12 +19,12 @@ against a recent production backup before upgrading production.
 
 | Area | 0.7.0 | 0.8.0 |
 | --- | --- | --- |
-| Existing boundaries | Listed in `ORISUN_BOUNDARIES` at every startup. | Imported once into the admin boundary catalog and replayed from there. |
+| Existing boundaries | Listed in `ORISUN_BOUNDARIES` at every startup. | Recorded once in the admin boundary catalog and replayed from there. |
 | New boundaries | Required a configuration change and restart. | Created at runtime with `Admin/CreateBoundary`. |
-| Existing storage attached later | Added to startup configuration. | Registered with `Admin/ImportBoundary`. |
+| Existing storage attached later | Added to startup configuration. | Registered with `Admin/CreateBoundary` and `existed_before_catalog`. |
 | Readiness | A configured name was installed during startup. | A definition moves asynchronously from `PROVISIONING` to `ACTIVE` or `FAILED`. |
 | Unknown boundaries | Depended on the static startup registry. | Rejected until an active catalog definition is installed locally. |
-| PostgreSQL mappings | `ORISUN_PG_SCHEMAS` defined every runtime boundary. | It always bootstraps the admin mapping and is a one-time import source for legacy mappings. |
+| PostgreSQL mappings | `ORISUN_PG_SCHEMAS` defined every runtime boundary. | It always bootstraps the admin mapping and is a one-time reconciliation source for legacy mappings. |
 | gRPC EventStore API | Existing methods and messages. | Wire-compatible; the boundary Admin RPCs are additive. |
 | Embedded Go subscriptions | Generated request/event types and `MessageHandler`. | Transport-neutral `eventstore.SubscribeRequest` and `eventstore.EventHandler`. |
 
@@ -40,7 +42,6 @@ namespace, and there is no rename, placement-update, or delete RPC in 0.8.0.
    | --- | --- |
    | PostgreSQL or YugabyteDB | Every existing `boundary:schema` entry in `ORISUN_PG_SCHEMAS`. |
    | SQLite | Existing `{boundary}.db` files in `ORISUN_SQLITE_DIR`. |
-   | FoundationDB | Existing boundary key ranges below `ORISUN_FDB_ROOT`. |
 
 3. Resolve missing, duplicate, or incorrect mappings before upgrading. The
    admin boundary must be present, and each PostgreSQL application boundary
@@ -49,16 +50,15 @@ namespace, and there is no rename, placement-update, or delete RPC in 0.8.0.
    admin boundary. For SQLite, stop the single writer or use the SQLite backup
    API and include every event and metadata database. For PostgreSQL or
    YugabyteDB, back up the database containing both application and admin
-   objects. For FoundationDB, use the cluster's supported backup procedure and
-   include the configured root range.
+   objects.
 5. Restore that backup in staging and complete this runbook there first.
 6. Upgrade application code that embeds Orisun and compile it before the
    production rollout. See [Embedded Go changes](#embedded-go-changes).
 
 :::danger
-Do not delete legacy mappings, move SQLite files, or change
-`ORISUN_FDB_ROOT` before the first successful 0.8.0 startup. Those are the
-discovery sources used to build the durable catalog.
+Do not delete legacy mappings or move SQLite files before the first successful
+0.8.0 startup. Those are the discovery sources used to build the durable
+catalog.
 :::
 
 ## Prepare the 0.8.0 configuration
@@ -94,9 +94,10 @@ start rollout rather than a mixed-version rollout.
 
 ### FoundationDB
 
-Keep the cluster file and `ORISUN_FDB_ROOT` unchanged. The root is both the
-legacy discovery location and the namespace recorded in each imported
-placement.
+FoundationDB is beta and is intentionally excluded from automatic legacy
+catalog migration. Existing development data is not discovered from tuple key
+ranges. Define beta-backend boundaries explicitly through `CreateBoundary`, or
+start with a fresh root when testing 0.8.0.
 
 ### Remove `ORISUN_BOUNDARIES`
 
@@ -109,14 +110,14 @@ ignored by 0.8.0 and still required by 0.7.0.
 
 ## Roll out the server
 
-For a PostgreSQL, YugabyteDB, or FoundationDB cluster:
+For a PostgreSQL or YugabyteDB cluster:
 
 1. Prevent the first 0.8.0 node from receiving application traffic.
 2. Start that node with the unchanged storage location and the legacy discovery
    settings described above.
 3. Wait for gRPC readiness. Startup reconciles every discovered physical
-   boundary through the same durable `ImportBoundary` path used by the Admin
-   API.
+   boundary through the durable `CreateBoundary` path with
+   `existed_before_catalog`.
 4. Verify the catalog and resolve every failure before routing traffic to the
    node.
 5. Upgrade the remaining nodes one at a time. Each node replays the shared
@@ -155,7 +156,7 @@ The response must contain:
 - the configured admin boundary;
 - every application boundary from the pre-upgrade inventory;
 - the expected backend and namespace for each boundary;
-- `BOUNDARY_REGISTRATION_ORIGIN_IMPORTED` for migrated definitions; and
+- `existed_before_catalog: true` for migrated definitions; and
 - `BOUNDARY_LIFECYCLE_STATUS_ACTIVE` with an empty `last_error` for every
   definition.
 
@@ -200,16 +201,14 @@ publisher, or projectors may not be ready. Wait and query it again.
 `FAILED` means the latest provisioning attempt failed. Inspect `last_error` and
 server logs, then correct the underlying connectivity, permissions, storage, or
 placement issue. The server retries failed definitions independently with
-backoff; do not call `CreateBoundary` or `ImportBoundary` again under the same
-name.
+backoff; do not call `CreateBoundary` again under the same name.
 
 Common migration failures:
 
 | Symptom | Action |
 | --- | --- |
 | PostgreSQL boundary is absent | Restore its exact `boundary:schema` entry to `ORISUN_PG_SCHEMAS` and restart the canary. |
-| SQLite boundary is absent | Restore the files to the unchanged `ORISUN_SQLITE_DIR`. Storage attached after startup must be registered explicitly with `ImportBoundary`. |
-| FoundationDB boundary is absent | Verify the cluster file and restore the original `ORISUN_FDB_ROOT`. |
+| SQLite boundary is absent | Restore the files to the unchanged `ORISUN_SQLITE_DIR`. Storage attached after startup must be registered explicitly with `CreateBoundary` and `existed_before_catalog`. |
 | Placement conflict stops startup | Make the discovery setting match the already-recorded placement. Do not rename or remap the physical boundary in place. |
 | EventStore returns `FAILED_PRECONDITION` | The boundary is unknown or not active on that node. Check `GetBoundary` and local provisioning logs. |
 
@@ -220,12 +219,12 @@ diagnostic flow.
 
 The EventStore gRPC wire contract remains compatible. Existing 0.7.0 clients
 can continue to read, write, and subscribe to boundaries that are active in the
-0.8.0 server. Deploy servers and verify imported boundaries before updating
+0.8.0 server. Deploy servers and verify migrated boundaries before updating
 applications.
 
 Update to the Go, Node.js, or Java client release that accompanies Orisun 0.8.0
-when an application needs to create, import, list, or inspect boundaries.
-`CreateBoundary` and `ImportBoundary` return while the definition is still
+when an application needs to create, list, or inspect boundaries.
+`CreateBoundary` returns while the definition is still
 `PROVISIONING`; poll `GetBoundary` until it reports `ACTIVE` before issuing
 EventStore operations. A clustered node may briefly return
 `FAILED_PRECONDITION` while installing the active definition locally; retry or
@@ -276,7 +275,7 @@ Returning an error stops the subscription; cancellation comes from the callback
 context. Domain types used by embedded code remain outside `orisun/grpcapi`.
 
 Embedded PostgreSQL, SQLite, and FoundationDB stores also expose
-`CreateBoundary`, `ImportBoundary`, `ListBoundaries`, and `GetBoundary` with
+`CreateBoundary`, `ListBoundaries`, and `GetBoundary` with
 transport-neutral types. See [Go Embedding](../embedding/go#embedded-boundary-management).
 
 ## Rollback
@@ -306,7 +305,7 @@ For every new boundary:
 3. Create the required indexes.
 4. Begin application reads, writes, and subscriptions.
 
-Use `ImportBoundary` only when the physical storage already exists, such as a
-restored PostgreSQL schema or copied SQLite boundary files. Keep the admin
-boundary in backup, restore, monitoring, and disaster-recovery procedures: it
-now contains the authoritative boundary catalog.
+Set `existed_before_catalog` on `CreateBoundary` when physical storage already
+exists, such as a restored PostgreSQL schema or copied SQLite boundary files.
+Keep the admin boundary in backup, restore, monitoring, and disaster-recovery
+procedures: it now contains the authoritative boundary catalog.

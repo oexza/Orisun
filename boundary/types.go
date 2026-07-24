@@ -15,14 +15,6 @@ const (
 	StatusFailed       Status = "FAILED"
 )
 
-// Origin records how the boundary definition entered the event log.
-type Origin string
-
-const (
-	OriginCreated  Origin = "CREATED"
-	OriginImported Origin = "IMPORTED"
-)
-
 // Placement is the durable physical location recorded by a boundary
 // definition event.
 type Placement struct {
@@ -33,21 +25,22 @@ type Placement struct {
 // Definition is the immutable input shared by commands, embedded stores, and
 // backend provisioners.
 type Definition struct {
-	Name        string
-	Description string
-	Placement   Placement
+	Name                 string
+	Description          string
+	Placement            Placement
+	ExistedBeforeCatalog bool
 }
 
 // Boundary is the event-rebuilt lifecycle representation.
 type Boundary struct {
-	Name               string
-	Description        string
-	Placement          Placement
-	Status             Status
-	Origin             Origin
-	LastError          string
-	DefinitionPosition *eventstore.Position
-	StatusPosition     *eventstore.Position
+	Name                 string
+	Description          string
+	Placement            Placement
+	Status               Status
+	ExistedBeforeCatalog bool
+	LastError            string
+	DefinitionPosition   *eventstore.Position
+	StatusPosition       *eventstore.Position
 }
 
 // ValidateName applies the identifier contract shared by all storage

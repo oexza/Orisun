@@ -68,13 +68,13 @@ FoundationDB support is beta. It is compiled with `-tags foundationdb` and requi
 
 ## Boundary management
 
-Boundaries are defined through the Admin `CreateBoundary` and `ImportBoundary`
-RPCs and stored as lifecycle events in the admin boundary. They do not require
-a startup boundary list.
+Boundaries are defined through the Admin `CreateBoundary` RPC and stored as
+lifecycle events in the admin boundary. They do not require a startup boundary
+list.
 
 For PostgreSQL-compatible backends, `ORISUN_PG_SCHEMAS` must contain the admin
 boundary. Additional mappings identify pre-existing physical boundaries and
-are imported into the catalog automatically during startup:
+are recorded in the catalog automatically during startup:
 
 ```bash
 ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
@@ -83,9 +83,9 @@ ORISUN_PG_SCHEMAS=orders:public,orisun_admin:admin
 After migration, new PostgreSQL boundaries can name their schema in the RPC
 placement without being added to `ORISUN_PG_SCHEMAS`. SQLite discovers existing
 `{boundary}.db` files from `ORISUN_SQLITE_DIR` and always bootstraps the admin
-boundary on a fresh installation. FoundationDB discovers tuple key ranges under
-`ORISUN_FDB_ROOT`; new FoundationDB placements use that configured root as their
-namespace.
+boundary on a fresh installation. FoundationDB is beta and does not discover
+legacy key ranges into the catalog; define its boundaries through
+`CreateBoundary`, using the configured `ORISUN_FDB_ROOT` as the namespace.
 
 Boundary names must be valid PostgreSQL identifiers even when using SQLite: 1-63 characters, starting with a letter or underscore, then letters, digits, or underscores. This keeps boundary names portable across backends.
 
@@ -106,11 +106,11 @@ Use this rollout sequence:
 1. Back up the durable store and the admin boundary.
 2. Preserve the legacy physical-boundary source for the first upgraded startup:
    all existing `boundary:schema` entries in `ORISUN_PG_SCHEMAS`, the SQLite
-   files in `ORISUN_SQLITE_DIR`, or the existing FoundationDB root.
+   files in `ORISUN_SQLITE_DIR`.
 3. Start one upgraded node first. Before exposing gRPC, Orisun discovers those
-   definitions and runs each through `ImportBoundary`, producing
-   `BoundaryImported` followed by `BoundaryActivated` or
-   `BoundaryProvisioningFailed`.
+   definitions and runs each through `CreateBoundary` with
+   `existed_before_catalog`, producing `BoundaryCreated` followed by
+   `BoundaryActivated` or `BoundaryProvisioningFailed`.
 4. Call `ListBoundaries` and verify every expected definition is `ACTIVE`.
    Resolve any `last_error` before moving traffic or starting the remaining
    cluster nodes.
@@ -127,9 +127,8 @@ same placement, startup leaves it unchanged. If the discovered placement
 conflicts with the recorded placement, startup fails instead of silently
 remapping the boundary.
 
-For storage restored or attached after the upgrade, call `ImportBoundary`
-explicitly. Use `CreateBoundary` only when Orisun should create new physical
-storage.
+For storage restored or attached after the upgrade, call `CreateBoundary`
+with `existed_before_catalog: true`.
 
 ## Server settings
 

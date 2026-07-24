@@ -83,8 +83,8 @@ Operational notes:
 - Back up every `{boundary}.db` file, every `{boundary}_metadata.db` file, and the NATS store directory if live delivery retention matters during restore.
 - Treat the admin boundary files as mandatory: its event log contains the
   boundary catalog. Restoring application files without the matching admin
-  boundary requires explicit `ImportBoundary` calls before those files are
-  usable.
+  boundary requires an explicit `CreateBoundary` call with
+  `existed_before_catalog` before those files are usable.
 
 ## Scaling SQLite
 
@@ -113,8 +113,9 @@ Each node remains a normal standalone SQLite deployment. There is no shared stor
 1. Stop the source node and run a final WAL checkpoint.
 2. Copy `{boundary}.db` and `{boundary}_metadata.db` into the target node's
    `ORISUN_SQLITE_DIR`.
-3. Start the target and call `ImportBoundary` with backend `sqlite` and a
-   namespace equal to the boundary name.
+3. Start the target and call `CreateBoundary` with
+   `existed_before_catalog: true`, backend `sqlite`, and a namespace equal to
+   the boundary name.
 4. Wait for `GetBoundary` to report `ACTIVE`, then update routing.
 
 The source catalog still contains its old immutable definition; do not restart
@@ -137,7 +138,7 @@ What does not work: multi-writer SQLite replication (cr-sqlite, marmot, and simi
 
 ### 4. Graduate to PostgreSQL
 
-When a deployment needs multi-node availability or write scale beyond boundary sharding, move to the PostgreSQL backend rather than building a distributed SQLite. The public API is identical; see [Migrating between backends](../concepts/storage-backends#migrating-between-backends). Create and activate each empty target boundary before replaying its events in order with `SaveEvents`; do not use `ImportBoundary` unless PostgreSQL storage for that boundary already exists. Positions are regenerated on write, so consumers must restart subscriptions from the new positions.
+When a deployment needs multi-node availability or write scale beyond boundary sharding, move to the PostgreSQL backend rather than building a distributed SQLite. The public API is identical; see [Migrating between backends](../concepts/storage-backends#migrating-between-backends). Create and activate each empty target boundary before replaying its events in order with `SaveEvents`. Positions are regenerated on write, so consumers must restart subscriptions from the new positions.
 
 ### Analytics on the side
 

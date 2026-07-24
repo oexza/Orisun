@@ -8,7 +8,6 @@ import (
 	boundarycatalog "github.com/OrisunLabs/Orisun/admin/slices/boundary_catalog"
 	boundaryprovisioning "github.com/OrisunLabs/Orisun/admin/slices/boundary_provisioning"
 	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
-	importboundary "github.com/OrisunLabs/Orisun/admin/slices/import_boundary"
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	c "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/eventstoreadapter"
@@ -143,7 +142,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		store.ActivateBoundary,
 	)
 	legacyDefinitions := pg.LegacyBoundaryDefinitions(mappings)
-	reconciliation, err := importboundary.ReconcileLegacyBoundaries(
+	reconciliation, err := createboundary.ReconcileLegacyBoundaries(
 		runCtx,
 		legacyDefinitions,
 		config.Admin.Boundary,
@@ -159,8 +158,8 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, fmt.Errorf("migrate configured boundaries into catalog: %w", err)
 	}
 	logger.Infof(
-		"Boundary catalog migration completed: imported=%d existing=%d",
-		len(reconciliation.Imported),
+		"Boundary catalog migration completed: created=%d existing=%d",
+		len(reconciliation.Created),
 		len(reconciliation.Existing),
 	)
 	provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
@@ -213,28 +212,11 @@ func (s *Store) CreateBoundary(ctx context.Context, definition boundarymodel.Def
 	result, err := createboundary.CreateBoundaryCommandHandler(
 		ctx,
 		createboundary.CreateBoundaryCommand{
-			Name:        definition.Name,
-			Description: definition.Description,
-			Placement:   definition.Placement,
-			Metadata:    createboundary.CommandMetadata{"source": "embedded_postgres", "operation": "create_boundary"},
-		},
-		s.adminBoundary,
-		s.boundaryEvents,
-		s.boundaryEvents,
-	)
-	return result.Boundary, err
-}
-
-// ImportBoundary emits an import event for an existing PostgreSQL boundary.
-// Migrations and registration are idempotent in the provisioning adapter.
-func (s *Store) ImportBoundary(ctx context.Context, definition boundarymodel.Definition) (boundarymodel.Boundary, error) {
-	result, err := importboundary.ImportBoundaryCommandHandler(
-		ctx,
-		importboundary.ImportBoundaryCommand{
-			Name:        definition.Name,
-			Description: definition.Description,
-			Placement:   definition.Placement,
-			Metadata:    importboundary.CommandMetadata{"source": "embedded_postgres", "operation": "import_boundary"},
+			Name:                 definition.Name,
+			Description:          definition.Description,
+			Placement:            definition.Placement,
+			ExistedBeforeCatalog: definition.ExistedBeforeCatalog,
+			Metadata:             createboundary.CommandMetadata{"source": "embedded_postgres", "operation": "create_boundary"},
 		},
 		s.adminBoundary,
 		s.boundaryEvents,

@@ -95,8 +95,8 @@ Use the typed clients when you want request/response objects and subscription he
 
 Client event operations target an active boundary; a boundary name is not
 created implicitly by the first write. Before starting an application, define
-new storage with `Admin/CreateBoundary` or register existing storage with
-`Admin/ImportBoundary`, then wait for `Admin/GetBoundary` to report
+the storage with `Admin/CreateBoundary`—setting `existed_before_catalog` when
+adopting existing physical storage—then wait for `Admin/GetBoundary` to report
 `BOUNDARY_LIFECYCLE_STATUS_ACTIVE`. See the
 [Admin boundary API](./admin#boundary-lifecycle) for placements, lifecycle
 states, and errors.
@@ -131,9 +131,9 @@ if (boundary.status !== BoundaryStatus.ACTIVE) {
 const {boundaries} = await admin.listBoundaries();
 ```
 
-Use `admin.importBoundary(...)` instead when the physical boundary already
-exists. Both commands return a definition in `PROVISIONING`; do not treat the
-command response as readiness. In clustered deployments, retry an EventStore
+Set `existedBeforeCatalog: true` on `createBoundary(...)` when the physical
+storage already exists. The command returns a definition in `PROVISIONING`; do
+not treat the response as readiness. In clustered deployments, retry an EventStore
 request that briefly returns `FAILED_PRECONDITION` after the shared catalog
 becomes `ACTIVE`; the selected node is still completing its local runtime
 installation.

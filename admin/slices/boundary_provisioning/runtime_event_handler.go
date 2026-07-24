@@ -58,15 +58,28 @@ func (h *BoundaryRuntimeEventHandler) Handle(ctx context.Context, event coreeven
 		h.retriever,
 	)
 	if err != nil {
+		if statuscode.CodeOf(err) == statuscode.NotFound {
+			// An activation with no current BoundaryCreated definition is an
+			// orphan from a removed definition path. Ignoring it is fail-closed
+			// and avoids an impossible retry loop.
+			return nil
+		}
 		return err
+	}
+	if boundary.DefinitionPosition != nil && !event.Position.After(*boundary.DefinitionPosition) {
+		// This activation predates the current BoundaryCreated definition. It
+		// belongs to a removed pre-catalog definition path and must not install
+		// or expose the replacement boundary.
+		return nil
 	}
 	if boundary.Status != boundarymodel.StatusActive {
 		return statuscode.Errorf(statuscode.FailedPrecondition, "boundary %q is not active", boundary.Name)
 	}
 	definition := boundarymodel.Definition{
-		Name:        boundary.Name,
-		Description: boundary.Description,
-		Placement:   boundary.Placement,
+		Name:                 boundary.Name,
+		Description:          boundary.Description,
+		Placement:            boundary.Placement,
+		ExistedBeforeCatalog: boundary.ExistedBeforeCatalog,
 	}
 	if err := h.install(ctx, definition); err != nil {
 		return err

@@ -32,8 +32,7 @@ Set a production password with `ORISUN_ADMIN_PASSWORD` before exposing the serve
 
 | Method | Purpose |
 | --- | --- |
-| `CreateBoundary` | Define and asynchronously provision a new physical boundary. |
-| `ImportBoundary` | Register and validate an existing physical boundary. |
+| `CreateBoundary` | Define and asynchronously provision new or existing physical storage. |
 | `ListBoundaries` | Rebuild and return the boundary catalog. |
 | `GetBoundary` | Return one boundary and its current lifecycle state. |
 | `CreateUser` | Create an admin or application user. |
@@ -47,9 +46,8 @@ Set a production password with `ORISUN_ADMIN_PASSWORD` before exposing the serve
 ## Boundary lifecycle
 
 Boundary definitions and lifecycle transitions are durable events in the admin
-boundary. `CreateBoundary` and `ImportBoundary` append definition events and
-return after that append commits; physical provisioning continues
-asynchronously.
+boundary. `CreateBoundary` appends a definition event and returns after that
+append commits; physical provisioning continues asynchronously.
 
 | Status | Meaning |
 | --- | --- |
@@ -70,7 +68,7 @@ the existing definition continues to be retried and may later transition from
 
 | Field | Meaning |
 | --- | --- |
-| `origin` | `CREATED` for `CreateBoundary`, or `IMPORTED` for `ImportBoundary`. |
+| `existed_before_catalog` | Whether the physical storage predated its catalog definition. |
 | `placement` | The durable backend and immutable physical namespace recorded by the definition event. |
 | `last_error` | Recorded provisioning error; empty after activation. |
 | `definition_position` | Position of the definition event in the admin boundary. |
@@ -93,7 +91,8 @@ letters, digits, or underscores.
 
 ## CreateBoundary
 
-Use `CreateBoundary` when Orisun should create and migrate the physical storage:
+Use `CreateBoundary` to define a boundary and idempotently ensure its physical
+storage:
 
 ```bash
 grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateBoundary <<EOF
@@ -110,18 +109,16 @@ EOF
 
 The response initially contains `BOUNDARY_LIFECYCLE_STATUS_PROVISIONING`.
 
-## ImportBoundary
-
-Use `ImportBoundary` when the physical boundary already exists, for example
-after upgrading a legacy deployment or moving a SQLite boundary file. The
-normal provisioner opens the existing storage and applies migrations
-idempotently before activation:
+When adopting physical storage that already exists, for example after restoring
+a PostgreSQL schema or attaching SQLite boundary files, set
+`existed_before_catalog`:
 
 ```bash
-grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/ImportBoundary <<EOF
+grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/CreateBoundary <<EOF
 {
   "name": "legacy_orders",
   "description": "Orders migrated from the legacy deployment",
+  "existed_before_catalog": true,
   "placement": {
     "backend": "postgres",
     "namespace": "legacy"
@@ -130,12 +127,9 @@ grpcurl -H "$AUTH" -d @ localhost:5005 orisun.Admin/ImportBoundary <<EOF
 EOF
 ```
 
-Use `CreateBoundary`, not `ImportBoundary`, when no physical storage exists yet.
-The distinction is recorded as `origin`; both paths use the same asynchronous
-provisioning and activation flow.
-
-Legacy boundaries are normally imported automatically during the first
-upgraded startup. See
+The provisioner uses the same idempotent migration and activation flow in both
+cases. Legacy boundaries discovered at startup are recorded automatically with
+this flag. See
 [Boundary management and migration](../operations/configuration#boundary-management).
 
 ## ListBoundaries
@@ -162,7 +156,7 @@ An unknown name returns `NOT_FOUND`.
 | gRPC code | Typical cause |
 | --- | --- |
 | `INVALID_ARGUMENT` | Missing placement, invalid name, or empty backend/namespace. |
-| `ALREADY_EXISTS` | A create or import definition already exists for that name, including definitions currently `FAILED`. |
+| `ALREADY_EXISTS` | A definition already exists for that name, including definitions currently `FAILED`. |
 | `NOT_FOUND` | `GetBoundary` cannot find the requested definition. |
 
 Backend and namespace compatibility is checked by the asynchronous provisioner.
@@ -170,7 +164,7 @@ An incompatible non-empty placement can therefore make the definition RPC
 succeed and the boundary subsequently become `FAILED`.
 
 :::warning
-All Admin RPCs, including boundary creation and import, currently require
+All Admin RPCs, including boundary creation, currently require
 authentication but are not role-gated. Restrict access to the Admin service at
 the network and credential layers. See
 [Security & Authorization](../operations/security).

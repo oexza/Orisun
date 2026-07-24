@@ -9,10 +9,10 @@ import (
 	"github.com/OrisunLabs/Orisun/admin"
 	boundaryprovisioning "github.com/OrisunLabs/Orisun/admin/slices/boundary_provisioning"
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
+	createboundary "github.com/OrisunLabs/Orisun/admin/slices/create_boundary"
 	"github.com/OrisunLabs/Orisun/admin/slices/create_user"
 	"github.com/OrisunLabs/Orisun/admin/slices/dashboard/event_count"
 	"github.com/OrisunLabs/Orisun/admin/slices/dashboard/user_count"
-	importboundary "github.com/OrisunLabs/Orisun/admin/slices/import_boundary"
 	up "github.com/OrisunLabs/Orisun/admin/slices/users_projection"
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	c "github.com/OrisunLabs/Orisun/config"
@@ -223,10 +223,10 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 			runtimeHandler.Handle,
 			AppLogger,
 		)
-		// Legacy imports run first so the elected controller observes them and
+		// Legacy definitions run first so the elected controller observes them and
 		// existing activation events can be replayed into this local runtime.
 		if len(backend.LegacyBoundaries) > 0 {
-			result, reconcileErr := importboundary.ReconcileLegacyBoundaries(
+			result, reconcileErr := createboundary.ReconcileLegacyBoundaries(
 				ctx,
 				backend.LegacyBoundaries,
 				config.Admin.Boundary,
@@ -237,8 +237,8 @@ func Run(ctx context.Context, config c.AppConfig, AppLogger l.Logger, initialize
 				AppLogger.Fatalf("Failed to migrate configured boundaries into the catalog: %v", reconcileErr)
 			}
 			AppLogger.Infof(
-				"Boundary catalog migration completed: imported=%d existing=%d",
-				len(result.Imported),
+				"Boundary catalog migration completed: created=%d existing=%d",
+				len(result.Created),
 				len(result.Existing),
 			)
 		}

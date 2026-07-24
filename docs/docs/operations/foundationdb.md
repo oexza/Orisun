@@ -36,9 +36,16 @@ The Go binding API defaults to `730`, matching FoundationDB 7.3.x. Keep the inst
 
 ## Boundary Provisioning
 
-FoundationDB boundaries are created and imported through the Admin boundary RPCs, just like the other backends. Use placement backend `foundationdb` and set the placement namespace to the configured `ORISUN_FDB_ROOT`. A successful create/import command records a lifecycle event in the admin boundary; its event handler then provisions the key range, installs publishing, and records the active or failed result.
+FoundationDB boundaries are defined through `Admin/CreateBoundary`. Use
+placement backend `foundationdb` and set the placement namespace to the
+configured `ORISUN_FDB_ROOT`. A successful command records a lifecycle event in
+the admin boundary; its event handler then provisions the key range, installs
+publishing, and records the active or failed result.
 
-Creation stores a boundary marker under the configured root. On startup, Orisun also discovers legacy boundary key ranges that predate the catalog and imports them through the same command/event path. Keep the root unchanged during this migration so discovery and catalog placement refer to the same physical ranges.
+Creation stores a boundary marker under the configured root. On restart, the
+catalog—not a scan of physical key ranges—is authoritative and reinstalls each
+active boundary. FoundationDB is beta and does not provide automatic legacy
+catalog migration.
 
 ## Cluster File Handling
 

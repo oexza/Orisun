@@ -54,7 +54,6 @@ func initializeBackend(ctx context.Context, config c.AppConfig, js jetstream.Jet
 		ProvisionBoundary: runtime.ProvisionBoundary,
 		InstallBoundary:   runtime.InstallBoundary,
 		InitialBoundaries: runtime.InitialBoundaries,
-		LegacyBoundaries:  fdbbackend.LegacyBoundaryDefinitions(runtime.InitialBoundaries, runtime.BoundaryNamespace),
 		Close:             runtime.Close,
 	}, nil
 }
