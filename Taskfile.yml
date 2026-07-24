@@ -8,7 +8,7 @@ env:
   ORISUN_PG_SSLMODE: disable
   ORISUN_NATS_STORE_DIR: ./data/orisun/nats
   ORISUN_SQLITE_DIR: ./data/orisun/sqlite
-  ORISUN_BACKEND: "postgres"
+  ORISUN_BACKEND: "sqlite"
   ORISUN_NATS_PORT: 4223
   ORISUN_GRPC_PORT: 5007
   ORISUN_PG_PASSWORD: password@1
@@ -91,11 +91,30 @@ tasks:
 
   live:
     desc: Run the PostgreSQL-only server with Go live reload
+    env:
+      ORISUN_BACKEND: postgres
     cmds:
       - |
         air \
           -build.cmd "go build -o {{.BIN_DIR}}/orisun-pg ./cmd/orisun-pg" \
           -build.bin "{{.BIN_DIR}}/orisun-pg" \
+          -build.delay "100" \
+          -build.exclude_dir "build,data,node_modules,tmp,clients" \
+          -build.include_ext "go" \
+          -build.stop_on_error "false" \
+          -build.send_interrupt "true" \
+          -build.kill_delay "200" \
+          -misc.clean_on_exit "true"
+
+  live:sqlite:
+    desc: Run the SQLite-only server with Go live reload
+    env:
+      ORISUN_BACKEND: sqlite
+    cmds:
+      - |
+        air \
+          -build.cmd "go build -o {{.BIN_DIR}}/orisun-sqlite ./cmd/orisun-sqlite" \
+          -build.bin "{{.BIN_DIR}}/orisun-sqlite" \
           -build.delay "100" \
           -build.exclude_dir "build,data,node_modules,tmp,clients" \
           -build.include_ext "go" \
