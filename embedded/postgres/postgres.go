@@ -72,8 +72,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 	}
 	js := natsRuntime.JetStream
 	database := pg.InitializePostgresDatabaseRuntime(runCtx, config.Postgres, config.Admin, js, logger)
-	mappings := config.Postgres.GetSchemaMapping()
-	initialBoundaries := pg.BoundaryNames(mappings)
+	initialBoundaries := []string{config.Admin.Boundary}
 	saveEvents := database.SaveEvents
 	getEvents := database.GetEvents
 	lockProvider := database.LockProvider
@@ -93,6 +92,16 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 	boundaryEvents := eventstoreadapter.New(saveEvents, getEvents, store.SubscribeToEvents)
+	if err := createboundary.RequireMigratedCatalog(
+		runCtx,
+		database.PreexistingAdminStore,
+		config.Admin.Boundary,
+		boundaryEvents,
+	); err != nil {
+		cancel()
+		natsRuntime.Close()
+		return nil, fmt.Errorf("PostgreSQL catalog upgrade check failed: %w", err)
+	}
 
 	var signalProvider func(string) orisun.EventSignal
 	var stopListener context.CancelFunc
@@ -141,10 +150,9 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		installBoundary,
 		store.ActivateBoundary,
 	)
-	legacyDefinitions := pg.LegacyBoundaryDefinitions(mappings)
-	reconciliation, err := createboundary.ReconcileLegacyBoundaries(
+	createdAdmin, err := createboundary.EnsureBootstrapBoundary(
 		runCtx,
-		legacyDefinitions,
+		pg.AdminBoundaryDefinition(config.Postgres, config.Admin),
 		config.Admin.Boundary,
 		boundaryEvents,
 		boundaryEvents,
@@ -155,13 +163,9 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		if closePG != nil {
 			closePG(context.WithoutCancel(ctx))
 		}
-		return nil, fmt.Errorf("migrate configured boundaries into catalog: %w", err)
+		return nil, fmt.Errorf("bootstrap admin boundary catalog: %w", err)
 	}
-	logger.Infof(
-		"Boundary catalog migration completed: created=%d existing=%d",
-		len(reconciliation.Created),
-		len(reconciliation.Existing),
-	)
+	logger.Infof("Admin boundary catalog bootstrap completed: created=%t", createdAdmin)
 	provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
 		config.Admin.Boundary,
 		boundaryEvents,
