@@ -784,14 +784,15 @@ func (db *PostgresAdminDB) DropBoundaryIndex(
 }
 
 type DatabaseRuntime struct {
-	SaveEvents        eventstore.EventsSaver
-	GetEvents         eventstore.EventsRetriever
-	LockProvider      eventstore.LockProvider
-	AdminDB           common.DB
-	EventPublishing   eventstore.EventPublishingTracker
-	Listener          *PGNotifyListener
-	ProvisionBoundary func(context.Context, boundarymodel.Definition) error
-	InstallBoundary   func(context.Context, boundarymodel.Definition) error
+	SaveEvents            eventstore.EventsSaver
+	GetEvents             eventstore.EventsRetriever
+	LockProvider          eventstore.LockProvider
+	AdminDB               common.DB
+	EventPublishing       eventstore.EventPublishingTracker
+	Listener              *PGNotifyListener
+	ProvisionBoundary     func(context.Context, boundarymodel.Definition) error
+	InstallBoundary       func(context.Context, boundarymodel.Definition) error
+	PreexistingAdminStore bool
 }
 
 // InitializePostgresDatabase preserves the original tuple API for callers
@@ -888,7 +889,27 @@ func InitializePostgresDatabaseRuntime(
 		adminDBPool.Close()
 	}()
 
-	postgesBoundarySchemaMappings := postgresDBConfig.GetSchemaMapping()
+	postgesBoundarySchemaMappings := postgresDBConfig.BootstrapSchemaMapping(adminConfig.Boundary)
+	adminSchema := postgesBoundarySchemaMappings[adminConfig.Boundary]
+	preexistingAdminStore, err := boundaryEventTableExists(
+		ctx,
+		writeDB,
+		adminSchema.Schema,
+		adminConfig.Boundary,
+	)
+	if err != nil {
+		logger.Fatalf("Failed to inspect PostgreSQL admin event store: %v", err)
+	}
+	catalogNative, err := catalogNativeMarkerExists(
+		ctx,
+		writeDB,
+		adminSchema.Schema,
+		adminConfig.Boundary,
+	)
+	if err != nil {
+		logger.Fatalf("Failed to inspect PostgreSQL catalog bootstrap marker: %v", err)
+	}
+	preexistingAdminStore = preexistingAdminStore && !catalogNative
 	dbDialect := postgresDBConfig.DatabaseDialect()
 
 	// Create PG LISTEN/NOTIFY listener if enabled.
@@ -918,6 +939,11 @@ func InitializePostgresDatabaseRuntime(
 			}
 		}
 	}
+	if !preexistingAdminStore && !catalogNative {
+		if err := markCatalogNativeInstall(ctx, writeDB, adminSchema.Schema, adminConfig.Boundary); err != nil {
+			logger.Fatalf("Failed to record PostgreSQL catalog-native installation: %v", err)
+		}
+	}
 
 	// Initialize tables for each boundary
 	for boundary, mapping := range postgesBoundarySchemaMappings {
@@ -943,11 +969,6 @@ func InitializePostgresDatabaseRuntime(
 		logger.Fatalf("Failed to create lock provider: %v", err)
 	}
 	// lockProvider := postgres.NewPGLockProvider(db, AppLogger)
-	adminSchema := postgesBoundarySchemaMappings[adminConfig.Boundary]
-	if (adminSchema == config.BoundaryToPostgresSchemaMapping{}) {
-		logger.Fatalf("No schema specified for admin boundary %v", err)
-	}
-
 	// Use admin pool for admin operations (user management)
 	adminDB := NewPostgresAdminDBWithRegistry(
 		adminDBPool,
@@ -978,13 +999,14 @@ func InitializePostgresDatabaseRuntime(
 	}
 
 	return &DatabaseRuntime{
-		SaveEvents:        saveEvents,
-		GetEvents:         getEvents,
-		LockProvider:      lockProvider,
-		AdminDB:           adminDB,
-		EventPublishing:   eventPublishing,
-		Listener:          pgListener,
-		ProvisionBoundary: provisioner.ProvisionBoundary,
-		InstallBoundary:   installBoundary,
+		SaveEvents:            saveEvents,
+		GetEvents:             getEvents,
+		LockProvider:          lockProvider,
+		AdminDB:               adminDB,
+		EventPublishing:       eventPublishing,
+		Listener:              pgListener,
+		ProvisionBoundary:     provisioner.ProvisionBoundary,
+		InstallBoundary:       installBoundary,
+		PreexistingAdminStore: preexistingAdminStore,
 	}
 }

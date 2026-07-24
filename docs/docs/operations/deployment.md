@@ -185,8 +185,7 @@ Clustered mode uses PostgreSQL, embedded NATS clustering, and one active publish
 Each node should share:
 
 - PostgreSQL database and schemas
-- `ORISUN_PG_SCHEMAS` (at minimum the admin mapping; keep all legacy mappings
-  during a mixed-version/catalog-migration rollout)
+- `ORISUN_PG_ADMIN_SCHEMA`
 - `ORISUN_NATS_CLUSTER_NAME`
 - NATS cluster credentials
 

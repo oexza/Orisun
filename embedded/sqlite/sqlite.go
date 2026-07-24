@@ -75,12 +75,7 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		return nil, err
 	}
 	js := natsRuntime.JetStream
-	boundaries, err := sqlitebackend.DiscoverBoundaryNames(config.Sqlite, config.Admin.Boundary)
-	if err != nil {
-		cancel()
-		natsRuntime.Close()
-		return nil, err
-	}
+	boundaries := []string{config.Admin.Boundary}
 	runtime, err := sqlitebackend.InitializeSqliteDatabaseRuntime(
 		runCtx,
 		config.Sqlite,
@@ -134,9 +129,9 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 		installBoundary,
 		store.ActivateBoundary,
 	)
-	reconciliation, err := createboundary.ReconcileLegacyBoundaries(
+	createdAdmin, err := createboundary.EnsureBootstrapBoundary(
 		runCtx,
-		sqlitebackend.LegacyBoundaryDefinitions(boundaries),
+		sqlitebackend.AdminBoundaryDefinition(config.Admin),
 		config.Admin.Boundary,
 		boundaryEvents,
 		boundaryEvents,
@@ -144,13 +139,9 @@ func Start(ctx context.Context, config c.AppConfig, logger l.Logger, opts ...Sta
 	if err != nil {
 		cancel()
 		natsRuntime.Close()
-		return nil, fmt.Errorf("migrate SQLite boundaries into catalog: %w", err)
+		return nil, fmt.Errorf("bootstrap admin boundary catalog: %w", err)
 	}
-	logger.Infof(
-		"Boundary catalog migration completed: created=%d existing=%d",
-		len(reconciliation.Created),
-		len(reconciliation.Existing),
-	)
+	logger.Infof("Admin boundary catalog bootstrap completed: created=%t", createdAdmin)
 	provisioningSubscriber := boundaryprovisioning.NewBoundaryProvisioningSubscriber(
 		config.Admin.Boundary,
 		boundaryEvents,
