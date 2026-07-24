@@ -235,7 +235,7 @@ Batches are atomic. Events in one batch share the same commit position and recei
 
 Use `query.subsetQuery` to enforce Command Context Consistency for a specific event subset:
 
-The same fields are Orisun's Dynamic Consistency Boundary append condition. This is a semantic mapping, not a separate DCB-shaped API: `SaveEvents` is still the append call, `subsetQuery` defines the dynamic set of event types/tags the command depends on, and `expected_position` is the position observed when that set was read. The append succeeds only if no event matching `subsetQuery` committed after `expected_position`.
+`subsetQuery` defines the dynamic set of events the command depends on, and `expected_position` is the position of the latest matching event observed when that set was read. The append succeeds only if the latest event matching `subsetQuery` is still at exactly `expected_position`. Use the `context_position` returned by `GetLatestByCriteria`, or the latest matching position from a complete `GetEvents` read; an arbitrary later position such as the store head is not a valid substitute.
 
 <Tabs groupId="client-lang">
   <TabItem value="go" label="Go" default>
@@ -345,7 +345,7 @@ EOF
   </TabItem>
 </Tabs>
 
-If the subset changed after the expected position, Orisun returns `ALREADY_EXISTS`. Treat that as a CCC conflict or DCB append-condition failure: re-read the context, decide again, and retry only if the command is still valid.
+If the latest event matching the subset is no longer at the expected position, Orisun returns `ALREADY_EXISTS`. Treat that as a CCC conflict: re-read the context, decide again, and retry only if the command is still valid.
 
 ## GetEvents
 

@@ -9,14 +9,14 @@ Orisun is an open-source event database for decisions that must stay correct as 
 
 This documentation targets Orisun `0.6.1`.
 
-The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed. Orisun can also be used as a **Dynamic Consistency Boundary** event store, where append conditions are expressed over event types and queryable JSON tags.
+The mechanism behind that promise is **Command Context Consistency**: commands query the exact events they depend on, and writes succeed only if that context has not changed.
 
 It stores the event log transactionally in PostgreSQL, YugabyteDB, SQLite, or FoundationDB beta, and delivers committed events through embedded NATS JetStream, including catch-up replay and live subscriptions. Storage, consistency checks, publishing, indexes, auth, and gRPC APIs ship as one deployable server.
 
 ## Guarantees
 
 - **Decisions scoped to real context.** A write declares the event subset it depends on with JSON criteria and commits only if that subset is unchanged. You do not need to force every invariant into a single stream.
-- **DCB-compatible append conditions.** Use `expected_position` plus `subsetQuery` to append only when a dynamic event set has not changed.
+- **Content-scoped consistency checks.** Use `expected_position` plus `subsetQuery` to save only while a command's event context is current.
 - **No skipped committed events.** A durable per-boundary checkpoint drives at-least-once publishing. Wake-up signals can be missed; committed events still drain sequentially within the boundary.
 - **Per-boundary ordering.** Events publish in ascending log position within each boundary.
 - **Runtime boundary management.** New and imported physical boundaries are
@@ -52,7 +52,6 @@ Move to PostgreSQL, YugabyteDB, or FoundationDB when you need multiple Orisun no
 | Try Orisun locally | [Getting Started](/docs/getting-started) | [Tutorial](/docs/tutorial) |
 | Embed Orisun in a Go service | [Go Embedding](/docs/embedding/go) | [Storage Backends](/docs/concepts/storage-backends) |
 | Model a business invariant | [Command Context Consistency](/docs/concepts/command-context-consistency) | [Positions](/docs/concepts/positions) |
-| Use DCB terminology | [Dynamic Consistency Boundaries](/docs/concepts/dynamic-consistency-boundaries) | [EventStore API](/docs/api/eventstore) |
 | Save, query, and subscribe | [EventStore API](/docs/api/eventstore) | [Clients](/docs/api/clients) |
 | Upgrade from 0.7.0 | [0.8.0 upgrade guide](/docs/operations/upgrading-0.7-to-0.8) | [Configuration reference](/docs/operations/configuration#boundary-management) |
 | Create or import boundaries | [Admin API](/docs/api/admin#boundary-lifecycle) | [Boundary configuration](/docs/operations/configuration#boundary-management) |

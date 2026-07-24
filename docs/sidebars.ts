@@ -22,7 +22,6 @@ const sidebars: SidebarsConfig = {
       },
       items: [
         'concepts/command-context-consistency',
-        'concepts/dynamic-consistency-boundaries',
         'concepts/positions',
         'concepts/storage-backends',
         'concepts/delivery-guarantees',

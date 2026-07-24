@@ -104,7 +104,6 @@ const docGroups: {title: string; links: LinkItem[]}[] = [
     links: [
       ['What is Orisun?', '/docs', 'Guarantees, fit, and the shortest path to each task.'],
       ['Command Context Consistency', '/docs/concepts/command-context-consistency', 'The command-first consistency model.'],
-      ['Dynamic Consistency Boundaries', '/docs/concepts/dynamic-consistency-boundaries', 'DCB terms mapped to the Orisun API.'],
     ],
   },
   {
@@ -327,21 +326,20 @@ export default function Home(): ReactNode {
           </div>
         </section>
 
-        <section id="ccc-and-dcb" className={clsx('section', styles.mechanismSection)}>
+        <section id="command-context-consistency" className={clsx('section', styles.mechanismSection)}>
           <div className={clsx('container', styles.mechanismGrid)}>
             <div className={styles.mechanismCopy}>
               <span className={styles.eyebrow}>The mechanism</span>
-              <h2>CCC for commands. DCB-compatible conditions for appends.</h2>
+              <h2>Consistency shaped around each command.</h2>
               <p>
-                Command Context Consistency starts with the application decision. Dynamic
-                Consistency Boundary terminology describes the same operation from the event-store
-                side: query a dynamic set, remember its position, then append only if it is unchanged.
-                Define and activate the application boundary through the Admin API before entering
-                this command loop.
+                Command Context Consistency lets each decision declare the exact event subset it
+                relies on. Query that context, remember its position, then save only if it remains
+                unchanged. Define and activate the application boundary through the Admin API
+                before entering this command loop.
               </p>
               <div className={styles.mechanismLinks}>
                 <Link to="/docs/concepts/command-context-consistency">Understand CCC</Link>
-                <Link to="/docs/concepts/dynamic-consistency-boundaries">Map DCB concepts</Link>
+                <Link to="/docs/api/eventstore">Use the EventStore API</Link>
               </div>
             </div>
             <div className={styles.codePanel}>

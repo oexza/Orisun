@@ -19,7 +19,7 @@ Applications declare the event context behind a decision with content-based quer
 Orisun provides:
 
 - Transactional event storage with SQLite, PostgreSQL, YugabyteDB, and FoundationDB (beta).
-- Query-driven optimistic concurrency and Dynamic Consistency Boundary-style append conditions.
+- Query-driven optimistic concurrency with content-scoped consistency checks.
 - Per-boundary ordered catch-up and live subscriptions through embedded NATS JetStream.
 - Event-backed boundary creation and import at runtime, without a startup boundary list.
 - gRPC APIs, generated clients, server binaries, Docker images, and embedded runtimes.
