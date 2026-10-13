@@ -5,7 +5,7 @@ description: Upgrade seamlessly from the immediately preceding storage version.
 
 ## Supported upgrade
 
-Startup upgrades storage from the `0.13.0` release automatically.
+Startup upgrades storage from the `0.13.0` and `0.14.0` releases automatically.
 Stop all old server nodes first, retain a backup, then start one upgraded node and
 wait for every catalogued boundary to initialize before starting the remaining nodes.
 The upgrade preserves event documents, IDs, positions, write contexts, index definitions,
@@ -14,8 +14,8 @@ needed for this upgrade.
 
 | Backend | Previous release | Current storage marker |
 | --- | --- | --- |
-| PostgreSQL | Per-boundary schema version `4`. | Schema version `5`; removes the obsolete publisher checkpoint table. |
-| SQLite | Event version `6`; metadata version `1`. | Event version `8`, metadata version `2`; repairs the built-in event-type index and removes the obsolete publisher checkpoint table. |
+| PostgreSQL | v0.13.0: per-boundary schema version `4`; v0.14.0: version `5`. | Schema version `5`; removes the obsolete publisher checkpoint table when upgrading from version `4`. |
+| SQLite | v0.13.0: event version `6`, metadata version `1`; v0.14.0: event version `7`, metadata version `2`. | Event version `8`, metadata version `2`; repairs the built-in event-type index and removes the obsolete publisher checkpoint table when upgrading metadata version `1`. |
 
 PostgreSQL upgrades commit with boundary initialization. SQLite upgrades commit
 inside a savepoint.
