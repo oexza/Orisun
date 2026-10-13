@@ -8,11 +8,11 @@ import (
 )
 
 // Event per-boundary tables: event log, id sequence counter, and index metadata.
-const eventSchemaVersion = 7
+const eventSchemaVersion = 8
 const metadataSchemaVersion = 2
 
 // Fresh databases use the current document schema directly.
-const eventDDL = `
+var eventDDL = `
 CREATE TABLE orisun_es_write (
  write_id INTEGER PRIMARY KEY,
  consistency TEXT NOT NULL CHECK (json_valid(consistency) AND json_type(consistency) = 'array')
@@ -26,7 +26,7 @@ CREATE TABLE orisun_es_event (
  date_created TEXT GENERATED ALWAYS AS (json_extract(data, '$.__dateCreated')) VIRTUAL NOT NULL
 );
 CREATE INDEX idx_global_order_covering ON orisun_es_event(transaction_id DESC, global_id DESC);
-CREATE INDEX idx_event_type_order ON orisun_es_event(json_extract(data, '$.__eventType'), transaction_id DESC, global_id DESC);
+` + eventTypeOrderIndexDDL + `
 CREATE TABLE IF NOT EXISTS orisun_es_seq (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
     next_id INTEGER NOT NULL DEFAULT 1
@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS orisun_boundary_index_metadata (
     date_updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 `
+
+// The built-in index must use the same scalar representation as reads and CCC.
+// SQLite expression indexes require structural equality with the query expression.
+var eventTypeOrderIndexDDL = "CREATE INDEX idx_event_type_order ON orisun_es_event(" + sqliteJSONScalarTextExpr("__eventType") + ", transaction_id DESC, global_id DESC);"
 
 // Metadata tables are stored in a separate SQLite file so projector/admin
 // writes do not contend with the per-boundary event-log writer.
@@ -86,7 +90,7 @@ func applyMetadataMigrations(conn *sqlite.Conn) error {
 	return initializeSchema(conn, metadataDDL, metadataSchemaVersion)
 }
 
-// Upgrade only the immediately preceding document schema; older formats are rejected.
+// Upgrade supported document schemas without rewriting event or write-context data.
 func initializeSchema(conn *sqlite.Conn, ddl string, supported int) (err error) {
 	release := sqlitex.Save(conn)
 	defer release(&err)
@@ -97,8 +101,12 @@ func initializeSchema(conn *sqlite.Conn, ddl string, supported int) (err error) 
 	if version == supported {
 		return nil
 	}
-	if supported == eventSchemaVersion && version == 6 {
-		// 0.13.0 already uses current documents, projections and indexes.
+	if supported == eventSchemaVersion && (version == 6 || version == 7) {
+		// Both versions already use current documents. Replace only the built-in
+		// event-type index; leave caller-managed indexes and persisted facts intact.
+		if err := sqlitex.ExecuteScript(conn, "DROP INDEX idx_event_type_order;"+eventTypeOrderIndexDDL, nil); err != nil {
+			return err
+		}
 		return sqlitex.ExecuteTransient(conn, fmt.Sprintf("PRAGMA user_version = %d", supported), nil)
 	}
 	if supported == metadataSchemaVersion && version == 1 {

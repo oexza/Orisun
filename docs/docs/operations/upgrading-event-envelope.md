@@ -15,12 +15,12 @@ needed for this upgrade.
 | Backend | Previous release | Current storage marker |
 | --- | --- | --- |
 | PostgreSQL | Per-boundary schema version `4`. | Schema version `5`; removes the obsolete publisher checkpoint table. |
-| SQLite | Event version `6`; metadata version `1`. | Event version `7`, metadata version `2`; removes the obsolete publisher checkpoint table. |
+| SQLite | Event version `6`; metadata version `1`. | Event version `8`, metadata version `2`; repairs the built-in event-type index and removes the obsolete publisher checkpoint table. |
 
 PostgreSQL upgrades commit with boundary initialization. SQLite upgrades commit
 inside a savepoint.
 Interrupted transactions leave the previous markers intact, so startup can retry.
-No physical indexes or event documents are rebuilt. The runtime uses only current
+SQLite event versions `6` and `7` upgrade atomically to `8` by rebuilding only the built-in event-type index with the same scalar JSON expression used by reads and CCC. Application-managed indexes, event documents, write contexts and positions remain unchanged. Fresh databases create the corrected index directly. The runtime uses only current
 documents; it does not resume unfinished old conversion jobs or serve multiple
 event formats.
 
