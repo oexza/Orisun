@@ -89,7 +89,7 @@ func BenchmarkSqlite_GroupCommitBatchSize(b *testing.B) {
 			b.Run(fmt.Sprintf("batch=%d/workers=%d", batchSize, conc), func(b *testing.B) {
 				saver, _, _, teardown := setupBenchmarkPools(b)
 				defer teardown()
-				saver.gcMaxBatchRequests = batchSize
+				configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchRequests = batchSize })
 				save := saver.Save
 
 				ctx := context.Background()
@@ -141,7 +141,7 @@ func BenchmarkSqlite_GroupCommitDelay(b *testing.B) {
 			b.Run(fmt.Sprintf("delay=%s/workers=%d", delay, conc), func(b *testing.B) {
 				saver, _, _, teardown := setupBenchmarkPools(b)
 				defer teardown()
-				saver.gcMaxDelay = delay
+				configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxDelay = delay })
 
 				ctx := context.Background()
 				b.ResetTimer()
@@ -198,7 +198,7 @@ func benchmarkSqliteGroupCommitCCC(b *testing.B, general bool) {
 			b.Run(fmt.Sprintf("batch=%d/workers=%d", batchSize, conc), func(b *testing.B) {
 				saver, _, admin, teardown := setupBenchmarkPools(b)
 				defer teardown()
-				saver.gcMaxBatchRequests = batchSize
+				configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchRequests = batchSize })
 				save := saver.Save
 
 				ctx := context.Background()

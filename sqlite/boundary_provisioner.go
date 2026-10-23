@@ -10,8 +10,8 @@ import (
 )
 
 // SqliteBoundaryProvisioner is the SQLite adapter for the boundary
-// provisioning slice. It opens and migrates both files, installs the writer
-// queue, then publishes the pools to every adapter through one registry.
+// provisioning slice. It opens and migrates both files, then publishes their
+// pools to every adapter through one registry.
 type SqliteBoundaryProvisioner struct {
 	config   config.SqliteConfig
 	admin    config.AdminConfig
@@ -79,13 +79,13 @@ func (p *SqliteBoundaryProvisioner) InstallBoundary(ctx context.Context, definit
 		return fmt.Errorf("open SQLite metadata for %s: %w", definition.Name, err)
 	}
 
-	// Keep readers out until the corresponding group-commit worker exists.
+	// Publish both pools atomically. The coordinator starts writers lazily.
 	p.registry.mu.Lock()
-	if err := p.saver.addBoundary(definition.Name, eventPool); err != nil {
+	if p.saver.gc.Closed() {
 		p.registry.mu.Unlock()
 		_ = metadataPool.Close()
 		_ = eventPool.Close()
-		return fmt.Errorf("start SQLite writer for %s: %w", definition.Name, err)
+		return fmt.Errorf("install SQLite boundary %s: %w", definition.Name, errSaverClosed)
 	}
 	p.registry.pools[definition.Name] = eventPool
 	p.registry.metadataPools[definition.Name] = metadataPool

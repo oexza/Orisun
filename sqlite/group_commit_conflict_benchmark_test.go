@@ -25,16 +25,16 @@ func BenchmarkSqlite_GroupCommitConflicts(b *testing.B) {
 			b.ResetTimer()
 			for n := 0; n < b.N; n++ {
 				b.StopTimer()
-				requests := make([]*sqliteSaveRequest, 100)
+				requests := make([]*sqliteTestRequest, 100)
 				for i := range requests {
 					scope := fmt.Sprintf("%d-%d", n, i/copies)
 					checks := []orisun.ConsistencyCheck{{Position: orisun.NotExistsPosition(), Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: scope}}}}}}
 					encoded, err := orisun.MarshalConsistency(checks)
 					require.NoError(b, err)
-					requests[i] = &sqliteSaveRequest{ctx: b.Context(), inserts: orisun.PreparedEventBatch{{EventId: fmt.Sprintf("%d-%d", n, i), EventType: "Fact", DataJSON: fmt.Sprintf(`{"scope":%q}`, scope), MetadataJSON: "{}"}}, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
+					requests[i] = &sqliteTestRequest{ctx: b.Context(), inserts: orisun.PreparedEventBatch{{EventId: fmt.Sprintf("%d-%d", n, i), EventType: "Fact", DataJSON: fmt.Sprintf(`{"scope":%q}`, scope), MetadataJSON: "{}"}}, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
 				}
 				b.StartTimer()
-				saver.runFlush(benchBoundary, pool, requests)
+				saver.runTestFlush(benchBoundary, pool, requests)
 				b.StopTimer()
 				for i, req := range requests {
 					result := <-req.result

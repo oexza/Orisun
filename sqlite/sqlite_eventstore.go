@@ -17,6 +17,7 @@ import (
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/eventdata"
+	"github.com/OrisunLabs/Orisun/internal/groupcommit"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
@@ -229,20 +230,7 @@ type SqliteSaveEvents struct {
 	logger   logging.Logger
 	notifier *SqliteEventNotifier
 
-	// Group-commit tuning; package-local, initialized from the
-	// sqliteGroupCommit* constants. Fields (not constants) so package tests
-	// and benchmarks can vary them.
-	gcMaxBatchRequests int
-	gcMaxBatchEvents   int
-	gcMaxDelay         time.Duration
-	gcMaxPending       int
-	gcFlushTimeout     time.Duration
-
-	queues    map[string]chan *sqliteSaveRequest
-	closed    chan struct{}
-	closeOnce sync.Once
-	enqueueMu sync.RWMutex
-	workerWG  sync.WaitGroup
+	gc *groupcommit.Coordinator[preparedSQLiteSave, sqliteSaveResult]
 
 	// Flush accounting, exposed for tests and debug logging.
 	gcMultiFlushes  atomic.Int64
@@ -283,77 +271,13 @@ func newSqliteSaveEventsWithRegistry(
 	if err != nil {
 		return nil, err
 	}
-	s := &SqliteSaveEvents{
-		registry: registry,
-		logger:   logger,
-
-		gcMaxBatchRequests: gcCfg.MaxBatchRequests,
-		gcMaxBatchEvents:   gcCfg.MaxBatchEvents,
-		gcMaxDelay:         gcCfg.MaxDelay,
-		gcMaxPending:       gcCfg.MaxPending,
-		gcFlushTimeout:     gcCfg.FlushTimeout,
-
-		queues: make(map[string]chan *sqliteSaveRequest, len(registry.pools)),
-		closed: make(chan struct{}),
-	}
-	pools, _ := registry.snapshots()
-	for boundary, pool := range pools {
-		queue := make(chan *sqliteSaveRequest, gcCfg.MaxPending)
-		s.queues[boundary] = queue
-		s.workerWG.Add(1)
-		go s.runWorker(boundary, pool, queue)
-	}
+	s := &SqliteSaveEvents{registry: registry, logger: logger}
+	s.initGroupCommit(gcCfg)
 	return s, nil
 }
 
-func (s *SqliteSaveEvents) addBoundary(boundary string, pool *BoundaryPools) error {
-	s.enqueueMu.Lock()
-	defer s.enqueueMu.Unlock()
-	if s.isClosed() {
-		return errSaverClosed
-	}
-	if _, exists := s.queues[boundary]; exists {
-		return nil
-	}
-	queue := make(chan *sqliteSaveRequest, s.gcMaxPending)
-	s.queues[boundary] = queue
-	s.workerWG.Add(1)
-	go s.runWorker(boundary, pool, queue)
-	return nil
-}
-
-// close stops accepting new saves and fails queued-but-unflushed requests.
-// An in-progress flush finishes. Called from InitializeSqliteDatabase's
-// shutdown goroutine before the pools close; also used by package tests.
-func (s *SqliteSaveEvents) close() {
-	s.closeOnce.Do(func() {
-		close(s.closed)
-
-		// Wait for enqueue calls that passed the closed check but have not yet
-		// completed their channel send. Snapshotting under the same lock also
-		// prevents queue iteration from racing with boundary installation.
-		s.enqueueMu.Lock()
-		queues := make([]chan *sqliteSaveRequest, 0, len(s.queues))
-		for _, queue := range s.queues {
-			queues = append(queues, queue)
-		}
-		s.enqueueMu.Unlock()
-
-		for _, queue := range queues {
-			close(queue)
-		}
-		s.workerWG.Wait()
-	})
-}
-
-func (s *SqliteSaveEvents) isClosed() bool {
-	select {
-	case <-s.closed:
-		return true
-	default:
-		return false
-	}
-}
+// Shutdown must finish before the boundary pools are closed.
+func (s *SqliteSaveEvents) close() { s.gc.Close() }
 
 func (s *SqliteSaveEvents) SavePrepared(
 	ctx context.Context,

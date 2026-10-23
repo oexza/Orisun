@@ -107,7 +107,7 @@ func TestPreparedConsistencyChecksPreserveOrderAndSnapshot(t *testing.T) {
 	saver, pool, cleanup := newGCTestSaver(t)
 	defer cleanup()
 	seed := sequenceRequest(t, "Seed")
-	saver.runFlush(gcBoundary, pool, []*sqliteSaveRequest{seed})
+	saver.runTestFlush(gcBoundary, pool, []*sqliteTestRequest{seed})
 	require.NoError(t, (<-seed.result).err)
 
 	conflict := gcConsistency(orisun.NotExistsPosition(), gcReadCriterion(orisun.ReadTag{Key: "__eventType", Value: "Seed"}))[0]
@@ -121,7 +121,7 @@ func TestPreparedConsistencyChecksPreserveOrderAndSnapshot(t *testing.T) {
 	} {
 		req := sequenceRequest(t, "Rejected")
 		req.preparedChecks = prepareConsistencyChecks(tc.checks)
-		saver.runFlush(gcBoundary, pool, []*sqliteSaveRequest{req})
+		saver.runTestFlush(gcBoundary, pool, []*sqliteTestRequest{req})
 		require.Equal(t, tc.code, statuscode.CodeOf((<-req.result).err))
 	}
 	require.EqualValues(t, 2, readSeqNextID(t, pool))

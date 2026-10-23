@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OrisunLabs/Orisun/internal/groupcommit"
+
 	common "github.com/OrisunLabs/Orisun/admin/slices/common"
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
@@ -36,10 +38,11 @@ SELECT * FROM %s.get_latest_by_criteria_v2($1::text, $2::text, $3::jsonb)
 const invalidIndexCleanupTimeout = 30 * time.Second
 
 type PostgresSaveEvents struct {
-	db       *sql.DB
-	logger   logging.Logger
-	registry *BoundaryRegistry
-	gc       postgresGroupCommit
+	db            *sql.DB
+	logger        logging.Logger
+	registry      *BoundaryRegistry
+	gc            *groupcommit.Coordinator[preparedPostgresSave, postgresSaveResult]
+	testFlushHook func(int)
 }
 
 func NewPostgresSaveEvents(
@@ -80,11 +83,8 @@ func newPostgresSaveEventsWithRegistry(
 		db:       db,
 		logger:   logger,
 		registry: registry,
-		gc:       newPostgresGroupCommit(gcCfg),
 	}
-	for boundary := range registry.Mappings() {
-		s.ensureQueue(boundary)
-	}
+	s.initGroupCommit(gcCfg)
 	if ctx != nil && ctx.Done() != nil {
 		go func() {
 			<-ctx.Done()

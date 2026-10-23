@@ -30,13 +30,13 @@ func BenchmarkPostgres_GroupCommitContendedPreparation(b *testing.B) {
 	const batchSize = 64
 	for _, writers := range []int{1, 4} {
 		b.Run(fmt.Sprintf("writers_%d", writers), func(b *testing.B) {
-			batches := make([][]*postgresSaveRequest, writers)
+			batches := make([][]*postgresTestRequest, writers)
 			for writer := range batches {
 				for i := range batchSize {
 					scope := fmt.Sprintf("%d:%d", writer, i)
 					events, err := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{{EventId: uuid.NewString(), EventType: "ContentionBench", Data: map[string]any{"scope": scope, "amount": 15}}})
 					require.NoError(b, err)
-					batches[writer] = append(batches[writer], &postgresSaveRequest{ctx: context.Background(), events: events, consistency: []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: scope}, {Key: "amount", Operator: "gt", Value: "10"}}}}, Position: orisun.NotExistsPosition()}}})
+					batches[writer] = append(batches[writer], &postgresTestRequest{ctx: context.Background(), events: events, consistency: []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: scope}, {Key: "amount", Operator: "gt", Value: "10"}}}}, Position: orisun.NotExistsPosition()}}})
 				}
 			}
 			b.ResetTimer()
@@ -45,7 +45,7 @@ func BenchmarkPostgres_GroupCommitContendedPreparation(b *testing.B) {
 				_, err := db.Exec("TRUNCATE public.bench_boundary_orisun_es_event, public.bench_boundary_orisun_es_write")
 				require.NoError(b, err)
 				start := make(chan struct{})
-				outcomes := make([][]postgresBatchOutcome, writers)
+				outcomes := make([][]postgresTestOutcome, writers)
 				errors := make([]error, writers)
 				var workers sync.WaitGroup
 				for writer := range writers {
@@ -53,7 +53,7 @@ func BenchmarkPostgres_GroupCommitContendedPreparation(b *testing.B) {
 					go func() {
 						defer workers.Done()
 						<-start
-						outcomes[writer], errors[writer] = saver.executeBatch(context.Background(), "bench_boundary", batches[writer])
+						outcomes[writer], errors[writer] = saver.executeTestBatch(context.Background(), "bench_boundary", batches[writer])
 					}()
 				}
 				b.StartTimer()
@@ -95,7 +95,7 @@ func BenchmarkPostgres_GroupCommitOperators(b *testing.B) {
 						name := fmt.Sprintf("%s/requests_%d/events_%d/bytes_%d/conflicts_%d", operator, size, events, bytes, conflicts)
 						b.Run(name, func(b *testing.B) {
 							value := map[string]int{"eq": 10, "ne": 11, "gt": 11, "gte": 10, "lt": 9, "lte": 10}[operator]
-							requests := make([]*postgresSaveRequest, size)
+							requests := make([]*postgresTestRequest, size)
 							for i := range requests {
 								scope := fmt.Sprint(i)
 								if conflicts == 50 {
@@ -107,7 +107,7 @@ func BenchmarkPostgres_GroupCommitOperators(b *testing.B) {
 								}
 								prepared, err := orisun.PrepareEventsForSave(input)
 								require.NoError(b, err)
-								requests[i] = &postgresSaveRequest{ctx: context.Background(), events: prepared, consistency: []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: scope}, {Key: "amount", Value: "10", Operator: operator}}}}, Position: orisun.NotExistsPosition()}}}
+								requests[i] = &postgresTestRequest{ctx: context.Background(), events: prepared, consistency: []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: scope}, {Key: "amount", Value: "10", Operator: operator}}}}, Position: orisun.NotExistsPosition()}}}
 							}
 							latencies := make([]time.Duration, 0, b.N)
 							b.ResetTimer()
@@ -117,7 +117,7 @@ func BenchmarkPostgres_GroupCommitOperators(b *testing.B) {
 								require.NoError(b, err)
 								b.StartTimer()
 								start := time.Now()
-								outcomes, err := saver.executeBatch(context.Background(), "bench_boundary", requests)
+								outcomes, err := saver.executeTestBatch(context.Background(), "bench_boundary", requests)
 								latencies = append(latencies, time.Since(start))
 								b.StopTimer()
 								require.NoError(b, err)

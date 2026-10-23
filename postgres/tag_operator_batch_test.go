@@ -112,28 +112,28 @@ func TestTagOperatorMultiEventBatchMatchesSequential(t *testing.T) {
 	check := func(position orisun.Position, tags ...orisun.ReadTag) orisun.ConsistencyCheck {
 		return orisun.ConsistencyCheck{Criteria: []orisun.ReadCriterion{{Tags: tags}}, Position: position}
 	}
-	request := func(values []int, checks ...orisun.ConsistencyCheck) *postgresSaveRequest {
+	request := func(values []int, checks ...orisun.ConsistencyCheck) *postgresTestRequest {
 		events := make([]orisun.EventWithMapTags, len(values))
 		for i, value := range values {
 			events[i] = orisun.EventWithMapTags{EventId: uuid.NewString(), EventType: "Amount", Data: map[string]any{"amount": value}}
 		}
 		prepared, err := orisun.PrepareEventsForSave(events)
 		require.NoError(t, err)
-		return &postgresSaveRequest{ctx: t.Context(), events: prepared, consistency: checks}
+		return &postgresTestRequest{ctx: t.Context(), events: prepared, consistency: checks}
 	}
 	rangeTags := []orisun.ReadTag{{Key: "amount", Value: "10", Operator: "gte"}, {Key: "amount", Value: "20", Operator: "lt"}}
-	requests := []*postgresSaveRequest{
+	requests := []*postgresTestRequest{
 		request([]int{15, 18, 25}),
 		request([]int{99, 100}, check(orisun.NotExistsPosition(), rangeTags...)),
 		request([]int{1}, check(orisun.NotExistsPosition(), orisun.ReadTag{Key: "amount", Value: "90", Operator: "gt"})),
 		request([]int{2}, check(orisun.Position{CommitPosition: 3, PreparePosition: 1}, rangeTags...)),
 		request([]int{3}, check(orisun.Position{CommitPosition: 3, PreparePosition: 0}, orisun.ReadTag{Key: "amount", Value: "15"})),
 	}
-	batched, err := saver.executeBatch(t.Context(), "test_boundary", requests)
+	batched, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
 	require.NoError(t, err)
 	require.Len(t, batched, len(requests))
 	for i, req := range requests {
-		sequential, err := saver.executeBatch(t.Context(), "reference_boundary", []*postgresSaveRequest{req})
+		sequential, err := saver.executeTestBatch(t.Context(), "reference_boundary", []*postgresTestRequest{req})
 		require.NoError(t, err)
 		require.Len(t, sequential, 1)
 		if i == 1 {
