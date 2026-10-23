@@ -10,7 +10,7 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
-// Isolate insertion CPU from durable commit latency. Each iteration rolls back
+// Isolate prepared insertion CPU from document parsing and durable commit latency. Each iteration rolls back
 // so every sample starts with the same history and event positions.
 func BenchmarkSqliteInsertDocuments(b *testing.B) {
 	for _, count := range []int{1, 8, 128} {
@@ -26,12 +26,13 @@ func BenchmarkSqliteInsertDocuments(b *testing.B) {
 				for i := range events {
 					events[i] = orisun.PreparedEvent{EventId: fmt.Sprint(i), EventType: "Fact", DataJSON: fmt.Sprintf(`{"payload":%q}`, strings.Repeat("x", size)), MetadataJSON: "{}"}
 				}
+				prepared := prepareEventDocuments(events)
 				b.ReportAllocs()
 				b.ResetTimer()
 				for n := 0; n < b.N; n++ {
 					require.NoError(b, sqlitex.Execute(conn, "BEGIN IMMEDIATE", nil))
 					require.NoError(b, insertWriteContext(conn, int64(count), "[]"))
-					require.NoError(b, insertEventBatch(conn, events, 1, int64(count)))
+					require.NoError(b, insertEventBatch(conn, prepared, 1, int64(count)))
 					require.NoError(b, sqlitex.Execute(conn, "ROLLBACK", nil))
 				}
 			})

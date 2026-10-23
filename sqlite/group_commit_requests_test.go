@@ -162,3 +162,33 @@ func prepareGCWriteContexts(t *testing.T, requests []*sqliteTestRequest) {
 		req.preparedChecks = prepareConsistencyChecks(req.consistency)
 	}
 }
+
+func TestPreparedDocumentErrorPreservesCCCPrecedence(t *testing.T) {
+	saver, bp, cleanup := newGCTestSaver(t)
+	defer cleanup()
+	valid := preparedGCEvents(t, mustEvent(t, "Fact", map[string]any{"account": "a"}, map[string]any{}))
+	_, gid, err := saver.SavePrepared(t.Context(), valid, gcBoundary, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := eventstore.PreparedEventBatch{{EventId: "invalid", DataJSON: `{"broken":`, MetadataJSON: `{}`}}
+	criterion := gcReadCriterion(eventstore.ReadTag{Key: "account", Value: "a"})
+	_, _, err = saver.SavePrepared(t.Context(), invalid, gcBoundary, gcConsistency(eventstore.NotExistsPosition(), criterion))
+	if statuscode.CodeOf(err) != statuscode.AlreadyExists {
+		t.Fatalf("stale context must win over invalid document: %v", err)
+	}
+	_, _, err = saver.SavePrepared(t.Context(), invalid, gcBoundary, gcConsistency(eventstore.Position{CommitPosition: gid, PreparePosition: gid}, criterion))
+	if statuscode.CodeOf(err) != statuscode.Internal {
+		t.Fatalf("current context must reach document error: %v", err)
+	}
+	_, next, err := saver.SavePrepared(t.Context(), preparedGCEvents(t, mustEvent(t, "Next", map[string]any{"account": "a"}, map[string]any{})), gcBoundary, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != gid+1 {
+		t.Fatalf("failed requests consumed positions: got %d after %d", next, gid)
+	}
+	if count := countEventsMatching(t, bp, map[string]any{"account": "a"}); count != 2 {
+		t.Fatalf("persisted %d events, want 2", count)
+	}
+}

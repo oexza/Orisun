@@ -298,7 +298,7 @@ func (s *SqliteSaveEvents) SavePrepared(
 // transaction (or savepoint). The caller owns transaction begin/commit/rollback.
 func (s *SqliteSaveEvents) saveEventsOnConn(
 	conn *sqlite.Conn,
-	eventsToInsert eventstore.PreparedEventBatch,
+	eventsToInsert []preparedEventDocument,
 	consistencyJSON string,
 	firstID int64,
 ) (transactionID string, globalID int64, err error) {
@@ -322,7 +322,7 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 // insertEventBatch inserts events in chunks of sqliteMaxEventsPerInsert to stay under
 // SQLite's bound-parameter limit. Callers hold an open transaction, so the full batch
 // commits atomically regardless of chunking.
-func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, firstID, transactionID int64) error {
+func insertEventBatch(conn *sqlite.Conn, events []preparedEventDocument, firstID, transactionID int64) error {
 	fields := map[string]any{
 		"__commitPosition": transactionID,
 		"__dateCreated":    time.Now().UTC().Format(time.RFC3339Nano),

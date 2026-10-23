@@ -74,3 +74,24 @@ func BenchmarkEnvelopeFields(b *testing.B) {
 		}
 	}
 }
+
+func TestPreparedObjectCanBeEncodedIndependently(t *testing.T) {
+	object, err := ParseObject(`{"number":9007199254740993,"decimal":0.123456789012345678901,"position":-1}`)
+	require.NoError(t, err)
+	for i := 0; i < 32; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			got, err := object.WithFields(map[string]any{"position": i, "temporary": true})
+			require.NoError(t, err)
+			var decoded map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal([]byte(got), &decoded))
+			require.Equal(t, fmt.Sprint(i), string(decoded["position"]))
+			require.Equal(t, "9007199254740993", string(decoded["number"]))
+			require.Equal(t, "0.123456789012345678901", string(decoded["decimal"]))
+			original, err := object.WithFields(nil)
+			require.NoError(t, err)
+			require.NotContains(t, original, "temporary")
+			require.Contains(t, original, `"position":-1`)
+		})
+	}
+}

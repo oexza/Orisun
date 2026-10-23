@@ -10,9 +10,9 @@ import (
 
 func TestPositionedDocumentsKeepEventFieldsIndependent(t *testing.T) {
 	fields := map[string]any{"__commitPosition": int64(12), "__dateCreated": "2026-10-17T00:00:00Z", "__writeId": "12:12"}
-	first, err := positionedDocument(orisun.PreparedEvent{EventId: "first", EventType: "A", DataJSON: `{"amount":9007199254740993,"__eventId":"spoof","__preparePosition":999}`, MetadataJSON: `{"source":"first"}`}, 11, fields)
+	first, err := positionedDocument(prepareEventDocument(orisun.PreparedEvent{EventId: "first", EventType: "A", DataJSON: `{"amount":9007199254740993,"__eventId":"spoof","__preparePosition":999}`, MetadataJSON: `{"source":"first"}`}), 11, fields)
 	require.NoError(t, err)
-	second, err := positionedDocument(orisun.PreparedEvent{EventId: "second", EventType: "B", DataJSON: `{"amount":0.123456789012345678901}`, MetadataJSON: "null"}, 12, fields)
+	second, err := positionedDocument(prepareEventDocument(orisun.PreparedEvent{EventId: "second", EventType: "B", DataJSON: `{"amount":0.123456789012345678901}`, MetadataJSON: "null"}), 12, fields)
 	require.NoError(t, err)
 	for i, document := range []string{first, second} {
 		var got map[string]json.RawMessage
