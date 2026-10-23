@@ -159,5 +159,6 @@ func prepareGCWriteContexts(t *testing.T, requests []*sqliteSaveRequest) {
 			t.Fatal(err)
 		}
 		req.consistencyJSON = string(data)
+		req.preparedChecks = prepareConsistencyChecks(req.consistency)
 	}
 }

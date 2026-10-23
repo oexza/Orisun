@@ -63,22 +63,40 @@ type PreparedEvent struct {
 	MetadataJSON string
 }
 
-// MarshalJSON preserves the canonical data and metadata as JSON values.
-func (e PreparedEvent) MarshalJSON() ([]byte, error) {
-	type wireEvent struct {
-		EventId   string          `json:"event_id"`
-		EventType string          `json:"event_type"`
-		Data      json.RawMessage `json:"data"`
-		Metadata  json.RawMessage `json:"metadata"`
-	}
-	return json.Marshal(wireEvent{
+type preparedWireEvent struct {
+	EventId   string          `json:"event_id"`
+	EventType string          `json:"event_type"`
+	Data      json.RawMessage `json:"data"`
+	Metadata  json.RawMessage `json:"metadata"`
+}
+
+func (e PreparedEvent) wireEvent() preparedWireEvent {
+	return preparedWireEvent{
 		EventId: e.EventId, EventType: e.EventType,
 		Data: json.RawMessage(e.DataJSON), Metadata: json.RawMessage(e.MetadataJSON),
-	})
+	}
+}
+
+// MarshalJSON preserves the canonical data and metadata as JSON values.
+func (e PreparedEvent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(e.wireEvent())
 }
 
 // PreparedEventBatch keeps canonical event descriptors contiguous.
 type PreparedEventBatch []PreparedEvent
+
+// MarshalJSON encodes the batch in one pass instead of allocating and
+// recompacting a separately marshaled envelope for every event.
+func (events PreparedEventBatch) MarshalJSON() ([]byte, error) {
+	var wire []preparedWireEvent
+	if events != nil {
+		wire = make([]preparedWireEvent, len(events))
+	}
+	for i, event := range events {
+		wire[i] = event.wireEvent()
+	}
+	return json.Marshal(wire)
+}
 
 // PrepareEventsForSave normalizes flexible embedding input exactly once.
 func PrepareEventsForSave(events []EventWithMapTags) (PreparedEventBatch, error) {

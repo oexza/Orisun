@@ -16,14 +16,18 @@ func WithFields(data string, values map[string]any) (string, error) {
 	if fields == nil {
 		return "", fmt.Errorf("event data must be an object")
 	}
-	for key, value := range values {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return "", err
+	// Keep application values as raw JSON, but let the final encoder marshal
+	// all supplied fields together instead of allocating an encoding per field.
+	merged := make(map[string]any, len(fields)+len(values))
+	for key, value := range fields {
+		if _, replaced := values[key]; !replaced {
+			merged[key] = value
 		}
-		fields[key] = encoded
 	}
-	encoded, err := json.Marshal(fields)
+	for key, value := range values {
+		merged[key] = value
+	}
+	encoded, err := json.Marshal(merged)
 	return string(encoded), err
 }
 

@@ -376,7 +376,7 @@ func (s *PostgresSaveEvents) executeBatch(
 			})
 			continue
 		}
-		eventsJSON, err := json.Marshal(req.events)
+		eventsJSON, err := req.events.MarshalJSON()
 		if err != nil {
 			outcomes = append(outcomes, postgresBatchOutcome{
 				req: req,

@@ -71,7 +71,10 @@ DECLARE
     scalar_expression TEXT;
     parts TEXT[] := '{}';
 BEGIN
-    FOR field_key, field_value IN SELECT * FROM jsonb_each(criterion) ORDER BY key LOOP
+    -- Evaluate cheap equality guards before typed comparisons when PostgreSQL
+    -- retains expression order (for example, inside an in-batch CASE).
+    FOR field_key, field_value IN SELECT * FROM jsonb_each(criterion)
+        ORDER BY (jsonb_typeof(value) <> 'string'), key LOOP
         IF jsonb_typeof(field_value) = 'string' THEN
             predicates := jsonb_build_array(jsonb_build_object('operator','eq','value',field_value));
         ELSIF jsonb_typeof(field_value) = 'array' AND jsonb_array_length(field_value) > 0 THEN
@@ -284,7 +287,9 @@ DECLARE
     latest_selects            TEXT[] := '{}'::TEXT[];
     criterion_shapes          JSONB[] := '{}'::JSONB[];
     predicate_selects         TEXT[] := '{}'::TEXT[];
-    matching_criterion_id     INT;
+    predicate_query           TEXT;
+    request_documents         JSONB[];
+    matching_record           RECORD;
     event_record              RECORD;
     event_criterion           JSONB;
     latest_record             RECORD;
@@ -293,9 +298,7 @@ BEGIN
         RAISE EXCEPTION 'requests must be a non-empty JSON array';
     END IF;
 
-    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
     prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
-    PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
 
     -- Decompose every OR query into a batch-wide set of distinct AND
     -- criteria. A criterion's state is the latest position matching that
@@ -350,9 +353,9 @@ BEGIN
                     LOOP
                         IF EXISTS (SELECT 1 FROM jsonb_each(crit) WHERE jsonb_typeof(value) <> 'string') THEN
                             predicate_selects := predicate_selects || format(
-                                'SELECT %s AS id WHERE %s',
-                                (criterion_ids ->> crit::TEXT)::INT + 1,
-                                orisun_criterion_sql(crit, '$1')
+                                'CASE WHEN %s THEN %s END',
+                                orisun_criterion_sql(crit, 'candidate.document'),
+                                (criterion_ids ->> crit::TEXT)::INT + 1
                             );
                         END IF;
                         latest_selects := latest_selects || format(
@@ -369,6 +372,27 @@ BEGIN
                 criterion_shapes := array_append(criterion_shapes, criterion_shape);
             END LOOP;
 
+    END IF;
+
+    IF cardinality(predicate_selects) > 0 THEN
+        -- Plan operator matching once per accepted request, rather than once
+        -- per event. Every event still participates: a criterion may match an
+        -- intermediate event but not the last event in the request.
+        predicate_query := 'SELECT matched.id, MAX(candidate.global_id) AS global_id
+            FROM unnest($1::JSONB[], $2::BIGINT[]) AS candidate(document, global_id)
+            CROSS JOIN LATERAL unnest(ARRAY[' || array_to_string(predicate_selects, ',') || ']::INT[]) AS matched(id)
+            WHERE matched.id IS NOT NULL
+            GROUP BY matched.id';
+    END IF;
+
+    -- Everything above depends only on this request payload. Serialize all
+    -- boundary state access below, including unconditional writes. The lock
+    -- remains transaction-scoped: waiting writers observe the preceding
+    -- writer's committed state before deciding whether their checks pass.
+    PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
+    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
+
+    IF criterion_count > 0 THEN
         FOR latest_record IN EXECUTE array_to_string(latest_selects, ' UNION ALL ')
             LOOP
                 criterion_id :=
@@ -376,8 +400,6 @@ BEGIN
                 criterion_tx_ids[criterion_id] := latest_record.transaction_id;
                 criterion_gids[criterion_id] := latest_record.global_id;
             END LOOP;
-
-
     END IF;
 
     FOR request IN SELECT value FROM jsonb_array_elements(requests)
@@ -467,6 +489,7 @@ BEGIN
             -- not the number of criteria or requests in the batch. Processing
             -- events in order leaves each criterion at its last matching event.
             IF criterion_count > 0 THEN
+                request_documents := '{}'::JSONB[];
                 FOR event_record IN
                     SELECT request_global_ids[event_ordinality] AS global_id,
                            orisun_event_document(
@@ -494,13 +517,16 @@ BEGIN
                                     criterion_gids[criterion_id] := event_record.global_id;
                                 END IF;
                             END LOOP;
-                        IF cardinality(predicate_selects) > 0 THEN
-                            FOR matching_criterion_id IN EXECUTE array_to_string(predicate_selects, ' UNION ALL ') USING event_record.document LOOP
-                                criterion_tx_ids[matching_criterion_id] := inserted_tx_id;
-                                criterion_gids[matching_criterion_id] := event_record.global_id;
-                            END LOOP;
+                        IF predicate_query IS NOT NULL THEN
+                            request_documents := array_append(request_documents, event_record.document);
                         END IF;
                     END LOOP;
+                IF predicate_query IS NOT NULL THEN
+                    FOR matching_record IN EXECUTE predicate_query USING request_documents, request_global_ids LOOP
+                        criterion_tx_ids[matching_record.id] := inserted_tx_id;
+                        criterion_gids[matching_record.id] := matching_record.global_id;
+                    END LOOP;
+                END IF;
             END IF;
 
             RETURN QUERY

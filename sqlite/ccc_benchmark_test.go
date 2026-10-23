@@ -47,7 +47,7 @@ func BenchmarkSqlite_GroupCommitIndexedHistory(b *testing.B) {
 					}}}
 					encoded, err := orisun.MarshalConsistency(checks)
 					require.NoError(b, err)
-					requests[c] = &sqliteSaveRequest{ctx: ctx, inserts: events, consistency: checks, consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
+					requests[c] = &sqliteSaveRequest{ctx: ctx, inserts: events, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
 				}
 				saver.runFlush(benchBoundary, pool, requests)
 				for c, req := range requests {

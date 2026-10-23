@@ -17,6 +17,11 @@ func latestCriteriaPosition(conn *sqlite.Conn, criteria []orisun.ReadCriterion) 
 	if err != nil {
 		return 0, 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid consistency criteria: %v", err)
 	}
+	return latestPreparedCriteriaPosition(conn, queries)
+}
+
+// Execute only inside the writer transaction, including earlier accepted saves.
+func latestPreparedCriteriaPosition(conn *sqlite.Conn, queries []string) (int64, int64, error) {
 	latestTx, latestGid := int64(-1), int64(-1)
 	for _, query := range queries {
 		if err := sqlitex.ExecuteTransient(conn, query, &sqlitex.ExecOptions{
@@ -101,4 +106,24 @@ func criterionContains(criterion, subset map[string]any) bool {
 		}
 	}
 	return true
+}
+
+// Preparation owns no database state. Preserve check order and defer rendering
+// errors until evaluation so an earlier consistency conflict retains precedence.
+type preparedConsistencyCheck struct {
+	position orisun.Position
+	queries  []string
+	err      error
+}
+
+func prepareConsistencyChecks(checks []orisun.ConsistencyCheck) []preparedConsistencyCheck {
+	if len(checks) == 0 {
+		return nil
+	}
+	prepared := make([]preparedConsistencyCheck, len(checks))
+	for i, check := range checks {
+		queries, err := latestCriteriaQueries(check.Criteria)
+		prepared[i] = preparedConsistencyCheck{position: check.Position, queries: queries, err: err}
+	}
+	return prepared
 }

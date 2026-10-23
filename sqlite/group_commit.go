@@ -68,6 +68,7 @@ type sqliteSaveRequest struct {
 	consistency []eventstore.ConsistencyCheck
 	// consistencyJSON is prepared before enqueueing, outside the writer transaction.
 	consistencyJSON string
+	preparedChecks  []preparedConsistencyCheck
 	// result has capacity 1 so the worker's send never blocks on a caller
 	// that abandoned its Save after inclusion in a flush.
 	result chan sqliteSaveResult
@@ -106,6 +107,7 @@ func (s *SqliteSaveEvents) enqueue(
 	if err != nil {
 		return "", 0, err
 	}
+	preparedChecks := prepareConsistencyChecks(consistency)
 	s.enqueueMu.RLock()
 	if s.isClosed() {
 		s.enqueueMu.RUnlock()
@@ -116,6 +118,7 @@ func (s *SqliteSaveEvents) enqueue(
 		inserts:         inserts,
 		consistency:     consistency,
 		consistencyJSON: string(data),
+		preparedChecks:  preparedChecks,
 		result:          make(chan sqliteSaveResult, 1),
 	}
 	queue := s.queues[boundary]
@@ -336,7 +339,7 @@ type acceptedSave struct {
 }
 
 // flushTx runs one IMMEDIATE transaction over the live requests, using one
-// savepoint per request in queue order. A request-local failure rolls back
+// savepoint per CCC-accepted request in queue order. A request-local failure rolls back
 // its events and write context. The sequence advances once per flush, only for
 // accepted requests. BEGIN, sequence-update, or COMMIT failures
 // fail the whole flush.
@@ -384,16 +387,32 @@ func (s *SqliteSaveEvents) flushTx(
 	return accepted, nil
 }
 
-// saveSavepointed wraps one request's CCC check + insert in a savepoint, so
-// a rejection rolls back that request without poisoning the transaction.
+// saveSavepointed checks CCC under the flush's IMMEDIATE transaction, which
+// retains the single-writer lock across both checks and writes. Read-only
+// rejections need no savepoint; every insertion remains protected by one.
 func (s *SqliteSaveEvents) saveSavepointed(
 	conn *sqlite.Conn,
 	req *sqliteSaveRequest,
 	firstID int64,
 ) (transactionID string, globalID int64, err error) {
+	for _, check := range req.preparedChecks {
+		if check.err != nil {
+			return "", 0, statuscode.Errorf(statuscode.InvalidArgument, "invalid consistency criteria: %v", check.err)
+		}
+		latestTx, latestGid, checkErr := latestPreparedCriteriaPosition(conn, check.queries)
+		if checkErr != nil {
+			return "", 0, checkErr
+		}
+		if latestTx != check.position.CommitPosition || latestGid != check.position.PreparePosition {
+			return "", 0, statuscode.Errorf(statuscode.AlreadyExists,
+				"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
+				check.position.CommitPosition, check.position.PreparePosition, latestTx, latestGid)
+		}
+	}
+
 	releaseFn := sqlitex.Save(conn)
 	defer releaseFn(&err)
-	return s.saveEventsOnConn(conn, req.inserts, req.consistency, req.consistencyJSON, firstID)
+	return s.saveEventsOnConn(conn, req.inserts, req.consistencyJSON, firstID)
 }
 
 func failUndelivered(batch []*sqliteSaveRequest, err error) {

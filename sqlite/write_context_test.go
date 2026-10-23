@@ -88,6 +88,7 @@ func TestWriteContextGroupCommit(t *testing.T) {
 				data, err := orisun.MarshalConsistency(req.consistency)
 				require.NoError(t, err)
 				req.consistencyJSON = string(data)
+				req.preparedChecks = prepareConsistencyChecks(req.consistency)
 				requests[i] = req
 			}
 			conn, err := pool.Write.Take(t.Context())
@@ -165,7 +166,10 @@ func TestWriteContextRequestRollbackAcrossEventChunks(t *testing.T) {
 			for i := range events {
 				events[i] = orisun.PreparedEvent{EventId: fmt.Sprint(i), EventType: "Created", DataJSON: "{}", MetadataJSON: "{}"}
 			}
-			request := &sqliteSaveRequest{ctx: t.Context(), inserts: events, consistencyJSON: "[]", result: make(chan sqliteSaveResult, 1)}
+			checks := gcConsistency(orisun.NotExistsPosition(), gcReadCriterion(orisun.ReadTag{Key: "__eventType", Value: "Created"}))
+			encoded, err := orisun.MarshalConsistency(checks)
+			require.NoError(t, err)
+			request := &sqliteSaveRequest{ctx: t.Context(), inserts: events, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
 			conn, err := pool.Write.Take(t.Context())
 			require.NoError(t, err)
 			defer pool.Write.Put(conn)
@@ -190,7 +194,7 @@ func TestWriteContextRequestRollbackAcrossEventChunks(t *testing.T) {
 					return nil
 				}}))
 			require.NoError(t, sqlitex.Execute(conn, "DROP TRIGGER reject_last", nil))
-			retry := &sqliteSaveRequest{ctx: t.Context(), inserts: events, consistencyJSON: "[]", result: make(chan sqliteSaveResult, 1)}
+			retry := &sqliteSaveRequest{ctx: t.Context(), inserts: events, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
 			accepted, err = saver.flushTx(conn, []*sqliteSaveRequest{retry})
 			require.NoError(t, err)
 			require.Len(t, accepted, 1)
