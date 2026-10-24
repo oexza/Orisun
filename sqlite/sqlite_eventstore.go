@@ -17,6 +17,7 @@ import (
 	boundarymodel "github.com/OrisunLabs/Orisun/boundary"
 	config "github.com/OrisunLabs/Orisun/config"
 	"github.com/OrisunLabs/Orisun/internal/eventdata"
+	"github.com/OrisunLabs/Orisun/internal/groupcommit"
 	"github.com/OrisunLabs/Orisun/internal/statuscode"
 	"github.com/OrisunLabs/Orisun/logging"
 	eventstore "github.com/OrisunLabs/Orisun/orisun"
@@ -229,20 +230,7 @@ type SqliteSaveEvents struct {
 	logger   logging.Logger
 	notifier *SqliteEventNotifier
 
-	// Group-commit tuning; package-local, initialized from the
-	// sqliteGroupCommit* constants. Fields (not constants) so package tests
-	// and benchmarks can vary them.
-	gcMaxBatchRequests int
-	gcMaxBatchEvents   int
-	gcMaxDelay         time.Duration
-	gcMaxPending       int
-	gcFlushTimeout     time.Duration
-
-	queues    map[string]chan *sqliteSaveRequest
-	closed    chan struct{}
-	closeOnce sync.Once
-	enqueueMu sync.RWMutex
-	workerWG  sync.WaitGroup
+	gc *groupcommit.Coordinator[preparedSQLiteSave, sqliteSaveResult]
 
 	// Flush accounting, exposed for tests and debug logging.
 	gcMultiFlushes  atomic.Int64
@@ -283,77 +271,13 @@ func newSqliteSaveEventsWithRegistry(
 	if err != nil {
 		return nil, err
 	}
-	s := &SqliteSaveEvents{
-		registry: registry,
-		logger:   logger,
-
-		gcMaxBatchRequests: gcCfg.MaxBatchRequests,
-		gcMaxBatchEvents:   gcCfg.MaxBatchEvents,
-		gcMaxDelay:         gcCfg.MaxDelay,
-		gcMaxPending:       gcCfg.MaxPending,
-		gcFlushTimeout:     gcCfg.FlushTimeout,
-
-		queues: make(map[string]chan *sqliteSaveRequest, len(registry.pools)),
-		closed: make(chan struct{}),
-	}
-	pools, _ := registry.snapshots()
-	for boundary, pool := range pools {
-		queue := make(chan *sqliteSaveRequest, gcCfg.MaxPending)
-		s.queues[boundary] = queue
-		s.workerWG.Add(1)
-		go s.runWorker(boundary, pool, queue)
-	}
+	s := &SqliteSaveEvents{registry: registry, logger: logger}
+	s.initGroupCommit(gcCfg)
 	return s, nil
 }
 
-func (s *SqliteSaveEvents) addBoundary(boundary string, pool *BoundaryPools) error {
-	s.enqueueMu.Lock()
-	defer s.enqueueMu.Unlock()
-	if s.isClosed() {
-		return errSaverClosed
-	}
-	if _, exists := s.queues[boundary]; exists {
-		return nil
-	}
-	queue := make(chan *sqliteSaveRequest, s.gcMaxPending)
-	s.queues[boundary] = queue
-	s.workerWG.Add(1)
-	go s.runWorker(boundary, pool, queue)
-	return nil
-}
-
-// close stops accepting new saves and fails queued-but-unflushed requests.
-// An in-progress flush finishes. Called from InitializeSqliteDatabase's
-// shutdown goroutine before the pools close; also used by package tests.
-func (s *SqliteSaveEvents) close() {
-	s.closeOnce.Do(func() {
-		close(s.closed)
-
-		// Wait for enqueue calls that passed the closed check but have not yet
-		// completed their channel send. Snapshotting under the same lock also
-		// prevents queue iteration from racing with boundary installation.
-		s.enqueueMu.Lock()
-		queues := make([]chan *sqliteSaveRequest, 0, len(s.queues))
-		for _, queue := range s.queues {
-			queues = append(queues, queue)
-		}
-		s.enqueueMu.Unlock()
-
-		for _, queue := range queues {
-			close(queue)
-		}
-		s.workerWG.Wait()
-	})
-}
-
-func (s *SqliteSaveEvents) isClosed() bool {
-	select {
-	case <-s.closed:
-		return true
-	default:
-		return false
-	}
-}
+// Shutdown must finish before the boundary pools are closed.
+func (s *SqliteSaveEvents) close() { s.gc.Close() }
 
 func (s *SqliteSaveEvents) SavePrepared(
 	ctx context.Context,
@@ -370,26 +294,14 @@ func (s *SqliteSaveEvents) SavePrepared(
 	return s.enqueue(ctx, boundary, events, consistency)
 }
 
-// saveEventsOnConn runs the CCC check and insert at the flush-owned position on an open
+// saveEventsOnConn inserts at the flush-owned position after CCC validation on an open
 // transaction (or savepoint). The caller owns transaction begin/commit/rollback.
 func (s *SqliteSaveEvents) saveEventsOnConn(
 	conn *sqlite.Conn,
-	eventsToInsert eventstore.PreparedEventBatch,
-	consistency []eventstore.ConsistencyCheck,
+	eventsToInsert []preparedEventDocument,
 	consistencyJSON string,
 	firstID int64,
 ) (transactionID string, globalID int64, err error) {
-	for _, check := range consistency {
-		latestTx, latestGid, checkErr := latestCriteriaPosition(conn, check.Criteria)
-		if checkErr != nil {
-			return "", 0, checkErr
-		}
-		if latestTx != check.Position.CommitPosition || latestGid != check.Position.PreparePosition {
-			return "", 0, statuscode.Errorf(statuscode.AlreadyExists,
-				"OptimisticConcurrencyException:StreamVersionConflict: Expected (%d, %d), Actual (%d, %d)",
-				check.Position.CommitPosition, check.Position.PreparePosition, latestTx, latestGid)
-		}
-	}
 
 	// Leave room for the next sequence value without overflowing int64.
 	if len(eventsToInsert) == 0 || int64(len(eventsToInsert)) > math.MaxInt64-firstID {
@@ -410,8 +322,12 @@ func (s *SqliteSaveEvents) saveEventsOnConn(
 // insertEventBatch inserts events in chunks of sqliteMaxEventsPerInsert to stay under
 // SQLite's bound-parameter limit. Callers hold an open transaction, so the full batch
 // commits atomically regardless of chunking.
-func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, firstID, transactionID int64) error {
-	created := time.Now().UTC()
+func insertEventBatch(conn *sqlite.Conn, events []preparedEventDocument, firstID, transactionID int64) error {
+	fields := map[string]any{
+		"__commitPosition": transactionID,
+		"__dateCreated":    time.Now().UTC().Format(time.RFC3339Nano),
+		"__writeId":        eventstore.WriteID(transactionID, transactionID),
+	}
 	for start := 0; start < len(events); start += sqliteMaxEventsPerInsert {
 		end := min(start+sqliteMaxEventsPerInsert, len(events))
 		chunk := events[start:end]
@@ -425,7 +341,7 @@ func insertEventBatch(conn *sqlite.Conn, events eventstore.PreparedEventBatch, f
 				sb.WriteString(", ")
 			}
 			sb.WriteString("(?)")
-			data, err := positionedDocument(event, transactionID, firstID+int64(start+i), created)
+			data, err := positionedDocument(event, firstID+int64(start+i), fields)
 			if err != nil {
 				return err
 			}

@@ -102,3 +102,35 @@ func TestRedundantCriteriaDoNotSuppressValidation(t *testing.T) {
 	}
 	require.EqualValues(t, 1, readSeqNextID(t, pool))
 }
+
+func TestPreparedConsistencyChecksPreserveOrderAndSnapshot(t *testing.T) {
+	saver, pool, cleanup := newGCTestSaver(t)
+	defer cleanup()
+	seed := sequenceRequest(t, "Seed")
+	saver.runTestFlush(gcBoundary, pool, []*sqliteTestRequest{seed})
+	require.NoError(t, (<-seed.result).err)
+
+	conflict := gcConsistency(orisun.NotExistsPosition(), gcReadCriterion(orisun.ReadTag{Key: "__eventType", Value: "Seed"}))[0]
+	invalid := orisun.ConsistencyCheck{Position: orisun.NotExistsPosition(), Criteria: []orisun.ReadCriterion{gcReadCriterion(orisun.ReadTag{Key: "bad", Value: "invalid\x00value"})}}
+	for _, tc := range []struct {
+		checks []orisun.ConsistencyCheck
+		code   statuscode.Code
+	}{
+		{[]orisun.ConsistencyCheck{conflict, invalid}, statuscode.AlreadyExists},
+		{[]orisun.ConsistencyCheck{invalid, conflict}, statuscode.InvalidArgument},
+	} {
+		req := sequenceRequest(t, "Rejected")
+		req.preparedChecks = prepareConsistencyChecks(tc.checks)
+		saver.runTestFlush(gcBoundary, pool, []*sqliteTestRequest{req})
+		require.Equal(t, tc.code, statuscode.CodeOf((<-req.result).err))
+	}
+	require.EqualValues(t, 2, readSeqNextID(t, pool))
+
+	checks := gcConsistency(orisun.NotExistsPosition(), gcReadCriterion(orisun.ReadTag{Key: "tenant", Value: "original"}))
+	prepared := prepareConsistencyChecks(checks)
+	before := append([]string(nil), prepared[0].queries...)
+	checks[0].Criteria[0].Tags[0].Value = "changed"
+	checks[0].Position = orisun.Position{CommitPosition: 99, PreparePosition: 99}
+	require.Equal(t, before, prepared[0].queries)
+	require.Equal(t, orisun.NotExistsPosition(), prepared[0].position)
+}

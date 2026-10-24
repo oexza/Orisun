@@ -71,7 +71,10 @@ DECLARE
     scalar_expression TEXT;
     parts TEXT[] := '{}';
 BEGIN
-    FOR field_key, field_value IN SELECT * FROM jsonb_each(criterion) ORDER BY key LOOP
+    -- Evaluate cheap equality guards before typed comparisons when PostgreSQL
+    -- retains expression order (for example, inside an in-batch CASE).
+    FOR field_key, field_value IN SELECT * FROM jsonb_each(criterion)
+        ORDER BY (jsonb_typeof(value) <> 'string'), key LOOP
         IF jsonb_typeof(field_value) = 'string' THEN
             predicates := jsonb_build_array(jsonb_build_object('operator','eq','value',field_value));
         ELSIF jsonb_typeof(field_value) = 'array' AND jsonb_array_length(field_value) > 0 THEN
@@ -230,8 +233,8 @@ $$ LANGUAGE plpgsql;
 -- Single group-commit entry point for prepared event-batch requests. Initial
 -- positions are resolved with literal latest-match lookups per criterion.
 -- Criteria are grouped once by shape for lookups and event matching.
--- Requests are evaluated in queue order; dependencies use each accepted
--- request's final document before one bulk insert. This preserves arbitrary
+-- Requests are evaluated in queue order; dependencies use every accepted
+-- event's final document before one bulk insert. This preserves arbitrary
 -- AND/OR CCC semantics without one event-table query or subtransaction per request.
 CREATE OR REPLACE FUNCTION insert_event_requests_v2(
     boundary_name TEXT,
@@ -254,6 +257,8 @@ $$
 DECLARE
     request                  JSONB;
     observation              JSONB;
+    observations             JSONB;
+    request_observations     JSONB[];
     criteria                  JSONB;
     request_rejected         BOOLEAN;
     all_criteria              JSONB := '[]'::JSONB;
@@ -276,7 +281,20 @@ DECLARE
     last_inserted_gid         BIGINT;
     event_index               INT;
     event_count               INT;
-    current_index             INT := 0;
+    current_index             INT;
+    request_count             INT;
+    check_index               INT;
+    check_criterion_index     INT;
+    -- Immutable, 1-based offset tables compiled before writer ownership.
+    -- Each trailing sentinel closes the preceding request/check range.
+    request_check_offsets     INT[] := '{}'::INT[];
+    check_criterion_offsets   INT[] := '{}'::INT[];
+    check_criterion_ids       INT[] := '{}'::INT[];
+    check_expected_tx_ids     BIGINT[] := '{}'::BIGINT[];
+    check_expected_gids       BIGINT[] := '{}'::BIGINT[];
+    -- Ordered provisional outcomes also form the accepted write-context plan.
+    result_global_ids         BIGINT[];
+    result_errors             TEXT[];
     current_pg_xact_id        BIGINT;
     prefixed_seq_name         TEXT;
     criterion_shape           JSONB;
@@ -284,7 +302,9 @@ DECLARE
     latest_selects            TEXT[] := '{}'::TEXT[];
     criterion_shapes          JSONB[] := '{}'::JSONB[];
     predicate_selects         TEXT[] := '{}'::TEXT[];
-    matching_criterion_id     INT;
+    predicate_query           TEXT;
+    request_documents         JSONB[];
+    matching_record           RECORD;
     event_record              RECORD;
     event_criterion           JSONB;
     latest_record             RECORD;
@@ -293,9 +313,18 @@ BEGIN
         RAISE EXCEPTION 'requests must be a non-empty JSON array';
     END IF;
 
-    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
+    request_count := jsonb_array_length(requests);
+    result_global_ids := array_fill(NULL::BIGINT, ARRAY[request_count]);
+    result_errors := array_fill(NULL::TEXT, ARRAY[request_count]);
+
+    -- Phase 1: compile immutable batch input. No boundary state is read here.
     prefixed_seq_name := format('%I.%I', schema, boundary_name || '_orisun_es_event_global_id_seq');
-    PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
+
+    -- Extract only the small consistency payload once. Planning must not
+    -- repeatedly materialize whole requests containing large event batches.
+    SELECT array_agg(COALESCE(value -> 'consistency', '[]'::JSONB) ORDER BY ordinality)
+    INTO request_observations
+    FROM jsonb_array_elements(requests) WITH ORDINALITY;
 
     -- Decompose every OR query into a batch-wide set of distinct AND
     -- criteria. A criterion's state is the latest position matching that
@@ -305,10 +334,8 @@ BEGIN
     INTO all_criteria
     FROM (
         SELECT DISTINCT criterion
-        FROM jsonb_array_elements(requests) AS request_items(request_item)
-        CROSS JOIN LATERAL jsonb_array_elements(
-            COALESCE(request_item -> 'consistency', '[]'::JSONB)
-        ) AS observation_items(observation_item)
+        FROM unnest(request_observations) AS request_items(observations)
+        CROSS JOIN LATERAL jsonb_array_elements(request_items.observations) AS observation_items(observation_item)
         CROSS JOIN LATERAL jsonb_array_elements(
             COALESCE(observation_item -> 'query' -> 'criteria', '[]'::JSONB)
         ) AS criteria_items(criterion)
@@ -330,6 +357,34 @@ BEGIN
         criterion_gids := array_fill(-1::BIGINT, ARRAY[criterion_count]);
     END IF;
 
+    -- Compile every observation to criterion IDs and expected positions.
+    -- The ordered executor needs only these arrays, not JSON parsing, text
+    -- canonicalization, or criterion-map lookups while holding the writer lock.
+    FOREACH observations IN ARRAY request_observations LOOP
+        request_check_offsets := array_append(request_check_offsets, cardinality(check_expected_tx_ids) + 1);
+        FOR observation IN SELECT value FROM jsonb_array_elements(observations) LOOP
+            criteria := observation -> 'query' -> 'criteria';
+            IF criteria IS NULL OR jsonb_typeof(criteria) <> 'array' OR jsonb_array_length(criteria) = 0 THEN
+                RAISE EXCEPTION 'consistency query has no criteria';
+            END IF;
+            check_criterion_offsets := array_append(check_criterion_offsets, cardinality(check_criterion_ids) + 1);
+            check_expected_tx_ids := array_append(check_expected_tx_ids, (observation -> 'position' ->> 'transaction_id')::BIGINT);
+            check_expected_gids := array_append(check_expected_gids, (observation -> 'position' ->> 'global_id')::BIGINT);
+            FOR crit IN SELECT value FROM jsonb_array_elements(criteria) LOOP
+                IF jsonb_typeof(crit) <> 'object' OR crit = '{}'::JSONB THEN
+                    RAISE EXCEPTION 'consistency criterion has no tags';
+                END IF;
+                criterion_id := (criterion_ids ->> crit::TEXT)::INT + 1;
+                IF criterion_id IS NULL THEN
+                    RAISE EXCEPTION 'consistency criterion was not planned';
+                END IF;
+                check_criterion_ids := array_append(check_criterion_ids, criterion_id);
+            END LOOP;
+        END LOOP;
+    END LOOP;
+    request_check_offsets := array_append(request_check_offsets, cardinality(check_expected_tx_ids) + 1);
+    check_criterion_offsets := array_append(check_criterion_offsets, cardinality(check_criterion_ids) + 1);
+
     -- Group criteria once for persisted lookups and direct event matching,
     -- without rescanning all criteria for each shape.
     IF criterion_count > 0 THEN
@@ -350,176 +405,168 @@ BEGIN
                     LOOP
                         IF EXISTS (SELECT 1 FROM jsonb_each(crit) WHERE jsonb_typeof(value) <> 'string') THEN
                             predicate_selects := predicate_selects || format(
-                                'SELECT %s AS id WHERE %s',
-                                (criterion_ids ->> crit::TEXT)::INT + 1,
-                                orisun_criterion_sql(crit, '$1')
+                                'CASE WHEN %s THEN %s END',
+                                orisun_criterion_sql(crit, 'candidate.document'),
+                                (criterion_ids ->> crit::TEXT)::INT + 1
                             );
                         END IF;
                         latest_selects := latest_selects || format(
-                            '(SELECT %L::JSONB AS criterion, stored.transaction_id, stored.global_id
+                            '(SELECT %s::INT AS criterion_id, stored.transaction_id, stored.global_id
                               FROM %I.%I stored
                               WHERE %s
                               ORDER BY stored.transaction_id DESC, stored.global_id DESC
                               LIMIT 1)',
-                            crit::TEXT, schema, boundary_name || '_orisun_es_event',
+                            (criterion_ids ->> crit::TEXT)::INT + 1, schema, boundary_name || '_orisun_es_event',
                             orisun_criterion_sql(crit, 'stored.data')
                         );
                     END LOOP;
 
-                criterion_shapes := array_append(criterion_shapes, criterion_shape);
+                -- Projection lookup applies only to scalar equality criteria.
+                -- Operator-only shapes are handled by predicate_query below.
+                IF EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(shape_criteria) AS c(value)
+                    WHERE NOT EXISTS (SELECT 1 FROM jsonb_each(c.value) AS field WHERE jsonb_typeof(field.value) <> 'string')
+                ) THEN
+                    criterion_shapes := array_append(criterion_shapes, criterion_shape);
+                END IF;
             END LOOP;
-
-        FOR latest_record IN EXECUTE array_to_string(latest_selects, ' UNION ALL ')
-            LOOP
-                criterion_id :=
-                    (criterion_ids ->> latest_record.criterion::TEXT)::INT + 1;
-                criterion_tx_ids[criterion_id] := latest_record.transaction_id;
-                criterion_gids[criterion_id] := latest_record.global_id;
-            END LOOP;
-
 
     END IF;
 
-    FOR request IN SELECT value FROM jsonb_array_elements(requests)
-        LOOP
-            request_rejected := FALSE;
-            FOR observation IN
-                SELECT value
-                FROM jsonb_array_elements(
-                    COALESCE(request -> 'consistency', '[]'::JSONB)
-                )
+    IF cardinality(predicate_selects) > 0 THEN
+        -- Plan operator matching once per accepted request, rather than once
+        -- per event. Every event still participates: a criterion may match an
+        -- intermediate event but not the last event in the request.
+        predicate_query := 'SELECT matched.id, MAX(candidate.global_id) AS global_id
+            FROM unnest($1::JSONB[], $2::BIGINT[]) AS candidate(document, global_id)
+            CROSS JOIN LATERAL unnest(ARRAY[' || array_to_string(predicate_selects, ',') || ']::INT[]) AS matched(id)
+            WHERE matched.id IS NOT NULL
+            GROUP BY matched.id';
+    END IF;
+
+    -- Phase 2: acquire writer ownership, then read persisted criterion state.
+    -- Everything above depends only on this request payload. Serialize all
+    -- boundary state access below, including unconditional writes. The lock
+    -- remains transaction-scoped: waiting writers observe the preceding
+    -- writer's committed state before deciding whether their checks pass.
+    PERFORM pg_advisory_xact_lock(hashtext(schema || '.' || boundary_name || '::position_draw'));
+    current_pg_xact_id := pg_current_xact_id()::TEXT::BIGINT;
+
+    IF criterion_count > 0 THEN
+        FOR latest_record IN EXECUTE array_to_string(latest_selects, ' UNION ALL ')
+            LOOP
+                criterion_id := latest_record.criterion_id;
+                criterion_tx_ids[criterion_id] := latest_record.transaction_id;
+                criterion_gids[criterion_id] := latest_record.global_id;
+            END LOOP;
+    END IF;
+
+    -- Phase 3: execute requests in order against persisted history plus only
+    -- earlier accepted requests. Rejection changes neither positions nor state.
+    FOR request, current_index IN
+        SELECT value, (ordinality - 1)::INT
+        FROM jsonb_array_elements(requests) WITH ORDINALITY
+    LOOP
+        request_rejected := FALSE;
+        FOR check_index IN request_check_offsets[current_index + 1]..request_check_offsets[current_index + 2] - 1 LOOP
+            expected_tx_id := check_expected_tx_ids[check_index];
+            expected_gid := check_expected_gids[check_index];
+            criterion_tx_id := -1;
+            criterion_gid := -1;
+            FOR check_criterion_index IN check_criterion_offsets[check_index]..check_criterion_offsets[check_index + 1] - 1 LOOP
+                criterion_id := check_criterion_ids[check_criterion_index];
+                IF criterion_tx_ids[criterion_id] > criterion_tx_id OR
+                   (criterion_tx_ids[criterion_id] = criterion_tx_id AND criterion_gids[criterion_id] > criterion_gid) THEN
+                    criterion_tx_id := criterion_tx_ids[criterion_id];
+                    criterion_gid := criterion_gids[criterion_id];
+                END IF;
+            END LOOP;
+            IF criterion_tx_id <> expected_tx_id OR criterion_gid <> expected_gid THEN
+                result_errors[current_index + 1] := format(
+                    'OptimisticConcurrencyException:StreamVersionConflict: Expected (%s, %s), Actual (%s, %s)',
+                    expected_tx_id, expected_gid, criterion_tx_id, criterion_gid);
+                request_rejected := TRUE;
+                EXIT;
+            END IF;
+        END LOOP;
+        IF request_rejected THEN
+            CONTINUE;
+        END IF;
+
+        request_global_ids := '{}'::BIGINT[];
+        event_count := jsonb_array_length(request -> 'events');
+        FOR event_index IN 0..event_count - 1
+            LOOP
+                SELECT nextval(prefixed_seq_name::regclass) INTO inserted_gid;
+                request_global_ids := array_append(request_global_ids, inserted_gid);
+                accepted_request_indexes :=
+                    array_append(accepted_request_indexes, current_index);
+                accepted_event_indexes :=
+                    array_append(accepted_event_indexes, event_index);
+                accepted_global_ids :=
+                    array_append(accepted_global_ids, inserted_gid);
+            END LOOP;
+
+        inserted_tx_id := inserted_gid + 1;
+
+        last_inserted_gid := inserted_gid;
+        -- Project each final event document onto each distinct key shape
+        -- and look up its criterion ID directly. Work scales with shapes,
+        -- not the number of criteria or requests in the batch. Processing
+        -- events in order leaves each criterion at its last matching event.
+        IF criterion_count > 0 THEN
+            request_documents := '{}'::JSONB[];
+            FOR event_record IN
+                SELECT request_global_ids[event_ordinality] AS global_id,
+                       orisun_event_document(
+                           (event_item -> 'data') || jsonb_build_object(
+                               '__eventId', (event_item ->> 'event_id')::UUID,
+                               '__eventType', event_item ->> 'event_type'
+                           ),
+                           COALESCE(event_item -> 'metadata', '{}'::JSONB),
+                           inserted_tx_id, request_global_ids[event_ordinality],
+                           inserted_gid, statement_timestamp()
+                       ) AS document
+                FROM jsonb_array_elements(request -> 'events') WITH ORDINALITY
+                    AS events(event_item, event_ordinality)
+                ORDER BY event_ordinality
                 LOOP
-                    criteria := observation -> 'query' -> 'criteria';
-                    IF criteria IS NULL OR jsonb_typeof(criteria) <> 'array' OR
-                       jsonb_array_length(criteria) = 0 THEN
-                        RAISE EXCEPTION 'consistency query has no criteria';
-                    END IF;
-
-                    expected_tx_id :=
-                        (observation -> 'position' ->> 'transaction_id')::BIGINT;
-                    expected_gid :=
-                        (observation -> 'position' ->> 'global_id')::BIGINT;
-                    criterion_tx_id := -1;
-                    criterion_gid := -1;
-
-                    FOR crit IN SELECT jsonb_array_elements(criteria)
+                    FOREACH criterion_shape IN ARRAY criterion_shapes
                         LOOP
-                            IF jsonb_typeof(crit) <> 'object' OR crit = '{}'::JSONB THEN
-                                RAISE EXCEPTION 'consistency criterion has no tags';
-                            END IF;
-                            criterion_id := (criterion_ids ->> crit::TEXT)::INT + 1;
-                            IF criterion_id IS NULL THEN
-                                RAISE EXCEPTION 'consistency criterion was not planned';
-                            END IF;
-                            IF criterion_tx_ids[criterion_id] > criterion_tx_id OR
-                               (
-                                   criterion_tx_ids[criterion_id] = criterion_tx_id AND
-                                   criterion_gids[criterion_id] > criterion_gid
-                               ) THEN
-                                criterion_tx_id := criterion_tx_ids[criterion_id];
-                                criterion_gid := criterion_gids[criterion_id];
+                            SELECT jsonb_object_agg(key, event_record.document ->> key)
+                            INTO event_criterion
+                            FROM jsonb_array_elements_text(criterion_shape) AS keys(key);
+
+                            criterion_id := (criterion_ids ->> event_criterion::TEXT)::INT + 1;
+                            IF criterion_id IS NOT NULL THEN
+                                criterion_tx_ids[criterion_id] := inserted_tx_id;
+                                criterion_gids[criterion_id] := event_record.global_id;
                             END IF;
                         END LOOP;
-
-                    IF criterion_tx_id <> expected_tx_id OR criterion_gid <> expected_gid THEN
-                        RETURN QUERY
-                            SELECT current_index,
-                                   NULL::BIGINT,
-                                   NULL::BIGINT,
-                                   NULL::BIGINT,
-                                   'P0001'::TEXT,
-                                   format(
-                                       'OptimisticConcurrencyException:StreamVersionConflict: Expected (%s, %s), Actual (%s, %s)',
-                                       expected_tx_id,
-                                       expected_gid,
-                                       criterion_tx_id,
-                                       criterion_gid
-                                   );
-                        current_index := current_index + 1;
-                        request_rejected := TRUE;
-                        EXIT;
+                    IF predicate_query IS NOT NULL THEN
+                        request_documents := array_append(request_documents, event_record.document);
                     END IF;
                 END LOOP;
-
-            IF request_rejected THEN
-                CONTINUE;
-            END IF;
-
-            request_global_ids := '{}'::BIGINT[];
-            event_count := jsonb_array_length(request -> 'events');
-            FOR event_index IN 0..event_count - 1
-                LOOP
-                    SELECT nextval(prefixed_seq_name::regclass) INTO inserted_gid;
-                    request_global_ids := array_append(request_global_ids, inserted_gid);
-                    accepted_request_indexes :=
-                        array_append(accepted_request_indexes, current_index);
-                    accepted_event_indexes :=
-                        array_append(accepted_event_indexes, event_index);
-                    accepted_global_ids :=
-                        array_append(accepted_global_ids, inserted_gid);
+            IF predicate_query IS NOT NULL THEN
+                FOR matching_record IN EXECUTE predicate_query USING request_documents, request_global_ids LOOP
+                    criterion_tx_ids[matching_record.id] := inserted_tx_id;
+                    criterion_gids[matching_record.id] := matching_record.global_id;
                 END LOOP;
-
-            inserted_tx_id := inserted_gid + 1;
-
-            last_inserted_gid := inserted_gid;
-            -- Project each final event document onto each distinct key shape
-            -- and look up its criterion ID directly. Work scales with shapes,
-            -- not the number of criteria or requests in the batch. Processing
-            -- events in order leaves each criterion at its last matching event.
-            IF criterion_count > 0 THEN
-                FOR event_record IN
-                    SELECT request_global_ids[event_ordinality] AS global_id,
-                           orisun_event_document(
-                               (event_item -> 'data') || jsonb_build_object(
-                                   '__eventId', (event_item ->> 'event_id')::UUID,
-                                   '__eventType', event_item ->> 'event_type'
-                               ),
-                               COALESCE(event_item -> 'metadata', '{}'::JSONB),
-                               inserted_tx_id, request_global_ids[event_ordinality],
-                               inserted_gid, statement_timestamp()
-                           ) AS document
-                    FROM jsonb_array_elements(request -> 'events') WITH ORDINALITY
-                        AS events(event_item, event_ordinality)
-                    ORDER BY event_ordinality
-                    LOOP
-                        FOREACH criterion_shape IN ARRAY criterion_shapes
-                            LOOP
-                                SELECT jsonb_object_agg(key, event_record.document ->> key)
-                                INTO event_criterion
-                                FROM jsonb_array_elements_text(criterion_shape) AS keys(key);
-
-                                criterion_id := (criterion_ids ->> event_criterion::TEXT)::INT + 1;
-                                IF criterion_id IS NOT NULL THEN
-                                    criterion_tx_ids[criterion_id] := inserted_tx_id;
-                                    criterion_gids[criterion_id] := event_record.global_id;
-                                END IF;
-                            END LOOP;
-                        IF cardinality(predicate_selects) > 0 THEN
-                            FOR matching_criterion_id IN EXECUTE array_to_string(predicate_selects, ' UNION ALL ') USING event_record.document LOOP
-                                criterion_tx_ids[matching_criterion_id] := inserted_tx_id;
-                                criterion_gids[matching_criterion_id] := event_record.global_id;
-                            END LOOP;
-                        END IF;
-                    END LOOP;
             END IF;
+        END IF;
 
-            RETURN QUERY
-                SELECT current_index,
-                       inserted_gid,
-                       inserted_tx_id,
-                       inserted_gid,
-                       NULL::TEXT,
-                       NULL::TEXT;
-            current_index := current_index + 1;
-        END LOOP;
+        result_global_ids[current_index + 1] := inserted_gid;
+    END LOOP;
 
+    -- Phase 4: persist all accepted requests in one atomic bulk statement.
+    -- Reuse assigned write IDs directly; no grouping or window aggregation.
     IF last_inserted_gid IS NOT NULL THEN
         EXECUTE format('
             WITH inserted_writes AS (
                 INSERT INTO %I.%I (write_id, consistency)
-                SELECT MAX(global_id), COALESCE($5 -> request_index -> ''consistency'', ''[]''::JSONB)
-                FROM unnest($2::INT[], $4::BIGINT[]) AS accepted(request_index, global_id)
-                GROUP BY request_index
+                SELECT write_id, COALESCE($5 -> (ordinality - 1)::INT -> ''consistency'', ''[]''::JSONB)
+                FROM unnest($6::BIGINT[]) WITH ORDINALITY AS accepted(write_id, ordinality)
+                WHERE write_id IS NOT NULL
                 RETURNING write_id
             )
             INSERT INTO %I.%I (pg_xact_id, data)
@@ -527,9 +574,7 @@ BEGIN
                 SELECT accepted.request_index,
                        accepted.event_index,
                        accepted.global_id,
-                       MAX(accepted.global_id) OVER (
-                           PARTITION BY accepted.request_index
-                       ) + 1 AS transaction_id
+                       ($6::BIGINT[])[accepted.request_index + 1] + 1 AS transaction_id
                 FROM unnest($2::INT[], $3::INT[], $4::BIGINT[])
                     AS accepted(request_index, event_index, global_id)
             )
@@ -564,9 +609,24 @@ BEGIN
             accepted_request_indexes,
             accepted_event_indexes,
             accepted_global_ids,
-            requests;
+            requests,
+            result_global_ids;
         PERFORM pg_notify('orisun_events_' || md5(boundary_name), last_inserted_gid::TEXT);
     END IF;
+
+    -- Phase 5: expose ordered outcomes only after persistence succeeds.
+    -- PostgreSQL buffers this set until the statement completes; callers must
+    -- still consume the full result to observe transaction completion errors.
+    RETURN QUERY
+        SELECT (outcome.ordinality - 1)::INT,
+               outcome.global_id,
+               outcome.global_id + 1,
+               outcome.global_id,
+               CASE WHEN outcome.message IS NOT NULL THEN 'P0001'::TEXT ELSE NULL::TEXT END,
+               outcome.message
+        FROM unnest(result_global_ids, result_errors) WITH ORDINALITY
+            AS outcome(global_id, message, ordinality)
+        ORDER BY outcome.ordinality;
 END;
 $$;
 

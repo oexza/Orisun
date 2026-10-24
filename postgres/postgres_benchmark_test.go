@@ -795,22 +795,22 @@ func BenchmarkPostgres_GroupCommitIndexedHistory(b *testing.B) {
 	defer saver.close()
 	_, err = db.Exec(`CREATE INDEX history_guard ON public.bench_boundary_orisun_es_event ((data->>'context'), transaction_id DESC, global_id DESC) WHERE data->>'__eventType' = 'HistoryGuard'`)
 	require.NoError(b, err)
-	request := func(i, count int) *postgresSaveRequest {
+	request := func(i, count int) *postgresTestRequest {
 		events := make([]orisun.EventWithMapTags, count)
 		for j := range events {
 			events[j] = orisun.EventWithMapTags{EventId: uuid.NewString(), EventType: "HistoryGuard", Data: map[string]any{"context": fmt.Sprint(i)}}
 		}
 		prepared, err := orisun.PrepareEventsForSave(events)
 		require.NoError(b, err)
-		return &postgresSaveRequest{ctx: context.Background(), events: prepared}
+		return &postgresTestRequest{ctx: context.Background(), events: prepared}
 	}
-	seeds := make([]*postgresSaveRequest, contexts)
-	requests := make([]*postgresSaveRequest, contexts)
+	seeds := make([]*postgresTestRequest, contexts)
+	requests := make([]*postgresTestRequest, contexts)
 	for i := range seeds {
 		seeds[i] = request(i, history)
 		requests[i] = request(i, 1)
 	}
-	positions, err := saver.executeBatch(context.Background(), "bench_boundary", seeds)
+	positions, err := saver.executeTestBatch(context.Background(), "bench_boundary", seeds)
 	require.NoError(b, err)
 	for i, position := range positions {
 		require.NoError(b, position.err)
@@ -825,7 +825,7 @@ func BenchmarkPostgres_GroupCommitIndexedHistory(b *testing.B) {
 	require.NoError(b, err)
 	b.ResetTimer()
 	for range b.N {
-		outcomes, err := saver.executeBatch(context.Background(), "bench_boundary", requests)
+		outcomes, err := saver.executeTestBatch(context.Background(), "bench_boundary", requests)
 		require.NoError(b, err)
 		require.Len(b, outcomes, contexts)
 		for i, outcome := range outcomes {

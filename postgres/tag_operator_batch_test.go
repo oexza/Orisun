@@ -5,12 +5,151 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/OrisunLabs/Orisun/config"
+	"github.com/OrisunLabs/Orisun/logging"
 	"github.com/OrisunLabs/Orisun/orisun"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGroupCommitReadsStateAfterAcquiringBoundaryLock(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer container.container.Terminate(context.Background())
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+	for _, checked := range []bool{true, false} {
+		t.Run(fmt.Sprintf("checked_%t", checked), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			payload := func(checks []orisun.ConsistencyCheck) []byte {
+				events, err := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{{EventId: uuid.NewString(), EventType: "LockGuard", Data: map[string]any{"scope": t.Name(), "amount": 15}}})
+				require.NoError(t, err)
+				eventJSON, err := json.Marshal(events)
+				require.NoError(t, err)
+				checkJSON, err := orisun.MarshalConsistency(checks)
+				require.NoError(t, err)
+				encoded, err := json.Marshal([]postgresBatchPayload{{Events: eventJSON, Consistency: checkJSON}})
+				require.NoError(t, err)
+				return encoded
+			}
+			var checks []orisun.ConsistencyCheck
+			if checked {
+				checks = []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: []orisun.ReadTag{{Key: "scope", Value: t.Name()}, {Key: "amount", Operator: "gt", Value: "10"}}}}, Position: orisun.NotExistsPosition()}}
+			}
+			waitingPayload, firstPayload := payload(checks), payload(nil)
+			first, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer first.Rollback()
+			_, err = first.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext('public.test_boundary::position_draw'))")
+			require.NoError(t, err)
+			second, err := db.Conn(ctx)
+			require.NoError(t, err)
+			defer second.Close()
+			var pid int
+			require.NoError(t, second.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid))
+			type result struct {
+				message sql.NullString
+				err     error
+			}
+			done := make(chan result, 1)
+			query := "SELECT error_message FROM public.insert_event_requests_v2('test_boundary', 'public', $1::jsonb)"
+			go func() {
+				var r result
+				r.err = second.QueryRowContext(ctx, query, waitingPayload).Scan(&r.message)
+				done <- r
+			}()
+			// Observe actual lock contention, rather than depending on a sleep
+			// to guess when the waiting writer has reached its state reads.
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted)", pid).Scan(&waiting)
+				return err == nil && waiting
+			}, 5*time.Second, 10*time.Millisecond)
+			var firstError sql.NullString
+			require.NoError(t, first.QueryRowContext(ctx, query, firstPayload).Scan(&firstError))
+			require.False(t, firstError.Valid)
+			require.NoError(t, first.Commit())
+			r := <-done
+			require.NoError(t, r.err)
+			require.Equal(t, checked, r.message.Valid)
+			if checked {
+				require.Contains(t, r.message.String, "OptimisticConcurrencyException")
+			}
+			var count int
+			require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM public.test_boundary_orisun_es_event WHERE data->>'scope' = $1", t.Name()).Scan(&count))
+			if checked {
+				require.Equal(t, 1, count)
+			} else {
+				require.Equal(t, 2, count)
+			}
+		})
+	}
+}
+
+// Grouping operator matches must retain intermediate matches, their latest
+// position, and request rejection isolation. Compare against persisted reads
+// between individual requests, which do not use in-batch criterion updates.
+func TestTagOperatorMultiEventBatchMatchesSequential(t *testing.T) {
+	container, err := setupTestContainer(t)
+	require.NoError(t, err)
+	defer container.container.Terminate(context.Background())
+	db, err := setupTestDatabase(t, container)
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, RunDbScripts(db, "reference_boundary", "public", false, t.Context()))
+	logger, err := logging.ZapLogger("error")
+	require.NoError(t, err)
+	saver := NewPostgresSaveEvents(t.Context(), db, logger, map[string]config.BoundaryToPostgresSchemaMapping{
+		"test_boundary":      {Boundary: "test_boundary", Schema: "public"},
+		"reference_boundary": {Boundary: "reference_boundary", Schema: "public"},
+	})
+	defer saver.close()
+	check := func(position orisun.Position, tags ...orisun.ReadTag) orisun.ConsistencyCheck {
+		return orisun.ConsistencyCheck{Criteria: []orisun.ReadCriterion{{Tags: tags}}, Position: position}
+	}
+	request := func(values []int, checks ...orisun.ConsistencyCheck) *postgresTestRequest {
+		events := make([]orisun.EventWithMapTags, len(values))
+		for i, value := range values {
+			events[i] = orisun.EventWithMapTags{EventId: uuid.NewString(), EventType: "Amount", Data: map[string]any{"amount": value}}
+		}
+		prepared, err := orisun.PrepareEventsForSave(events)
+		require.NoError(t, err)
+		return &postgresTestRequest{ctx: t.Context(), events: prepared, consistency: checks}
+	}
+	rangeTags := []orisun.ReadTag{{Key: "amount", Value: "10", Operator: "gte"}, {Key: "amount", Value: "20", Operator: "lt"}}
+	requests := []*postgresTestRequest{
+		request([]int{15, 18, 25}),
+		request([]int{99, 100}, check(orisun.NotExistsPosition(), rangeTags...)),
+		request([]int{1}, check(orisun.NotExistsPosition(), orisun.ReadTag{Key: "amount", Value: "90", Operator: "gt"})),
+		request([]int{2}, check(orisun.Position{CommitPosition: 3, PreparePosition: 1}, rangeTags...)),
+		request([]int{3}, check(orisun.Position{CommitPosition: 3, PreparePosition: 0}, orisun.ReadTag{Key: "amount", Value: "15"})),
+	}
+	batched, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
+	require.NoError(t, err)
+	require.Len(t, batched, len(requests))
+	for i, req := range requests {
+		sequential, err := saver.executeTestBatch(t.Context(), "reference_boundary", []*postgresTestRequest{req})
+		require.NoError(t, err)
+		require.Len(t, sequential, 1)
+		if i == 1 {
+			require.ErrorContains(t, batched[i].err, "OptimisticConcurrencyException")
+			require.EqualError(t, sequential[0].err, batched[i].err.Error())
+		} else {
+			require.NoError(t, batched[i].err, "request %d", i)
+			require.NoError(t, sequential[0].err, "request %d", i)
+			require.Equal(t, sequential[0].transactionID, batched[i].transactionID)
+			require.Equal(t, sequential[0].globalID, batched[i].globalID)
+		}
+	}
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM public.test_boundary_orisun_es_event").Scan(&count))
+	require.Equal(t, 6, count)
+}
 
 func TestTagOperatorsWithinGroupCommit(t *testing.T) {
 	container, err := setupTestContainer(t)

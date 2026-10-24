@@ -67,7 +67,8 @@ func TestSqliteBoundaryProvisionerMakesBoundaryAvailableToRuntime(t *testing.T) 
 	require.FileExists(t, filepath.Join(dir, "sales.db"))
 	require.FileExists(t, filepath.Join(dir, "sales_metadata.db"))
 	saver := runtime.SaveEvents.(*SqliteSaveEvents)
-	require.Len(t, saver.queues, 2)
+	eventPools, _ := saver.registry.snapshots()
+	require.Len(t, eventPools, 2)
 }
 
 func TestSqliteBoundaryProvisionerRejectsNamespaceMismatch(t *testing.T) {

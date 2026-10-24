@@ -11,13 +11,13 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
-func sequenceRequest(t *testing.T, types ...string) *sqliteSaveRequest {
+func sequenceRequest(t *testing.T, types ...string) *sqliteTestRequest {
 	t.Helper()
 	events := make([]orisun.EventWithMapTags, len(types))
 	for i, kind := range types {
 		events[i] = mustEvent(t, kind, map[string]any{"context": kind}, nil)
 	}
-	return &sqliteSaveRequest{ctx: t.Context(), inserts: preparedGCEvents(t, events...), consistencyJSON: "[]", result: make(chan sqliteSaveResult, 1)}
+	return &sqliteTestRequest{ctx: t.Context(), inserts: preparedGCEvents(t, events...), consistencyJSON: "[]", result: make(chan sqliteSaveResult, 1)}
 }
 
 func TestGroupCommitSequenceTracksOnlyAcceptedRequests(t *testing.T) {
@@ -39,9 +39,9 @@ func TestGroupCommitSequenceTracksOnlyAcceptedRequests(t *testing.T) {
 		{Position: orisun.Position{CommitPosition: 2, PreparePosition: 1}, Criteria: []orisun.ReadCriterion{gcReadCriterion(orisun.ReadTag{Key: "context", Value: "Observed"})}},
 		{Position: orisun.NotExistsPosition(), Criteria: []orisun.ReadCriterion{gcReadCriterion(orisun.ReadTag{Key: "context", Value: "RolledBack"})}},
 	}
-	requests := []*sqliteSaveRequest{first, rejected, last}
+	requests := []*sqliteTestRequest{first, rejected, last}
 	prepareGCWriteContexts(t, requests)
-	saver.runFlush(gcBoundary, pool, requests)
+	saver.runTestFlush(gcBoundary, pool, requests)
 	a, b, c := <-first.result, <-rejected.result, <-last.result
 	require.NoError(t, a.err)
 	require.ErrorContains(t, b.err, "rejected event")
@@ -68,8 +68,12 @@ func TestGroupCommitSequenceFailureRollsBackEntireFlush(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlitex.Execute(conn, `CREATE TRIGGER reject_sequence BEFORE UPDATE ON orisun_es_seq BEGIN SELECT RAISE(ABORT,'sequence failed'); END`, nil))
 	pool.Write.Put(conn)
-	requests := []*sqliteSaveRequest{sequenceRequest(t, "First"), sequenceRequest(t, "Second")}
-	saver.runFlush(gcBoundary, pool, requests)
+	requests := []*sqliteTestRequest{sequenceRequest(t, "First"), sequenceRequest(t, "Second")}
+	// The second request conflicts with the first provisional write. A later
+	// transaction failure must invalidate that outcome too: the write vanished.
+	requests[1].consistency = gcConsistency(orisun.NotExistsPosition(), gcReadCriterion(orisun.ReadTag{Key: "__eventType", Value: "First"}))
+	prepareGCWriteContexts(t, requests)
+	saver.runTestFlush(gcBoundary, pool, requests)
 	for _, req := range requests {
 		result := <-req.result
 		require.Equal(t, statuscode.Internal, statuscode.CodeOf(result.err))

@@ -224,7 +224,7 @@ func TestPostgresGroupCommit_UnconditionalMultipleEventsPerRequest(t *testing.T)
 
 	const aggregate = "unconditional-multi-request"
 	eventCounts := []int{3, 1, 4}
-	requests := make([]*postgresSaveRequest, 0, len(eventCounts))
+	requests := make([]*postgresTestRequest, 0, len(eventCounts))
 	expectedEventTypes := make([]string, 0, 8)
 	for requestIndex, eventCount := range eventCounts {
 		events := make([]orisun.EventWithMapTags, 0, eventCount)
@@ -235,13 +235,13 @@ func TestPostgresGroupCommit_UnconditionalMultipleEventsPerRequest(t *testing.T)
 		}
 		prepared, prepareErr := orisun.PrepareEventsForSave(events)
 		require.NoError(t, prepareErr)
-		requests = append(requests, &postgresSaveRequest{
+		requests = append(requests, &postgresTestRequest{
 			ctx:    t.Context(),
 			events: prepared,
 		})
 	}
 
-	outcomes, err := saver.executeBatch(t.Context(), "test_boundary", requests)
+	outcomes, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
 	require.NoError(t, err)
 	require.Len(t, outcomes, len(requests))
 
@@ -360,7 +360,7 @@ func TestPostgresGroupCommit_InBatchWriteInvalidatesLaterCCCCheck(t *testing.T) 
 	defer saver.close()
 
 	var multiFlushes atomic.Int64
-	saver.gc.testFlushHook = func(batchSize int) {
+	saver.testFlushHook = func(batchSize int) {
 		if batchSize > 1 {
 			multiFlushes.Add(1)
 		}
@@ -616,17 +616,17 @@ func TestPostgresGroupCommit_CheckedBatchMatchesSequentialSemantics(t *testing.T
 		}
 		return orisun.ConsistencyCheck{Criteria: criteria, Position: position}
 	}
-	request := func(eventType, aggregate string, checks ...orisun.ConsistencyCheck) *postgresSaveRequest {
+	request := func(eventType, aggregate string, checks ...orisun.ConsistencyCheck) *postgresTestRequest {
 		prepared, prepareErr := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{
 			postgresGroupCommitEvent(t, eventType, aggregate),
 		})
 		require.NoError(t, prepareErr)
-		return &postgresSaveRequest{ctx: t.Context(), events: prepared, consistency: checks}
+		return &postgresTestRequest{ctx: t.Context(), events: prepared, consistency: checks}
 	}
 
 	// This matrix mixes multiple observations, an OR query, stale positions,
 	// and two no-match observations invalidated by earlier accepted requests.
-	requests := []*postgresSaveRequest{
+	requests := []*postgresTestRequest{
 		request("CreatesMissing", "missing", check(a, "a"), check(b, "b")),
 		request("MissingMustRemainAbsent", "unrelated", check(orisun.NotExistsPosition(), "missing")),
 		request("ReadsEitherSeed", "unrelated", check(b, "a", "b")),
@@ -635,13 +635,13 @@ func TestPostgresGroupCommit_CheckedBatchMatchesSequentialSemantics(t *testing.T
 		request("OtherMustRemainAbsent", "unrelated", check(orisun.NotExistsPosition(), "other")),
 	}
 
-	batched, err := saver.executeBatch(t.Context(), "test_boundary", requests)
+	batched, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
 	require.NoError(t, err)
 	require.Len(t, batched, len(requests))
 
-	sequential := make([]postgresBatchOutcome, 0, len(requests))
+	sequential := make([]postgresTestOutcome, 0, len(requests))
 	for _, req := range requests {
-		outcomes, executeErr := saver.executeBatch(t.Context(), "reference_boundary", []*postgresSaveRequest{req})
+		outcomes, executeErr := saver.executeTestBatch(t.Context(), "reference_boundary", []*postgresTestRequest{req})
 		require.NoError(t, executeErr)
 		require.Len(t, outcomes, 1)
 		sequential = append(sequential, outcomes[0])
@@ -846,7 +846,7 @@ func TestPostgresGroupCommit_CancellationAndFlushTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	flushStarted := make(chan struct{}, 1)
-	saver.gc.testFlushHook = func(int) {
+	saver.testFlushHook = func(int) {
 		select {
 		case flushStarted <- struct{}{}:
 		default:
@@ -876,9 +876,7 @@ func TestPostgresGroupCommit_CancellationAndFlushTimeout(t *testing.T) {
 		cancelledResult <- saveErr
 	}()
 	require.Eventually(t, func() bool {
-		saver.gc.enqueueMu.RLock()
-		defer saver.gc.enqueueMu.RUnlock()
-		return len(saver.gc.queues["test_boundary"]) == 1
+		return saver.gc.Pending("test_boundary") == 1
 	}, time.Second, time.Millisecond)
 	cancel()
 	require.Equal(t, statuscode.Canceled, statuscode.CodeOf(<-cancelledResult))
@@ -1003,12 +1001,12 @@ func TestPostgresGroupCommit_IndependentCCC(t *testing.T) {
 
 	saver := NewPostgresSaveEvents(t.Context(), db, logger, mapping)
 	defer saver.close()
-	request := func(contextValue string, position orisun.Position) *postgresSaveRequest {
+	request := func(contextValue string, position orisun.Position) *postgresTestRequest {
 		prepared, prepareErr := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{
 			postgresIndependentCCCEvent(t, "IndependentV2", contextValue),
 		})
 		require.NoError(t, prepareErr)
-		return &postgresSaveRequest{
+		return &postgresTestRequest{
 			ctx:    t.Context(),
 			events: prepared,
 			consistency: []orisun.ConsistencyCheck{{
@@ -1017,14 +1015,14 @@ func TestPostgresGroupCommit_IndependentCCC(t *testing.T) {
 			}},
 		}
 	}
-	requests := []*postgresSaveRequest{
+	requests := []*postgresTestRequest{
 		request("alpha", orisun.NotExistsPosition()),
 		request("beta", betaPosition),
 		request("gamma", orisun.NotExistsPosition()),
 		request("delta", orisun.NotExistsPosition()),
 	}
 
-	outcomes, err := saver.executeBatch(t.Context(), "test_boundary", requests)
+	outcomes, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
 	require.NoError(t, err)
 	require.Len(t, outcomes, len(requests))
 	require.NoError(t, outcomes[0].err)
@@ -1109,13 +1107,13 @@ func TestPostgresGroupCommit_TypedSnapshotHistory(t *testing.T) {
 			Position: position,
 		}
 	}
-	request := func(kind, value string, position orisun.Position) *postgresSaveRequest {
+	request := func(kind, value string, position orisun.Position) *postgresTestRequest {
 		prepared, prepareErr := orisun.PrepareEventsForSave([]orisun.EventWithMapTags{postgresGroupCommitEvent(t, kind, value)})
 		require.NoError(t, prepareErr)
-		return &postgresSaveRequest{ctx: t.Context(), events: prepared, consistency: []orisun.ConsistencyCheck{check(position)}}
+		return &postgresTestRequest{ctx: t.Context(), events: prepared, consistency: []orisun.ConsistencyCheck{check(position)}}
 	}
 	current := orisun.Position{CommitPosition: commit, PreparePosition: gid}
-	outcomes, err := saver.executeBatch(t.Context(), "test_boundary", []*postgresSaveRequest{
+	outcomes, err := saver.executeTestBatch(t.Context(), "test_boundary", []*postgresTestRequest{
 		request("WrongPrepare", "other", orisun.Position{CommitPosition: commit, PreparePosition: gid - 1}),
 		request("Unrelated", "other", current),
 		request("Guard", key, current),
@@ -1150,29 +1148,29 @@ func TestPostgresGroupCommit_InvalidRequestsDoNotAffectNeighbors(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		invalidate func(*postgresSaveRequest)
+		invalidate func(*postgresTestRequest)
 	}{
-		{"empty_events", func(r *postgresSaveRequest) { r.events = nil }},
-		{"invalid_uuid", func(r *postgresSaveRequest) { r.events[1].EventId = "invalid" }},
-		{"empty_type", func(r *postgresSaveRequest) { r.events[1].EventType = "" }},
-		{"invalid_data", func(r *postgresSaveRequest) { r.events[1].DataJSON = `[]` }},
-		{"invalid_metadata", func(r *postgresSaveRequest) { r.events[1].MetadataJSON = `{` }},
-		{"empty_query", func(r *postgresSaveRequest) { r.consistency = []orisun.ConsistencyCheck{{}} }},
-		{"empty_criterion", func(r *postgresSaveRequest) {
+		{"empty_events", func(r *postgresTestRequest) { r.events = nil }},
+		{"invalid_uuid", func(r *postgresTestRequest) { r.events[1].EventId = "invalid" }},
+		{"empty_type", func(r *postgresTestRequest) { r.events[1].EventType = "" }},
+		{"invalid_data", func(r *postgresTestRequest) { r.events[1].DataJSON = `[]` }},
+		{"invalid_metadata", func(r *postgresTestRequest) { r.events[1].MetadataJSON = `{` }},
+		{"empty_query", func(r *postgresTestRequest) { r.consistency = []orisun.ConsistencyCheck{{}} }},
+		{"empty_criterion", func(r *postgresTestRequest) {
 			r.consistency = []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{}}}}
 		}},
 	}
 	var lastGlobalID int64 = -1
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := func(kind string, count int) *postgresSaveRequest {
+			request := func(kind string, count int) *postgresTestRequest {
 				events := make([]orisun.EventWithMapTags, count)
 				for i := range events {
 					events[i] = postgresGroupCommitEvent(t, kind, tc.name)
 				}
 				prepared, err := orisun.PrepareEventsForSave(events)
 				require.NoError(t, err)
-				return &postgresSaveRequest{ctx: t.Context(), events: prepared}
+				return &postgresTestRequest{ctx: t.Context(), events: prepared}
 			}
 			before := request("Before", 1)
 			invalid := request("Checked", 2)
@@ -1184,10 +1182,10 @@ func TestPostgresGroupCommit_InvalidRequestsDoNotAffectNeighbors(t *testing.T) {
 			}}
 			stale := request("MustNotPersist", 1)
 			stale.consistency = after.consistency
-			outcomes, err := saver.executeBatch(t.Context(), "test_boundary", []*postgresSaveRequest{before, invalid, after, stale})
+			outcomes, err := saver.executeTestBatch(t.Context(), "test_boundary", []*postgresTestRequest{before, invalid, after, stale})
 			require.NoError(t, err)
 			require.Len(t, outcomes, 4)
-			byRequest := make(map[*postgresSaveRequest]postgresBatchOutcome)
+			byRequest := make(map[*postgresTestRequest]postgresTestOutcome)
 			for _, outcome := range outcomes {
 				byRequest[outcome.req] = outcome
 			}
@@ -1231,7 +1229,7 @@ func TestPostgresGroupCommit_CriterionProjectionMatchesPersistedReads(t *testing
 		return batch
 	}
 	firstID := uuid.NewString()
-	requests := []*postgresSaveRequest{{ctx: t.Context(), events: prepare(
+	requests := []*postgresTestRequest{{ctx: t.Context(), events: prepare(
 		orisun.EventWithMapTags{EventId: firstID, EventType: "Fact", Data: map[string]any{
 			"number": 42, "boolean": true, "null": nil, "empty": "", "object": map[string]any{"x": 1},
 			"array": []any{1, true}, "quoted'key": "customer's context",
@@ -1252,17 +1250,17 @@ func TestPostgresGroupCommit_CriterionProjectionMatchesPersistedReads(t *testing
 		{[]orisun.ReadTag{{Key: "__eventId", Value: firstID}, {Key: "__writeId", Value: "2:1"}}, orisun.Position{CommitPosition: 2, PreparePosition: 0}},
 		{[]orisun.ReadTag{{Key: "number", Value: "42"}}, orisun.NotExistsPosition()},
 	} {
-		requests = append(requests, &postgresSaveRequest{
+		requests = append(requests, &postgresTestRequest{
 			ctx:         t.Context(),
 			events:      prepare(orisun.EventWithMapTags{EventId: uuid.NewString(), EventType: "Decision", Data: map[string]any{}}),
 			consistency: []orisun.ConsistencyCheck{{Criteria: []orisun.ReadCriterion{{Tags: tc.tags}}, Position: tc.position}},
 		})
 	}
-	batched, err := saver.executeBatch(t.Context(), "test_boundary", requests)
+	batched, err := saver.executeTestBatch(t.Context(), "test_boundary", requests)
 	require.NoError(t, err)
 	require.Len(t, batched, len(requests))
 	for i, request := range requests {
-		sequential, err := saver.executeBatch(t.Context(), "reference_boundary", []*postgresSaveRequest{request})
+		sequential, err := saver.executeTestBatch(t.Context(), "reference_boundary", []*postgresTestRequest{request})
 		require.NoError(t, err)
 		require.Equal(t, statuscode.CodeOf(sequential[0].err), statuscode.CodeOf(batched[i].err), "request %d", i)
 		if i == len(requests)-1 {

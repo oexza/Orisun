@@ -57,12 +57,12 @@ func TestGroupCommitInterleavingsMatchSerialReads(t *testing.T) {
 						tx   string
 						gid  int64
 					}
-					var requests []*sqliteSaveRequest
+					var requests []*sqliteTestRequest
 					var expected []expectation
 					rng := rand.New(rand.NewSource(seed))
 					accepted, conflicts, failed, cancelled := 0, 0, 0, 0
 					for n := 0; n < 120; n++ {
-						req := &sqliteSaveRequest{ctx: t.Context(), result: make(chan sqliteSaveResult, 1)}
+						req := &sqliteTestRequest{ctx: t.Context(), result: make(chan sqliteSaveResult, 1)}
 						want := expectation{}
 						observations := 1 + rng.Intn(3)
 						for j := 0; j < observations; j++ {
@@ -147,7 +147,7 @@ func TestGroupCommitInterleavingsMatchSerialReads(t *testing.T) {
 					}
 					prepareGCWriteContexts(t, requests)
 					for start := 0; start < len(requests); start += batchSize {
-						saver.runFlush(gcBoundary, pool, requests[start:min(start+batchSize, len(requests))])
+						saver.runTestFlush(gcBoundary, pool, requests[start:min(start+batchSize, len(requests))])
 					}
 					for n, req := range requests {
 						got := <-req.result

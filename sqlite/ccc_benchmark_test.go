@@ -35,7 +35,7 @@ func BenchmarkSqlite_GroupCommitIndexedHistory(b *testing.B) {
 			pool, _ := saver.registry.eventPool(benchBoundary)
 			b.ResetTimer()
 			for n := 0; n < b.N; n++ {
-				requests := make([]*sqliteSaveRequest, contexts)
+				requests := make([]*sqliteTestRequest, contexts)
 				for c := range contexts {
 					events := orisun.PreparedEventBatch{{EventId: fmt.Sprintf("event-%d-%d", n, c), EventType: "Fact", DataJSON: fmt.Sprintf(`{"context":"%d"}`, c), MetadataJSON: "{}"}}
 					if eventCount == 2 {
@@ -47,9 +47,9 @@ func BenchmarkSqlite_GroupCommitIndexedHistory(b *testing.B) {
 					}}}
 					encoded, err := orisun.MarshalConsistency(checks)
 					require.NoError(b, err)
-					requests[c] = &sqliteSaveRequest{ctx: ctx, inserts: events, consistency: checks, consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
+					requests[c] = &sqliteTestRequest{ctx: ctx, inserts: events, consistency: checks, preparedChecks: prepareConsistencyChecks(checks), consistencyJSON: string(encoded), result: make(chan sqliteSaveResult, 1)}
 				}
-				saver.runFlush(benchBoundary, pool, requests)
+				saver.runTestFlush(benchBoundary, pool, requests)
 				for c, req := range requests {
 					result := <-req.result
 					require.NoError(b, result.err)

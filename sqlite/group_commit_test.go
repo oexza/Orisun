@@ -129,7 +129,7 @@ func blockWorkerThenQueue(t *testing.T, saver *SqliteSaveEvents, bp *BoundaryPoo
 
 	enqueue()
 	waitUntil(t, "requests to queue behind blocker", func() bool {
-		return len(saver.queues[gcBoundary]) >= queued
+		return saver.gc.Pending(gcBoundary) >= queued
 	})
 
 	release()
@@ -159,12 +159,12 @@ func TestGroupCommit_ConfigPlumbing(t *testing.T) {
 		t.Fatalf("custom config: %v", err)
 	}
 	defer custom.close()
-	if custom.gcMaxBatchRequests != 7 || custom.gcMaxBatchEvents != 11 ||
-		custom.gcMaxDelay != 3*time.Millisecond || custom.gcFlushTimeout != 17*time.Second {
+	if custom.gc.Config().MaxBatchRequests != 7 || custom.gc.Config().MaxBatchEvents != 11 ||
+		custom.gc.Config().MaxDelay != 3*time.Millisecond || custom.gc.Config().FlushTimeout != 17*time.Second {
 		t.Fatalf("custom values not applied: %+v", custom)
 	}
-	if cap(custom.queues[gcBoundary]) != 13 {
-		t.Fatalf("expected queue cap 13, got %d", cap(custom.queues[gcBoundary]))
+	if custom.gc.Config().MaxPending != 13 {
+		t.Fatalf("expected queue cap 13, got %d", custom.gc.Config().MaxPending)
 	}
 
 	// Zero values fall back to package defaults.
@@ -173,11 +173,11 @@ func TestGroupCommit_ConfigPlumbing(t *testing.T) {
 		t.Fatalf("default config: %v", err)
 	}
 	defer defaulted.close()
-	if defaulted.gcMaxBatchRequests != sqliteGroupCommitMaxBatchRequests ||
-		defaulted.gcMaxBatchEvents != sqliteGroupCommitMaxBatchEvents ||
-		defaulted.gcMaxDelay != sqliteGroupCommitMaxDelay ||
-		defaulted.gcFlushTimeout != sqliteGroupCommitFlushTimeout ||
-		cap(defaulted.queues[gcBoundary]) != sqliteGroupCommitMaxPending {
+	if defaulted.gc.Config().MaxBatchRequests != sqliteGroupCommitMaxBatchRequests ||
+		defaulted.gc.Config().MaxBatchEvents != sqliteGroupCommitMaxBatchEvents ||
+		defaulted.gc.Config().MaxDelay != sqliteGroupCommitMaxDelay ||
+		defaulted.gc.Config().FlushTimeout != sqliteGroupCommitFlushTimeout ||
+		defaulted.gc.Config().MaxPending != sqliteGroupCommitMaxPending {
 		t.Fatalf("defaults not applied: %+v", defaulted)
 	}
 
@@ -428,7 +428,7 @@ func TestGroupCommit_CancelledWhileQueuedIsDroppedWithoutAllocatingIDs(t *testin
 			}, gcBoundary, nil)
 		}()
 		// Cancel B only after both requests are queued behind the blocker.
-		waitUntil(t, "both requests queued", func() bool { return len(saver.queues[gcBoundary]) == 2 })
+		waitUntil(t, "both requests queued", func() bool { return saver.gc.Pending(gcBoundary) == 2 })
 		cancelB()
 		<-bDone
 	})
@@ -449,7 +449,7 @@ func TestGroupCommit_CancelledWhileQueuedIsDroppedWithoutAllocatingIDs(t *testin
 func TestGroupCommit_BatchLimitsAreRespected(t *testing.T) {
 	saver, bp, cleanup := newGCTestSaver(t)
 	defer cleanup()
-	saver.gcMaxBatchRequests = 2
+	configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchRequests = 2 })
 
 	const n = 3
 	errs := make([]error, n)
@@ -485,8 +485,8 @@ func TestGroupCommit_BatchLimitsAreRespected(t *testing.T) {
 func TestGroupCommit_EventBatchLimitCarriesOverflowToNextFlush(t *testing.T) {
 	saver, bp, cleanup := newGCTestSaver(t)
 	defer cleanup()
-	saver.gcMaxBatchRequests = 10
-	saver.gcMaxBatchEvents = 2
+	configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchRequests = 10 })
+	configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchEvents = 2 })
 
 	const n = 3
 	errs := make([]error, n)
@@ -618,12 +618,12 @@ func TestGroupCommit_ShutdownFailsQueuedRequestsAndRejectsNewOnes(t *testing.T) 
 				mustEvent(t, "C", map[string]any{"who": "c"}, map[string]any{}),
 			}, gcBoundary, nil)
 		}()
-		waitUntil(t, "both requests queued", func() bool { return len(saver.queues[gcBoundary]) == 2 })
+		waitUntil(t, "both requests queued", func() bool { return saver.gc.Pending(gcBoundary) == 2 })
 		go func() {
 			saver.close()
 			close(closeDone)
 		}()
-		waitUntil(t, "saver to close", saver.isClosed)
+		waitUntil(t, "saver to close", saver.gc.Closed)
 	})
 	<-closeDone
 	wg.Wait()
@@ -755,7 +755,7 @@ func TestGroupCommit_ConcurrentBurstAllCommitGapFree(t *testing.T) {
 func TestGroupCommit_ConcurrentSameExpectedPositionAcrossFlushesOnlyOneWins(t *testing.T) {
 	saver, bp, cleanup := newGCTestSaver(t)
 	defer cleanup()
-	saver.gcMaxBatchRequests = 1
+	configureGCTest(saver, func(cfg *config.SqliteGroupCommitConfig) { cfg.MaxBatchRequests = 1 })
 
 	criteria := &eventstore.Query{Criteria: []*eventstore.Criterion{
 		{Tags: []*eventstore.Tag{{Key: "agg", Value: "same-expected-across-flushes"}}},

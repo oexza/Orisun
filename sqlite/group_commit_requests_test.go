@@ -30,7 +30,7 @@ func TestGroupCommitUnconditionalPreservesRequestPositions(t *testing.T) {
 	saver, bp, cleanup := newGCTestSaver(t)
 	defer cleanup()
 
-	requests := []*sqliteSaveRequest{
+	requests := []*sqliteTestRequest{
 		{
 			ctx: context.Background(),
 			inserts: preparedGCEvents(t,
@@ -50,7 +50,7 @@ func TestGroupCommitUnconditionalPreservesRequestPositions(t *testing.T) {
 		},
 	}
 	prepareGCWriteContexts(t, requests)
-	saver.runFlush(gcBoundary, bp, requests)
+	saver.runTestFlush(gcBoundary, bp, requests)
 
 	first, second := <-requests[0].result, <-requests[1].result
 	if first.err != nil || second.err != nil {
@@ -69,7 +69,7 @@ func TestGroupCommitRejectsInvalidPreparedData(t *testing.T) {
 	saver, bp, cleanup := newGCTestSaver(t)
 	defer cleanup()
 
-	requests := []*sqliteSaveRequest{
+	requests := []*sqliteTestRequest{
 		{
 			ctx: context.Background(),
 			inserts: eventstore.PreparedEventBatch{{
@@ -86,7 +86,7 @@ func TestGroupCommitRejectsInvalidPreparedData(t *testing.T) {
 		},
 	}
 	prepareGCWriteContexts(t, requests)
-	saver.runFlush(gcBoundary, bp, requests)
+	saver.runTestFlush(gcBoundary, bp, requests)
 
 	invalid, valid := <-requests[0].result, <-requests[1].result
 	if statuscode.CodeOf(invalid.err) != statuscode.Internal {
@@ -108,7 +108,7 @@ func TestGroupCommitIndependentCCC(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	request := func(value string, expected eventstore.Position, eventCount int) *sqliteSaveRequest {
+	request := func(value string, expected eventstore.Position, eventCount int) *sqliteTestRequest {
 		events := make([]eventstore.EventWithMapTags, eventCount)
 		for i := range events {
 			events[i] = mustEvent(t, "Independent", map[string]any{
@@ -116,14 +116,14 @@ func TestGroupCommitIndependentCCC(t *testing.T) {
 				"sequence":  strconv.Itoa(i),
 			}, map[string]any{})
 		}
-		return &sqliteSaveRequest{
+		return &sqliteTestRequest{
 			ctx:         context.Background(),
 			inserts:     preparedGCEvents(t, events...),
 			consistency: gcConsistency(expected, gcReadCriterion(eventstore.ReadTag{Key: "stream_id", Value: value})),
 			result:      make(chan sqliteSaveResult, 1),
 		}
 	}
-	requests := []*sqliteSaveRequest{
+	requests := []*sqliteTestRequest{
 		request("new", eventstore.NotExistsPosition(), 2),
 		request("current", eventstore.Position{CommitPosition: seedGID, PreparePosition: seedGID}, 1),
 		request("stale", eventstore.NotExistsPosition(), 1),
@@ -137,7 +137,7 @@ func TestGroupCommitIndependentCCC(t *testing.T) {
 	}
 
 	prepareGCWriteContexts(t, requests)
-	saver.runFlush(gcBoundary, bp, requests)
+	saver.runTestFlush(gcBoundary, bp, requests)
 	first, second, third := <-requests[0].result, <-requests[1].result, <-requests[2].result
 	if first.err != nil || second.err != nil {
 		t.Fatalf("independent accepted results: first=%v second=%v", first.err, second.err)
@@ -151,7 +151,7 @@ func TestGroupCommitIndependentCCC(t *testing.T) {
 }
 
 // Direct worker tests prepare the same durable representation as enqueue.
-func prepareGCWriteContexts(t *testing.T, requests []*sqliteSaveRequest) {
+func prepareGCWriteContexts(t *testing.T, requests []*sqliteTestRequest) {
 	t.Helper()
 	for _, req := range requests {
 		data, err := eventstore.MarshalConsistency(req.consistency)
@@ -159,5 +159,36 @@ func prepareGCWriteContexts(t *testing.T, requests []*sqliteSaveRequest) {
 			t.Fatal(err)
 		}
 		req.consistencyJSON = string(data)
+		req.preparedChecks = prepareConsistencyChecks(req.consistency)
+	}
+}
+
+func TestPreparedDocumentErrorPreservesCCCPrecedence(t *testing.T) {
+	saver, bp, cleanup := newGCTestSaver(t)
+	defer cleanup()
+	valid := preparedGCEvents(t, mustEvent(t, "Fact", map[string]any{"account": "a"}, map[string]any{}))
+	_, gid, err := saver.SavePrepared(t.Context(), valid, gcBoundary, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := eventstore.PreparedEventBatch{{EventId: "invalid", DataJSON: `{"broken":`, MetadataJSON: `{}`}}
+	criterion := gcReadCriterion(eventstore.ReadTag{Key: "account", Value: "a"})
+	_, _, err = saver.SavePrepared(t.Context(), invalid, gcBoundary, gcConsistency(eventstore.NotExistsPosition(), criterion))
+	if statuscode.CodeOf(err) != statuscode.AlreadyExists {
+		t.Fatalf("stale context must win over invalid document: %v", err)
+	}
+	_, _, err = saver.SavePrepared(t.Context(), invalid, gcBoundary, gcConsistency(eventstore.Position{CommitPosition: gid, PreparePosition: gid}, criterion))
+	if statuscode.CodeOf(err) != statuscode.Internal {
+		t.Fatalf("current context must reach document error: %v", err)
+	}
+	_, next, err := saver.SavePrepared(t.Context(), preparedGCEvents(t, mustEvent(t, "Next", map[string]any{"account": "a"}, map[string]any{})), gcBoundary, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != gid+1 {
+		t.Fatalf("failed requests consumed positions: got %d after %d", next, gid)
+	}
+	if count := countEventsMatching(t, bp, map[string]any{"account": "a"}); count != 2 {
+		t.Fatalf("persisted %d events, want 2", count)
 	}
 }

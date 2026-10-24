@@ -108,9 +108,9 @@ func TestTypedIndexPreservesDistinctContextsInGroupCommit(t *testing.T) {
 	require.NoError(t, err)
 	admin := NewSqliteAdminDB(map[string]*BoundaryPools{"test": pool}, "test", logger)
 	require.NoError(t, admin.CreateBoundaryIndex(t.Context(), "test", "value", []eventstore.BoundaryIndexField{{JsonKey: "value", ValueType: "numeric"}}, nil, ""))
-	var requests []*sqliteSaveRequest
+	var requests []*sqliteTestRequest
 	for _, value := range []string{"42", "042"} {
-		requests = append(requests, &sqliteSaveRequest{
+		requests = append(requests, &sqliteTestRequest{
 			ctx:         t.Context(),
 			inserts:     preparedGCEvents(t, mustEvent(t, "Created", map[string]any{"value": value}, nil)),
 			consistency: gcConsistency(eventstore.NotExistsPosition(), gcReadCriterion(eventstore.ReadTag{Key: "value", Value: value})),
@@ -118,7 +118,7 @@ func TestTypedIndexPreservesDistinctContextsInGroupCommit(t *testing.T) {
 		})
 	}
 	prepareGCWriteContexts(t, requests)
-	saver.runFlush("test", pool, requests)
+	saver.runTestFlush("test", pool, requests)
 	for i, req := range requests {
 		result := <-req.result
 		require.NoError(t, result.err)
